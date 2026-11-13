@@ -1,0 +1,22 @@
+{
+  "upstream": "https://github.com/tabler/tabler-icons",
+  "tag": "v3.51.0",
+  "commit": "58f60538fe2fab2e1459a09198f9bd3b033bf90e",
+  "license": "MIT",
+  "generator": "scripts/generate_tabler_icons.py",
+  "generator_version": 1,
+  "svg_sha256": {
+    "keyboard": "9e290c3ff26878fad5fcf338eb5c8dc203651a20cc1806fd6d6f40625668c90b",
+    "device-desktop": "2fdd2150904a844185250f26453a02f31ee9d77a1f936a1df9c2ecd77cfc788d",
+    "send": "b4e589d1ed7ad6f20045017728cf8d4504db5870b38214deefa03ed01fea1f57",
+    "microphone": "21aacc5c6cc7b28b03a179053a7aaf69eb6d23d333ab4b40504f2873fb07a5f8",
+    "history": "5f8a5a975a8136a4755380c18db1fe533acf7dc4e34250ceae0272c5d2cb7312",
+    "settings": "ef9cf42d822c00b4fad5bc5eeceddd4e1ec3774bb7ddd09891d0fba274bc3e95",
+    "scan": "4e64112a98f6efa9ddfcb6486aa12d25867cf9d7eb13e51c8608d8bc12740586",
+    "wifi": "3ae338dbaaf32c73894354408b563b3572184aec574cd31626db7aa34eb7a9b6",
+    "check": "e206067a7d570997b5b3a7d30ab287c0b15a492787649a8b96dff8fad2862fbe",
+    "alert-triangle": "25b1f0c39f34647017df84a0cdc9e691c697737094a5956c360ab448a7fd5bef",
+    "shield-lock": "9fc37c3b11a297a81371652d89407b2bd19c17dfdffe0ff500d3426d96236d13"
+  },
+  "license_sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db"
+}

@@ -1,0 +1,30 @@
+[package]
+name = "voicelink-transport"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+voicelink-receiver = { path = "../receiver" }
+voicelink-pairing = { path = "../pairing" }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["handshake", "connect"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
+rustls = { version = "0.23.46", default-features = false, features = ["std", "ring"] }
+rcgen = "0.14.10"
+qrcode = { version = "0.14.1", default-features = false, features = ["svg"] }
+if-addrs = "0.15.0"
+futures-util = { version = "0.3.34", features = ["sink"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+uuid = { version = "1.29.2", features = ["v4"] }
+zeroize = "1.9.1"
+thiserror = "2.0.21"
+subtle = "2.6.1"
+futures-channel = "0.3.34"
+atomic-write-file = "0.3.1"
+time = "0.3.47"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Threading", "Win32_System_Memory", "Win32_System_Com", "Win32_Networking_NetworkListManager"] }

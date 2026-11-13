@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="108" height="108" viewBox="0 0 108 108">
+  <!-- Extracted from the Android adaptive launcher icon; launcher masks are platform-defined. -->
+  <rect width="108" height="108" fill="#1f75db" />
+  <path fill="#ffffff" d="M49,32 L59,32 L59,59 L49,59 Z M40,50 L44,50 L44,61 L64,61 L64,50 L68,50 L68,65 L56,65 L56,73 L64,73 L64,77 L44,77 L44,73 L52,73 L52,65 L40,65 Z" />
+</svg>

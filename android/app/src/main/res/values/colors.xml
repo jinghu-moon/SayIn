@@ -1,0 +1,10 @@
+<resources>
+    <color name="app_brand">#1f75db</color>
+    <color name="app_window_background">#f5f5f5</color>
+    <!-- Scanner chrome uses the same brand/neutral palette as the app. -->
+    <color name="zxing_viewfinder_laser">@color/app_brand</color>
+    <color name="zxing_possible_result_points">@color/app_brand</color>
+    <color name="zxing_result_view">#b0000000</color>
+    <color name="zxing_status_text">#ffffff</color>
+    <color name="zxing_viewfinder_mask">#60000000</color>
+</resources>

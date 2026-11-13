@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.SayIn" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowActionModeOverlay">true</item>
+        <item name="android:windowBackground">@color/app_window_background</item>
+        <item name="android:colorAccent">@color/app_brand</item>
+    </style>
+</resources>

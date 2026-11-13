@@ -1,0 +1,72 @@
+[package]
+name = "voicelink-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "sayin"
+path = "src/main.rs"
+
+[build-dependencies]
+embed-resource = "3.0.12"
+
+[workspace]
+resolver = "2"
+members = ["crates/receiver", "crates/pairing", "crates/transport"]
+
+[dependencies]
+voicelink-receiver = { path = "crates/receiver" }
+voicelink-transport = { path = "crates/transport" }
+futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+yue-component = { path = "../../Yue-GPUI-Component/crates/yue-component", default-features = false }
+# Yue's maintained patches target this exact Kit release. Import GPUI through
+# Yue's re-export; this constraint prevents Cargo from bypassing the patches.
+gpui-kit = { version = "=0.8.0", default-features = false }
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
+fluent-bundle = "0.16.0"
+unic-langid = "0.9.6"
+directories = "6.0.0"
+atomic-write-file = "0.3.1"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.154"
+
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6.2"
+windows = { version = "0.62.2", features = ["Win32_Globalization", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_System_Registry", "Win32_Graphics_Gdi"] }
+
+[dev-dependencies]
+voicelink-pairing = { path = "crates/pairing" }
+# Observe the real Yue controls without enabling Kit's optional Fast backend.
+gpui-base = { version = "=0.8.0", features = ["test-support"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+# Enable native D3D readback for QR verification, using the same patched backend.
+gpui-pre-windows = { version = "=0.3.9", default-features = false, features = ["test-support"] }
+
+[patch.crates-io]
+gpui-base = { path = "../../Yue-GPUI-Component/vendor/gpui-base" }
+gpui-pre = { path = "../../Yue-GPUI-Component/vendor/gpui-pre" }
+gpui-pre-windows = { path = "../../Yue-GPUI-Component/vendor/gpui-pre-windows" }
+
+[profile.dev]
+debug = 0
+
+[profile.dev.package.gpui-pre]
+opt-level = 2
+
+[profile.dev.package.gpui-base]
+opt-level = 2
+
+[profile.dev.package.gpui-pre-windows]
+opt-level = 2
+
+[profile.dev.package.taffy]
+opt-level = 3
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

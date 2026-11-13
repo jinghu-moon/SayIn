@@ -1,0 +1,59 @@
+# Local build and IDE state
+.idea/
+**/.gradle/
+**/.kotlin/
+**/build/
+**/local.properties
+*.iml
+**/target/
+desktop/*.log
+android/*.log
+android/transport-test-result.json
+
+# Reference checkouts, local assistant state and browser captures
+/refer/
+/.serena/
+/.spec-workflow/
+/.playwright-mcp/
+/.vscode/
+
+# Machine-specific verification output (keep authored docs and demos)
+/docs/research/
+/desktop/public-network-probe.json
+*.log
+*.apk
+*.aab
+*.apks
+*.exe
+*.dll
+*.so
+*.pdb
+*.dmp
+
+# Local credentials, signing material and runtime data
+.env
+.env.*
+!.env.example
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.key
+*.pem
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+**/keystore.properties
+**/signing.properties
+
+# Editor/OS scratch files
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*~

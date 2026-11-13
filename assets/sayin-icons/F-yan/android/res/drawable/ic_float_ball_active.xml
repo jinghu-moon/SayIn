@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="56dp" android:height="56dp"
+    android:viewportWidth="56" android:viewportHeight="56">
+  <path android:fillColor="#FFF3F3F1" android:strokeColor="#33252525" android:strokeWidth="1"
+      android:pathData="M28 0.5A27.5 27.5 0 1 1 28 55.5A27.5 27.5 0 1 1 28 0.5Z"/>
+  <group android:scaleX="0.3863" android:scaleY="0.3863" android:translateX="3.2758" android:translateY="3.2758">
+    <path android:fillColor="#FF252525"
+        android:pathData="M61 22H67A2 2 0 0 1 69 24V30A2 2 0 0 1 67 32H61A2 2 0 0 1 59 30V24A2 2 0 0 1 61 22Z"/>
+    <path android:fillColor="#FF252525"
+        android:pathData="M32 38H96A2 2 0 0 1 98 40V46A2 2 0 0 1 96 48H32A2 2 0 0 1 30 46V40A2 2 0 0 1 32 38Z"/>
+    <path android:fillColor="#FF252525" android:fillAlpha="0.7"
+        android:pathData="M42 56H86A2 2 0 0 1 88 58V64A2 2 0 0 1 86 66H42A2 2 0 0 1 40 64V58A2 2 0 0 1 42 56Z"/>
+    <path android:fillColor="#FF252525" android:fillType="evenOdd"
+        android:pathData="M52 74H76A8 8 0 0 1 84 82V98A8 8 0 0 1 76 106H52A8 8 0 0 1 44 98V82A8 8 0 0 1 52 74ZM56 84H72A2 2 0 0 1 74 86V94A2 2 0 0 1 72 96H56A2 2 0 0 1 54 94V86A2 2 0 0 1 56 84Z"/>
+  </group>
+</vector>

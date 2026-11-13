@@ -1,0 +1,102 @@
+{
+  "name": "SayIn",
+  "variant": "B-field",
+  "files": {
+    "android/app/src/main/res/drawable/ic_float_ball.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_float_ball.xml",
+      "sha256": "6ed21d8da16dc5dd96fd99c65d654818b7f71e5f92bb030e5721f14232bd3948"
+    },
+    "android/app/src/main/res/drawable/ic_float_ball_active.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_float_ball_active.xml",
+      "sha256": "b18a71b4ec44c187dfa6aafe8b47698a38b041d52ab0877e989675a0f5d9074d"
+    },
+    "android/app/src/main/res/drawable/ic_launcher_foreground.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_launcher_foreground.xml",
+      "sha256": "9f4a173284fcdca3518f17430062229456d9936318b896610a81b88c87ac3894"
+    },
+    "android/app/src/main/res/drawable/ic_launcher_monochrome.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_launcher_monochrome.xml",
+      "sha256": "8bf80347d6a3cb49bea6ec689cf3c8485efe29661ebf09dd3eab4f88c1412bd2"
+    },
+    "android/app/src/main/res/drawable/ic_qs_tile_sayin.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_qs_tile_sayin.xml",
+      "sha256": "1dcc9b499442f27c436d1473e1f235d9fa055e911cfe85de7e02f1e358feb513"
+    },
+    "android/app/src/main/res/drawable/ic_stat_sayin.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/drawable/ic_stat_sayin.xml",
+      "sha256": "1dcc9b499442f27c436d1473e1f235d9fa055e911cfe85de7e02f1e358feb513"
+    },
+    "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "sha256": "bbaf996b7b1356da55819d20c1920c34e20b1288fe7cec441aefeda5ea53d24a"
+    },
+    "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+      "sha256": "bbaf996b7b1356da55819d20c1920c34e20b1288fe7cec441aefeda5ea53d24a"
+    },
+    "android/app/src/main/res/mipmap-hdpi/ic_launcher.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-hdpi/ic_launcher.png",
+      "sha256": "2a2bf7b7e2f866ac3278a9ca4ee5990054f8d4a54d8d901ee4777262d84d47da"
+    },
+    "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-hdpi/ic_launcher_round.png",
+      "sha256": "81487e313dd6edadff1bf6922846e9866c04f3ea42e296b13c5653caca8f8ad0"
+    },
+    "android/app/src/main/res/mipmap-mdpi/ic_launcher.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-mdpi/ic_launcher.png",
+      "sha256": "88fdab6ce325e0db675ebd4a2bc1110076f5b291bc9a357d366cc56ea058eacf"
+    },
+    "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-mdpi/ic_launcher_round.png",
+      "sha256": "f285b92e07a39a66940472252c0f15063f4b285337ba31a16b89049b0b11fed2"
+    },
+    "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xhdpi/ic_launcher.png",
+      "sha256": "04747806dae312577732325bcc1e75eb1f143f84e5f11ad93adb29c519b08f44"
+    },
+    "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xhdpi/ic_launcher_round.png",
+      "sha256": "2258804a02e9b7fd12c63a2611e82524f689f8a0a1fbe9c416ebf0a7adaff317"
+    },
+    "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xxhdpi/ic_launcher.png",
+      "sha256": "6cd26dcc49b1fa17408935ff8b1fdedfd6572e7a80ac55859f30875ec4f6f7d8"
+    },
+    "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xxhdpi/ic_launcher_round.png",
+      "sha256": "9d79b1381b286ab56166709f484e66438f1190338820f92bdba3a6c07958f1c6"
+    },
+    "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xxxhdpi/ic_launcher.png",
+      "sha256": "91c196f113dad906572aacfc778656769cf5028f7a4ab3c6a856581aad8574c4"
+    },
+    "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png": {
+      "source": "assets/sayin-icons/B-field/android/res/mipmap-xxxhdpi/ic_launcher_round.png",
+      "sha256": "4c9034d621740ef574cce11fbe332ce624a8bd7bd6448d0158d67f7c91155e6a"
+    },
+    "android/app/src/main/res/values/ic_launcher_background.xml": {
+      "source": "assets/sayin-icons/B-field/android/res/values/ic_launcher_background.xml",
+      "sha256": "8e4d1fd8ae8217af5147db4937e13db1adb7921376972c5d5a7d45342901870b"
+    },
+    "desktop/assets/sayin.ico": {
+      "source": "assets/sayin-icons/B-field/windows/sayin.ico",
+      "sha256": "62503e46946f642f2be2a6b0ce56c63218463c468eab9ba58139ddbe2c029f7e"
+    },
+    "desktop/assets/sayin-tray-dark.ico": {
+      "source": "assets/sayin-icons/B-field/windows/tray/tray-for-dark-taskbar.ico",
+      "sha256": "b3ed24b03c95dcf79106c6862823f5bdf9441b09ed0254e486e8a8cab0c9970f"
+    },
+    "desktop/assets/sayin-tray-light.ico": {
+      "source": "assets/sayin-icons/B-field/windows/tray/tray-for-light-taskbar.ico",
+      "sha256": "4b62bb8669f6fe1012bb2beba8a7c20c94c4a758f62e8ce18fbb370cb5fbf088"
+    },
+    "desktop/assets/sayin-64.png": {
+      "source": "assets/sayin-icons/B-field/windows/png/sayin-64.png",
+      "sha256": "4a8aff5578df16b25a2c88a5aac572420f815886ebf20a5990d96b90a24f7bc6"
+    },
+    "android/app/src/main/res/drawable-nodpi/sayin_brand.png": {
+      "source": "assets/sayin-icons/B-field/windows/png/sayin-256.png",
+      "sha256": "0543088e41541cd426ffbc4e71c82e42c58d87e9a7747e8314217e16a46b02c4"
+    }
+  }
+}
