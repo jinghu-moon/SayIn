@@ -27,17 +27,21 @@ internal class ProtectedStore(context: Context) {
             generateKey().also { check(preferences.edit().putBoolean("key_created", true).commit()) }
         }
     }
-    fun encrypt(value: ByteArray): ByteArray {
+    fun encrypt(value: ByteArray): ByteArray = encrypt(value, "VoiceLink/private/v1")
+    fun encryptImage(value: ByteArray): ByteArray = encrypt(value, "SayIn/image/v1")
+    private fun encrypt(value: ByteArray, domain: String): ByteArray {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
-        cipher.updateAAD("VoiceLink/private/v1".toByteArray())
+        cipher.updateAAD(domain.toByteArray())
         return cipher.iv + cipher.doFinal(value)
     }
-    fun decrypt(value: ByteArray): ByteArray {
+    fun decrypt(value: ByteArray): ByteArray = decrypt(value, "VoiceLink/private/v1")
+    fun decryptImage(value: ByteArray): ByteArray = decrypt(value, "SayIn/image/v1")
+    private fun decrypt(value: ByteArray, domain: String): ByteArray {
         require(value.size >= 28)
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, value.copyOfRange(0, 12)))
-        cipher.updateAAD("VoiceLink/private/v1".toByteArray())
+        cipher.updateAAD(domain.toByteArray())
         return cipher.doFinal(value.copyOfRange(12, value.size))
     }
     fun load(): JSONObject? = preferences.getString("identity", null)?.let { strictJson(decrypt(decode(it)).toString(Charsets.UTF_8)) }

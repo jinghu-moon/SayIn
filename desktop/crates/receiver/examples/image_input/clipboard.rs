@@ -1,6 +1,6 @@
 //! Native clipboard ownership experiment, used only by the opt-in fixture.
-use super::payload::PreparedImage;
 use std::time::{Duration, Instant};
+use voicelink_receiver::images::payload::PreparedImage;
 use windows::{
     Win32::{
         Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND},

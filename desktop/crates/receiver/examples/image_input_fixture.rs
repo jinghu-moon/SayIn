@@ -2,8 +2,7 @@
 //! Publishes synthetic images to the real clipboard and pastes ONLY into its own RichEdit.
 #[path = "image_input/clipboard.rs"]
 mod clipboard;
-#[path = "image_input/payload.rs"]
-mod payload;
+use voicelink_receiver::images::payload;
 
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use std::{

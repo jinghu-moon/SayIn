@@ -1,5 +1,6 @@
 //! Durable receiver boundary. No GPUI, network transport or localized text.
 pub mod gate;
+pub mod images;
 pub mod ledger;
 pub mod protocol;
 #[cfg(windows)]

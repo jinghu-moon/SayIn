@@ -3,9 +3,9 @@ use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, Limits};
 use std::io::Cursor;
 use zeroize::Zeroizing;
 
-pub const MAX_ENCODED: usize = 10 * 1024 * 1024;
-const MAX_PIXELS: u64 = 16_000_000;
-const MAX_SIDE: u32 = 8192;
+pub const MAX_ENCODED: usize = super::MAX_IMAGE_BYTES as usize;
+const MAX_PIXELS: u64 = super::MAX_IMAGE_PIXELS;
+const MAX_SIDE: u32 = super::MAX_IMAGE_SIDE;
 const HEADER: usize = 124;
 
 pub struct PreparedImage {
