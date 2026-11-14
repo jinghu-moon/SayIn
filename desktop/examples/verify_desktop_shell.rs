@@ -1,5 +1,6 @@
-//! Native rendering of the full production Shell with a disposable offline phone.
-//! No listener or native input. Disposable ledger operations have fixture outcomes.
+//! Native rendering with isolated storage. Default: seeded offline phone.
+//! --first: unpaired real listener for onboarding screenshots, never approved.
+//! Neither mode executes native input; seeded history uses fixture outcomes.
 use std::{path::PathBuf, time::Duration};
 use voicelink_desktop::{
     localization::LanguagePreference,
@@ -17,6 +18,8 @@ use yue_component::{
 
 fn main() {
     let output = PathBuf::from(std::env::args_os().nth(1).expect("output directory"));
+    let first = std::env::args().any(|a| a == "--first");
+    let receive_only = std::env::args().any(|a| a == "--receive-only");
     assert!(output.is_absolute());
     std::fs::create_dir_all(&output).unwrap();
     // Render with a real notification icon; the receiver remains offline.
@@ -41,11 +44,14 @@ fn main() {
                 secure_directory(&receiver).unwrap();
                 let mut ledger = open_ledger(&receiver).unwrap();
                 HostIdentity::open(&receiver, 0).unwrap();
+                if first {
+                    return;
+                }
                 ledger
                     .provision_device(
                         "12345678-1234-4234-8234-123456789012",
                         &[9; 32],
-                        "测试手机".into(),
+                        "Redmi K40".into(),
                     )
                     .unwrap();
                 use voicelink_receiver::{
@@ -59,7 +65,7 @@ fn main() {
                 let target = "22345678-1234-4234-8234-123456789012";
                 let state = ledger.bind_target(target).unwrap();
                 ledger.resume(&state.state_rev, false).unwrap();
-                for (index, text, program, title) in [
+                for (index, text, _program, title) in [
                     (
                         1,
                         "这是一条来自手机的完整记录。每条原文和执行目标都保存在本机。",
@@ -94,7 +100,9 @@ fn main() {
                         .mark_executing_at(
                             &job,
                             Some(TargetApplication::new(
-                                format!("C:\\Fixture\\{program}"),
+                                std::env::var("SAYIN_VERIFY_TARGET_EXE").unwrap_or_else(|_| {
+                                    std::env::var("WINDIR").unwrap() + r"\explorer.exe"
+                                }),
                                 title.into(),
                                 100 + index,
                                 1000,
@@ -126,8 +134,13 @@ fn main() {
             let (handle, shell, preferences, reception) = cx.update(|cx| {
                 let preferences =
                     cx.new(|_| PreferencesState::new(PreferencesFile::in_directory(&directory)));
-                let reception =
-                    cx.new(|cx| ReceptionState::local_only(directory.join("receiver"), cx));
+                let reception = cx.new(|cx| {
+                    if first {
+                        ReceptionState::new(directory.join("receiver"), cx)
+                    } else {
+                        ReceptionState::local_only(directory.join("receiver"), cx)
+                    }
+                });
                 reception.update(cx, |s, cx| s.set_background_available(true, cx));
                 let a = preferences.clone();
                 let b = reception.clone();
@@ -156,6 +169,28 @@ fn main() {
                     .await;
             }
             assert!(cx.update(|cx| reception.read(cx).is_ready()));
+            if first {
+                for _ in 0..200 {
+                    if cx.update(|cx| {
+                        reception
+                            .read(cx)
+                            .network_snapshot()
+                            .is_some_and(|s| s.window.is_some())
+                    }) {
+                        break;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+                assert!(
+                    cx.update(|cx| reception
+                        .read(cx)
+                        .network_snapshot()
+                        .is_some_and(|s| s.window.is_some())),
+                    "onboarding needs a usable LAN; fixture never grants trust"
+                );
+            }
             for (language, lang) in [
                 (LanguagePreference::Chinese, "zh"),
                 (LanguagePreference::English, "en"),
@@ -175,7 +210,9 @@ fn main() {
                             )
                         })
                     });
-                    for (width, height) in [(1000., 660.), (720., 540.)] {
+                    for (width, height) in
+                        [(1000., 660.), (720., 540.), (1200., 900.), (1600., 1000.)]
+                    {
                         cx.update_window(handle, |_, w, _| w.resize(size(px(width), px(height))))
                             .unwrap();
                         cx.background_executor()
@@ -205,6 +242,9 @@ fn main() {
                             ),
                             ("connection", if lang == "zh" { "接收" } else { "Receive" }),
                         ] {
+                            if receive_only && page != "connection" {
+                                continue;
+                            }
                             cx.update_window(handle, |_, w, cx| select_tab(w, cx, label))
                                 .unwrap();
                             cx.background_executor()
@@ -221,92 +261,161 @@ fn main() {
                                     .unwrap();
                             })
                             .unwrap();
-                        }
-                        cx.update_window(handle, |_, w, cx| {
-                            shell.update(cx, |s, cx| assert!(!s.request_close(w, cx)));
-                        })
-                        .unwrap();
-                        cx.background_executor()
-                            .timer(Duration::from_millis(500))
-                            .await;
-                        cx.update_window(handle, |_, w, cx| {
-                            w.draw(cx).clear(cx);
-                            w.render_to_image()
-                                .unwrap()
-                                .save(output.join(format!(
-                                    "{lang}-{mode}-close-{}x{}.png",
-                                    width as u32, height as u32
-                                )))
+                            if first && page == "connection" && width >= 1200. {
+                                cx.update_window(handle, |_, w, cx| {
+                                    activate_control(
+                                        w,
+                                        cx,
+                                        if lang == "zh" {
+                                            "改用配对码"
+                                        } else {
+                                            "Use a pairing code"
+                                        },
+                                        gpui_kit::Role::Button,
+                                    )
+                                })
                                 .unwrap();
-                            activate_control(
-                                w,
-                                cx,
-                                if lang == "zh" { "取消" } else { "Cancel" },
-                                gpui_kit::Role::Button,
-                            );
-                        })
-                        .unwrap();
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(250))
+                                    .await;
+                                cx.update_window(handle, |_, w, cx| {
+                                    w.draw(cx).clear(cx);
+                                    w.render_to_image()
+                                        .unwrap()
+                                        .save(output.join(format!(
+                                            "{lang}-{mode}-code-{}x{}.png",
+                                            width as u32, height as u32
+                                        )))
+                                        .unwrap();
+                                    activate_control(
+                                        w,
+                                        cx,
+                                        if lang == "zh" {
+                                            "返回二维码"
+                                        } else {
+                                            "Back to QR code"
+                                        },
+                                        gpui_kit::Role::Button,
+                                    );
+                                })
+                                .unwrap();
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(250))
+                                    .await;
+                            }
+                            if page == "settings" {
+                                cx.update_window(handle, |_, w, cx| {
+                                    activate_control(
+                                        w,
+                                        cx,
+                                        if lang == "zh" {
+                                            "界面语言"
+                                        } else {
+                                            "Language"
+                                        },
+                                        gpui_kit::Role::ComboBox,
+                                    );
+                                })
+                                .unwrap();
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(250))
+                                    .await;
+                                cx.update_window(handle, |_, w, cx| {
+                                    w.draw(cx).clear(cx);
+                                    w.render_to_image()
+                                        .unwrap()
+                                        .save(output.join(format!(
+                                            "{lang}-{mode}-settings-select-{}x{}.png",
+                                            width as u32, height as u32
+                                        )))
+                                        .unwrap();
+                                    w.dispatch_event(
+                                        gpui_kit::PlatformInput::KeyDown(gpui_kit::KeyDownEvent {
+                                            keystroke: gpui_kit::Keystroke::parse("escape")
+                                                .unwrap(),
+                                            is_held: false,
+                                            prefer_character_input: false,
+                                        }),
+                                        cx,
+                                    );
+                                    w.dispatch_event(
+                                        gpui_kit::PlatformInput::KeyUp(gpui_kit::KeyUpEvent {
+                                            keystroke: gpui_kit::Keystroke::parse("escape")
+                                                .unwrap(),
+                                        }),
+                                        cx,
+                                    );
+                                })
+                                .unwrap();
+                                cx.background_executor()
+                                    .timer(Duration::from_millis(250))
+                                    .await;
+                            }
+                        }
+                        if !receive_only {
+                            cx.update_window(handle, |_, w, cx| {
+                                shell.update(cx, |s, cx| assert!(!s.request_close(w, cx)));
+                            })
+                            .unwrap();
+                            cx.background_executor()
+                                .timer(Duration::from_millis(500))
+                                .await;
+                            cx.update_window(handle, |_, w, cx| {
+                                w.draw(cx).clear(cx);
+                                w.render_to_image()
+                                    .unwrap()
+                                    .save(output.join(format!(
+                                        "{lang}-{mode}-close-{}x{}.png",
+                                        width as u32, height as u32
+                                    )))
+                                    .unwrap();
+                                activate_control(
+                                    w,
+                                    cx,
+                                    if lang == "zh" { "取消" } else { "Cancel" },
+                                    gpui_kit::Role::Button,
+                                );
+                            })
+                            .unwrap();
+                        }
                     }
                 }
             }
-            cx.update(|cx| reception.update(cx, |s, cx| s.resume(false, cx)));
-            for _ in 0..100 {
-                if cx.update(|cx| {
+            if !first {
+                cx.update(|cx| reception.update(cx, |s, cx| s.resume(cx)));
+                for _ in 0..100 {
+                    if cx.update(|cx| {
+                        reception
+                            .read(cx)
+                            .snapshot()
+                            .is_some_and(|s| !s.control.paused)
+                    }) {
+                        break;
+                    }
+                    cx.background_executor()
+                        .timer(Duration::from_millis(50))
+                        .await;
+                }
+                assert!(cx.update(|cx| {
                     reception
                         .read(cx)
                         .snapshot()
                         .is_some_and(|s| !s.control.paused)
-                }) {
-                    break;
-                }
-                cx.background_executor()
-                    .timer(Duration::from_millis(50))
-                    .await;
-            }
-            assert!(cx.update(|cx| {
-                reception
-                    .read(cx)
-                    .snapshot()
-                    .is_some_and(|s| !s.control.paused)
-            }));
-            cx.update_window(handle, |_, w, _| w.resize(size(px(960.), px(680.))))
-                .unwrap();
-            cx.background_executor()
-                .timer(Duration::from_millis(500))
-                .await;
-            cx.update_window(handle, |_, w, cx| {
-                w.draw(cx).clear(cx);
-                w.render_to_image()
-                    .unwrap()
-                    .save(output.join("en-dark-enabled.png"))
+                }));
+                cx.update_window(handle, |_, w, _| w.resize(size(px(960.), px(680.))))
                     .unwrap();
-            })
-            .unwrap();
-            // Open only the network chooser: discovery is read-only and this
-            // fixture never starts a listener or grants public-network access.
-            cx.update(|cx| reception.update(cx, |s, cx| s.prepare_network(cx)));
-            for _ in 0..100 {
                 cx.background_executor()
-                    .timer(Duration::from_millis(50))
+                    .timer(Duration::from_millis(500))
                     .await;
-                if cx.update(|cx| !reception.read(cx).is_busy()) {
-                    break;
-                }
-            }
-            cx.update_window(handle, |_, w, _| w.resize(size(px(720.), px(540.))))
+                cx.update_window(handle, |_, w, cx| {
+                    w.draw(cx).clear(cx);
+                    w.render_to_image()
+                        .unwrap()
+                        .save(output.join("en-dark-enabled.png"))
+                        .unwrap();
+                })
                 .unwrap();
-            cx.background_executor()
-                .timer(Duration::from_millis(300))
-                .await;
-            cx.update_window(handle, |_, w, cx| {
-                w.draw(cx).clear(cx);
-                w.render_to_image()
-                    .unwrap()
-                    .save(output.join("en-dark-pairing-720x540.png"))
-                    .unwrap();
-            })
-            .unwrap();
-            cx.update(|cx| reception.update(cx, |s, cx| s.close_pairing(cx)));
+            }
             cx.update(|cx| reception.update(cx, |s, cx| s.stop(cx)));
             for _ in 0..100 {
                 if cx.update(|cx| {

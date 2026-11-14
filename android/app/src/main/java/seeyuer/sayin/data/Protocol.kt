@@ -125,6 +125,11 @@ internal open class HostEndpoint(val json: JSONObject) {
 internal class PairedHost(json: JSONObject) : HostEndpoint(json) {
     val deviceId = validId(json.getString("device_id"))
     val token = json.getString("token").also { require(decode(it).size == 32) }
+
+    fun withAddress(address: String, port: String): PairedHost = PairedHost(JSONObject(json.toString()).apply {
+        put("address", address.trim())
+        put("port", port.toInt().also { require(it in 1..65535) })
+    })
 }
 
 internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {

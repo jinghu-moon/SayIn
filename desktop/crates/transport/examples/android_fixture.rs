@@ -29,9 +29,17 @@ impl InputAdapter for FakeInput {
         }
         Ok(())
     }
-    fn execute(&mut self, _: &Execution, gate: &InputGate) -> InputOutcome {
+    fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         assert!(!gate.is_paused());
         self.0.fetch_add(1, Ordering::SeqCst);
+        // Test-only uncertain result exercises the real pushed desktop pause reason.
+        if matches!(job.operation(), voicelink_receiver::protocol::Operation::Text { text, .. }
+            if text == "fixture: uncertain")
+        {
+            return InputOutcome::Uncertain {
+                reason: "fixture_uncertain",
+            };
+        }
         InputOutcome::Injected {
             method: "android_test_fake",
         }
@@ -52,7 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 interface.name,
                 interface.address,
                 interface.is_public(),
-                interface.authorize(false).is_ok()
+                interface.binding().is_ok()
             );
         }
         return Ok(());

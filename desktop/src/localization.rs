@@ -73,18 +73,99 @@ macro_rules! messages {
     };
 }
 messages! {
+    ReceiveHelp => "receive-help",
+    ReceiveHelpTitle => "receive-help-title",
+    ReceiveApproval => "receive-approval",
+    ReceiveVerifyPhone => "receive-verify-phone",
+    ReceiveCodeTitle => "receive-code-title",
+    ReceiveScanTitle => "receive-scan-title",
+    ReceiveBackQr => "receive-back-qr",
+    ReceiveUseCode => "receive-use-code",
+    ReceiveInviteExpired => "receive-invite-expired",
+    ReceiveRefreshInvite => "receive-refresh-invite",
+    ReceiveFirstTitle => "receive-first-title",
+    ReceiveFirstHelp => "receive-first-help",
+    ReceiveScanStep => "receive-scan-step",
+    ReceiveScanHelp => "receive-scan-help",
+    ReceiveApproveStep => "receive-approve-step",
+    ReceiveApproveHelp => "receive-approve-help",
+    ReceiveSameNetwork => "receive-same-network",
+    ReceiveLocalConnection => "receive-local-connection",
+    ReceivePaired => "receive-paired",
+    ReceiveReviewTitle => "receive-review-title",
+    ReceiveHeldTitle => "receive-held-title",
+    ReceiveHeldHelp => "receive-held-help",
+    ReceiveStorageHelp => "receive-storage-help",
+    ReceiveReconnectTitle => "receive-reconnect-title",
+    ReceiveReconnectHelp => "receive-reconnect-help",
+    ReceiveNetworkTitle => "receive-network-title",
+    ReceiveNetworkHelp => "receive-network-help",
+    ReceiveReviewRetained => "receive-review-retained",
+    ReceivePauseRetained => "receive-pause-retained",
+    ReceiveRetryNetwork => "receive-retry-network",
+    ReceiveNetworkDetails => "receive-network-details",
+    ReceiveNoAddress => "receive-no-address",
+    ReceiveNetworkPolicy => "receive-network-policy",
+    ReceiveOtherNetwork => "receive-other-network",
+    ReceiveCursorTip => "receive-cursor-tip",
+    ReceiveAllHistory => "receive-all-history",
+    ReceiveEmptyHelp => "receive-empty-help",
+    HistoryMoreStates => "history-more-states",
+    HistorySelectedFilter => "history-selected-filter",
+    HistoryReceived => "history-received",
+    HistoryExecuted => "history-executed",
+    HistoryToday => "history-today",
+    HistoryYesterday => "history-yesterday",
+    HistoryUnknownDate => "history-unknown-date",
+    HistoryDetails => "history-details",
+    HistoryHideDetails => "history-hide-details",
+    HistoryMore => "history-more",
+    HistoryDelete => "history-delete",
+    HistoryDeleted => "history-deleted",
+    HistoryUndo => "history-undo",
+    HistoryExpand => "history-expand",
+    HistoryCollapse => "history-collapse",
+    HistorySubmitted => "history-submitted",
+    HistoryNotEntered => "history-not-entered",
+    HistoryCheck => "history-check",
+    HistorySearchEmpty => "history-search-empty",
+    HistorySearchEmptyHelp => "history-search-empty-help",
+    HistoryFilterEmpty => "history-filter-empty",
+    HistoryFilterEmptyHelp => "history-filter-empty-help",
+    HistoryClear => "history-clear",
+    HistoryPrivacyEntry => "history-privacy-entry",
+    HistoryPrivacyTitle => "history-privacy-title",
+    HistorySave => "history-save",
+    HistorySaveHelp => "history-save-help",
+    HistoryRetention => "history-retention",
+    HistoryRetentionHelp => "history-retention-help",
+    HistoryKeep7 => "history-keep-7",
+    HistoryKeep30 => "history-keep-30",
+    HistoryKeepForever => "history-keep-forever",
+    HistoryPaused => "history-paused",
+    HistoryLocal => "history-local",
+    HistoryLocalHelp => "history-local-help",
+    HistoryCommandFailed => "history-command-failed",
+    HistorySource => "history-source",
+    HistoryTarget => "history-target",
+    HistoryWindow => "history-window",
+    HistoryDeviceId => "history-device-id",
+    HistoryOrder => "history-order",
+    HistoryNoAttempt => "history-no-attempt",
+    HistoryClose => "history-close",
+    HistoryRecordCount => "history-record-count",
     Devices => "devices",
     DevicesDescription => "devices-description",
-    LocalNetwork => "local-network",
-    CurrentInput => "current-input",
+
+
     LatestMessage => "latest-message",
     LatestEmpty => "latest-empty",
     KeyOperation => "key-operation",
     BodyUnavailable => "body-unavailable",
     TargetUnavailable => "target-unavailable",
     TimeUnavailable => "time-unavailable",
-    ReceivedTime => "received-time",
-    ExecutionTime => "execution-time",
+
+
     CopyOriginal => "copy-original",
     SearchHistory => "search-history",
     HistoryFilter => "history-filter",
@@ -112,9 +193,9 @@ messages! {
     CloseAskStatus => "close-ask-status", CloseQuitStatus => "close-quit-status",
     AppName => "app-name", AppTagline => "app-tagline", Navigation => "navigation",
     Connection => "connection", History => "history", Settings => "settings",
-    NotConnected => "not-connected", ServiceUnavailable => "service-unavailable",
+    NotConnected => "not-connected",
     ConnectionDescription => "connection-description", PairPhone => "pair-phone",
-    PairUnavailable => "pair-unavailable", ConnectionEmpty => "connection-empty",
+    ConnectionEmpty => "connection-empty",
     ConnectionEmptyDescription => "connection-empty-description",
     HistoryDescription => "history-description", HistoryEmpty => "history-empty",
     HistoryEmptyDescription => "history-empty-description",
@@ -130,14 +211,15 @@ messages! {
     ReceiverStopping => "receiver-stopping", ReceiverStopped => "receiver-stopped",
     ReceiverPaused => "receiver-paused", ReceiverRunning => "receiver-running",
     ReceiverCommandFailed => "receiver-command-failed", ReceiverStorageFailed => "receiver-storage-failed",
-    CursorMode => "cursor-mode", CursorReady => "cursor-ready", ConnectFirst => "connect-first",
+    CursorReady => "cursor-ready",
     ReadyToEnable => "ready-to-enable", PhoneConnected => "phone-connected", PhoneOffline => "phone-offline",
-    DeviceAuthorized => "device-authorized", PhoneDevice => "phone-device", QuickStart => "quick-start", CopyAddress => "copy-address", PairingTitle => "pairing-title",
-    GuidePair => "guide-pair", GuidePairHelp => "guide-pair-help", GuideCursor => "guide-cursor", GuideCursorHelp => "guide-cursor-help",
-    GuideSend => "guide-send", GuideSendHelp => "guide-send-help", Cancel => "cancel", PauseInput => "pause-input",
+    DeviceAuthorized => "device-authorized", PhoneDevice => "phone-device",
+
+    Cancel => "cancel", PauseInput => "pause-input",
     ResumeInput => "resume-input", ReviewedResume => "reviewed-resume", ReviewHelp => "review-help",
     ReceiverHelp => "receiver-help", ReceiptSummary => "receipt-summary",
     ReceiptInputHelp => "receipt-input-help", ReceiptHeldHelp => "receipt-held-help", ReceiptOtherHelp => "receipt-other-help",
+    ExecutionTime => "execution-time", ReceivedTime => "received-time",
     ReceiptAcceptedHelp => "receipt-accepted-help", ReceiptExpiredHelp => "receipt-expired-help",
     ReceiptReceiverFocused => "receipt-receiver-focused", ReceiptTargetMissing => "receipt-target-missing",
     ReceiptElevatedTarget => "receipt-elevated-target", ReceiptModifierHeld => "receipt-modifier-held",
@@ -146,15 +228,14 @@ messages! {
     ReceiptAccepted => "receipt-accepted", ReceiptHeld => "receipt-held", ReceiptExecuting => "receipt-executing",
     ReceiptInjected => "receipt-injected", ReceiptCancelled => "receipt-cancelled", ReceiptExpired => "receipt-expired",
     ReceiptFailed => "receipt-failed", ReceiptUncertain => "receipt-uncertain",
-    PairNetwork => "pair-network", PairNetworkHelp => "pair-network-help", NoNetwork => "no-network",
+
     NetworkPublic => "network-public", NetworkPrivate => "network-private", NetworkDomain => "network-domain",
-    PublicNetworkHelp => "public-network-help", AuthorizePublicNetwork => "authorize-public-network",
-    NetworkFirewallHelp => "network-firewall-help", PublicNetworkActive => "public-network-active",
-    StartPairing => "start-pairing", ClosePairing => "close-pairing", PairingChoices => "pairing-choices",
+    NetworkFirewallHelp => "network-firewall-help",
+    ClosePairing => "close-pairing",
     PairingCode => "pairing-code", PairingAddress => "pairing-address", PairingExpiry => "pairing-expiry",
     PairingQr => "pairing-qr",
-    ApprovePhone => "approve-phone", Approve => "approve", Reject => "reject", NetworkFailed => "network-failed",
-    PairingUnavailable => "pairing-unavailable",
+    Approve => "approve", Reject => "reject",
+
     AuthorizedDevices => "authorized-devices", RevokeDevice => "revoke-device", RevokeHelp => "revoke-help",
     ConfirmRevoke => "confirm-revoke", ActiveDevice => "active-device",
 }
@@ -185,6 +266,12 @@ fn bundle(locale: &str, source: &str) -> FluentBundle<FluentResource> {
 impl Catalogs {
     pub fn text(&self, locale: Locale, message: Message) -> String {
         self.format(locale, message, None)
+    }
+
+    pub fn history_count(&self, locale: Locale, count: usize) -> String {
+        let mut args = FluentArgs::new();
+        args.set("count", count as i64);
+        self.format(locale, Message::HistoryRecordCount, Some(&args))
     }
 
     pub fn version(&self, locale: Locale) -> String {
@@ -428,6 +515,7 @@ mod tests {
                 if matches!(
                     message,
                     Message::Version
+                        | Message::HistoryRecordCount
                         | Message::ReceiptHeldCauseHelp
                         | Message::ReceiptExpiredCauseHelp
                         | Message::ReceiptSummary
@@ -439,6 +527,11 @@ mod tests {
                 assert_ne!(catalogs.text(locale, *message), message.key());
             }
             assert!(catalogs.version(locale).contains(env!("CARGO_PKG_VERSION")));
+            for count in [0, 1, 2, 30] {
+                let label = catalogs.history_count(locale, count);
+                assert!(label.contains(&count.to_string()));
+                assert!(!label.contains('{'));
+            }
             for executed in [false, true] {
                 let label = catalogs.history_time(locale, executed, "2026-11-13 10:00:00");
                 assert!(label.contains("2026-11-13 10:00:00"));

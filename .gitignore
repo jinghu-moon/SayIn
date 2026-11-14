@@ -23,6 +23,7 @@ android/transport-test-result.json
 *.log
 *.apk
 *.aab
+/android/local-asr/
 *.apks
 *.exe
 *.dll

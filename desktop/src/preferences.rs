@@ -217,6 +217,9 @@ impl PreferencesState {
     pub fn receipt_help(&self, receipt: &voicelink_receiver::protocol::Receipt) -> String {
         self.catalogs.receipt_help(self.locale(), receipt)
     }
+    pub fn history_count(&self, count: usize) -> String {
+        self.catalogs.history_count(self.locale(), count)
+    }
     pub fn history_time(&self, executed: bool, timestamp: &str) -> String {
         self.catalogs
             .history_time(self.locale(), executed, timestamp)

@@ -6,7 +6,7 @@
 
 ## 1. 选型结论与版本原则
 
-采用 **Kotlin + Jetpack Compose + Miuix + Tabler Icons + Navigation 3 + Coroutines/Flow + OkHttp + kotlinx.serialization + Room + DataStore**。扫码配对采用 CameraX + 捆绑模型版 ML Kit；离线识别采用 sherpa-onnx Android AAR + SenseVoice int8 + VAD。Root 增强继续作为后续独立计划。
+采用 **Kotlin + Jetpack Compose + Miuix + Tabler Icons + Navigation 3 + Coroutines/Flow + OkHttp + kotlinx.serialization + Room + DataStore**。扫码配对采用 CameraX + 捆绑模型版 ML Kit；离线识别采用 sherpa-onnx Android AAR。2026-11-13 按用户选择，首个实施模型调整为 X-ASR 480ms 中英带标点 FP32，替代此前 SenseVoice int8 + VAD 的首期设想，见 [31 实施与实际验证](31-x-asr-local-recognition.md)。Root 增强继续作为后续独立计划。
 
 按用户最新要求，**Kotlin取最新稳定版，AGP和Gradle取该Kotlin版本官方完整支持范围内的最新稳定版**。因此工具链确定为 **Kotlin 2.4.21 + AGP 9.3.1 + Gradle 9.7.0**。构建JDK选最新维护版的LTS分支，其他直接依赖以查阅日最新稳定版为候选。所有版本显式锁定，不使用 `+`、`latest.release` 或 SNAPSHOT 自动漂移。本文件的「最新」是2026-11-12的查阅快照，初始化工程及新增阶段依赖时再核对一次。
 
@@ -151,8 +151,8 @@ QR中包含完整证书和秘密，密度可能较高；真实显示尺寸、相
 | 项目 | 当前选择 | 引入方式 |
 | --- | --- | --- |
 | 推理框架 | **sherpa-onnx 2.0.1** | 官方Release的Android AAR |
-| 最终识别 | SenseVoice int8模型 | 受控模型文件，不是Gradle运行库 |
-| 语音活动检测 | sherpa-onnx支持的VAD模型 | 与识别前端、采样率和分段策略一起验证 |
+| 流式识别 | X-ASR 480ms 中英带标点 FP32 | 用户下载的固定 ONNX 模型，首期已接入 |
+| 分段 | OnlineRecognizer 原生 endpoint | 只提交片段，不结束录音或发送；首期无独立 VAD |
 | 录音 | Android `AudioRecord` | 系统API，无额外录音封装依赖 |
 
 官方发布页存在`sherpa-onnx-2.0.1.aar`。GitHub的`releases/latest`可能返回`fa-models`等模型资源发布，不能把这个标签误认为推理框架版本；本次同时核对语义版本标签和对应Release，当前运行库选择v2.0.1。
@@ -167,11 +167,11 @@ GitHub Release API给出的SHA-256为：
 a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7
 ```
 
-这是发布元数据的校验值，**本次未下载47MB级AAR并计算文件哈希**。集成时需要真实下载、计算SHA-256并验证，记录许可证、发布标签与资产哈希；不能把JVM平台JAR/JitPack坐标当成Android AAR直接替代。
+该值在选型阶段来自发布元数据；2026-11-13 已实际下载 AAR、计算并核对 SHA-256，Android 真机 JNI 推理通过，见 31。不能把 JVM 平台 JAR/JitPack 坐标当成 Android AAR 直接替代。
 
 首期真机以arm64-v8a为主，模拟器需要时保留x86_64。必须检查JNI库及其依赖完整性、16KB页大小兼容、最低系统版本、Release/R8构建与设备实际加载。先用官方AAR自带的运行库组合，不另强行添加一份最新版ONNX Runtime造成重复so或ABI冲突。
 
-模型有独立版本、许可证和校验和，不能用`sherpa-onnx=2.0.1`代替模型清单。具体SenseVoice/VAD资产在ASR原型阶段从官方列表选定并验证后记录，不在此虚构Maven坐标或端侧速度。
+模型有独立版本、许可证和校验和，不能用`sherpa-onnx=2.0.1`代替模型清单。实际 X-ASR 文件摘要固定于 `android/asr-artifacts.json`；SenseVoice / 独立 VAD 不属于本轮实施，不能写成已接入能力。
 
 ## 7. 直接使用系统API的能力
 
@@ -266,7 +266,7 @@ compose-icons-tabler = { module = "io.github.jinghu-moon.composeicons:icons-tabl
 2. **普通输入主链路**：原生页面、编辑框与输入法、v2协议类型、WSS、Room Outbox、状态查询、DataStore设置；电脑尚无核心时用受控协议服务验证，不将其称为真实端到端完成。
 3. **安全配对与发现**：CameraX/ML Kit、二维码校验、限定主机信任、NsdManager、设备撤销和权限处理；不采用trust-all或明文降级。
 4. **便捷入口**：通知、磁贴和可选悬浮球；按Android17/实际ROM验证前台服务和局域网权限。
-5. **离线ASR**：下载并校验官方AAR和模型，接AudioRecord + VAD + SenseVoice，实测冷启动/准确率/温升。
+5. **离线ASR**：官方 AAR + AudioRecord + X-ASR 流式识别已接入并验证模型文件推理；实录、冷启动、准确率和温升仍需实测，见 31。
 6. **Root增强**：在普通模式基线形成后，依照02文档启动单独原型，当前不引入。
 
 首阶段完成选型后，初始化工程至少验证以下命令及真实结果，不能以依赖POM存在代替构建成功：

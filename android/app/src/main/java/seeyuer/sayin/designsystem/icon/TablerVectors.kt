@@ -104,6 +104,63 @@ internal object TablerVectors {
         )
     }
 
+    val Close: ImageVector by lazy {
+        outline("Tabler.x",
+            "M18 6l-12 12",
+            "M6 6l12 12"
+        )
+    }
+
+    val Stop: ImageVector by lazy {
+        outline("Tabler.player-stop",
+            "M5 7a2 2 0 0 1 2 -2h10a2 2 0 0 1 2 2v10a2 2 0 0 1 -2 2h-10a2 2 0 0 1 -2 -2l0 -10"
+        )
+    }
+
+    val Clear: ImageVector by lazy {
+        outline("Tabler.trash",
+            "M4 7l16 0",
+            "M10 11l0 6",
+            "M14 11l0 6",
+            "M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12",
+            "M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"
+        )
+    }
+
+    val ChevronRight: ImageVector by lazy {
+        outline("Tabler.chevron-right",
+            "M9 6l6 6l-6 6"
+        )
+    }
+
+    val ChevronDown: ImageVector by lazy {
+        outline("Tabler.chevron-down",
+            "M6 9l6 6l6 -6"
+        )
+    }
+
+    val Cloud: ImageVector by lazy {
+        outline("Tabler.cloud",
+            "M6.657 18c-2.572 0 -4.657 -2.007 -4.657 -4.483c0 -2.475 2.085 -4.482 4.657 -4.482c.393 -1.762 1.794 -3.2 3.675 -3.773c1.88 -.572 3.956 -.193 5.444 1c1.488 1.19 2.162 3.007 1.77 4.769h.99c1.913 0 3.464 1.56 3.464 3.486c0 1.927 -1.551 3.487 -3.465 3.487h-11.878"
+        )
+    }
+
+    val Phone: ImageVector by lazy {
+        outline("Tabler.device-mobile",
+            "M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14",
+            "M11 4h2",
+            "M12 17v.01"
+        )
+    }
+
+    val More: ImageVector by lazy {
+        outline("Tabler.dots-vertical",
+            "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+        )
+    }
+
     private fun outline(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { path ->

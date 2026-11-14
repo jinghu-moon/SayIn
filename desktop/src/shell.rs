@@ -2,14 +2,16 @@
 use crate::{
     localization::{LanguagePreference, Message as M},
     preferences::{AppearancePreference, CloseBehavior, PreferencesState, StorageIssue},
-    reception::{ReceptionIssue, ReceptionPhase, ReceptionState},
+    reception::{ReceptionPhase, ReceptionState, ReviewScope},
     theme,
 };
-use yue_component::gpui_kit::base::TestSupportExt as _;
+use yue_component::gpui_kit::base::{
+    Tab, TabDescriptor, TabPanel, Tabs, TabsController, TabsSnapshot, TestSupportExt as _,
+};
 use yue_component::{
-    ButtonVariant, CheckboxState, GroupDirection, Icon, IconDefinition, YueButton, YueCard,
-    YueCardHeader, YueCheckbox, YueEmpty, YueRadioGroup, YueRadioOption, YueTabItem, YueTabs,
-    current_theme,
+    ButtonVariant, CheckboxState, Icon, IconDefinition, SelectEvent, SelectMode, SelectOption,
+    SelectValue, YueButton, YueCard, YueCardHeader, YueCheckbox, YueEmpty, YueSelect,
+    YueSelectState, current_theme,
     gpui_kit::{
         self, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
         ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
@@ -26,11 +28,13 @@ pub struct Shell {
     preferences: Entity<PreferencesState>,
     reception: Entity<ReceptionState>,
     selected: gpui_kit::SharedString,
-    pairing_dialog: Entity<yue_component::YueDialogState>,
+    navigation: Entity<TabsController>,
+    receive: Entity<crate::receive_view::ReceiveView>,
+    last_pairing_request: bool,
     review_dialog: Entity<yue_component::YueDialogState>,
-    search: Entity<gpui_kit::base::input::InputState>,
-    reviewed: bool,
-    history_filter: Entity<yue_component::YueSelectState>,
+    history: Entity<crate::history_view::HistoryView>,
+    settings: SettingsControls,
+    reviewed: Option<ReviewScope>,
     close_dialog: Entity<yue_component::YueDialogState>,
     _subscriptions: Vec<Subscription>,
 }
@@ -44,9 +48,10 @@ impl Shell {
     ) -> Self {
         let changed = cx.observe_in(&preferences, window, |this, _, window, cx| {
             this.synchronize_window(window, cx);
+            this.settings.synchronize(&this.preferences, window, cx);
             cx.notify();
         });
-        let pairing_dialog = cx.new(yue_component::YueDialogState::new);
+
         let review_dialog = cx.new(yue_component::YueDialogState::new);
         let close_dialog = cx.new(yue_component::YueDialogState::new);
         let owner = cx.entity().downgrade();
@@ -55,60 +60,38 @@ impl Shell {
                 .update(cx, |this, cx| this.request_close(window, cx))
                 .unwrap_or(true)
         });
-        let query = reception.read(cx).history_query().clone();
-        let search = cx.new(|cx| {
-            gpui_kit::base::input::InputState::new(window, cx).default_value(query.search)
+        let history = cx.new(|cx| {
+            crate::history_view::HistoryView::new(
+                preferences.clone(),
+                reception.clone(),
+                window,
+                cx,
+            )
         });
-        let history_filter = cx.new(|cx| {
-            let mut state =
-                yue_component::YueSelectState::new(yue_component::SelectMode::Single, window, cx);
-            state
-                .set_value(
-                    yue_component::SelectValue::Single(Some(
-                        query.state.map_or("all", |s| s.key()).into(),
-                    )),
-                    window,
-                    cx,
-                )
-                .expect("history filter value");
-            state
+        let receive = cx.new(|cx| {
+            crate::receive_view::ReceiveView::new(
+                preferences.clone(),
+                reception.clone(),
+                review_dialog.clone(),
+                window,
+                cx,
+            )
         });
-        let filtering = cx.subscribe(&history_filter, |this, _, event, cx| {
-            if let yue_component::SelectEvent::Change(change) = event {
-                use voicelink_receiver::protocol::State;
-                let state = match change.after().keys().first().map(|s| s.as_ref()) {
-                    Some("accepted") => Some(State::Accepted),
-                    Some("executing") => Some(State::Executing),
-                    Some("injected") => Some(State::Injected),
-                    Some("held") => Some(State::Held),
-                    Some("uncertain") => Some(State::Uncertain),
-                    Some("failed") => Some(State::Failed),
-                    Some("cancelled") => Some(State::Cancelled),
-                    Some("expired") => Some(State::Expired),
-                    _ => None,
-                };
-                this.reception
-                    .update(cx, |s, cx| s.filter_history(state, cx));
+        let navigating = cx.subscribe(&receive, |this, _, event, cx| {
+            match event {
+                crate::receive_view::ReceiveEvent::OpenHistory => this.selected = "history".into(),
             }
+            cx.notify();
         });
-        let searching = cx.subscribe(&search, |this, state, event, cx| {
-            if matches!(event, gpui_kit::base::input::InputEvent::Change) {
-                let value = state.read(cx).value().to_string();
-                this.reception
-                    .update(cx, |s, cx| s.search_history(value, cx));
+        let receiving = cx.observe(&reception, |this, state, cx| {
+            if this.reviewed.as_ref() != state.read(cx).review_scope().as_ref() {
+                this.reviewed = None;
             }
-        });
-        let receiving = cx.observe_in(&reception, window, |this, state, window, cx| {
-            let service = state.read(cx);
-            let pairing = service.network_requested()
-                || service
-                    .network_snapshot()
-                    .is_some_and(|s| s.window.is_some() || s.approval.is_some());
-            if pairing && !this.pairing_dialog.read(cx).is_open() {
-                let _ = this.pairing_dialog.update(cx, |s, cx| s.open(window, cx));
-            } else if !pairing && this.pairing_dialog.read(cx).is_open() {
-                this.pairing_dialog.update(cx, |s, cx| s.close(window, cx));
+            let requested = state.read(cx).pairing_requested();
+            if requested && !this.last_pairing_request {
+                this.selected = "connection".into();
             }
+            this.last_pairing_request = requested;
             cx.notify();
         });
         let appearance = cx.observe_window_appearance(window, |this, window, cx| {
@@ -121,31 +104,22 @@ impl Shell {
                     .update(cx, |settings, cx| settings.refresh_system_languages(cx));
             }
         });
+        let settings = SettingsControls::new(&preferences, window, cx);
         let this = Self {
             preferences,
             reception,
             selected: "connection".into(),
-            pairing_dialog,
+            navigation: cx.new(|cx| TabsController::new(cx)),
+            receive,
+            last_pairing_request: false,
             review_dialog,
-            search,
-            reviewed: false,
-            history_filter,
+            history,
+            settings,
+            reviewed: None,
             close_dialog,
-            _subscriptions: vec![
-                changed, receiving, appearance, activation, searching, filtering,
-            ],
+            _subscriptions: vec![changed, receiving, appearance, activation, navigating],
         };
         this.synchronize_window(window, cx);
-        cx.on_next_frame(window, |this, window, cx| {
-            let service = this.reception.read(cx);
-            if service.network_requested()
-                || service
-                    .network_snapshot()
-                    .is_some_and(|s| s.window.is_some() || s.approval.is_some())
-            {
-                let _ = this.pairing_dialog.update(cx, |s, cx| s.open(window, cx));
-            }
-        });
         this
     }
 
@@ -169,29 +143,10 @@ impl Shell {
             .appearance()
             .resolve(window.appearance());
         let name = preferences.text(M::AppName);
-        let options = [
-            ("all", M::AllMessages),
-            ("accepted", M::ReceiptAccepted),
-            ("executing", M::ReceiptExecuting),
-            ("injected", M::ReceiptInjected),
-            ("held", M::ReceiptHeld),
-            ("uncertain", M::ReceiptUncertain),
-            ("failed", M::ReceiptFailed),
-            ("cancelled", M::ReceiptCancelled),
-            ("expired", M::ReceiptExpired),
-        ]
-        .into_iter()
-        .map(|(key, label)| yue_component::SelectOption::new(key, preferences.text(label)))
-        .collect::<Vec<_>>();
         if current_theme(cx).mode() != mode {
             theme::install(mode, cx);
         }
         window.set_window_title(&name);
-        self.history_filter.update(cx, |state, cx| {
-            state
-                .set_options(options, cx)
-                .expect("localized history filter")
-        });
     }
 }
 
@@ -269,252 +224,6 @@ fn connection_status(service: &ReceptionState) -> M {
     }
 }
 
-fn connection(
-    preferences: &Entity<PreferencesState>,
-    reception: &Entity<ReceptionState>,
-    review_dialog: &Entity<yue_component::YueDialogState>,
-    cx: &mut App,
-) -> gpui_kit::AnyElement {
-    let settings = preferences.read(cx);
-    let service = reception.read(cx);
-    let snapshot = service.snapshot();
-    let paused = snapshot.is_none_or(|s| s.control.paused);
-    let review = snapshot
-        .is_some_and(|s| s.control.pause_reason.as_deref() == Some("outcome_review_required"));
-    let ready = service.is_ready() && !service.is_busy();
-    let paired = snapshot.is_some_and(|s| s.control.active_device_id.is_some());
-    let owner = reception.clone();
-    let pair_owner = reception.clone();
-    let review_owner = review_dialog.clone();
-    let toggle = if paused {
-        action(
-            "receiving-toggle",
-            settings.text(if review {
-                M::ReviewInput
-            } else {
-                M::ResumeInput
-            }),
-            outline::PlayerPlay,
-            cx,
-        )
-        .variant(ButtonVariant::Primary)
-        .disabled(!ready || !paired)
-        .loading(service.is_busy())
-        .on_click(move |_, window, cx| {
-            if review {
-                let _ = review_owner.update(cx, |s, cx| s.open(window, cx));
-            } else {
-                owner.update(cx, |s, cx| s.resume(false, cx));
-            }
-        })
-    } else {
-        action(
-            "receiving-toggle",
-            settings.text(M::PauseInput),
-            outline::PlayerPause,
-            cx,
-        )
-        .disabled(!service.is_ready())
-        .on_click(move |_, _, cx| owner.update(cx, |s, cx| s.pause(cx)))
-    };
-    let status_icon = if paused {
-        Icon::new(outline::PlayerPause)
-    } else {
-        Icon::new(outline::CursorText)
-    };
-    let mut receiving = div()
-        .flex()
-        .flex_col()
-        .gap_4()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_4()
-                .child(
-                    div()
-                        .flex_none()
-                        .p_3()
-                        .rounded_lg()
-                        .bg(gpui_kit::rgb(current_theme(cx).surface_component()))
-                        .child(
-                            status_icon
-                                .size(gpui_kit::rems(1.75))
-                                .color_value(theme::brand().into()),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_xl()
-                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                .child(settings.text(reception_status(service))),
-                        )
-                        .child(muted(
-                            settings.text(if !paired {
-                                M::ConnectFirst
-                            } else if paused {
-                                M::ReadyToEnable
-                            } else {
-                                M::CursorReady
-                            }),
-                            cx,
-                        )),
-                )
-                .child(toggle),
-        )
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    Icon::new(outline::Pointer)
-                        .size(gpui_kit::rems(1.))
-                        .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
-                )
-                .child(settings.text(M::CursorMode)),
-        )
-        .child(muted(
-            settings.text(if review {
-                M::ReviewHelp
-            } else {
-                M::ReceiverHelp
-            }),
-            cx,
-        ));
-    if let Some(issue) = service.issue() {
-        receiving = receiving.child(
-            div()
-                .flex()
-                .items_start()
-                .gap_2()
-                .p_3()
-                .rounded_md()
-                .bg(gpui_kit::rgb(current_theme(cx).surface_component()))
-                .child(
-                    div()
-                        .flex_none()
-                        .child(Icon::new(outline::AlertCircle).size(gpui_kit::rems(1.25))),
-                )
-                .child(div().min_w_0().child(settings.text(match issue {
-                    ReceptionIssue::Startup => M::ReceiverFailed,
-                    ReceptionIssue::Command => M::ReceiverCommandFailed,
-                    ReceptionIssue::Storage => M::ReceiverStorageFailed,
-                    ReceptionIssue::Network => M::NetworkFailed,
-                }))),
-        );
-    }
-    if service.phase() == ReceptionPhase::Failed {
-        let owner = reception.clone();
-        receiving = receiving.child(
-            action(
-                "retry-receiver",
-                settings.text(M::Retry),
-                outline::Refresh,
-                cx,
-            )
-            .on_click(move |_, _, cx| owner.update(cx, |s, cx| s.retry_start(cx))),
-        );
-    }
-    let mut content = div()
-        .w_full()
-        .max_w(gpui_kit::rems(68.))
-        .mx_auto()
-        .flex()
-        .flex_col()
-        .gap_5()
-        .p_6()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_4()
-                .child(div().flex_1().min_w_0().child(heading(
-                    settings.text(M::Connection),
-                    settings.text(M::ConnectionDescription),
-                    cx,
-                )))
-                .child(
-                    action(
-                        "pair-phone",
-                        settings.text(M::PairPhone),
-                        outline::Qrcode,
-                        cx,
-                    )
-                    .disabled(!ready)
-                    .on_click(move |_, _, cx| pair_owner.update(cx, |s, cx| s.prepare_network(cx))),
-                ),
-        )
-        .child(YueCard::new("receiving-card").child(receiving));
-
-    content = content
-        .child(
-            section(
-                "route-card",
-                settings.text(M::CursorMode),
-                outline::Pointer,
-                cx,
-            )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_4()
-                    .child(route_node(
-                        outline::DeviceMobile,
-                        settings.text(M::PhoneDevice),
-                        cx,
-                    ))
-                    .child(Icon::new(outline::ArrowRight).size(gpui_kit::rems(1.)))
-                    .child(route_node(
-                        outline::Wifi,
-                        settings.text(M::LocalNetwork),
-                        cx,
-                    ))
-                    .child(Icon::new(outline::ArrowRight).size(gpui_kit::rems(1.)))
-                    .child(route_node(
-                        outline::CursorText,
-                        settings.text(M::CurrentInput),
-                        cx,
-                    )),
-            ),
-        )
-        .child(
-            section(
-                "latest-card",
-                settings.text(M::LatestMessage),
-                outline::Message,
-                cx,
-            )
-            .child(if let Some(entry) = service.latest().entries.first() {
-                latest_entry(entry, settings, cx)
-            } else {
-                muted(settings.text(M::LatestEmpty), cx).into_any_element()
-            }),
-        );
-    viewport("connection-scroll", content)
-}
-
-fn route_node(icon: impl IconDefinition, label: String, cx: &App) -> impl IntoElement {
-    div()
-        .flex()
-        .items_center()
-        .gap_2()
-        .child(
-            Icon::new(icon)
-                .size(gpui_kit::rems(1.25))
-                .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
-        )
-        .child(label)
-}
 fn viewport(id: &'static str, content: impl IntoElement) -> gpui_kit::AnyElement {
     div()
         .id(id)
@@ -667,263 +376,6 @@ fn devices(
             ),
     )
 }
-fn pairing(
-    preferences: &Entity<PreferencesState>,
-    reception: &Entity<ReceptionState>,
-    cx: &App,
-) -> gpui_kit::AnyElement {
-    let settings = preferences.read(cx);
-    let service = reception.read(cx);
-    let mut content = div().w_full().flex().flex_col().gap_4();
-    if service.network_requested() && service.network_snapshot().is_none() {
-        let owner = reception.clone();
-        let start = reception.clone();
-        let mut chooser = div()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(muted(settings.text(M::PairNetworkHelp), cx));
-        if service.interfaces().is_empty() {
-            chooser = chooser.child(settings.text(M::NoNetwork));
-        } else {
-            chooser = chooser.child(
-                YueRadioGroup::new(
-                    "network-interface",
-                    current_theme(cx),
-                    service
-                        .selected_interface()
-                        .map(|i| gpui_kit::SharedString::from(i.key())),
-                )
-                .label(settings.text(M::PairNetwork))
-                .options(service.interfaces().iter().map(|i| {
-                    use voicelink_transport::interfaces::NetworkCategory;
-                    let category = if i.is_public() {
-                        M::NetworkPublic
-                    } else if i
-                        .profiles
-                        .iter()
-                        .all(|p| p.category == NetworkCategory::Domain)
-                    {
-                        M::NetworkDomain
-                    } else {
-                        M::NetworkPrivate
-                    };
-                    YueRadioOption::new(
-                        i.key(),
-                        format!("{} · {} · {}", i.name, i.address, settings.text(category)),
-                    )
-                }))
-                .disabled(service.is_busy())
-                .on_change(move |request, _, cx| {
-                    owner.update(cx, |s, cx| s.select_interface(&request, cx))
-                }),
-            );
-            if service.selected_interface().is_some_and(|i| i.is_public()) {
-                let consent = reception.clone();
-                chooser = chooser
-                    .child(muted(settings.text(M::PublicNetworkHelp), cx))
-                    .child(
-                        YueCheckbox::new(
-                            "authorize-public-network",
-                            current_theme(cx),
-                            if service.network_authorized() {
-                                CheckboxState::Checked
-                            } else {
-                                CheckboxState::Unchecked
-                            },
-                        )
-                        .label(settings.text(M::AuthorizePublicNetwork))
-                        .disabled(service.is_busy())
-                        .on_change(move |state, _, _, cx| {
-                            consent.update(cx, |s, cx| {
-                                s.authorize_public_network(state == CheckboxState::Checked, cx)
-                            })
-                        }),
-                    );
-            }
-            chooser = chooser
-                .child(muted(settings.text(M::NetworkFirewallHelp), cx))
-                .child(
-                    div().flex().child(
-                        action(
-                            "start-pairing",
-                            settings.text(M::StartPairing),
-                            outline::Qrcode,
-                            cx,
-                        )
-                        .variant(ButtonVariant::Primary)
-                        .disabled(!service.network_authorized() || service.is_busy())
-                        .loading(service.is_busy())
-                        .on_click(move |_, _, cx| start.update(cx, |s, cx| s.start_network(cx))),
-                    ),
-                );
-        }
-        content = content.child(
-            section(
-                "network-card",
-                settings.text(M::PairNetwork),
-                outline::Wifi,
-                cx,
-            )
-            .child(chooser),
-        );
-    }
-    if let Some(network) = service.network_snapshot() {
-        let mut panel = div().flex().flex_col().gap_4();
-        if let Some(window) = network
-            .window
-            .as_ref()
-            .filter(|w| std::time::Instant::now() < w.expires)
-        {
-            let owner = reception.clone();
-            let mut invitation = div().flex().flex_col().gap_3();
-            if let Some(image) = service.pairing_image() {
-                invitation = invitation.child(pairing_qr(
-                    image,
-                    window.qr_modules(),
-                    settings.text(M::PairingQr),
-                ));
-            }
-            let code = window.code.to_string();
-            panel = panel.child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap_6()
-                    .child(invitation)
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(gpui_kit::rems(12.))
-                            .flex()
-                            .flex_col()
-                            .gap_3()
-                            .child(muted(settings.text(M::PairingChoices), cx))
-                            .child(settings.text(M::PairingCode))
-                            .child(
-                                div()
-                                    .text_3xl()
-                                    .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                                    .child(format!("{} {}", &code[..4], &code[4..])),
-                            )
-                            .child(muted(settings.text(M::PairingExpiry), cx))
-                            .child(
-                                div().flex().child(
-                                    action(
-                                        "close-pairing",
-                                        settings.text(M::ClosePairing),
-                                        outline::X,
-                                        cx,
-                                    )
-                                    .variant(ButtonVariant::Outline)
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            owner.update(cx, |s, cx| s.close_pairing(cx))
-                                        },
-                                    ),
-                                ),
-                            ),
-                    ),
-            );
-        }
-        if let Some(approval) = &network.approval {
-            let accept = reception.clone();
-            let reject = reception.clone();
-            let accept_id = approval.id.clone();
-            let reject_id = approval.id.clone();
-            panel = panel.child(
-                div()
-                    .p_4()
-                    .rounded_lg()
-                    .bg(gpui_kit::rgb(current_theme(cx).surface_component()))
-                    .flex()
-                    .flex_col()
-                    .gap_3()
-                    .child(
-                        div()
-                            .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                            .child(settings.text(M::ApprovePhone)),
-                    )
-                    .child(approval.name.clone())
-                    .child(
-                        div()
-                            .flex()
-                            .gap_3()
-                            .child(
-                                action(
-                                    "approve-phone",
-                                    settings.text(M::Approve),
-                                    outline::Check,
-                                    cx,
-                                )
-                                .variant(ButtonVariant::Primary)
-                                .on_click(move |_, _, cx| {
-                                    accept.update(cx, |s, cx| {
-                                        s.approve_pairing(accept_id.clone(), true, cx)
-                                    })
-                                }),
-                            )
-                            .child(
-                                action("reject-phone", settings.text(M::Reject), outline::X, cx)
-                                    .on_click(move |_, _, cx| {
-                                        reject.update(cx, |s, cx| {
-                                            s.approve_pairing(reject_id.clone(), false, cx)
-                                        })
-                                    }),
-                            ),
-                    ),
-            );
-        }
-        let address = network.address.to_string();
-        panel = panel.child(
-            div()
-                .flex()
-                .items_center()
-                .gap_3()
-                .child(
-                    Icon::new(outline::Wifi)
-                        .size(gpui_kit::rems(1.25))
-                        .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(settings.text(M::PairingAddress))
-                        .child(muted(address.clone(), cx)),
-                )
-                .child(
-                    YueButton::icon(
-                        "copy-address",
-                        current_theme(cx),
-                        outline::Copy,
-                        settings.text(M::CopyAddress),
-                    )
-                    .variant(ButtonVariant::Ghost)
-                    .tooltip(settings.text(M::CopyAddress))
-                    .on_click(move |_, _, cx| {
-                        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(address.clone()))
-                    }),
-                ),
-        );
-        if service.selected_interface().is_some_and(|i| i.is_public()) {
-            panel = panel.child(muted(settings.text(M::PublicNetworkActive), cx));
-        }
-        content = content.child(
-            section(
-                "pairing-card",
-                settings.text(M::PairingTitle),
-                outline::Qrcode,
-                cx,
-            )
-            .child(panel),
-        );
-    }
-
-    content.into_any_element()
-}
-
 /// A QR is image content, not a monochrome icon. Share this presentation with
 /// rendering verification so alpha-mask regressions are observable.
 pub fn pairing_qr(
@@ -937,7 +389,7 @@ pub fn pairing_qr(
         .role(gpui_kit::Role::Image)
         .aria_label(label)
         .test_support()
-        .size(gpui_kit::rems(20.))
+        .size(gpui_kit::rems(16.))
         .flex_none()
         .child(
             gpui_kit::canvas(
@@ -979,266 +431,163 @@ pub fn pairing_qr(
         )
 }
 
-fn latest_entry(
-    entry: &voicelink_receiver::history::HistoryEntry,
-    settings: &PreferencesState,
+/// Retained field behavior; PreferencesState is the only owner of saved values.
+struct SettingsControls {
+    language: Entity<YueSelectState>,
+    appearance: Entity<YueSelectState>,
+    close_behavior: Entity<YueSelectState>,
+    _subscriptions: Vec<Subscription>,
+}
+impl SettingsControls {
+    fn new(
+        preferences: &Entity<PreferencesState>,
+        window: &mut Window,
+        cx: &mut Context<Shell>,
+    ) -> Self {
+        let language = cx.new(|cx| YueSelectState::new(SelectMode::Single, window, cx));
+        let appearance = cx.new(|cx| YueSelectState::new(SelectMode::Single, window, cx));
+        let close_behavior = cx.new(|cx| YueSelectState::new(SelectMode::Single, window, cx));
+        enum Choice {
+            Language,
+            Appearance,
+            Close,
+        }
+        let subscriptions = [
+            (&language, Choice::Language),
+            (&appearance, Choice::Appearance),
+            (&close_behavior, Choice::Close),
+        ]
+        .into_iter()
+        .map(|(control, choice)| {
+            let owner = preferences.clone();
+            cx.subscribe(control, move |_, _, event, cx| {
+                let SelectEvent::Change(change) = event else {
+                    return;
+                };
+                let Some(key) = change.after().keys().first() else {
+                    return;
+                };
+                owner.update(cx, |state, cx| {
+                    let next = match choice {
+                        Choice::Language => {
+                            state.value().clone().with_language(match key.as_ref() {
+                                "zh-Hans" => LanguagePreference::Chinese,
+                                "en" => LanguagePreference::English,
+                                _ => LanguagePreference::System,
+                            })
+                        }
+                        Choice::Appearance => {
+                            state.value().clone().with_appearance(match key.as_ref() {
+                                "light" => AppearancePreference::Light,
+                                "dark" => AppearancePreference::Dark,
+                                _ => AppearancePreference::System,
+                            })
+                        }
+                        Choice::Close => {
+                            state
+                                .value()
+                                .clone()
+                                .with_close_behavior(match key.as_ref() {
+                                    "tray" => CloseBehavior::Tray,
+                                    "quit" => CloseBehavior::Quit,
+                                    _ => CloseBehavior::Ask,
+                                })
+                        }
+                    };
+                    if &next != state.value() {
+                        state.save(next, cx);
+                    }
+                });
+            })
+        })
+        .collect();
+        let this = Self {
+            language,
+            appearance,
+            close_behavior,
+            _subscriptions: subscriptions,
+        };
+        this.synchronize(preferences, window, cx);
+        this
+    }
+
+    fn synchronize(
+        &self,
+        preferences: &Entity<PreferencesState>,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        let state = preferences.read(cx);
+        let disabled = !state.is_editable();
+        let fields = [
+            (
+                &self.language,
+                state.value().language().key(),
+                [
+                    SelectOption::new("system", state.text(M::FollowSystem)),
+                    SelectOption::new("zh-Hans", state.text(M::LanguageChinese)),
+                    SelectOption::new("en", state.text(M::LanguageEnglish)),
+                ],
+            ),
+            (
+                &self.appearance,
+                state.value().appearance().key(),
+                [
+                    SelectOption::new("system", state.text(M::FollowSystem)),
+                    SelectOption::new("light", state.text(M::ThemeLight)),
+                    SelectOption::new("dark", state.text(M::ThemeDark)),
+                ],
+            ),
+            (
+                &self.close_behavior,
+                state.value().close_behavior().key(),
+                [
+                    SelectOption::new("ask", state.text(M::CloseAsk)),
+                    SelectOption::new("tray", state.text(M::CloseTray)),
+                    SelectOption::new("quit", state.text(M::CloseQuit)),
+                ],
+            ),
+        ];
+        for (control, key, options) in fields {
+            control.update(cx, |select, cx| {
+                select.set_options(options, cx).expect("preference options");
+                select
+                    .set_value(SelectValue::Single(Some(key.into())), window, cx)
+                    .expect("preference value");
+                select.set_disabled(disabled, window, cx);
+            });
+        }
+    }
+}
+
+fn preference_card(
+    id: &'static str,
+    title: String,
+    help: String,
+    icon: impl IconDefinition,
+    select: &Entity<YueSelectState>,
     cx: &App,
 ) -> gpui_kit::AnyElement {
-    use voicelink_receiver::protocol::Operation;
-    let body = match &entry.operation {
-        Some(Operation::Text { text, .. }) => text.clone(),
-        Some(_) => settings.text(M::KeyOperation),
-        None => settings.text(M::BodyUnavailable),
-    };
-    div()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(div().line_clamp(2).child(body))
-        .child(muted(settings.receipt_summary(&entry.receipt), cx))
-        .child(muted(settings.receipt_help(&entry.receipt), cx))
-        .child(muted(
-            entry
-                .target
-                .as_ref()
-                .map(|t| t.name().to_owned())
-                .unwrap_or_else(|| settings.text(M::TargetUnavailable)),
-            cx,
-        ))
+    section(id, title.clone(), icon, cx)
+        .child(
+            div().w_full().max_w(gpui_kit::rems(20.)).child(
+                YueSelect::new(id, select)
+                    .block()
+                    .accessibility_label(title)
+                    .accessibility_description(help.clone()),
+            ),
+        )
+        .child(muted(help, cx))
         .into_any_element()
 }
 
-fn history_entry(
-    entry: &voicelink_receiver::history::HistoryEntry,
-    settings: &PreferencesState,
-    cx: &App,
-) -> gpui_kit::AnyElement {
-    use voicelink_receiver::protocol::{Operation, State};
-    let body = match &entry.operation {
-        Some(Operation::Text { text, .. }) => text.clone(),
-        Some(Operation::Key { .. }) => settings.text(M::KeyOperation),
-        None => settings.text(M::BodyUnavailable),
-    };
-    let icon = match entry.receipt.st {
-        State::Injected => Icon::new(outline::CircleCheck),
-        State::Failed | State::Uncertain => Icon::new(outline::AlertCircle),
-        _ => Icon::new(outline::Clock),
-    };
-    let destination = entry
-        .target
-        .as_ref()
-        .map(|t| format!("{} · {}", t.name(), t.window_title))
-        .unwrap_or_else(|| settings.text(M::TargetUnavailable));
-    let received = entry
-        .received_at
-        .and_then(chrono::DateTime::from_timestamp_millis)
-        .map(|t| {
-            t.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-        })
-        .map(|timestamp| settings.history_time(false, &timestamp))
-        .unwrap_or_else(|| settings.text(M::TimeUnavailable));
-    let timing = entry
-        .executed_at
-        .and_then(chrono::DateTime::from_timestamp_millis)
-        .map(|t| {
-            t.with_timezone(&chrono::Local)
-                .format("%Y-%m-%d %H:%M:%S")
-                .to_string()
-        })
-        .map(|timestamp| format!("{} · {}", received, settings.history_time(true, &timestamp)))
-        .unwrap_or(received);
-    let mut row = div()
-        .id(gpui_kit::SharedString::from(format!(
-            "message-{}",
-            entry.receipt.order
-        )))
-        .w_full()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    icon.size(gpui_kit::rems(1.25))
-                        .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
-                )
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(settings.receipt_summary(&entry.receipt)),
-                ),
-        )
-        .child(div().whitespace_normal().child(body.clone()))
-        .child(
-            div()
-                .flex()
-                .items_start()
-                .gap_2()
-                .child(Icon::new(outline::AppWindow).size(gpui_kit::rems(1.)))
-                .child(div().flex_1().min_w_0().child(muted(destination, cx))),
-        )
-        .child(muted(
-            format!(
-                "{} · {}",
-                if entry.source_name.is_empty() {
-                    settings.text(M::PhoneDevice)
-                } else {
-                    entry.source_name.clone()
-                },
-                entry.device
-            ),
-            cx,
-        ))
-        .child(muted(timing, cx))
-        .child(muted(settings.receipt_help(&entry.receipt), cx));
-    if matches!(entry.operation, Some(Operation::Text { .. })) {
-        row = row.child(
-            div().flex().child(
-                action(
-                    gpui_kit::SharedString::from(format!("copy-{}", entry.receipt.order)),
-                    settings.text(M::CopyOriginal),
-                    outline::Copy,
-                    cx,
-                )
-                .variant(ButtonVariant::Ghost)
-                .on_click(move |_, _, cx| {
-                    cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(body.clone()))
-                }),
-            ),
-        );
-    }
-    row.into_any_element()
-}
-fn history(
+fn settings(
     preferences: &Entity<PreferencesState>,
-    reception: &Entity<ReceptionState>,
-    search: &Entity<gpui_kit::base::input::InputState>,
-    filter_state: &Entity<yue_component::YueSelectState>,
+    controls: &SettingsControls,
     cx: &mut App,
 ) -> gpui_kit::AnyElement {
-    let settings = preferences.read(cx);
-    let service = reception.read(cx);
-    let first = reception.clone();
-    let next = reception.clone();
-    let mut content = div()
-        .w_full()
-        .min_w_0()
-        .flex()
-        .flex_col()
-        .gap_5()
-        .p_6()
-        .child(heading(
-            settings.text(M::History),
-            settings.text(M::HistoryDescription),
-            cx,
-        ))
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap_3()
-                .child(
-                    div().flex_1().min_w(gpui_kit::rems(12.)).child(
-                        yue_component::YueInput::new("history-search", current_theme(cx), search)
-                            .input_type(yue_component::InputType::Search)
-                            .block()
-                            .clearable(true)
-                            .max_length(256)
-                            .leading_icon(outline::Search)
-                            .placeholder(settings.text(M::SearchHistory))
-                            .accessibility_label(settings.text(M::SearchHistory)),
-                    ),
-                )
-                .child(
-                    yue_component::YueSelect::new("history-filter", filter_state)
-                        .accessibility_label(settings.text(M::HistoryFilter))
-                        .placeholder(settings.text(M::AllMessages))
-                        .empty_text(settings.text(M::HistoryEmpty))
-                        .loading_text(settings.text(M::HistoryLoading))
-                        .width(gpui_kit::rems(14.))
-                        .leading_icon(outline::Filter),
-                ),
-        );
-    if service.history_failed() {
-        let retry = reception.clone();
-        content = content
-            .child(muted(settings.text(M::HistoryReadFailed), cx))
-            .child(
-                action(
-                    "retry-history",
-                    settings.text(M::Retry),
-                    outline::Refresh,
-                    cx,
-                )
-                .on_click(move |_, _, cx| retry.update(cx, |s, cx| s.refresh_history(cx))),
-            );
-    } else if service.history().entries.is_empty() {
-        content = content.child(
-            YueEmpty::new("history-empty")
-                .icon(outline::History)
-                .title(settings.text(if service.history_loading() {
-                    M::HistoryLoading
-                } else {
-                    M::HistoryEmpty
-                }))
-                .description(settings.text(M::HistoryEmptyDescription)),
-        );
-    } else {
-        for entry in &service.history().entries {
-            content = content.child(
-                YueCard::new(gpui_kit::SharedString::from(format!(
-                    "history-card-{}",
-                    entry.receipt.order
-                )))
-                .child(history_entry(entry, settings, cx)),
-            );
-        }
-    }
-    content = content.child(
-        div()
-            .flex()
-            .flex_wrap()
-            .gap_2()
-            .child(
-                action(
-                    "history-first",
-                    settings.text(M::LatestPage),
-                    outline::Refresh,
-                    cx,
-                )
-                .disabled(service.history_loading())
-                .on_click(move |_, _, cx| first.update(cx, |s, cx| s.first_history(cx))),
-            )
-            .child(
-                action(
-                    "history-next",
-                    settings.text(M::OlderPage),
-                    outline::ArrowRight,
-                    cx,
-                )
-                .disabled(service.history_loading() || service.history().next.is_none())
-                .on_click(move |_, _, cx| next.update(cx, |s, cx| s.next_history(cx))),
-            ),
-    );
-    viewport("history-scroll", content)
-}
-
-fn settings(preferences: &Entity<PreferencesState>, cx: &mut App) -> gpui_kit::AnyElement {
     let state = preferences.read(cx);
     let theme = current_theme(cx);
-    let disabled = !state.is_editable();
-    let language_owner = preferences.clone();
-    let theme_owner = preferences.clone();
-    let close_owner = preferences.clone();
     let mut content = div()
         .w_full()
         .max_w(gpui_kit::rems(58.))
@@ -1252,119 +601,30 @@ fn settings(preferences: &Entity<PreferencesState>, cx: &mut App) -> gpui_kit::A
             state.text(M::SettingsDescription),
             cx,
         ))
-        .child(
-            section(
-                "language-card",
-                state.text(M::Language),
-                outline::Language,
-                cx,
-            )
-            .child(
-                YueRadioGroup::new(
-                    "language",
-                    theme,
-                    Some(state.value().language().key().into()),
-                )
-                .label(state.text(M::Language))
-                .direction(GroupDirection::Horizontal)
-                .disabled(disabled)
-                .options([
-                    YueRadioOption::new("system", state.text(M::FollowSystem)),
-                    YueRadioOption::new("zh-Hans", state.text(M::LanguageChinese)),
-                    YueRadioOption::new("en", state.text(M::LanguageEnglish)),
-                ])
-                .on_change(move |key, _, cx| {
-                    let language = match key.as_ref() {
-                        "zh-Hans" => LanguagePreference::Chinese,
-                        "en" => LanguagePreference::English,
-                        _ => LanguagePreference::System,
-                    };
-                    language_owner.update(cx, |state, cx| {
-                        state.save(state.value().clone().with_language(language), cx)
-                    });
-                }),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(gpui_kit::rgb(theme.text_secondary()))
-                    .child(state.text(M::LanguageDescription)),
-            ),
-        )
-        .child(
-            section(
-                "appearance-card",
-                state.text(M::Appearance),
-                outline::Palette,
-                cx,
-            )
-            .child(
-                YueRadioGroup::new(
-                    "appearance",
-                    theme,
-                    Some(state.value().appearance().key().into()),
-                )
-                .label(state.text(M::Appearance))
-                .disabled(disabled)
-                .direction(GroupDirection::Horizontal)
-                .options([
-                    YueRadioOption::new("system", state.text(M::FollowSystem)),
-                    YueRadioOption::new("light", state.text(M::ThemeLight)),
-                    YueRadioOption::new("dark", state.text(M::ThemeDark)),
-                ])
-                .on_change(move |key, _, cx| {
-                    let appearance = match key.as_ref() {
-                        "light" => AppearancePreference::Light,
-                        "dark" => AppearancePreference::Dark,
-                        _ => AppearancePreference::System,
-                    };
-                    theme_owner.update(cx, |state, cx| {
-                        state.save(state.value().clone().with_appearance(appearance), cx)
-                    });
-                }),
-            )
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(gpui_kit::rgb(theme.text_secondary()))
-                    .child(state.text(M::AppearanceDescription)),
-            ),
-        )
-        .child(
-            section(
-                "close-behavior-card",
-                state.text(M::CloseBehavior),
-                outline::AppWindow,
-                cx,
-            )
-            .child(
-                YueRadioGroup::new(
-                    "close-behavior",
-                    theme,
-                    Some(state.value().close_behavior().key().into()),
-                )
-                .label(state.text(M::CloseBehavior))
-                .disabled(disabled)
-                .options([
-                    YueRadioOption::new("ask", state.text(M::CloseAsk)),
-                    YueRadioOption::new("tray", state.text(M::CloseTray)),
-                    YueRadioOption::new("quit", state.text(M::CloseQuit)),
-                ])
-                .on_change(move |key, _, cx| {
-                    close_owner.update(cx, |s, cx| {
-                        s.save(
-                            s.value().clone().with_close_behavior(match key.as_ref() {
-                                "tray" => CloseBehavior::Tray,
-                                "quit" => CloseBehavior::Quit,
-                                _ => CloseBehavior::Ask,
-                            }),
-                            cx,
-                        )
-                    })
-                }),
-            )
-            .child(muted(state.text(M::CloseBehaviorHelp), cx)),
-        )
+        .child(preference_card(
+            "language-card",
+            state.text(M::Language),
+            state.text(M::LanguageDescription),
+            outline::Language,
+            &controls.language,
+            cx,
+        ))
+        .child(preference_card(
+            "appearance-card",
+            state.text(M::Appearance),
+            state.text(M::AppearanceDescription),
+            outline::Palette,
+            &controls.appearance,
+            cx,
+        ))
+        .child(preference_card(
+            "close-behavior-card",
+            state.text(M::CloseBehavior),
+            state.text(M::CloseBehaviorHelp),
+            outline::AppWindow,
+            &controls.close_behavior,
+            cx,
+        ))
         .child(
             section("about-card", state.text(M::About), outline::InfoCircle, cx)
                 .child(div().text_sm().child(state.version()))
@@ -1402,22 +662,148 @@ fn settings(preferences: &Entity<PreferencesState>, cx: &mut App) -> gpui_kit::A
         .into_any_element()
 }
 
+impl Shell {
+    fn render_navigation(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::AnyElement {
+        let theme = current_theme(cx);
+        let items = [
+            (
+                "connection",
+                M::Connection,
+                Icon::new(outline::DeviceDesktop),
+            ),
+            ("devices", M::Devices, Icon::new(outline::DeviceMobile)),
+            ("history", M::History, Icon::new(outline::History)),
+            ("settings", M::Settings, Icon::new(outline::Settings)),
+        ];
+        let change = cx.listener(|this, request: &yue_component::TabsChangeRequest, _, cx| {
+            this.selected = request.key().clone();
+            cx.notify();
+        });
+        // Base retains roving focus and keyboard activation. The shell owns the
+        // committed destination and presents it as navigation, not document tabs.
+        self.navigation.update(cx, |navigation, cx| {
+            navigation.sync(
+                TabsSnapshot::new(
+                    items.iter().map(|(key, _, _)| TabDescriptor::new(*key)),
+                    Some(self.selected.clone()),
+                )
+                .axis(gpui_kit::Axis::Vertical),
+                window,
+                cx,
+            );
+            navigation.on_change(change);
+        });
+        let preferences = self.preferences.read(cx);
+        let mut sidebar = Tabs::new("main-navigation")
+            .axis(gpui_kit::Axis::Vertical)
+            .aria_label(preferences.text(M::Navigation))
+            .flex()
+            .flex_col()
+            .flex_shrink_0()
+            .w(gpui_kit::rems(sidebar_rems(window)))
+            .h_full()
+            .p_3()
+            .gap_1()
+            .border_r_1()
+            .border_color(gpui_kit::rgb(theme.border_default()))
+            .bg(gpui_kit::rgb(theme.page()));
+        let item_count = items.len();
+        for (index, (key, message, icon)) in items.into_iter().enumerate() {
+            let selected = self.selected == key;
+            let foreground = if selected {
+                theme::brand()
+            } else {
+                gpui_kit::rgb(theme.text_secondary()).into()
+            };
+            sidebar = sidebar.child(
+                Tab::new((gpui_kit::ElementId::from("navigation"), key))
+                    .in_list(&self.navigation, key)
+                    .accessibility_label(preferences.text(message))
+                    .set_position(index + 1, item_count)
+                    .w_full()
+                    .h_10()
+                    .flex_shrink_0()
+                    .justify_start()
+                    .gap_2()
+                    .px_2()
+                    .rounded_md()
+                    .border_2()
+                    .border_color(gpui_kit::transparent_black())
+                    .cursor_default()
+                    .text_sm()
+                    .text_color(foreground)
+                    .font_weight(if selected {
+                        gpui_kit::FontWeight::SEMIBOLD
+                    } else {
+                        gpui_kit::FontWeight::NORMAL
+                    })
+                    .bg(gpui_kit::rgb(if selected {
+                        theme.surface_component()
+                    } else {
+                        theme.page()
+                    }))
+                    .hover(|style| style.bg(gpui_kit::rgb(theme.surface_component())))
+                    .active(|style| style.bg(gpui_kit::rgb(theme.border_default())))
+                    .focus_visible(|style| style.border_color(theme::brand()))
+                    .child(
+                        icon.size(gpui_kit::rems(1.25))
+                            .color_value(foreground.into()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .text_ellipsis()
+                            .child(preferences.text(message)),
+                    ),
+            );
+        }
+        let (message, content) = match self.selected.as_ref() {
+            "devices" => (M::Devices, devices(&self.preferences, &self.reception, cx)),
+            "history" => (M::History, self.history.clone().into_any_element()),
+            "settings" => (M::Settings, settings(&self.preferences, &self.settings, cx)),
+            _ => (M::Connection, self.receive.clone().into_any_element()),
+        };
+        div()
+            .flex()
+            .items_stretch()
+            .line_height(gpui_kit::relative(1.))
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(sidebar)
+            .child(
+                TabPanel::new(
+                    (
+                        gpui_kit::ElementId::from("navigation-panel"),
+                        self.selected.clone(),
+                    ),
+                    &self.navigation,
+                    self.selected.clone(),
+                    self.preferences.read(cx).text(message),
+                )
+                .tab_stop(self.selected != "settings")
+                .flex_1()
+                .h_full()
+                .border_2()
+                .border_color(gpui_kit::transparent_black())
+                .focus_visible(|style| style.border_color(theme::brand()))
+                .content(content),
+            )
+            .into_any_element()
+    }
+}
+
 impl Render for Shell {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // A single rem anchor scales the shell and Yue controls together.
         window.set_rem_size(gpui_kit::px(16.));
+        let navigation = self.render_navigation(window, cx);
         let state = self.preferences.read(cx);
         let theme = current_theme(cx);
-        let language = self.preferences.clone();
-        let connection_service = self.reception.clone();
-        let history_service = self.reception.clone();
-        let devices_service = self.reception.clone();
-        let devices_preferences = self.preferences.clone();
-        let review_dialog = self.review_dialog.clone();
-        let search = self.search.clone();
-        let filter_state = self.history_filter.clone();
-        let reception = self.preferences.clone();
-        let preferences = self.preferences.clone();
         let status = match state.issue() {
             Some(StorageIssue::Read) => M::SettingsReadFailed,
             Some(StorageIssue::Save) => M::SettingsSaveFailed,
@@ -1480,54 +866,7 @@ impl Render for Shell {
                             .child(state.text(connection_status(self.reception.read(cx)))),
                     ),
             )
-            .child(
-                div().flex_1().min_h_0().min_w_0().child(
-                    YueTabs::new("main-navigation", Some(self.selected.clone()))
-                        .placement(yue_component::TabsPlacement::Left)
-                        .header_width(gpui_kit::rems(
-                            if f32::from(window.viewport_size().width) < 800. {
-                                8.5
-                            } else {
-                                11.
-                            },
-                        ))
-                        .accessibility_label(state.text(M::Navigation))
-                        .height(gpui_kit::relative(1.))
-                        .items([
-                            YueTabItem::new("connection", state.text(M::Connection))
-                                .icon(outline::DeviceDesktop)
-                                .content(move |_, cx| {
-                                    connection(&language, &connection_service, &review_dialog, cx)
-                                }),
-                            YueTabItem::new("devices", state.text(M::Devices))
-                                .icon(outline::DeviceMobile)
-                                .content(move |_, cx| {
-                                    devices(&devices_preferences, &devices_service, cx)
-                                }),
-                            YueTabItem::new("history", state.text(M::History))
-                                .icon(outline::History)
-                                .content(move |_, cx| {
-                                    history(
-                                        &reception,
-                                        &history_service,
-                                        &search,
-                                        &filter_state,
-                                        cx,
-                                    )
-                                }),
-                            YueTabItem::new("settings", state.text(M::Settings))
-                                .icon(outline::Settings)
-                                .panel_tab_stop(false)
-                                .content(move |_, cx| settings(&preferences, cx)),
-                        ])
-                        .on_change(cx.listener(
-                            |this, request: &yue_component::TabsChangeRequest, _, cx| {
-                                this.selected = request.key().clone();
-                                cx.notify();
-                            },
-                        )),
-                ),
-            )
+            .child(navigation)
             .child(
                 div()
                     .px_6()
@@ -1557,21 +896,6 @@ impl Render for Shell {
                     ),
             )
             .child(
-                yue_component::YueDialog::new("pairing-dialog", theme, &self.pairing_dialog)
-                    .title(state.text(M::PairingTitle))
-                    .close_label(state.text(M::ClosePairing))
-                    .footer(yue_component::DialogFooter::None)
-                    .width(gpui_kit::rems(38.))
-                    .on_close_request({
-                        let reception = self.reception.clone();
-                        move |_, _, cx| {
-                            reception.update(cx, |s, cx| s.close_pairing(cx));
-                            true
-                        }
-                    })
-                    .child(pairing(&self.preferences, &self.reception, cx)),
-            )
-            .child(
                 yue_component::YueDialog::new("review-dialog", theme, &self.review_dialog)
                     .width(gpui_kit::rems(32.))
                     .title(state.text(M::ReviewTitle))
@@ -1579,40 +903,83 @@ impl Render for Shell {
                     .confirm_label(state.text(M::ReviewedResume))
                     .cancel_label(state.text(M::Cancel))
                     .close_label(state.text(M::CloseDialog))
-                    .confirm_disabled(!self.reviewed)
+                    .confirm_disabled(
+                        self.reviewed.is_none()
+                            || self.reviewed != self.reception.read(cx).review_scope()
+                            || self.reception.read(cx).is_busy(),
+                    )
                     .on_confirm({
                         let reception = self.reception.clone();
+                        let authorization = self.reviewed.clone();
                         move |_, _, cx| {
-                            reception.update(cx, |s, cx| s.resume(true, cx));
-                            yue_component::DialogDecision::Close
+                            let accepted = authorization.clone().is_some_and(|scope| {
+                                reception.update(cx, |s, cx| s.resume_reviewed(scope, cx))
+                            });
+                            if accepted {
+                                yue_component::DialogDecision::Close
+                            } else {
+                                yue_component::DialogDecision::KeepOpen
+                            }
                         }
                     })
                     .on_close_request({
                         let owner = cx.entity().downgrade();
                         move |_, _, cx| {
                             let _ = owner.update(cx, |this, cx| {
-                                this.reviewed = false;
+                                this.reviewed = None;
                                 cx.notify();
                             });
                             true
                         }
                     })
+                    .child({
+                        let original = self
+                            .reception
+                            .read(cx)
+                            .review_entry()
+                            .and_then(|entry| match &entry.operation {
+                                Some(voicelink_receiver::protocol::Operation::Text {
+                                    text,
+                                    ..
+                                }) => Some(text.clone()),
+                                _ => None,
+                            })
+                            .unwrap_or_else(|| state.text(M::BodyUnavailable));
+                        div()
+                            .p_3()
+                            .rounded_md()
+                            .bg(gpui_kit::rgb(theme.surface_component()))
+                            .child(original)
+                    })
                     .child(
                         YueCheckbox::new(
                             "review-confirm",
                             theme,
-                            if self.reviewed {
+                            if self.reviewed.is_some()
+                                && self.reviewed == self.reception.read(cx).review_scope()
+                            {
                                 CheckboxState::Checked
                             } else {
                                 CheckboxState::Unchecked
                             },
                         )
                         .label(state.text(M::ReviewCheckbox))
+                        .disabled(
+                            self.reception.read(cx).review_scope().is_none()
+                                || self.reception.read(cx).is_busy(),
+                        )
                         .on_change({
                             let owner = cx.entity().downgrade();
+                            let displayed = self.reception.read(cx).review_scope();
                             move |state, _, _, cx| {
                                 let _ = owner.update(cx, |this, cx| {
-                                    this.reviewed = state == CheckboxState::Checked;
+                                    this.reviewed = if state == CheckboxState::Checked
+                                        && displayed == this.reception.read(cx).review_scope()
+                                    {
+                                        displayed.clone()
+                                    } else {
+                                        None
+                                    };
                                     cx.notify();
                                 });
                             }
@@ -1666,5 +1033,14 @@ impl Render for Shell {
                             ),
                     ),
             )
+    }
+}
+
+/// Shared by the shell and the history grid; reacts to application zoom.
+pub(crate) fn sidebar_rems(window: &Window) -> f32 {
+    if f32::from(window.viewport_size().width) < 800. {
+        9.5
+    } else {
+        11.
     }
 }

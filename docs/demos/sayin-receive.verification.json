@@ -1,0 +1,3020 @@
+{
+  "artifact": "docs/demos/sayin-receive.html",
+  "sha256": "53d18a8ac4fa7870b0c7a86d57ca446bc8ac1319f341c5322e19735e370ed859",
+  "command": "python scripts/verify_sayin_receive_demo.py",
+  "browser": "Playwright Chromium headless",
+  "checks": [
+    "exactly three connection scenarios",
+    "first use is default",
+    "no history or fake record on first use",
+    "old tutorial is removed",
+    "QR has explicit demo label",
+    "QR native size matches rendered size",
+    "inactive code is excluded from keyboard access",
+    "pairing code slides one viewport left",
+    "slide preserves DOM for transition",
+    "switching does not change invitation height",
+    "inactive QR is excluded from assistive navigation",
+    "active code is accessible",
+    "switch preserves keyboard focus",
+    "keyboard returns to QR with reverse slide",
+    "reduced motion switches without animation",
+    "pairing waits for explicit approval",
+    "approval shows real model name",
+    "reject leaves device unpaired",
+    "approval connects and enters standby",
+    "approval creates no sample text",
+    "connected receiving can pause",
+    "connected receiving can resume",
+    "expired invite hides QR",
+    "refresh returns to invitation",
+    "reconnect has no QR or tutorial",
+    "standby can pause while offline",
+    "connection help opens",
+    "help restores focus",
+    "reconnection preserves explicit pause",
+    "uncertain disables standby toggle",
+    "reconnection preserves uncertain",
+    "storage disables standby toggle",
+    "reconnection preserves storage",
+    "first public network requires no extra decision",
+    "public network shows invitation automatically",
+    "reconnect public network requires no extra decision",
+    "paired phone on public network needs no new invite",
+    "network details disclose category without authorization",
+    "network detail has no adapter or consent selector",
+    "network detail restores focus",
+    "network loss preserves paused",
+    "network loss hides invite and input toggle for paused",
+    "checking offline network does not fake recovery for paused",
+    "network returns without repairing paused",
+    "network return never re-pairs paused",
+    "authenticated reconnect preserves paused",
+    "network loss preserves uncertain",
+    "network loss hides invite and input toggle for uncertain",
+    "checking offline network does not fake recovery for uncertain",
+    "network returns without repairing uncertain",
+    "network return never re-pairs uncertain",
+    "authenticated reconnect preserves uncertain",
+    "network loss preserves held",
+    "network loss hides invite and input toggle for held",
+    "checking offline network does not fake recovery for held",
+    "network returns without repairing held",
+    "network return never re-pairs held",
+    "authenticated reconnect preserves held",
+    "network loss preserves storage",
+    "network loss hides invite and input toggle for storage",
+    "checking offline network does not fake recovery for storage",
+    "network returns without repairing storage",
+    "network return never re-pairs storage",
+    "authenticated reconnect preserves storage",
+    "first use without network hides QR",
+    "first network return shows invite without approval ceremony",
+    "network switch waits for reconnect and preserves pause",
+    "network switch reconnects without new pairing",
+    "review requires explicit local confirmation",
+    "cancel review does not resume",
+    "review resumes only new text",
+    "expiry preserves text and original reason",
+    "expired record has no execution target",
+    "language preserves original text",
+    "language preserves connection",
+    "copy writes original to clipboard",
+    "record details expand",
+    "record details collapse",
+    "system theme supported",
+    "system language supported",
+    "settings restores toolbar focus",
+    "180 state/layout combinations pass",
+    "144 automatic-network layouts and detail dialogs pass",
+    "first large text fits",
+    "connected large text fits",
+    "reconnect large text fits",
+    "large text network details fit narrow window",
+    "no browser runtime errors",
+    "history opens supplied demo",
+    "supplied history still loads"
+  ],
+  "matrix": [
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "invite",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "pairing-code",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "approval",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "condition": "expired",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "held",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "condition": "storage",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "ready",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "paused",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "uncertain",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "network",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "condition": "storage",
+      "passed": true
+    }
+  ],
+  "network_matrix": [
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 1280,
+      "height": 860,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 800,
+      "height": 640,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "zh",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "light",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "first",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "connected",
+      "network": "offline",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "private",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "public",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "changed",
+      "passed": true
+    },
+    {
+      "width": 480,
+      "height": 760,
+      "language": "en",
+      "theme": "dark",
+      "stage": "reconnect",
+      "network": "offline",
+      "passed": true
+    }
+  ],
+  "runtime_errors": [],
+  "scope": "Standalone prototype only. Proposed automatic public-network UX; native session-authorization policy is unchanged. No real pairing, transport or native input tested."
+}

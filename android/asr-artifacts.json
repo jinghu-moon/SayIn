@@ -1,0 +1,19 @@
+{
+  "sherpa_version": "2.0.1",
+  "aar_url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/v2.0.1/sherpa-onnx-2.0.1.aar",
+  "aar_sha256": "a8d09d1d32f3eb8520482c6d3d43fae674681c5b050385967c70a3c2c9bf0ee7",
+  "model": "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05",
+  "archive_sha256": "7e82f0a26f2bf8630141ebec658760b0fa585575fea2fee3d8edc4d3cb637b88",
+  "files": {
+    "encoder.onnx": "5c7fa5f7fea034752ebad4117526e7b6511962727cb8a1eee91fa2acb4bc0998",
+    "decoder.onnx": "a1cbc9eac2d5e3fb6617a218c67ad6daaa7f4e0fd225f08b2c22ab0413c8c257",
+    "joiner.onnx": "c4e598c15343e5546ea8533b34512302dfbf4e11fc4a77b7cfcdb4c918f4f16a",
+    "tokens.txt": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c"
+  },
+  "test_fixture": {
+    "source": "test_wavs/0.wav in the pinned model archive",
+    "format": "16000 Hz mono signed PCM16 little-endian, WAV header removed",
+    "file": "app/src/androidTest/assets/x-asr-smoke.pcm",
+    "sha256": "237ee4752b8a1fb41c6284ae94f2d7baf9a1fc8f28c26d3409c69e86cecbade1"
+  }
+}

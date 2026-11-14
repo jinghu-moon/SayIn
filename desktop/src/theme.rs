@@ -1,5 +1,5 @@
 //! Audited product roles: the exact brand color, with Yue's neutral surfaces.
-//! No colored success/warning/danger variants are used by this application.
+//! History uses Yue semantic feedback tokens for receipt states.
 use yue_component::{
     Accent, NeutralTone, ThemeMode, YueTheme,
     gpui_kit::{self, App, Hsla},

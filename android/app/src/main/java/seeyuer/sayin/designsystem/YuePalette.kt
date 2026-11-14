@@ -20,4 +20,13 @@ internal object YuePalette {
     val Neutral925 = Color(0xFF181818)
     val Neutral950 = Color(0xFF121212)
     val Neutral1000 = Color(0xFF000000)
+    // Yue primitives + semantics/feedback.css, light and dark roles.
+    val SuccessLight = Color(0xFF37674C)
+    val SuccessDark = Color(0xFF64AE82)
+    val WarningLight = Color(0xFF905A1D)
+    val WarningDark = Color(0xFFF7C44D)
+    val ErrorLight = Color(0xFFA14138)
+    val ErrorDark = Color(0xFFF5AAA3)
+    val ErrorContainerLight = Color(0xFFFFECEA)
+    val ErrorContainerDark = Color(0xFF391512)
 }

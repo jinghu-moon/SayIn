@@ -1,0 +1,715 @@
+<!doctype html>
+<html lang="zh-Hans" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>SayIn · 接收</title>
+  <link rel="icon" href="data:,">
+  <style id="yue-feedback-tokens">
+    /* Exact Yue token snapshot: primitives/color.css + semantics/feedback.css. */
+:root {
+  --blue-50: #f4f9fc; --blue-100: #e5f1f7; --blue-200: #c6e2ee; --blue-300: #a1ccde; --blue-400: #7ab3cb; --blue-500: #5a96b2; --blue-600: #477b94; --blue-700: #3b647a; --blue-800: #325364; --blue-900: #2b4351; --blue-950: #192a35;
+  --red-50: #fff8f7; --red-100: #ffecea; --red-200: #ffd5d1; --red-300: #feb3ab; --red-400: #f6887e; --red-500: #e66a5e; --red-600: #c75146; --red-700: #a14138; --red-800: #843933; --red-900: #6d342f; --red-950: #3c1714;
+  --amber-50: #fffaed; --amber-100: #fff4d3; --amber-200: #ffe397; --amber-300: #ffcd5c; --amber-400: #f6b435; --amber-500: #d69629; --amber-600: #b37622; --amber-700: #905a1d; --amber-800: #75471b; --amber-900: #623a1a; --amber-950: #381d09;
+  --green-50: #f3faf6; --green-100: #e0f2e7; --green-200: #c1e6cf; --green-300: #98d2ae; --green-400: #6fb98d; --green-500: #509b71; --green-600: #40805c; --green-700: #37674c; --green-800: #2f523e; --green-900: #274234; --green-950: #12241b;
+}
+[data-theme=dark] {
+  --blue-50: #f2f7fa; --blue-100: #e2eef4; --blue-200: #c1dce8; --blue-300: #98c3d5; --blue-400: #6fa8c0; --blue-500: #4e8aa5; --blue-600: #3b6f88; --blue-700: #315a70; --blue-800: #2b4c5d; --blue-900: #273f4c; --blue-950: #172832;
+  --red-50: #fff5f4; --red-100: #fee8e6; --red-200: #fbcfcb; --red-300: #f5aaa3; --red-400: #ea7d73; --red-500: #d85d52; --red-600: #b9443a; --red-700: #96372f; --red-800: #7c322c; --red-900: #682f2b; --red-950: #391512;
+  --amber-50: #fff9eb; --amber-100: #fff0c6; --amber-200: #fcdd88; --amber-300: #f7c44d; --amber-400: #eaa923; --amber-500: #c98a12; --amber-600: #a66a0d; --amber-700: #85500f; --amber-800: #6e4013; --amber-900: #5d3615; --amber-950: #351b07;
+  --green-50: #f1f8f4; --green-100: #ddefe4; --green-200: #bce0ca; --green-300: #8fc9a5; --green-400: #64ae82; --green-500: #438f65; --green-600: #347451; --green-700: #2d5d43; --green-800: #284b38; --green-900: #233e30; --green-950: #102219;
+}
+:root {
+  --info: var(--blue-600); --info-bg: var(--blue-100); --info-foreground: var(--blue-900);
+  --warning: var(--amber-700); --warning-bg: var(--amber-100); --warning-foreground: var(--amber-900);
+  --error: var(--red-700); --error-bg: var(--red-100); --error-foreground: var(--red-900);
+  --success: var(--green-700); --success-bg: var(--green-200); --success-foreground: var(--green-900);
+  --info-border: var(--blue-300); --success-border: var(--green-300); --warning-border: var(--amber-300); --error-border: var(--red-300);
+  --error-solid: var(--red-700); --warning-solid: var(--amber-700); --success-solid: var(--green-700);
+}
+[data-theme=dark] {
+  --info: var(--blue-300); --info-bg: var(--blue-950); --info-foreground: var(--blue-100);
+  --warning: var(--amber-300); --warning-bg: var(--amber-950); --warning-foreground: var(--amber-100);
+  --error: var(--red-300); --error-bg: var(--red-950); --error-foreground: var(--red-100);
+  --success: var(--green-400); --success-bg: var(--green-900); --success-foreground: var(--green-100);
+  --info-border: var(--blue-800); --success-border: var(--green-800); --warning-border: var(--amber-800); --error-border: var(--red-800);
+  --error-solid: var(--red-400); --warning-solid: var(--amber-400); --success-solid: var(--green-400);
+}
+  </style>
+  <style>
+    :root {
+      --brand:#1f75db;
+      --neutral-text:var(--neutral-700); --neutral-bg:var(--neutral-100); --neutral-border:var(--neutral-300);
+      --neutral-0:#fff;--neutral-50:#fafafa;--neutral-100:#f5f5f5;--neutral-200:#eee;--neutral-300:#e0e0e0;--neutral-400:#c7c7c7;--neutral-500:#a3a3a3;--neutral-600:#737373;--neutral-700:#525252;--neutral-800:#333;--neutral-850:#2b2b2b;--neutral-900:#1f1f1f;--neutral-925:#181818;--neutral-950:#121212;--neutral-1000:#000;
+      --space-4:.25rem;--space-8:.5rem;--space-12:.75rem;--space-16:1rem;--space-24:1.5rem;--space-32:2rem;--space-48:3rem;
+      --radius-sm:.25rem;--radius-md:.5rem;--radius-lg:.75rem;--radius-xl:1rem;
+      --canvas:var(--neutral-100);--surface:var(--neutral-0);--soft:var(--neutral-50);
+      --hover:var(--neutral-100);--pressed:var(--neutral-200);
+      --text:var(--neutral-900);--secondary:var(--neutral-700);--muted:var(--neutral-600);
+      --border:var(--neutral-300);--line:var(--neutral-200);
+      color-scheme:light;font-size:16px;
+    }
+    :root[data-theme="dark"] {
+      --neutral-text:var(--neutral-500); --neutral-bg:var(--neutral-850); --neutral-border:var(--neutral-800);
+      --canvas:var(--neutral-950);--surface:var(--neutral-925);--soft:var(--neutral-900);
+      --hover:var(--neutral-850);--pressed:var(--neutral-800);
+      --text:var(--neutral-100);--secondary:var(--neutral-400);--muted:var(--neutral-500);
+      --border:var(--neutral-800);--line:var(--neutral-850);color-scheme:dark;
+    }
+
+    :root{--brand-foreground:var(--neutral-0);--brand-hover:color-mix(in srgb,var(--brand) 90%,var(--neutral-1000));--brand-soft:color-mix(in srgb,var(--brand) 9%,var(--surface));--overlay:color-mix(in srgb,var(--neutral-1000) 30%,transparent);--shadow:0 16px 48px color-mix(in srgb,var(--neutral-1000) 16%,transparent)}
+
+    *{box-sizing:border-box} [hidden]{display:none!important}
+
+    html, body { height: 100%; margin: 0; }
+    body {
+      display: flex; flex-direction: column; overflow: hidden;
+      background:var(--canvas); color:var(--text); font:14px/1.5 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif;
+    }
+
+    button,select,input{font:inherit;color:inherit}button,select{cursor:default}button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-8);min-height:2.125rem;padding:.375rem .75rem;border:1px solid transparent;border-radius:var(--radius-md);background:transparent;white-space:nowrap}
+    button:hover:not(:disabled){background:var(--hover)}button:active:not(:disabled){background:var(--pressed)}button:disabled{opacity:.45}
+    :focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+
+    .primary{background:var(--brand);color:var(--brand-foreground)}
+    .primary:hover:not(:disabled){background:var(--brand-hover)}
+    .primary:active:not(:disabled){background:var(--brand-hover)}
+    .outline{border-color:var(--border);background:var(--surface)}
+    .quiet{color:var(--secondary)}
+    .icon-button{width:2.125rem;padding:.375rem}
+    .icon{width:1.125rem;height:1.125rem;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none;vertical-align:middle}.sprite{display:none}
+
+    .review-bar{flex-shrink:0; display:flex;align-items:center;gap:var(--space-16);padding:.75rem var(--space-24);border-bottom:1px solid var(--border);background:var(--surface);font-size:12px;color:var(--muted)}
+    .review-label{display:flex;align-items:center;gap:var(--space-8)}.review-label strong{font-weight:600;color:var(--secondary)}.review-controls{margin-inline-start:auto;display:flex;align-items:center;gap:var(--space-8)}
+    select{border:1px solid var(--border);border-radius:var(--radius-md);padding:.375rem .5rem;background:var(--surface);min-height:2rem;max-width:100%}
+
+    .app{flex:1; display:flex; flex-direction:column; min-height:0;}
+    .workspace{flex:1; overflow-y:auto; min-width:0;}
+    .content{width:100%; max-width:65rem; margin-inline:auto; padding:var(--space-32) var(--space-32) var(--space-48)}
+
+    .page-head{display:flex; align-items:center; justify-content:space-between; gap:var(--space-16); margin-bottom:var(--space-24); flex-wrap: wrap;}
+    .page-title-area { flex: 1; min-width: 200px; }
+    h1{margin:0; font-size:24px; font-weight:600; letter-spacing:-.5px} p{margin:0}
+    .page-subtitle{color:var(--muted); margin-top:var(--space-4); font-size:13px}
+    .top-nav { display: flex; align-items: center; gap: var(--space-8); }
+
+    .section-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-16);margin:var(--space-32) 0 var(--space-12)}.section-head h2{font-size:14px}.section-head button{font-size:12px;color:var(--secondary)}.section-head button .icon{width:1rem;height:1rem}
+
+    .record-main{padding:var(--space-24) var(--space-24) var(--space-16)}.record-top{display:flex;align-items:center;justify-content:space-between;gap:var(--space-12);font-size:12px;color:var(--muted)}.time-group{display:flex;gap:var(--space-8);align-items:baseline}.time-group time{font-size:13px;font-weight:500;color:var(--secondary);font-variant-numeric:tabular-nums}.record-top-actions{display:flex;align-items:center;gap:var(--space-8)}
+
+    .badge{display:inline-flex;gap:.375rem;align-items:center;font-size:12px;border:1px solid var(--neutral-border);color:var(--neutral-text);background:var(--neutral-bg);padding:.125rem .5rem;border-radius:var(--radius-xl)}.badge .icon{width:.875rem;height:.875rem}
+    .badge[data-status=submitted]{color:var(--success-foreground);background:var(--success-bg);border-color:var(--success-border)}.badge[data-status=uncertain],.badge[data-status=held],.badge[data-status=expired]{color:var(--warning-foreground);background:var(--warning-bg);border-color:var(--warning-border)}
+
+    .message{font-size:16px;line-height:1.8;white-space:pre-wrap;overflow-wrap:anywhere;margin-top:var(--space-16)}.record-footer{display:flex;align-items:center;justify-content:space-between;gap:var(--space-16);padding:0 var(--space-24) var(--space-16)}.route{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-8);font-size:12px;color:var(--muted)}.route .icon{width:1rem;height:1rem}.route .destination{color:var(--secondary);font-weight:500}.copy{font-size:12px;color:var(--secondary);flex:none}.copy .icon{width:1rem;height:1rem}
+    .record-notice{font-size:12px;color:var(--warning-foreground);background:var(--warning-bg);border:1px solid var(--warning-border);padding:var(--space-8) var(--space-12);border-radius:var(--radius-md);margin-top:var(--space-12)}
+
+    .details{padding:var(--space-16) var(--space-24);border-top:1px solid var(--line);background:var(--soft);border-radius:0 0 var(--radius-lg) var(--radius-lg);font-size:12px}.details dl,.dialog-detail{display:grid;grid-template-columns:6rem minmax(0,1fr);gap:var(--space-8) var(--space-16);margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;color:var(--secondary)}.detail-note{color:var(--muted);margin-top:var(--space-12)}
+
+    .empty{padding:var(--space-48) var(--space-32);border:1px dashed var(--border);border-radius:var(--radius-lg);color:var(--muted);text-align:center; display: flex; flex-direction: column; align-items: center; justify-content: center;}
+    .empty .icon{width:2rem;height:2rem;margin-bottom:var(--space-12);opacity:0.5}
+    .empty strong{display:block;color:var(--secondary);font-weight:500;margin-bottom:var(--space-4); font-size: 16px;}
+    .empty p { margin-bottom: var(--space-16); font-size: 13px; }
+
+    .prototype-note{margin-top:var(--space-32);color:var(--muted);font-size:12px;display:flex;gap:var(--space-8);align-items:center;justify-content:center;opacity:0.6;}
+    .prototype-note .icon{width:.875rem;height:.875rem}
+
+    dialog{width:min(31rem,calc(100% - 32px));max-height:calc(100dvh - 48px);padding:0;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:var(--radius-lg);box-shadow:var(--shadow);overflow:auto}dialog::backdrop{background:var(--overlay)}.dialog-head{display:flex;align-items:center;gap:var(--space-16);padding:var(--space-24) var(--space-24) var(--space-12)}.dialog-head h2{font-size:18px;flex:1}.dialog-body{padding:var(--space-8) var(--space-24) var(--space-24);color:var(--secondary);font-size:13px;line-height:1.8}.dialog-body p+p{margin-top:var(--space-12)}.dialog-body ol{padding-inline-start:var(--space-24);margin:var(--space-16) 0}.dialog-body li+li{margin-top:var(--space-12)}.dialog-actions{padding:var(--space-16) var(--space-24);display:flex;justify-content:flex-end;gap:var(--space-8);border-top:1px solid var(--line)}.dialog-body blockquote{margin:var(--space-16) 0;padding:var(--space-12) var(--space-16);border-inline-start:2px solid var(--border);background:var(--soft);color:var(--text)}.check-row{display:flex;gap:var(--space-8);align-items:flex-start;margin-top:var(--space-16)}input[type=checkbox]{accent-color:var(--brand);width:1rem;height:1rem;margin-top:.3rem;flex:none}.settings-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-16);margin-top:var(--space-16)}.settings-row select{max-width:60%}.dialog-note{font-size:12px;color:var(--muted);margin-top:var(--space-16)}
+    .toast{position:fixed;bottom:var(--space-24);left:50%;transform:translateX(-50%);z-index:10;max-width:calc(100% - 32px);padding:.75rem 1rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow);font-size:13px}
+
+    .connection-panel,.record{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden}
+    .section-head h2{margin:0}
+    .first-layout{display:grid;grid-template-columns:minmax(0,1fr) 19rem;min-height:26rem}
+    .first-copy{padding:var(--space-48);display:flex;flex-direction:column;justify-content:center;align-items:flex-start}
+    .eyebrow{font-size:12px;color:var(--muted);margin-bottom:var(--space-12)}
+    .first-copy h2{font-size:26px;line-height:1.4;font-weight:600;letter-spacing:-.5px;max-width:25rem;margin:0}
+    .intro{color:var(--secondary);line-height:1.8;margin-top:var(--space-12);max-width:29rem}
+    .pair-steps{margin:var(--space-32) 0 0;padding:0;list-style:none;display:grid;gap:var(--space-24)}
+    .pair-step{display:grid;grid-template-columns:1.5rem minmax(0,1fr);gap:var(--space-12);align-items:baseline}
+    .step-number{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
+    .pair-step strong{font-size:14px;font-weight:500}.pair-step p{color:var(--muted);font-size:12px;line-height:1.8;margin-top:var(--space-4)}
+    .network-hint{margin-top:var(--space-32);display:flex;align-items:center;gap:var(--space-8);font-size:12px;color:var(--muted)}.network-hint .icon{width:1rem;height:1rem}
+    .invitation{border-inline-start:1px solid var(--line);background:var(--soft);padding:var(--space-32);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-12);text-align:center}
+    .invitation h3{font-size:14px;margin:0;font-weight:500}.invitation p{font-size:12px;color:var(--muted)}
+    /* Raster boundary: 41 QR modules × 5 physical pixels at DPR 1; no linear resampling. */
+    .qr-image{width:205px;height:205px;object-fit:contain;image-rendering:pixelated;background:var(--neutral-0);border-radius:var(--radius-md)}
+    .invitation-note{font-size:11px!important}.invitation button{font-size:12px}
+    .pairing-switcher{width:100%;min-width:0;overflow:hidden}
+    .pairing-track{display:flex;width:100%;align-items:stretch;transform:translateX(0);transition:transform 240ms cubic-bezier(.2,.7,.2,1)}
+    .pairing-track[data-method=code]{transform:translateX(-100%)}
+    .pairing-page{flex:0 0 100%;min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--space-12)}
+    .code-content{width:100%;display:flex;flex-direction:column;justify-content:center;gap:var(--space-24);padding-block:var(--space-24);margin:0}
+    .code-field dt{font-size:12px;color:var(--muted);margin-bottom:var(--space-8)}
+    .code-field dd{margin:0}
+    .pair-code,.code-address{font-family:Consolas,"Cascadia Mono","SFMono-Regular",monospace;font-variant-numeric:tabular-nums;white-space:nowrap}
+    .code-field .pair-code{font-size:24px;font-weight:500;letter-spacing:2px;color:var(--text)}
+    .code-field .code-address{font-size:13px;color:var(--secondary)}
+    #show-code[data-method=code] .icon{transform:rotate(180deg)}
+    @media(prefers-reduced-motion:reduce){.pairing-track{transition:none}}
+    .approval-icon{width:4rem;height:4rem;display:grid;place-items:center;border:1px solid var(--border);border-radius:var(--radius-lg);color:var(--secondary);margin-bottom:var(--space-8)}.approval-icon .icon{width:2rem;height:2rem}.invitation .device-name{font-size:18px;font-weight:600;color:var(--text)}.approval-actions{display:flex;gap:var(--space-8);margin-top:var(--space-16)}.approval-actions button{font-size:13px}
+    .device-header{display:flex;align-items:center;gap:var(--space-16);padding:var(--space-24) var(--space-32)}
+    .device-icon{height:2.75rem;width:2.75rem;flex:none;border-radius:var(--radius-md);display:grid;place-items:center;background:var(--soft);color:var(--secondary)}.device-icon .icon{width:1.5rem;height:1.5rem}.device-heading{min-width:0;flex:1}.device-heading h2{font-size:16px;font-weight:600;margin:0}.device-heading p{font-size:12px;color:var(--muted);margin-top:var(--space-4)}
+    .connection-label{display:inline-flex;align-items:center;gap:var(--space-8);font-size:12px;color:var(--muted);flex:none}.connection-label .icon{width:1rem;height:1rem}.connection-label[data-online=true]{color:var(--brand)}
+    .receiving{display:flex;align-items:center;gap:var(--space-24);padding:var(--space-24) var(--space-32);border-top:1px solid var(--line)}.receiving-copy{flex:1;min-width:0}.receiving h3{font-size:16px;font-weight:600;margin:0}.receiving p{font-size:13px;color:var(--secondary);margin-top:var(--space-8);line-height:1.8}.receiving[data-tone=warning] h3{color:var(--warning)}.receiving[data-tone=error] h3{color:var(--error)}
+    .reconnect-copy{padding:var(--space-8) var(--space-32) var(--space-32);display:flex;align-items:flex-end;gap:var(--space-24)}.reconnect-copy>div{flex:1;min-width:0}.reconnect-copy h3{font-size:20px;font-weight:600;margin:0}.reconnect-copy p{color:var(--secondary);font-size:14px;line-height:1.8;margin-top:var(--space-12);max-width:37rem}.reconnect-copy .small-note{font-size:12px;color:var(--muted);margin-top:var(--space-8)}
+    .standby-row{border-top:1px solid var(--line);padding:var(--space-12) var(--space-32);display:flex;align-items:center;gap:var(--space-16);font-size:12px;color:var(--muted)}.standby-row>span{flex:1}.standby-row button{font-size:12px}
+    .tip-row{display:flex;justify-content:space-between;align-items:center;gap:var(--space-16);margin-top:var(--space-12);font-size:12px;color:var(--muted)}.tip-row span{display:flex;align-items:center;gap:var(--space-8)}.tip-row .icon{height:1rem;width:1rem}.tip-row button{font-size:12px}
+    .stage-switch{display:flex;align-items:center;padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-md);gap:var(--space-4)}.stage-switch button{font-size:12px;min-height:1.75rem;padding:.25rem .625rem;color:var(--muted)}.stage-switch button[aria-pressed=true]{background:var(--hover);color:var(--text);font-weight:600}
+    .preview-actions{display:flex;align-items:center;gap:var(--space-8);margin-top:var(--space-24);font-size:12px;color:var(--muted)}.preview-actions button{border:1px dashed var(--border);font-size:12px}.prototype-note{opacity:1!important}
+    .top-nav button[aria-label]{position:relative}button[aria-expanded=true]{background:var(--hover)}
+    .network-gate{padding:var(--space-32)}.network-gate h2{font-size:20px;margin:0;font-weight:600}.network-gate p{max-width:39rem;font-size:13px;color:var(--secondary);line-height:1.8;margin-top:var(--space-8)}
+    .network-actions{display:flex;gap:var(--space-8);flex-wrap:wrap;margin-top:var(--space-24)}.network-retained{padding-top:var(--space-12);border-top:1px solid var(--line);margin-top:var(--space-16)!important;font-size:12px!important;color:var(--muted)!important}
+    .network-details{margin-top:var(--space-24);border-top:1px solid var(--line);padding-top:var(--space-12)}.network-details summary{color:var(--secondary);cursor:default}.network-details p{font-size:12px;line-height:1.8;margin-top:var(--space-8)}
+    .network-gate-shell .network-gate{border-top:1px solid var(--line)}.dialog-detail+p{margin-top:var(--space-16)}.network-hint{flex-wrap:wrap}.network-hint button{font-size:12px}
+    @media(max-width:650px){.network-gate{padding:var(--space-24)}.network-actions button{white-space:normal;text-align:center}.dialog-actions{flex-wrap:wrap}.dialog-actions button{white-space:normal}.network-gate h2{font-size:18px}}
+    @media(max-width:1000px){.review-bar{flex-wrap:wrap}.review-controls{flex-wrap:wrap;justify-content:flex-end}.first-copy{padding:var(--space-32)}.first-layout{grid-template-columns:minmax(0,1fr) 17rem}.invitation{padding:var(--space-24)}.first-copy h2{font-size:24px}}
+    @media(max-width:650px){.content{padding:var(--space-24) var(--space-16)}.review-bar{padding:var(--space-8) var(--space-12)}.review-label{display:none}.review-controls{margin:0;justify-content:flex-start;width:100%;gap:var(--space-8)}.stage-switch{flex:1}.stage-switch button{flex:1}.review-controls select{max-width:10rem}.first-layout{grid-template-columns:1fr}.first-copy{padding:var(--space-24)}.first-copy h2{font-size:22px}.pair-steps{margin-top:var(--space-24);gap:var(--space-16)}.network-hint{margin-top:var(--space-24)}.invitation{border-inline-start:0;border-top:1px solid var(--line)}.device-header{padding:var(--space-24)}.receiving{padding:var(--space-24);flex-wrap:wrap;gap:var(--space-16)}.receiving-copy{flex-basis:100%}.reconnect-copy{padding:0 var(--space-24) var(--space-24);flex-wrap:wrap;gap:var(--space-16)}.reconnect-copy>div{flex-basis:100%}.standby-row{padding:var(--space-12) var(--space-24);flex-wrap:wrap;gap:var(--space-8)}.standby-row>span{flex-basis:100%}.tip-row{align-items:flex-start}.tip-row>span{max-width:70%;align-items:flex-start}.page-head{align-items:flex-start}.page-title-area{min-width:0}.top-nav{gap:var(--space-4)}.record-main{padding:var(--space-16)}.record-footer{padding:0 var(--space-16) var(--space-16)}.route .source-name{display:none}.record-top{flex-wrap:wrap}.date{display:none}.preview-actions{flex-wrap:wrap}}
+</style>
+</head>
+<body>
+<svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
+    <symbol id="i-device-mobile" viewBox="0 0 24 24"><path d="M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14" /><path d="M11 4h2" /><path d="M12 17v.01" /></symbol>
+    <symbol id="i-device-desktop" viewBox="0 0 24 24"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10" /><path d="M7 20h10" /><path d="M9 16v4" /><path d="M15 16v4" /></symbol>
+    <symbol id="i-history" viewBox="0 0 24 24"><path d="M12 8l0 4l2 2" /><path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5" /></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M10.325 4.317c.426 -1.756 2.924 -1.756 3.35 0a1.724 1.724 0 0 0 2.573 1.066c1.543 -.94 3.31 .826 2.37 2.37a1.724 1.724 0 0 0 1.065 2.572c1.756 .426 1.756 2.924 0 3.35a1.724 1.724 0 0 0 -1.066 2.573c.94 1.543 -.826 3.31 -2.37 2.37a1.724 1.724 0 0 0 -2.572 1.065c-.426 1.756 -2.924 1.756 -3.35 0a1.724 1.724 0 0 0 -2.573 -1.066c-1.543 .94 -3.31 -.826 -2.37 -2.37a1.724 1.724 0 0 0 -1.065 -2.572c-1.756 -.426 -1.756 -2.924 0 -3.35a1.724 1.724 0 0 0 1.066 -2.573c-.94 -1.543 .826 -3.31 2.37 -2.37c1 .608 2.296 .07 2.572 -1.065" /><path d="M9 12a3 3 0 1 0 6 0a3 3 0 0 0 -6 0" /></symbol>
+    <symbol id="i-player-play" viewBox="0 0 24 24"><path d="M7 4v16l13 -8l-13 -8" /></symbol>
+    <symbol id="i-player-pause" viewBox="0 0 24 24"><path d="M6 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /><path d="M14 6a1 1 0 0 1 1 -1h2a1 1 0 0 1 1 1v12a1 1 0 0 1 -1 1h-2a1 1 0 0 1 -1 -1l0 -12" /></symbol>
+    <symbol id="i-cursor-text" viewBox="0 0 24 24"><path d="M10 12h4" /><path d="M9 4a3 3 0 0 1 3 3v10a3 3 0 0 1 -3 3" /><path d="M15 4a3 3 0 0 0 -3 3v10a3 3 0 0 0 3 3" /></symbol>
+    <symbol id="i-qrcode" viewBox="0 0 24 24"><path d="M4 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" /><path d="M7 17l0 .01" /><path d="M14 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" /><path d="M7 7l0 .01" /><path d="M4 15a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v4a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -4" /><path d="M17 7l0 .01" /><path d="M14 14l3 0" /><path d="M20 14l0 .01" /><path d="M14 14l0 3" /><path d="M14 20l3 0" /><path d="M17 17l3 0" /><path d="M20 17l0 3" /></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 18l.01 0" /><path d="M9.172 15.172a4 4 0 0 1 5.656 0" /><path d="M6.343 12.343a8 8 0 0 1 11.314 0" /><path d="M3.515 9.515c4.686 -4.687 12.284 -4.687 17 0" /></symbol>
+
+    <symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M12 9v4" /><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0" /><path d="M12 16h.01" /></symbol>
+    <symbol id="i-file-description" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /><path d="M9 17h6" /><path d="M9 13h6" /></symbol>
+    <symbol id="i-circle-check" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0" /><path d="M9 12l2 2l4 -4" /></symbol>
+    <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6" /></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666" /><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1" /></symbol>
+
+
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454l0 .008" /></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0" /><path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7" /></symbol>
+
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6l-12 12" /><path d="M6 6l12 12" /></symbol>
+    <symbol id="i-dots-vertical" viewBox="0 0 24 24"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/></symbol>
+    <symbol id="i-terminal-2" viewBox="0 0 24 24"><path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/><path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/></symbol>
+  </defs></svg>
+<header class="review-bar">
+  <strong class="review-label" data-text="prototype"></strong>
+  <div class="review-controls">
+    <div class="stage-switch" id="stage-switch" role="group" aria-label="连接场景"></div>
+    <label for="condition" data-text="conditionLabel"></label><select id="condition"></select>
+    <label for="network-preview" data-text="networkPreview"></label><select id="network-preview"></select>
+    <button id="language" class="quiet"></button><button id="theme" class="icon-button quiet"></button>
+  </div>
+</header>
+<div class="app"><main class="workspace"><div class="content">
+  <header class="page-head"><div class="page-title-area"><h1 data-text="receive"></h1><p class="page-subtitle" data-text="subtitle"></p></div><div class="top-nav"><button data-nav="devices" class="icon-button quiet"></button><button data-nav="history" class="icon-button quiet"></button><button data-nav="settings" class="icon-button quiet"></button></div></header>
+  <div id="connection" tabindex="-1"></div>
+  <section id="recent-section" aria-labelledby="recent-title"><div class="section-head"><h2 id="recent-title" data-text="recent"></h2><button id="history-link"></button></div><div id="recent"></div></section>
+  <div class="preview-actions" id="preview-actions"><span data-text="demoLabel"></span><button id="simulate"></button></div>
+  <p class="prototype-note" data-text="prototypeNote"></p>
+</div></main></div>
+<dialog id="dialog" aria-labelledby="dialog-title"><header class="dialog-head"><h2 id="dialog-title"></h2><button id="dialog-close" class="icon-button"></button></header><div class="dialog-body" id="dialog-body"></div><footer class="dialog-actions" id="dialog-actions"></footer></dialog>
+<div class="toast" id="toast" role="status" hidden></div>
+<script>
+    const ui={lang:'zh',theme:'light',stage:'first',phase:'invite',paused:false,issue:null,details:false,code:false,empty:true};
+    const sample='本地初始化为 git 项目，排除掉不需要提交的文件，然后提交推送。许可证使用 MIT。';
+    const pending='请把下一轮评审安排在周五下午三点，会议材料提前一天发出。';
+    let recordState='submitted',themeChoice='light',languageChoice='zh-Hans',dialogTrigger,toastTimer;
+    // Preview-only fixtures for the proposed automatic-network UX. Not native policy.
+    const adapters={ethernet:{name:'ethernetName',address:'192.168.1.8',category:'public'},wifi:{name:'wifiName',address:'192.168.1.20',category:'private'}};
+    const network={mode:'private',adapter:'wifi'};
+    const copy={
+  "zh": {
+    "receive": "接收",
+    "devices": "设备",
+    "history": "历史记录",
+    "settings": "设置",
+    "subtitle": "手机发送文字，输入到电脑当前光标。",
+    "themeDark": "切换深色模式",
+    "themeLight": "切换浅色模式",
+    "close": "关闭",
+    "cancel": "取消",
+    "done": "知道了",
+    "copy": "复制",
+    "copied": "已复制原文",
+    "copyFailed": "复制失败，请展开正文后手动复制。",
+    "details": "查看详情",
+    "collapse": "收起详情",
+    "submitted": "已提交输入事件",
+    "uncertain": "结果待核对",
+    "held": "等待处理",
+    "expired": "已过期",
+    "today": "今天",
+    "source": "来源设备",
+    "target": "执行时目标",
+    "received": "接收时间",
+    "sequence": "设备内顺序",
+    "original": "原文",
+    "noTarget": "尚未执行",
+    "submittedNote": "系统已提交输入事件；实际内容请在目标应用中核对。",
+    "heldNote": "目标窗口权限高于 SayIn，未执行输入。到期后不会自动补输。",
+    "uncertainNote": "执行过程被中断，无法确认是否输入；不会自动重试。",
+    "expiredNote": "超过接收后 30 秒，未执行输入。原始原因：目标窗口权限高于 SayIn。",
+    "emptyTitle": "还没有接收记录",
+    "emptyHint": "手机发送的新文字会显示在这里。",
+    "pause": "暂停接收",
+    "resume": "开启接收",
+    "enableStandby": "开启待命",
+    "reviewTitle": "核对上一次输入",
+    "reviewIntro": "切换到目标应用，检查下面的文字是否已经出现。原记录将保留“结果待核对”，不会重新发送。",
+    "reviewCheck": "我已在目标应用核对这条文字",
+    "reviewCommit": "恢复接收新文字",
+    "reviewNote": "恢复只允许新文字进入；不会补输这条原文。",
+    "reasonTitle": "为什么没有输入？",
+    "reasonIntro": "该次执行检测到目标窗口的完整性级别高于 SayIn，Windows 阻止了输入。",
+    "reasonP2": "切换到普通权限的目标窗口。该请求从接收起 30 秒后过期，期间不会延长时限。",
+    "reasonP3": "核对目标应用后，可在手机上明确选择重试。电脑不会因关闭此提示而重新输入。",
+    "simulateExpiry": "演示：30 秒到期",
+    "networkTitleDialog": "连接详情",
+    "networkP1": "SayIn 自动选择局域网；手机配对后，打开应用即可再次连接。",
+    "networkP2": "公用或专用是 Windows 的网络分类，不需要在 SayIn 中额外授权。只有经过配对、在电脑上批准的手机才能发送文字。",
+    "networkNote": "本原型演示新的交互方案，不更改系统网络或防火墙。",
+    "storageTitleDialog": "存储诊断",
+    "storageP1": "示例错误：本地账本写入失败。为了保留去重身份和执行记录，接收已停止。",
+    "storageP2": "检查磁盘空间、数据目录权限和存储设备。不要删除账本、重建身份或自动重试未确认的输入。",
+    "devicesTitle": "已授权设备",
+    "deviceNote": "该手机已配对。离线时不需要重复配对。",
+    "deviceNone": "还没有已配对手机。",
+    "settingsTitle": "外观与语言",
+    "appearance": "外观",
+    "language": "界面语言",
+    "system": "跟随系统",
+    "light": "浅色",
+    "dark": "深色",
+    "settingsNote": "本原型仅预览外观；语言切换不修改用户原文或接收状态。",
+    "readyAfterReview": "已恢复接收新文字；原记录仍待核对。",
+    "help": "使用说明…",
+    "helpTitle": "文字会输入到哪里？",
+    "helpP1": "发送前，切换到目标应用并点中输入框。每条文字按执行时的前台窗口和光标位置处理。",
+    "helpP2": "SayIn 不抢焦点、不锁定窗口，也不会自动按下回车。",
+    "helpP3": "接收历史中的应用名称来自该次执行记录，不代表下一条文字的目标。",
+    "allHistory": "全部历史",
+    "scenario": "场景",
+    "prototype": "接收界面原型",
+    "stageLabel": "连接场景",
+    "stage_first": "初次连接",
+    "stage_connected": "已连接",
+    "stage_reconnect": "再次连接",
+    "conditionLabel": "状态",
+    "demoLabel": "交互演示",
+    "firstTitle": "连接你的第一部手机",
+    "firstDesc": "配对一次，以后无需重新扫码。",
+    "firstApprovalTitle": "确认这部手机",
+    "firstApprovalDesc": "核对右侧设备，允许它向这台电脑发送文字。",
+    "scanStep": "在手机上扫描二维码",
+    "scanDesc": "打开 SayIn，使用扫码或配对码连接。",
+    "approveStep": "在电脑上批准连接",
+    "approveDesc": "核对手机名称后批准，即可开始接收。",
+    "sameNetwork": "手机和电脑需处于同一局域网。",
+    "scanTitle": "用手机 SayIn 扫一扫",
+    "qrAlt": "配对界面示例二维码，无法用于真实配对",
+    "qrPreview": "示例二维码 · 不用于真实配对",
+    "useCode": "改用配对码",
+    "backToQr": "返回二维码",
+    "codeTitle": "在手机上填写连接信息",
+    "pairCodeLabel": "8 位配对码",
+    "pcAddressLabel": "电脑地址与端口",
+    "sampleCode": "示例地址与配对码",
+    "approvalRequest": "请求连接这台电脑",
+    "reject": "拒绝",
+    "approve": "批准连接",
+    "verifyPhone": "仅批准你正在操作的手机。",
+    "invitationExpired": "配对邀请已过期",
+    "expiredInvitationDesc": "生成新邀请后，再用手机扫码。",
+    "refreshInvite": "重新生成邀请",
+    "deviceConnectedHint": "局域网连接",
+    "devicePairedHint": "已配对 · 授权已保存",
+    "connected": "已连接",
+    "offline": "未连接",
+    "receivingTitle": "接收已开启",
+    "receivingDesc": "切换到目标输入框，再从手机发送文字。",
+    "pausedTitle": "接收已暂停",
+    "pausedDesc": "开启后只处理手机新发送的文字。",
+    "heldTitle": "有一条文字尚未输入",
+    "heldDesc": "目标窗口的权限高于 SayIn，输入被阻止。后续文字暂时等待。",
+    "heldAction": "查看原因…",
+    "uncertainTitle": "先核对上一次输入",
+    "uncertainDesc": "上一次执行被中断，结果无法确认。核对后才能恢复接收。",
+    "uncertainAction": "核对原文…",
+    "networkTitle": "等待网络连接",
+    "networkDesc": "检查电脑的网络连接。恢复后，已配对手机可直接重连。",
+    "networkAction": "重新检测",
+    "storageTitle": "接收服务暂不可用",
+    "storageDesc": "本地记录无法安全写入，已停止输入。请先检查存储状态。",
+    "storageAction": "查看诊断…",
+    "cursorTip": "文字输入到发送时聚焦的窗口，不自动按回车。",
+    "reconnectTitle": "等待手机再次连接",
+    "reconnectDesc": "在手机上打开 SayIn，连接已配对的这台电脑。",
+    "reconnectNote": "无需再次扫码，也无需重新批准。",
+    "connectionHelp": "连接帮助…",
+    "standbyReady": "接收已待命，手机连上后即可发送新文字。",
+    "standbyPaused": "接收已暂停，手机连上后仍需开启接收。",
+    "standbyBlocked": "连接恢复后，仍需处理当前阻断原因。",
+    "reconnectHelpTitle": "让手机重新连上电脑",
+    "reconnectHelpIntro": "在手机 SayIn 中连接已保存的电脑。请保持手机 App 打开。",
+    "reconnectHelpNetwork": "仍无法连接时，确认手机与电脑处于同一局域网。若 Windows 防火墙询问，允许 SayIn 通过；无需更改公用或专用网络类型。",
+    "simulateRequest": "演示：手机发起配对",
+    "simulateReconnect": "演示：手机恢复连接",
+    "prototypeNote": "界面原型 · 设备、邀请与记录为示例，不连接手机或执行输入。",
+    "standbyCondition": "接收已待命",
+    "condition_invite": "等待扫码",
+    "condition_approval": "待电脑批准",
+    "condition_expired": "邀请已过期",
+    "condition_ready": "接收已开启",
+    "condition_paused": "接收已暂停",
+    "condition_held": "输入受阻",
+    "condition_uncertain": "结果待核对",
+    "condition_network": "网络不可用",
+    "condition_storage": "存储异常",
+    "recent": "最近接收",
+    "networkPreview": "网络",
+    "net_private": "专用 · 自动连接",
+    "net_public": "公用 · 自动连接",
+    "net_changed": "网络切换 · 自动恢复",
+    "net_offline": "无可用网络",
+    "ethernetName": "以太网",
+    "wifiName": "Wi-Fi",
+    "category_public": "公用网络",
+    "category_private": "专用网络",
+    "networkDetails": "连接详情…",
+    "adapterLabel": "当前网络",
+    "addressLabel": "电脑地址",
+    "categoryLabel": "Windows 分类",
+    "autoNetwork": "自动选择局域网",
+    "noAddress": "暂无可用地址",
+    "networkTroubleshoot": "连接故障排查",
+    "firewallHelp": "手机和电脑需在同一局域网。如果 Windows 防火墙询问，请允许 SayIn 通过。仍无法连接时，检查应用入站许可，以及路由器是否启用了设备隔离。",
+    "retryNetwork": "重新检测",
+    "demoNetworkReturns": "演示：网络恢复",
+    "firstNetworkDesc": "连上局域网后，这里会自动显示配对二维码。",
+    "networkRestored": "网络已恢复，等待手机连接。",
+    "retainedPause": "接收仍保持暂停。",
+    "retainedReview": "上一次输入仍需核对。",
+    "retainedBlocked": "网络恢复后，仍需处理原来的输入问题。",
+    "stillOffline": "暂未检测到可用网络。"
+  },
+  "en": {
+    "receive": "Receive",
+    "devices": "Devices",
+    "history": "History",
+    "settings": "Settings",
+    "subtitle": "Send from your phone. Type at your PC’s cursor.",
+    "themeDark": "Switch to dark theme",
+    "themeLight": "Switch to light theme",
+    "close": "Close",
+    "cancel": "Cancel",
+    "done": "Got it",
+    "copy": "Copy",
+    "copied": "Original text copied",
+    "copyFailed": "Couldn’t copy. Select the message and copy it manually.",
+    "details": "Show details",
+    "collapse": "Hide details",
+    "submitted": "Input events submitted",
+    "uncertain": "Needs review",
+    "held": "On hold",
+    "expired": "Expired",
+    "today": "Today",
+    "source": "Source device",
+    "target": "Target at execution",
+    "received": "Received at",
+    "sequence": "Device sequence",
+    "original": "Original text",
+    "noTarget": "Not executed",
+    "submittedNote": "Input events were submitted. Verify the text in the target app.",
+    "heldNote": "The target has a higher integrity level than SayIn. No input was executed; expired requests are not typed later.",
+    "uncertainNote": "Execution was interrupted. The outcome is unknown; it will not retry automatically.",
+    "expiredNote": "Not executed within 30 seconds of receipt. Original cause: the target has a higher integrity level.",
+    "emptyTitle": "No messages yet",
+    "emptyHint": "New messages from your phone will appear here.",
+    "pause": "Pause receiving",
+    "resume": "Enable receiving",
+    "enableStandby": "Enable standby",
+    "reviewTitle": "Review the last input",
+    "reviewIntro": "Switch to the target app and check whether this text appeared. Its record remains “Needs review” and will not be sent again.",
+    "reviewCheck": "I checked this message in the target app",
+    "reviewCommit": "Resume new messages",
+    "reviewNote": "Resuming allows new messages only. This message will not be typed again.",
+    "reasonTitle": "Why wasn’t it typed?",
+    "reasonIntro": "The target window had a higher integrity level than SayIn. Windows blocked the input.",
+    "reasonP2": "Switch to a target with normal permissions. This request expires 30 seconds after receipt; the deadline is not extended.",
+    "reasonP3": "After checking the target app, you may explicitly retry from your phone. Closing this dialog does not execute the message.",
+    "simulateExpiry": "Demo: reach 30-second deadline",
+    "networkTitleDialog": "Connection details",
+    "networkP1": "SayIn selects a local network automatically. Once paired, open the app on your phone to reconnect.",
+    "networkP2": "Public and private are Windows network categories. Neither requires extra approval in SayIn. Only a phone paired and approved on this PC can send text.",
+    "networkNote": "This prototype previews the proposed workflow. It changes no network or firewall settings.",
+    "storageTitleDialog": "Storage diagnostics",
+    "storageP1": "Sample error: the local ledger could not be written. Receiving stopped to preserve deduplication identity and execution records.",
+    "storageP2": "Check free disk space, directory permissions and the storage device. Do not delete the ledger, recreate identity, or retry unconfirmed input automatically.",
+    "devicesTitle": "Authorized devices",
+    "deviceNote": "This phone is paired. Being offline does not require pairing again.",
+    "deviceNone": "No phone has been paired yet.",
+    "settingsTitle": "Appearance and language",
+    "appearance": "Appearance",
+    "language": "App language",
+    "system": "System",
+    "light": "Light",
+    "dark": "Dark",
+    "settingsNote": "Appearance preview only. Switching language does not change original messages or receiving state.",
+    "readyAfterReview": "Receiving new messages. The original record still needs review.",
+    "help": "How it works…",
+    "helpTitle": "Where does text go?",
+    "helpP1": "Switch to your target app and focus the input field before sending. Each message uses the foreground window and cursor at execution time.",
+    "helpP2": "SayIn does not take focus, lock a window, or press Enter automatically.",
+    "helpP3": "The app name in history belongs to that past execution. It is not the target for your next message.",
+    "allHistory": "All history",
+    "scenario": "Scenario",
+    "prototype": "Receive prototype",
+    "stageLabel": "Connection scenario",
+    "stage_first": "First connection",
+    "stage_connected": "Connected",
+    "stage_reconnect": "Connect again",
+    "conditionLabel": "State",
+    "demoLabel": "Preview interaction",
+    "firstTitle": "Connect your first phone",
+    "firstDesc": "Pair once. No need to scan again next time.",
+    "firstApprovalTitle": "Confirm this phone",
+    "firstApprovalDesc": "Check the device on the right before allowing it to send text to this PC.",
+    "scanStep": "Scan with your phone",
+    "scanDesc": "Open SayIn and connect using the QR or pairing code.",
+    "approveStep": "Approve on this PC",
+    "approveDesc": "Check the phone name and approve it to start receiving.",
+    "sameNetwork": "Your phone and PC must be on the same local network.",
+    "scanTitle": "Scan with SayIn on your phone",
+    "qrAlt": "Sample QR for the pairing layout; cannot pair a real device",
+    "qrPreview": "Sample QR · Not a live pairing invitation",
+    "useCode": "Use a pairing code",
+    "backToQr": "Back to QR code",
+    "codeTitle": "Enter these details on your phone",
+    "pairCodeLabel": "8-digit pairing code",
+    "pcAddressLabel": "PC address and port",
+    "sampleCode": "Sample address and pairing code",
+    "approvalRequest": "Wants to connect to this PC",
+    "reject": "Reject",
+    "approve": "Approve connection",
+    "verifyPhone": "Only approve the phone you are using.",
+    "invitationExpired": "Pairing invitation expired",
+    "expiredInvitationDesc": "Generate a new invitation, then scan it with your phone.",
+    "refreshInvite": "Generate new invitation",
+    "deviceConnectedHint": "Connected over the local network",
+    "devicePairedHint": "Paired · Authorization saved",
+    "connected": "Connected",
+    "offline": "Disconnected",
+    "receivingTitle": "Receiving is enabled",
+    "receivingDesc": "Focus the target input field, then send text from your phone.",
+    "pausedTitle": "Receiving is paused",
+    "pausedDesc": "Enable receiving to process new messages from your phone.",
+    "heldTitle": "A message hasn’t been typed",
+    "heldDesc": "The target has a higher integrity level than SayIn. Input is blocked; later messages are waiting.",
+    "heldAction": "View reason…",
+    "uncertainTitle": "Review the last input first",
+    "uncertainDesc": "Execution was interrupted and the result is unknown. Review it before resuming.",
+    "uncertainAction": "Review message…",
+    "networkTitle": "Waiting for a network",
+    "networkDesc": "Check your PC’s network connection. Paired phones can reconnect when it returns.",
+    "networkAction": "Check again",
+    "storageTitle": "Receiving is unavailable",
+    "storageDesc": "Local records could not be written safely. Check storage before continuing.",
+    "storageAction": "View diagnostics…",
+    "cursorTip": "Text goes to the focused window. Enter is not pressed automatically.",
+    "reconnectTitle": "Waiting for your phone",
+    "reconnectDesc": "Open SayIn on your phone and connect to this paired PC.",
+    "reconnectNote": "No need to scan or approve again.",
+    "connectionHelp": "Connection help…",
+    "standbyReady": "Receiving is on standby for new text when your phone connects.",
+    "standbyPaused": "Receiving is paused. Enable it after your phone connects.",
+    "standbyBlocked": "The current blocking condition still needs attention after reconnection.",
+    "reconnectHelpTitle": "Reconnect your phone",
+    "reconnectHelpIntro": "Connect to the saved PC in SayIn on your phone. Keep the phone app open.",
+    "reconnectHelpNetwork": "If it still won’t connect, make sure both devices are on the same local network. Allow SayIn if Windows Firewall asks. There is no need to change the public or private network category.",
+    "simulateRequest": "Demo: phone requests pairing",
+    "simulateReconnect": "Demo: phone reconnects",
+    "prototypeNote": "Design prototype · Sample devices, invitations and records. No connection or typing.",
+    "standbyCondition": "On standby",
+    "condition_invite": "Waiting for scan",
+    "condition_approval": "Awaiting PC approval",
+    "condition_expired": "Invitation expired",
+    "condition_ready": "Receiving enabled",
+    "condition_paused": "Receiving paused",
+    "condition_held": "Input blocked",
+    "condition_uncertain": "Needs review",
+    "condition_network": "Network unavailable",
+    "condition_storage": "Storage error",
+    "recent": "Latest message",
+    "networkPreview": "Network",
+    "net_private": "Private · automatic",
+    "net_public": "Public · automatic",
+    "net_changed": "Network changed · reconnecting",
+    "net_offline": "No network",
+    "ethernetName": "Ethernet",
+    "wifiName": "Wi-Fi",
+    "category_public": "Public",
+    "category_private": "Private",
+    "networkDetails": "Connection details…",
+    "adapterLabel": "Current network",
+    "addressLabel": "PC address",
+    "categoryLabel": "Windows category",
+    "autoNetwork": "Local network selected automatically",
+    "noAddress": "No address available",
+    "networkTroubleshoot": "Troubleshooting",
+    "firewallHelp": "Both devices must be on the same local network. Allow SayIn if Windows Firewall asks. If you still cannot connect, check the app’s inbound permission and whether your router isolates devices.",
+    "retryNetwork": "Check again",
+    "demoNetworkReturns": "Demo: network returns",
+    "firstNetworkDesc": "The pairing QR code appears automatically when a local network is available.",
+    "networkRestored": "Network restored. Waiting for your phone.",
+    "retainedPause": "Receiving is still paused.",
+    "retainedReview": "The previous input still needs review.",
+    "retainedBlocked": "The original input issue still needs attention after the network returns.",
+    "stillOffline": "No network detected yet."
+  }
+};
+    const t=key=>copy[ui.lang][key];
+    const esc=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const icon=name=>`<svg class="icon" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+    const button=(id,key,ico=null,kind='outline')=>`<button type="button" id="${id}" class="${kind}">${ico?icon(ico):''}${esc(t(key))}</button>`;
+    const conditions={first:['invite','approval','expired'],connected:['ready','paused','held','uncertain','network','storage'],reconnect:['ready','paused','uncertain','network','storage']};
+    function setStage(stage){
+      network.mode='private';network.adapter='wifi';
+      ui.stage=stage;ui.phase=stage==='first'?'invite':null;ui.issue=null;ui.paused=false;ui.details=false;ui.code=false;ui.empty=stage==='first';recordState='submitted';render();
+    }
+    function currentCondition(){return ui.stage==='first'?ui.phase:ui.issue||(ui.paused?'paused':'ready');}
+    function setCondition(value){
+      if(value==='network'){setNetworkMode('offline');return;}
+      ui.details=false;ui.paused=value==='paused';ui.issue=['held','uncertain','storage'].includes(value)?value:null;
+      if(ui.stage==='first')ui.phase=value;
+      recordState=['held','uncertain'].includes(value)?value:'submitted';if(['held','uncertain'].includes(value))ui.empty=false;render();
+    }
+    function setNetworkMode(mode){
+      network.mode=mode;network.adapter=mode==='private'?'wifi':'ethernet';
+      // A lost or changed connection cannot re-pair a phone or clear input blockers.
+      if(['offline','changed'].includes(mode)&&ui.stage==='connected')ui.stage='reconnect';
+      if(ui.stage==='first'&&mode==='offline')ui.phase='invite';
+      render();
+    }
+    function networkBlocked(){return network.mode==='offline';}
+    function retainedInput(){
+      const key=ui.issue==='uncertain'?'retainedReview':ui.issue?'retainedBlocked':ui.paused?'retainedPause':null;
+      return key?`<p class="network-retained">${esc(t(key))}</p>`:'';
+    }
+    function networkGate(){
+      return `<section class="connection-panel ${ui.stage==='first'?'':'network-gate-shell'}">${ui.stage==='first'?'':deviceHeader(false)}<div class="network-gate"><h2>${esc(t('networkTitle'))}</h2><p>${esc(t(ui.stage==='first'?'firstNetworkDesc':'networkDesc'))}</p>${retainedInput()}<div class="network-actions">${button('retry-network','retryNetwork',null,'outline')}${button('network','networkDetails',null,'quiet')}</div></div></section>`;
+    }
+    function restoreNetwork(){
+      network.mode='public';network.adapter='ethernet';
+      // Only network state changes. Paired phones wait for an authenticated reconnect.
+      focusAfterRender(ui.stage==='first'?'show-code':ui.issue||'connection-help');
+      notify(t('networkRestored'));
+    }
+    function pairingMethods(){
+      return `<div class="pairing-switcher" id="pairing-methods"><div class="pairing-track" data-method="${ui.code?'code':'qr'}"><section class="pairing-page" id="qr-panel" aria-labelledby="qr-heading" aria-hidden="${ui.code}" ${ui.code?'inert':''}><h3 id="qr-heading">${esc(t('scanTitle'))}</h3><img class="qr-image" src="sayin-pairing-demo-qr.png" width="205" height="205" alt="${esc(t('qrAlt'))}"><p class="invitation-note">${esc(t('qrPreview'))}</p></section><section class="pairing-page" id="code-panel" aria-labelledby="code-heading" aria-hidden="${!ui.code}" ${ui.code?'':'inert'}><h3 id="code-heading">${esc(t('codeTitle'))}</h3><dl class="code-content"><div class="code-field"><dt>${esc(t('pairCodeLabel'))}</dt><dd class="pair-code">4826 1937</dd></div><div class="code-field"><dt>${esc(t('pcAddressLabel'))}</dt><dd class="code-address">${esc(adapters[network.adapter].address)}:7788</dd></div></dl><p class="invitation-note">${esc(t('sampleCode'))}</p></section></div></div><button id="show-code" class="quiet" data-method="${ui.code?'code':'qr'}" aria-controls="pairing-methods">${esc(t(ui.code?'backToQr':'useCode'))}${icon('chevron-right')}</button>`;
+    }
+    function syncPairingMethod(){
+      const track=document.querySelector('.pairing-track'),trigger=document.getElementById('show-code');if(!track||!trigger)return;
+      track.dataset.method=ui.code?'code':'qr';trigger.dataset.method=track.dataset.method;
+      trigger.innerHTML=esc(t(ui.code?'backToQr':'useCode'))+icon('chevron-right');
+      for(const [id,inactive] of [['qr-panel',ui.code],['code-panel',!ui.code]]){const panel=document.getElementById(id);panel.inert=inactive;panel.setAttribute('aria-hidden',String(inactive));}
+    }
+    function firstConnection(){
+      const approval=ui.phase==='approval',expired=ui.phase==='expired';
+      return `<section class="connection-panel first-layout" aria-labelledby="connection-title"><div class="first-copy"><p class="eyebrow">${esc(t('stage_first'))}</p><h2 id="connection-title">${esc(t(approval?'firstApprovalTitle':'firstTitle'))}</h2><p class="intro">${esc(t(approval?'firstApprovalDesc':'firstDesc'))}</p><ol class="pair-steps"><li class="pair-step"><span class="step-number" aria-hidden="true">01</span><div><strong>${esc(t('scanStep'))}</strong><p>${esc(t('scanDesc'))}</p></div></li><li class="pair-step"><span class="step-number" aria-hidden="true">02</span><div><strong>${esc(t('approveStep'))}</strong><p>${esc(t('approveDesc'))}</p></div></li></ol><div class="network-hint">${icon('wifi')}<span>${esc(t('sameNetwork'))}</span>${button('network','connectionHelp',null,'quiet')}</div></div><div class="invitation">${approval?`<div class="approval-icon">${icon('device-mobile')}</div><h3 class="device-name">Redmi K40</h3><p>${esc(t('approvalRequest'))}</p><div class="approval-actions">${button('reject','reject')}${button('approve','approve',null,'primary')}</div><p class="invitation-note">${esc(t('verifyPhone'))}</p>`:expired?`<div class="approval-icon">${icon('qrcode')}</div><h3>${esc(t('invitationExpired'))}</h3><p>${esc(t('expiredInvitationDesc'))}</p>${button('refresh-invite','refreshInvite',null,'primary')}`:pairingMethods()}</div></section>`;
+    }
+    function deviceHeader(online){
+      return `<header class="device-header"><div class="device-icon">${icon('device-mobile')}</div><div class="device-heading"><h2>Redmi K40</h2><p>${esc(t(online?'deviceConnectedHint':'devicePairedHint'))}</p></div><span class="connection-label" data-online="${online}">${online?icon('circle-check'):''}${esc(t(online?'connected':'offline'))}</span></header>`;
+    }
+    function receivingRow(){
+      const issue=ui.issue,title=issue?issue+'Title':ui.paused?'pausedTitle':'receivingTitle',description=issue?issue+'Desc':ui.paused?'pausedDesc':'receivingDesc';
+      let action=issue?button(issue,issue+'Action','file-description',issue==='uncertain'?'primary':'outline'):ui.paused?button('toggle-receiving','resume','player-play','primary'):button('toggle-receiving','pause','player-pause');
+      return `<section class="receiving" data-tone="${issue==='storage'?'error':issue?'warning':'neutral'}" aria-labelledby="receiving-title"><div class="receiving-copy"><h3 id="receiving-title">${esc(t(title))}</h3><p>${esc(t(description))}</p></div>${action}</section>`;
+    }
+    function connectedView(){return `<section class="connection-panel" aria-label="${esc(t('stage_connected'))}">${deviceHeader(ui.issue!=='storage')}${receivingRow()}</section><div class="tip-row"><span>${icon('cursor-text')}${esc(t('cursorTip'))}</span>${button('help','help',null,'quiet')}</div>`;}
+    function reconnectView(){
+      const issue=ui.issue;
+      return `<section class="connection-panel" aria-labelledby="connection-title">${deviceHeader(false)}<div class="reconnect-copy"><div><h3 id="connection-title">${esc(t(issue?issue+'Title':'reconnectTitle'))}</h3><p>${esc(t(issue?issue+'Desc':'reconnectDesc'))}</p>${issue?'':`<p class="small-note">${esc(t('reconnectNote'))}</p>`}</div>${issue?button(issue,issue+'Action','file-description',issue==='uncertain'?'primary':'outline'):button('connection-help','connectionHelp',null,'outline')}</div><div class="standby-row"><span>${esc(t(issue?'standbyBlocked':ui.paused?'standbyPaused':'standbyReady'))}</span>${issue?'':button('toggle-receiving',ui.paused?'enableStandby':'pause',ui.paused?'player-play':'player-pause','quiet')}</div></section>`;
+    }
+    function record(){
+      if(ui.empty)return `<div class="empty"><strong>${esc(t('emptyTitle'))}</strong><p>${esc(t('emptyHint'))}</p></div>`;
+      const status=recordState,text=status==='submitted'?sample:pending;
+      const fields=[[t('source'),'Redmi K40'],[t('target'),status==='expired'?t('noTarget'):'WindowsTerminal.exe'],[t('received'),'2026-11-13 18:42:16'],[t('sequence'),'11']];
+      return `<article class="record"><div class="record-main"><div class="record-top"><div class="time-group"><time datetime="2026-11-13T18:42:16+08:00">18:42</time><span class="date">${esc(t('today'))}</span></div><div class="record-top-actions"><span class="badge" data-status="${status}">${icon(status==='submitted'?'circle-check':'alert-triangle')}${esc(t(status))}</span><button id="record-details" class="icon-button quiet" aria-label="${esc(t(ui.details?'collapse':'details'))}" title="${esc(t(ui.details?'collapse':'details'))}" aria-expanded="${ui.details}" aria-controls="record-panel">${icon('dots-vertical')}</button></div></div><p class="message" id="original-text">${esc(text)}</p>${status==='submitted'?'':`<p class="record-notice">${esc(t(status+'Note'))}</p>`}</div><div class="record-footer"><div class="route">${icon('device-mobile')}<span class="source-name">Redmi K40</span>${icon('chevron-right')}${icon(status==='expired'?'device-desktop':'terminal-2')}<span class="destination">${esc(status==='expired'?t('noTarget'):'Windows Terminal')}</span></div><button id="copy" class="copy">${icon('copy')}${esc(t('copy'))}</button></div><section class="details" id="record-panel" ${ui.details?'':'hidden'}><dl>${fields.map(([key,value])=>`<dt>${esc(key)}</dt><dd>${esc(value)}</dd>`).join('')}</dl><p class="detail-note">${esc(t(status+'Note'))}</p></section></article>`;
+    }
+    function render(){
+      document.getElementById('toast').hidden=true;document.documentElement.lang=ui.lang==='zh'?'zh-Hans':'en';document.documentElement.dataset.theme=ui.theme;document.title='SayIn · '+t('receive');
+      document.querySelectorAll('[data-text]').forEach(node=>node.textContent=t(node.dataset.text));
+      document.getElementById('stage-switch').setAttribute('aria-label',t('stageLabel'));
+      document.getElementById('stage-switch').innerHTML=['first','connected','reconnect'].map(stage=>`<button data-stage="${stage}" aria-pressed="${ui.stage===stage}">${esc(t('stage_'+stage))}</button>`).join('');
+      const condition=document.getElementById('condition');condition.innerHTML=conditions[ui.stage].map(value=>`<option value="${value}" ${currentCondition()===value?'selected':''}>${esc(t(ui.stage==='reconnect'&&value==='ready'?'standbyCondition':'condition_'+value))}</option>`).join('');
+      document.getElementById('network-preview').innerHTML=['private','public','changed','offline'].map(mode=>`<option value="${mode}" ${network.mode===mode?'selected':''}>${esc(t('net_'+mode))}</option>`).join('');
+      document.getElementById('connection').innerHTML=networkBlocked()?networkGate():(ui.stage==='first'?firstConnection():ui.stage==='connected'?connectedView():reconnectView());
+      document.getElementById('recent-section').hidden=ui.stage==='first';document.getElementById('recent').innerHTML=ui.stage==='first'?'':record();
+      document.getElementById('history-link').innerHTML=esc(t('allHistory'))+icon('chevron-right');
+      const demo=document.getElementById('simulate');demo.hidden=!networkBlocked()&&(ui.stage==='connected'||ui.stage==='first'&&ui.phase!=='invite');demo.textContent=t(networkBlocked()?'demoNetworkReturns':ui.stage==='first'?'simulateRequest':'simulateReconnect');
+      const actions=document.getElementById('preview-actions');actions.hidden=demo.hidden;
+      document.getElementById('language').textContent=ui.lang==='zh'?'English':'简体中文';document.getElementById('language').setAttribute('aria-label',ui.lang==='zh'?'Switch to English':'切换简体中文');
+      document.getElementById('theme').innerHTML=icon(ui.theme==='light'?'moon':'sun');document.getElementById('theme').setAttribute('aria-label',t(ui.theme==='light'?'themeDark':'themeLight'));document.getElementById('theme').title=t(ui.theme==='light'?'themeDark':'themeLight');
+      for(const [nav,ico] of [['devices','device-mobile'],['history','history'],['settings','settings']]){const node=document.querySelector(`[data-nav="${nav}"]`);node.innerHTML=icon(ico);node.setAttribute('aria-label',t(nav));node.title=t(nav);}
+    }
+    const dialog=document.getElementById('dialog');
+    function openDialog(kind,trigger=document.activeElement){
+      dialogTrigger={id:trigger?.id,nav:trigger?.dataset.nav};let title='',body='',actions=button('dismiss','done',null);const p=key=>`<p>${esc(t(key))}</p>`;
+      if(kind==='connection-help'){title=t('reconnectHelpTitle');body=p('reconnectHelpIntro')+p('sameNetwork')+p('reconnectHelpNetwork');}
+      if(kind==='help'){title=t('helpTitle');body=p('helpP1')+p('helpP2')+p('helpP3');}
+      if(kind==='uncertain'){title=t('reviewTitle');body=p('reviewIntro')+`<blockquote>${esc(pending)}</blockquote><p class="dialog-note">${esc(t('reviewNote'))}</p><label class="check-row"><input type="checkbox" id="review-check"><span>${esc(t('reviewCheck'))}</span></label>`;actions=button('dismiss','cancel')+button('confirm-review','reviewCommit',null,'primary').replace('<button ','<button disabled ');}
+      if(kind==='held'){title=t('reasonTitle');body=p('reasonIntro')+p('reasonP2')+p('reasonP3');if(recordState==='held')actions=button('dismiss','done')+button('simulate-expiry','simulateExpiry');}
+      if(['network','connection-help','help'].includes(kind)){
+        const adapter=adapters[network.adapter];
+        const information=`<dl class="dialog-detail"><dt>${esc(t('adapterLabel'))}</dt><dd>${esc(networkBlocked()?t('noAddress'):t(adapter.name))}</dd><dt>${esc(t('addressLabel'))}</dt><dd>${esc(networkBlocked()?t('noAddress'):adapter.address+':7788')}</dd><dt>${esc(t('categoryLabel'))}</dt><dd>${esc(networkBlocked()?'—':t('category_'+(network.mode==='private'?'private':'public')))}</dd></dl>`+p('networkP1')+p('networkP2')+p('firewallHelp')+`<p class="dialog-note">${esc(t('networkNote'))}</p>`;
+        if(kind==='network'){title=t('networkTitleDialog');body=information;}
+        else body+=`<details class="network-details"><summary>${esc(t('networkDetails'))}</summary>${information}</details>`;
+      }
+      if(kind==='storage'){title=t('storageTitleDialog');body=p('storageP1')+p('storageP2');}
+      if(kind==='devices'){title=t('devicesTitle');body=ui.stage==='first'?p('deviceNone'):`<dl class="dialog-detail"><dt>${esc(t('source'))}</dt><dd>Redmi K40</dd><dt>${esc(t('scenario'))}</dt><dd>${esc(t(ui.stage==='connected'&&!networkBlocked()&&ui.issue!=='storage'?'connected':'offline'))}</dd></dl><p class="dialog-note">${esc(t('deviceNote'))}</p>`;}
+      if(kind==='settings'){title=t('settingsTitle');body=`<label class="settings-row">${esc(t('appearance'))}<select id="appearance-choice">${['system','light','dark'].map(value=>`<option value="${value}" ${themeChoice===value?'selected':''}>${esc(t(value))}</option>`).join('')}</select></label><label class="settings-row">${esc(t('language'))}<select id="language-choice">${[['system',t('system')],['zh-Hans','简体中文'],['en','English']].map(([value,label])=>`<option value="${value}" ${languageChoice===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label><p class="dialog-note">${esc(t('settingsNote'))}</p>`;}
+      dialog.dataset.kind=kind;document.getElementById('dialog-title').textContent=title;document.getElementById('dialog-body').innerHTML=body;document.getElementById('dialog-actions').innerHTML=actions;document.getElementById('dialog-close').innerHTML=icon('x');document.getElementById('dialog-close').setAttribute('aria-label',t('close'));if(!dialog.open)dialog.showModal();document.getElementById('dialog-close').focus();
+    }
+    function notify(message){clearTimeout(toastTimer);const node=document.getElementById('toast');node.textContent=message;node.hidden=false;toastTimer=setTimeout(()=>node.hidden=true,3000);}
+    async function copyOriginal(){try{const text=recordState==='submitted'?sample:pending;if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);else{const previous=document.activeElement,field=document.createElement('textarea');field.value=text;field.style.cssText='position:fixed;left:-9999px';document.body.append(field);field.select();const ok=document.execCommand('copy');field.remove();previous?.focus();if(!ok)throw new Error('Copy rejected');}notify(t('copied'));}catch{notify(t('copyFailed'));}}
+    function focusAfterRender(id){render();(document.getElementById(id)||document.getElementById('connection'))?.focus({preventScroll:true});}
+    document.addEventListener('click',event=>{
+      const trigger=event.target.closest('button');if(!trigger)return;const id=trigger.id,nav=trigger.dataset.nav,stage=trigger.dataset.stage;
+      if(stage){setStage(stage);document.querySelector(`[data-stage="${stage}"]`).focus({preventScroll:true});return;}
+      if(nav==='history'||id==='history-link'){location.href='sayin-history-card.html';return;}if(nav==='devices'||nav==='settings'){openDialog(nav,trigger);return;}
+      if(['connection-help','help','uncertain','held','network','storage'].includes(id)){openDialog(id,trigger);return;}
+      if(id==='retry-network'){notify(t('stillOffline'));return;}
+      if(id==='simulate'){
+        if(networkBlocked()){restoreNetwork();return;}
+        if(ui.stage==='first')ui.phase='approval';else ui.stage='connected';
+        focusAfterRender(ui.stage==='first'?'approve':ui.issue||'toggle-receiving');return;
+      }
+      if(id==='approve'){ui.stage='connected';ui.phase=null;ui.paused=false;ui.issue=null;ui.empty=true;focusAfterRender('toggle-receiving');return;}
+      if(id==='reject'){ui.phase='invite';focusAfterRender('show-code');return;}
+      if(id==='refresh-invite'){ui.phase='invite';ui.code=false;focusAfterRender('show-code');return;}
+      if(id==='show-code'){ui.code=!ui.code;syncPairingMethod();return;}
+      if(id==='toggle-receiving'&&!ui.issue){ui.paused=!ui.paused;focusAfterRender(id);return;}
+      if(id==='copy'){copyOriginal();return;}
+      if(id==='record-details'){ui.details=!ui.details;focusAfterRender(id);return;}
+      if(id==='theme'){themeChoice=ui.theme==='light'?'dark':'light';ui.theme=themeChoice;render();return;}
+      if(id==='language'){ui.lang=ui.lang==='zh'?'en':'zh';languageChoice=ui.lang==='zh'?'zh-Hans':'en';render();return;}
+      if(id==='dialog-close'||id==='dismiss'){dialog.close();return;}
+      if(id==='confirm-review'&&document.getElementById('review-check')?.checked){ui.issue=null;ui.paused=false;render();dialog.close();notify(t('readyAfterReview'));return;}
+      if(id==='simulate-expiry'){recordState='expired';ui.issue=null;ui.paused=true;render();dialog.close();return;}
+    });
+    document.getElementById('condition').addEventListener('change',event=>setCondition(event.target.value));
+    document.getElementById('network-preview').addEventListener('change',event=>setNetworkMode(event.target.value));
+    dialog.addEventListener('change',event=>{
+      if(event.target.id==='review-check')document.getElementById('confirm-review').disabled=!event.target.checked;
+      if(event.target.id==='appearance-choice'){themeChoice=event.target.value;ui.theme=themeChoice==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):themeChoice;render();}
+      if(event.target.id==='language-choice'){languageChoice=event.target.value;ui.lang=(languageChoice==='system'?navigator.language:languageChoice).startsWith('zh')?'zh':'en';render();const origin=dialogTrigger;openDialog('settings',document.querySelector('[data-nav="settings"]'));dialogTrigger=origin;document.getElementById('language-choice').focus();}
+    });
+    dialog.addEventListener('close',()=>{const origin=dialogTrigger;const node=origin?.id?document.getElementById(origin.id):origin?.nav?document.querySelector(`[data-nav="${origin.nav}"]`):null;(node||document.getElementById('toggle-receiving')||document.querySelector(`[data-stage="${ui.stage}"]`))?.focus({preventScroll:true});});
+    dialog.addEventListener('click',event=>{if(event.target===dialog){const r=dialog.getBoundingClientRect();if(event.clientX<r.left||event.clientX>r.right||event.clientY<r.top||event.clientY>r.bottom)dialog.close();}});
+    matchMedia('(prefers-color-scheme: dark)').addEventListener('change',event=>{if(themeChoice==='system'){ui.theme=event.matches?'dark':'light';render();}});
+    render();
+
+</script>
+</body>
+</html>

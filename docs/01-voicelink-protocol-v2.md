@@ -156,7 +156,7 @@ UTF-8 必须合法，拒绝不成对的 surrogate、重复 JSON key、错误类�
 
 ### 6.2 发现不是信任
 
-设计目标是在用户允许的网络接口（专用/域默认可选，公用需本机明确授权）发布 `_voicelink._tcp`，提供实例名、端口、协议版本和随机主机 ID。当前首个实现**没有 mDNS**，手机使用扫码里的 IPv4 地址或手动输入 IPv4/端口；界面不能显示自动发现已可用。发现结果始终是可被冒充的地址线索，必须通过 TLS 身份检查才可使用。
+设计目标是在软件自动选择的可用局域网接口（不以 Windows 公用/专用/域分类增加应用内授权步骤）发布 `_voicelink._tcp`，提供实例名、端口、协议版本和随机主机 ID。当前首个实现**没有 mDNS**，手机使用扫码里的 IPv4 地址或手动输入 IPv4/端口；界面不能显示自动发现已可用。发现结果始终是可被冒充的地址线索，必须通过 TLS 身份检查才可使用。
 
 手机保留上次地址，同时做有界 mDNS 发现；只对少量候选建立连接，并取消失败竞争任务。mDNS 不通时支持扫描二维码中的地址或手动输入地址。访客 Wi-Fi 的客户端隔离、跨 VLAN、多播屏蔽及防火墙阻断分别提示，禁止自动转明文或公网。
 
@@ -164,10 +164,10 @@ UTF-8 必须合法，拒绝不成对的 surrogate、重复 JSON key、错误类�
 
 ### 6.3 配对信任材料
 
-首期支持两种等价入口，用户择一：手机扫描电脑展示的二维码，或在手机输入电脑显示的 IPv4 地址、端口和 8 位数字配对码。两条路径最终都进入同一台电脑的本地批准步骤。监听在用户选定的 Windows IPv4 接口上：Private/Domain 默认允许；Public 必须由电脑本地勾选「本次会话允许所选公用网络」。授权只绑定该网卡 GUID、IPv4 地址、Windows 网络 GUID 与类别集合，不保存为全局偏好；切换接口、刷新列表、网络变化或退出后失效。无需修改 Windows 网络分类。同一端口同时接收 `VLCP2\n` 代码握手与 TLS；不创建全局监听、不自动改防火墙。启动前和监听期间约每 2 秒直接通过 Windows Network List Manager 核对上述授权范围；所选接口、地址、网络标识或类别变化，查询失败或 3 秒查询超时则停止监听、断开连接并关闭输入闸门。这是周期检测，存在检测窗口，不提供网络切换原子保证。当前没有 mDNS、IPv6 或自动监听其他接口。
+首期支持两种等价入口，用户择一：手机扫描电脑展示的二维码，或在手机输入电脑显示的 IPv4 地址、端口和 8 位数字配对码。两条路径最终都进入同一台电脑的本地批准步骤。首次使用自动启动监听并展示邀请，已有设备启动只恢复监听，不要求重新扫码。自动优先物理接口、同类中优先上次成功路径；故障排查可在连接帮助里临时选择其他路径。Private/Domain/Public 使用相同流程，不再要求应用内公用网络会话授权；网络分类不决定手机身份信任。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，不监听 `0.0.0.0`，不修改 Windows 分类或防火墙。同一端口同时接收 `VLCP2\n` 代码握手与 TLS，优先 7788，端口占用时使用系统分配端口。启动前和监听期间约每 2 秒通过 Windows Network List Manager 核对绑定范围；接口、地址、网络标识/类别变化，查询失败或 3 秒查询超时则暂停输入、关闭旧服务及连接。桌面端约每 2 秒自动尝试恢复可用监听，不重置设备信任；仅对网络中断造成的暂停恢复新输入范围，主动暂停和待核对仍保留，旧文字不自动补输。周期检测存在检测窗口，不提供网络切换原子保证。当前无 mDNS/IPv6；Android 使用保存端点，电脑地址或端口变化后的自动发现仍未实现。详见 [29 接收页重构](29-desktop-receive-ui-refactor.md)。
 
 1. 电脑生成并持久保存主机 ID、私钥与自签叶证书。证书 SAN 含稳定的 `vl-<host_id>.local` 名称；证书有效期受检查。
-2. 用户主动打开配对窗口，有效期 120 秒。二维码带 `host_id`、`window_id`、`tls_name`、IPv4、端口、完整证书 DER、证书 SHA-256 和 128 位随机一次性秘密。手工配对先在同一端口通过 `VLCP2\n` 帧执行 1Password CPace；使用 Git 仓库 `1Password/cpace` 锁定提交 `7e2e42c7d359969f4356292c2bd2cf3ff6eeeecc`，不是 crates.io 上同名的其他实现。CPace 认证并确认代码之后，通过 HKDF-SHA256 与 ChaCha20-Poly1305 加密传递邀请信息。
+2. 首次使用自动展示配对窗口；后续由电脑用户明确添加手机或刷新过期邀请，有效期 120 秒。二维码带 `host_id`、`window_id`、`tls_name`、IPv4、端口、完整证书 DER、证书 SHA-256 和 128 位随机一次性秘密。手工配对先在同一端口通过 `VLCP2\n` 帧执行 1Password CPace；使用 Git 仓库 `1Password/cpace` 锁定提交 `7e2e42c7d359969f4356292c2bd2cf3ff6eeeecc`，不是 crates.io 上同名的其他实现。CPace 认证并确认代码之后，通过 HKDF-SHA256 与 ChaCha20-Poly1305 加密传递邀请信息。
 3. 两种入口都使用**仅此主机专用**的信任配置，固定完整 DER 叶证书，保持 `tls_name` URL、限制 DNS 映射到邀请 IPv4，并继续做 SAN/hostname 验证。仅启用 TLS 1.3、关闭 0-RTT；禁止全局宽松 HostnameVerifier 或信任所有证书。
 4. WSS `/v2` 建立后提交包含 `window_id` 的配对请求；电脑显示设备名并由用户批准。批准后立即消费短期配对窗口，再通过 receiver 账本持久签发授权；崩溃或持久失败要求重新开启配对，不声称窗口消费与 SQLite 提交为一个原子事务。
 5. 电脑签发 256 位随机 bearer token，仅在 TLS 内发送；电脑保存其 HMAC，手机使用 Android Keystore AES-256-GCM 加密保存 token 与配对配置。Windows 私密材料由 DPAPI 保护，受保护目录设当前用户/SYSTEM ACL。
@@ -217,9 +217,9 @@ UTF-8 必须合法，拒绝不成对的 surrogate、重复 JSON key、错误类�
 
 | 方向 / t | 必需内容 | 语义 |
 | --- | --- | --- |
-| 手机 → `pair` | v, name, secret | TLS 已基于扫码信任材料完成；请求人工批准 |
+| 手机 → `pair` | v, name, window_id, secret | TLS 已基于扫码信任材料完成；请求人工批准 |
 | 电脑 → `paired` | v, device_id, token, host_id | 配对结果，含敏感 token，不记录日志 |
-| 手机 → `hello` | v, device_id, token | 创建认证会话 |
+| 手机 → `hello` | v, device_id, token, name | 创建认证会话，并在令牌认证成功后刷新设备显示名称 |
 | 电脑 → `welcome` | v, session_id, host_id, device_id, active_device_id, state_rev, paused, target, capabilities, limits | 认证、状态和资源限制；target 无可用目标时为 null |
 | 手机 → `submit` | id, op, target | 提交一个最终操作；op 为 text 或 key，见下文 |
 | 电脑 → `status` | id, st；已接受时有 order | 返回当前/最终状态；可带 reason、method、server_ms |
@@ -230,6 +230,10 @@ UTF-8 必须合法，拒绝不成对的 surrogate、重复 JSON key、错误类�
 | 电脑 → `state` | state_rev, paused, active_device_id, target | 状态变化；可带最小化的 focus_label 与 pause_reason |
 | 双向 `ping` / `pong` | nonce | 应用活性探测；pong 回显 nonce |
 | 电脑 → `err` | code, ref?, retry_after_ms? | 未接受的格式/权限/流控等错误；ref 指向相关请求 |
+
+`pair.name` 与 `hello.name` 是显示元数据，必须为非空、无控制字符、最多 64 个 Unicode 码点的名称。手机优先读取只读商品名称属性，回退到 `Build.MODEL`，再回退 `Android`；不使用设备代号，不因界面语言翻译名称。详见 [24 设备名称方案](24-android-device-display-name-plan.md)。
+
+`hello.name` 仅在设备 UUID/令牌认证成功且授权未撤销后由账本协调线程保存；无效名称或认证失败不得更新元数据。更新不改变 device/host 身份、令牌、接收闸门、暂停状态、激活范围、状态修订号、Outbox 或去重身份，不触发发送/重试。既有配对通过普通重连刷新名称，无需重新配对。每条历史保存接收时的来源名称快照，不因后续改名批量重写。开发阶段双端统一使用这一字段，不设置旧握手兼容分支。
 
 `submit.op` 只允许：
 
@@ -243,7 +247,7 @@ UTF-8 必须合法，拒绝不成对的 surrogate、重复 JSON key、错误类�
 以下 JSON 中 token、target、session_id 仅为可读占位值，不是有效凭据。每个代码块展示一个完整消息。
 
 ```json
-{"v":2,"t":"hello","device_id":"device-a","token":"EXAMPLE_TOKEN"}
+{"v":2,"t":"hello","device_id":"device-a","token":"EXAMPLE_TOKEN","name":"Redmi K40"}
 ```
 
 ```json

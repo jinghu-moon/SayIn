@@ -39,16 +39,17 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
             .unwrap();
         receiver.resume(state.state_rev, false).await.unwrap();
         assert!(!receiver.snapshot().await.unwrap().control.paused);
-        let interface = NetworkInterface {
-            adapter: Uuid::new_v4(),
-            address: "192.0.2.1".parse().unwrap(),
-            name: "test".into(),
-            profiles: vec![NetworkProfile {
+        let interface = NetworkInterface::new(
+            Uuid::new_v4(),
+            "192.0.2.1".parse().unwrap(),
+            "test".into(),
+            vec![NetworkProfile {
                 id: Uuid::new_v4(),
                 category: NetworkCategory::Public,
             }],
-        };
-        let authorization = interface.authorize(true).unwrap();
+        )
+        .with_physical(true);
+        let binding = interface.binding().unwrap();
         let address = SocketAddr::new(interface.address.into(), 7788);
         let shared = Arc::new(Shared {
             receiver: receiver.clone(),
@@ -71,7 +72,7 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
         let observed = stop.subscribe();
         let monitor = tokio::spawn(monitor_profile(
             shared,
-            Some(authorization),
+            Some(binding),
             stop,
             stopping,
             move || {
@@ -97,6 +98,10 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
             .unwrap();
         assert!(*observed.borrow());
         assert!(receiver.snapshot().await.unwrap().control.paused);
+        assert_eq!(
+            receiver.state().await.unwrap().pause_reason.as_deref(),
+            Some("network_unavailable")
+        );
         receiver.shutdown().await.unwrap();
         std::fs::remove_dir_all(directory).unwrap();
     }

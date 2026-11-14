@@ -173,13 +173,7 @@ fn dispatch_tray_event(event: TrayEvent, cx: &mut gpui_kit::App) {
             if paused && review {
                 open_main(cx);
             } else {
-                receiver.update(cx, |s, cx| {
-                    if paused {
-                        s.resume(false, cx)
-                    } else {
-                        s.pause(cx)
-                    }
-                });
+                receiver.update(cx, |s, cx| if paused { s.resume(cx) } else { s.pause(cx) });
             }
         }
         TrayEvent::Unavailable => {
