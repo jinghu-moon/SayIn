@@ -5243,6 +5243,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
+name = "resize"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71725ecd5e0197b54fe859055b108688472ab6a358f8fbe5cee4a556b1b5bfea"
+dependencies = [
+ "rgb",
+]
+
+[[package]]
 name = "resvg"
 version = "0.46.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6708,6 +6717,7 @@ dependencies = [
  "voicelink-pairing",
  "voicelink-receiver",
  "voicelink-transport",
+ "win-icon-extractor",
  "windows 0.62.2",
  "yue-component",
 ]
@@ -7210,6 +7220,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "win-icon-extractor"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d44398466322023956768b83f07e5a06d3c417578befcb94e41677fab055b89"
+dependencies = [
+ "miniz_oxide 0.8.9",
+ "resize",
+ "thiserror 2.0.21",
+ "windows 0.61.3",
 ]
 
 [[package]]

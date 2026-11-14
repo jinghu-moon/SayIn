@@ -1,5 +1,7 @@
 # 16 · 桌面端 UI 重构实施记录
 
+> 接收页与网络流程已由 [29 接收页重构](29-desktop-receive-ui-refactor.md) 更新：自动选择网络，取消应用内公用网络会话许可。本文保留当时界面、策略和验收记录。
+
 日期：2026-11-13。基于 [15 · 产品定位与 HTML 原型](15-desktop-product-purpose-and-ui-prototype.md)，已落地到 Rust / GPUI / Yue 原生程序。开发构建：`desktop/target/debug/voicelink-desktop.exe`。
 
 ## 1. 本次完成的行为

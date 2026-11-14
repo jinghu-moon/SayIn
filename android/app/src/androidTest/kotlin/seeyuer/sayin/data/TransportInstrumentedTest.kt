@@ -41,14 +41,39 @@ class TransportInstrumentedTest {
             repository.foreground(true)
             repository.pairCode("127.0.0.1", args.getString("fixturePort") ?: "17888", code!!)
             waitFor { it.ready }
+            val validScope = checkNotNull(repository.state.value.receptionScope)
+            repository.send("stale scope must not enqueue", UUID.randomUUID().toString(), validScope.copy(target = "stale-target"))
+            withTimeout(5000) {
+                while (repository.state.value.issue != ClientIssue.NOT_READY) delay(20)
+            }
+            assertTrue(repository.state.value.history.isEmpty())
+            assertNull(repository.state.value.savedDraft)
             val draftId = UUID.randomUUID().toString()
-            repository.send("中文 😀 {ENTER}", draftId)
+            repository.send("中文 😀 {ENTER}", draftId, validScope)
+            withTimeout(5000) {
+                while (repository.state.value.savedDraft != draftId) {
+                    check(repository.state.value.issue in listOf(null, ClientIssue.NOT_READY))
+                    delay(20)
+                }
+            }
             val delivered = waitFor { state -> state.history.any { it.state == "injected" } }
             assertTrue(delivered.paired)
             assertEquals(draftId, delivered.savedDraft)
             assertEquals(1, delivered.history.size)
             assertNull(delivered.history.single().payload)
             val id = delivered.history.single().id
+            assertNotNull(delivered.history.single().transcript)
+            waitFor { it.historyText[id] == "中文 😀 {ENTER}" }
+            // Querying a terminal receipt must retain its original identity and
+            // encrypted display text, without submitting another input attempt.
+            repeat(2) {
+                repository.action(id, "query")
+                delay(200)
+                val queried = waitFor { it.ready && !it.recovering }
+                assertEquals(id, queried.history.single().id)
+                assertNull(queried.history.single().payload)
+                assertEquals("中文 😀 {ENTER}", queried.historyText[id])
+            }
             val heldId = UUID.randomUUID().toString()
             repository.send("fixture: hold without input", heldId)
             val held = waitFor { state -> state.history.any { it.id == heldId && it.state == "held" } }
@@ -82,6 +107,33 @@ class TransportInstrumentedTest {
             assertEquals(id, restored.single { it.state == "injected" }.id)
             assertEquals(heldId, restored.single { it.state == "expired" }.id)
             assertTrue(repository.state.value.ready)
+            // Changing only a route preserves identity and queries the same encrypted Outbox.
+            val original = PairedHost(checkNotNull(ProtectedStore(context).load()))
+            repository.updateAddress("127.0.0.1", "1")
+            withTimeout(5000) { while (repository.state.value.issue != ClientIssue.CONNECTION) delay(20) }
+            val failedEpoch = repository.state.value.connectionEpoch
+            // No manual Connect: the foreground reconnect loop must make another attempt.
+            withTimeout(6000) { while (repository.state.value.connectionEpoch <= failedEpoch) delay(20) }
+            repository.updateAddress("127.0.0.1", args.getString("fixturePort") ?: "17888")
+            delay(250)
+            waitFor { it.ready }
+            val updated = PairedHost(checkNotNull(ProtectedStore(context).load()))
+            assertEquals(original.hostId, updated.hostId)
+            assertEquals(original.deviceId, updated.deviceId)
+            assertEquals(original.token, updated.token)
+            assertArrayEquals(original.certificate.encoded, updated.certificate.encoded)
+            assertEquals(2, repository.state.value.history.size)
+            // The real desktop protocol must keep uncertainty across phone reconnects.
+            repository.send("fixture: uncertain", UUID.randomUUID().toString())
+            waitFor { it.paused && it.pauseReason == "outcome_review_required" }
+            assertFalse(repository.state.value.ready)
+            repository.foreground(false)
+            withTimeout(5000) { while (repository.state.value.connection != Connection.OFFLINE) delay(20) }
+            repository.foreground(true)
+            waitFor { it.connection == Connection.ONLINE && !it.recovering }
+            assertEquals("outcome_review_required", repository.state.value.pauseReason)
+            assertFalse(repository.state.value.ready)
+            assertEquals(3, repository.state.value.history.size)
         } finally {
             repository.close()
             // Namespaced fixture files only. Keystore keys are never deleted.

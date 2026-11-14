@@ -1,0 +1,654 @@
+<!doctype html>
+<html lang="zh-Hans" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>SayIn · 历史记录卡片</title>
+  <link rel="icon" href="data:,">
+  <style id="yue-feedback-tokens">
+    /* Exact Yue token snapshot: primitives/color.css + semantics/feedback.css.
+       Both the semantic roles AND the underlying hue ramps change in dark mode. */
+:root {
+  --blue-50: #f4f9fc;
+  --blue-100: #e5f1f7;
+  --blue-200: #c6e2ee;
+  --blue-300: #a1ccde;
+  --blue-400: #7ab3cb;
+  --blue-500: #5a96b2;
+  --blue-600: #477b94;
+  --blue-700: #3b647a;
+  --blue-800: #325364;
+  --blue-900: #2b4351;
+  --blue-950: #192a35;
+  --red-50: #fff8f7;
+  --red-100: #ffecea;
+  --red-200: #ffd5d1;
+  --red-300: #feb3ab;
+  --red-400: #f6887e;
+  --red-500: #e66a5e;
+  --red-600: #c75146;
+  --red-700: #a14138;
+  --red-800: #843933;
+  --red-900: #6d342f;
+  --red-950: #3c1714;
+  --amber-50: #fffaed;
+  --amber-100: #fff4d3;
+  --amber-200: #ffe397;
+  --amber-300: #ffcd5c;
+  --amber-400: #f6b435;
+  --amber-500: #d69629;
+  --amber-600: #b37622;
+  --amber-700: #905a1d;
+  --amber-800: #75471b;
+  --amber-900: #623a1a;
+  --amber-950: #381d09;
+  --green-50: #f3faf6;
+  --green-100: #e0f2e7;
+  --green-200: #c1e6cf;
+  --green-300: #98d2ae;
+  --green-400: #6fb98d;
+  --green-500: #509b71;
+  --green-600: #40805c;
+  --green-700: #37674c;
+  --green-800: #2f523e;
+  --green-900: #274234;
+  --green-950: #12241b;
+}
+[data-theme=dark] {
+  --blue-50: #f2f7fa;
+  --blue-100: #e2eef4;
+  --blue-200: #c1dce8;
+  --blue-300: #98c3d5;
+  --blue-400: #6fa8c0;
+  --blue-500: #4e8aa5;
+  --blue-600: #3b6f88;
+  --blue-700: #315a70;
+  --blue-800: #2b4c5d;
+  --blue-900: #273f4c;
+  --blue-950: #172832;
+  --red-50: #fff5f4;
+  --red-100: #fee8e6;
+  --red-200: #fbcfcb;
+  --red-300: #f5aaa3;
+  --red-400: #ea7d73;
+  --red-500: #d85d52;
+  --red-600: #b9443a;
+  --red-700: #96372f;
+  --red-800: #7c322c;
+  --red-900: #682f2b;
+  --red-950: #391512;
+  --amber-50: #fff9eb;
+  --amber-100: #fff0c6;
+  --amber-200: #fcdd88;
+  --amber-300: #f7c44d;
+  --amber-400: #eaa923;
+  --amber-500: #c98a12;
+  --amber-600: #a66a0d;
+  --amber-700: #85500f;
+  --amber-800: #6e4013;
+  --amber-900: #5d3615;
+  --amber-950: #351b07;
+  --green-50: #f1f8f4;
+  --green-100: #ddefe4;
+  --green-200: #bce0ca;
+  --green-300: #8fc9a5;
+  --green-400: #64ae82;
+  --green-500: #438f65;
+  --green-600: #347451;
+  --green-700: #2d5d43;
+  --green-800: #284b38;
+  --green-900: #233e30;
+  --green-950: #102219;
+}
+:root {
+  --info: var(--blue-600);
+  --info-bg: var(--blue-100);
+  --info-foreground: var(--blue-900);
+  --warning: var(--amber-700);
+  --warning-bg: var(--amber-100);
+  --warning-foreground: var(--amber-900);
+  --error: var(--red-700);
+  --error-bg: var(--red-100);
+  --error-foreground: var(--red-900);
+  --success: var(--green-700);
+  --success-bg: var(--green-200);
+  --success-foreground: var(--green-900);
+  --info-border: var(--blue-300);
+  --success-border: var(--green-300);
+  --warning-border: var(--amber-300);
+  --error-border: var(--red-300);
+  --error-solid: var(--red-700);
+  --warning-solid: var(--amber-700);
+  --success-solid: var(--green-700);
+}
+[data-theme=dark] {
+  --info: var(--blue-300);
+  --info-bg: var(--blue-950);
+  --info-foreground: var(--blue-100);
+  --warning: var(--amber-300);
+  --warning-bg: var(--amber-950);
+  --warning-foreground: var(--amber-100);
+  --error: var(--red-300);
+  --error-bg: var(--red-950);
+  --error-foreground: var(--red-100);
+  --success: var(--green-400);
+  --success-bg: var(--green-900);
+  --success-foreground: var(--green-100);
+  --info-border: var(--blue-800);
+  --success-border: var(--green-800);
+  --warning-border: var(--amber-800);
+  --error-border: var(--red-800);
+  --error-solid: var(--red-400);
+  --warning-solid: var(--amber-400);
+  --success-solid: var(--green-400);
+}
+  </style>
+  <style>
+    /* Product surfaces remain neutral; functional state colors use Yue feedback roles above. */
+    :root {
+      --brand:#1f75db;
+      --neutral-text:var(--neutral-700); --neutral-bg:var(--neutral-100); --neutral-border:var(--neutral-300);
+
+      --neutral-0:#fff;--neutral-50:#fafafa;--neutral-100:#f5f5f5;
+      --neutral-200:#eee;--neutral-300:#e0e0e0;--neutral-400:#c7c7c7;
+      --neutral-500:#a3a3a3;--neutral-600:#737373;--neutral-700:#525252;
+      --neutral-800:#333;--neutral-850:#2b2b2b;--neutral-900:#1f1f1f;
+      --neutral-925:#181818;--neutral-950:#121212;--neutral-1000:#000;
+      --space-4:.25rem;--space-8:.5rem;--space-12:.75rem;
+      --space-16:1rem;--space-24:1.5rem;--space-32:2rem;--space-48:3rem;
+      --radius-sm:.25rem;--radius-md:.5rem;--radius-lg:.75rem;--radius-xl:1rem;
+      --canvas:var(--neutral-100);--surface:var(--neutral-0);--soft:var(--neutral-50);
+      --hover:var(--neutral-100);--pressed:var(--neutral-200);
+      --text:var(--neutral-900);--secondary:var(--neutral-700);--muted:var(--neutral-600);
+      --border:var(--neutral-300);--line:var(--neutral-200);
+      color-scheme:light;font-size:16px;
+    }
+    :root[data-theme="dark"] {
+      --neutral-text:var(--neutral-500); --neutral-bg:var(--neutral-850); --neutral-border:var(--neutral-800);
+
+      --canvas:var(--neutral-950);--surface:var(--neutral-925);--soft:var(--neutral-900);
+      --hover:var(--neutral-850);--pressed:var(--neutral-800);
+      --text:var(--neutral-100);--secondary:var(--neutral-400);--muted:var(--neutral-500);
+      --border:var(--neutral-800);--line:var(--neutral-850);color-scheme:dark;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--canvas);color:var(--text);font:14px/1.5 "Segoe UI","Microsoft YaHei UI",system-ui,sans-serif}
+    button,select{font:inherit;color:inherit;cursor:default}
+    button{display:inline-flex;align-items:center;justify-content:center;gap:var(--space-8);min-height:32px;padding:6px 10px;border:1px solid transparent;border-radius:var(--radius-md);background:transparent;white-space:nowrap}
+    button:hover{background:var(--hover)}button:active{background:var(--pressed)}
+    :focus-visible{outline:2px solid var(--brand);outline-offset:3px}
+    .icon{display:inline-block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;flex:none}
+    .sprite,[hidden]{display:none!important}
+    .review-bar{height:64px;border-bottom:1px solid var(--border);background:var(--surface)}
+    .review-inner{max-width:1152px;height:100%;margin:auto;padding:0 var(--space-32);display:flex;align-items:center;gap:var(--space-12)}
+    .brand-icon{width:28px;height:28px;border-radius:6px}
+    .brand-name{font-size:16px;font-weight:650;letter-spacing:-.3px}
+    .review-label{color:var(--muted);font-size:13px;padding-left:var(--space-12);border-left:1px solid var(--border)}
+    .review-actions{margin-left:auto;display:flex;align-items:center;gap:var(--space-8)}
+    .icon-button{width:32px;padding:6px}
+    main{width:min(100% - 64px,960px);margin:var(--space-48) auto}
+    
+    .page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--space-24);margin-bottom:var(--space-24)}
+    h1{margin:0;font-size:24px;line-height:1.25;font-weight:600;letter-spacing:-.5px}
+    .page-subtitle{margin:var(--space-8) 0 0;color:var(--muted);font-size:13px}
+    select{max-width:100%;min-height:32px;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);padding:5px 28px 5px 10px}
+    
+    .records{display:flex;flex-direction:column;gap:var(--space-12)}
+    
+    /* 卡片基础样式 & Hover 优化；--card-pad-x 统一所有区块的左右内边距 */
+    .record{--card-pad-x:var(--space-24);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;transition:border-color .2s ease,box-shadow .2s ease}
+    .record:hover{border-color:var(--neutral-400);box-shadow:0 4px 12px rgba(0,0,0,.03)}
+    :root[data-theme="dark"] .record:hover{border-color:var(--neutral-600);box-shadow:0 4px 12px rgba(0,0,0,.2)}
+    
+    .record-main{padding:var(--space-16) var(--card-pad-x)}
+    .record-top{display:flex;align-items:center;justify-content:space-between;gap:var(--space-16);font-size:12px;color:var(--muted)}
+    
+    /* 时间与日期组合 */
+    .time-group{display:flex;align-items:baseline;gap:var(--space-8)}
+    .time-group time{font-variant-numeric:tabular-nums;font-weight:500;color:var(--secondary);font-size:13px}
+    .time-group .date{font-variant-numeric:tabular-nums;font-size:12px;opacity:.8}
+    
+    /* 顶部右侧操作区 (状态 + 详情) */
+    .top-actions{display:flex;align-items:center;gap:var(--space-8)}
+    
+    /* 状态胶囊样式 */
+    .status{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px;border-radius:12px;font-weight:500}
+    .status .icon{width:14px;height:14px;stroke-width:2}
+    .status[data-state="submitted"]{color:var(--success-foreground);background:var(--success-bg);border:1px solid var(--success-border)}
+    .status[data-state="failed"]{color:var(--error-foreground);background:var(--error-bg);border:1px solid var(--error-border)}
+    .status[data-state="uncertain"], .status[data-state="expired"]{color:var(--warning-foreground);background:var(--warning-bg);border:1px solid var(--warning-border)}
+    
+    /* 段落排版及点击展开 */
+    .message{font-size:16px;line-height:1.75;font-weight:400;white-space:pre-wrap;overflow-wrap:anywhere;margin:var(--space-16) 0 var(--space-8);color:var(--text);border-radius:var(--radius-md)}
+    .message.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;cursor:pointer;position:relative}
+    .message.clamped:hover{background:var(--soft);margin-left:-8px;margin-right:-8px;padding:0 8px}
+    
+    .expand-text{padding:2px 0;min-height:28px;font-size:12px;color:var(--brand)}
+    .expand-text:hover{background:transparent;text-decoration:underline;text-underline-offset:3px}
+    
+    /* 底部精简：只留路由和复制 */
+    .record-footer{display:flex;align-items:center;justify-content:space-between;gap:var(--space-16);padding:0 var(--card-pad-x) var(--space-16)}
+    .route{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-8);min-width:0;font-size:12px;color:var(--muted)}
+    .route-part{display:inline-flex;align-items:center;gap:6px;min-width:0}
+    .route .icon{width:15px;height:15px}
+    .route .destination{color:var(--text);font-weight:500}
+    .route .arrow{color:var(--muted);width:14px;height:14px}
+    
+    .card-actions{display:flex;align-items:center;gap:var(--space-4);flex-shrink:0;color:var(--secondary);font-size:12px}
+    .card-actions button{min-height:32px;padding:6px 8px;gap:6px}
+    .card-actions .icon{width:16px;height:16px}
+    
+    /* Secondary record actions sit after the status, in a stable 32px lane. */
+    .more-button{color:var(--muted);width:32px;height:32px;min-height:32px;padding:6px;border-radius:var(--radius-md);flex:none}
+    .more-button:hover,.more-button[aria-expanded="true"]{background:var(--hover);color:var(--text)}
+    .more-button .icon{width:18px;height:18px}
+    /* Body-level menu avoids clipping by the card's rounded overflow boundary. */
+    .record-menu{position:fixed;z-index:50;min-width:160px;max-width:calc(100vw - 16px);padding:var(--space-4);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:0 8px 24px color-mix(in srgb,var(--neutral-1000) 12%,transparent)}
+    .record-menu button{display:flex;width:100%;justify-content:flex-start;min-height:32px;padding:6px 10px;font-size:13px;color:var(--text);border-radius:var(--radius-sm)}
+    .record-menu button:focus-visible{outline-offset:-2px;background:var(--hover)}
+    
+    /* 通知条融合状态色 */
+    .notice{display:flex;align-items:flex-start;gap:var(--space-8);padding:10px 12px;border-radius:var(--radius-md);font-size:13px;margin:var(--space-12) 0 var(--space-8);font-weight:500}
+    .notice[data-state="failed"]{background:var(--error-bg);color:var(--error-foreground);border:1px solid var(--error-border)}
+    .notice[data-state="uncertain"], .notice[data-state="expired"]{background:var(--warning-bg);color:var(--warning-foreground);border:1px solid var(--warning-border)}
+    .notice .icon{width:16px;height:16px;margin-top:2px}
+    
+    .detail-panel{border-top:1px solid var(--line);padding:var(--space-16) var(--card-pad-x);background:var(--soft)}
+    dl{margin:0;display:grid;grid-template-columns:104px minmax(0,1fr);gap:var(--space-8) var(--space-16);font-size:12px}
+    dt{color:var(--muted)}dd{margin:0;color:var(--secondary);overflow-wrap:anywhere;white-space:pre-wrap}
+    .detail-note{margin:var(--space-16) 0 0;padding-top:var(--space-12);border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+    .prototype-foot{margin:var(--space-24) 0 0;display:flex;align-items:center;gap:var(--space-8);color:var(--muted);font-size:12px}
+    .prototype-foot .icon{width:14px;height:14px}
+    .toast{position:fixed;bottom:var(--space-24);left:50%;transform:translateX(-50%);padding:10px 16px;max-width:calc(100% - 32px);background:var(--text);color:var(--surface);border-radius:var(--radius-md);font-size:13px;box-shadow:0 4px 16px color-mix(in srgb,var(--neutral-1000) 12%,transparent);z-index:10}
+    
+    @media(max-width:700px){
+      main{width:calc(100% - 32px);margin:var(--space-32) auto}
+      .review-inner{padding:0 var(--space-16)}
+      .review-label{display:none}
+      .page-head{align-items:flex-start;flex-direction:column;gap:var(--space-16);margin-bottom:var(--space-24)}
+
+      .record{--card-pad-x:var(--space-16)}            /* 统一水平内边距 */
+      .record-main{padding:var(--space-16) var(--card-pad-x)}
+      .record-footer{padding:0 var(--card-pad-x) var(--space-16);align-items:flex-end}
+      .detail-panel{padding:var(--space-16) var(--card-pad-x)}
+
+      .route{gap:6px;flex:1}
+      .route-part:first-child{flex-basis:100%}
+      .route .arrow{display:none}
+      .card-actions{gap:0}
+      .card-actions button{padding:6px}
+      .message{font-size:15px}
+      dl{grid-template-columns:80px minmax(0,1fr);gap:var(--space-8) var(--space-12)}
+    }
+
+    /* History workspace: search first, secondary policy in a focused dialog. */
+    input{font:inherit;color:inherit}
+    .outline-button{border-color:var(--border);background:var(--surface);font-size:13px}
+    .history-toolbar{margin-bottom:var(--space-24)}
+    .search-field{display:flex;align-items:center;gap:var(--space-12);background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:var(--space-4) var(--space-12);min-height:44px}
+    .search-field:focus-within{border-color:var(--brand);outline:2px solid color-mix(in srgb,var(--brand) 18%,transparent);outline-offset:1px}
+    .search-field>.icon{color:var(--muted)}
+    .search-field input{width:100%;min-width:0;border:0;background:transparent;padding:6px 0;outline:none}
+    .search-field input::placeholder{color:var(--muted)}
+    .search-field kbd{color:var(--muted);font:11px "Segoe UI",sans-serif;white-space:nowrap}
+    .filter-row{display:flex;align-items:center;gap:var(--space-8);margin-top:var(--space-12);flex-wrap:wrap}
+    .filters{display:flex;gap:var(--space-4);flex-wrap:wrap}
+    .filter{font-size:13px;color:var(--secondary);padding:5px 12px;border-radius:var(--radius-md)}
+    .filter[aria-pressed="true"]{background:var(--surface);border-color:var(--border);color:var(--text);font-weight:600}
+    .filter .filter-count{color:var(--muted);font-size:11px;font-weight:400;font-variant-numeric:tabular-nums}
+    .result-summary{margin-left:auto;color:var(--muted);font-size:12px;white-space:nowrap}
+    .records{gap:var(--space-24)}
+    .date-group{min-width:0}
+    .date-heading{display:flex;align-items:center;gap:var(--space-8);margin:0 0 var(--space-12);font-size:13px;font-weight:600;color:var(--secondary)}
+    .date-heading span{font-size:12px;color:var(--muted);font-weight:400}
+    .group-records{display:flex;flex-direction:column;gap:var(--space-12)}
+    .message mark{color:var(--text);background:color-mix(in srgb,var(--brand) 18%,var(--surface));border-radius:2px;box-decoration-break:clone}
+    .record-menu hr{border:0;border-top:1px solid var(--line);margin:var(--space-4) 0}
+    .record-menu button.danger{color:var(--error)}
+    .record-menu button.danger:hover,.record-menu button.danger:focus-visible{background:var(--error-bg)}
+    .record-menu .icon{width:16px;height:16px}
+    .prototype-foot{justify-content:space-between;flex-wrap:wrap;gap:var(--space-12)}
+    .foot-note{display:flex;align-items:center;gap:var(--space-8)}
+    .prototype-foot button{font-size:12px;color:var(--secondary)}
+    .empty-state{text-align:center;padding:var(--space-48) var(--space-24);border:1px dashed var(--border);border-radius:var(--radius-lg)}
+    .empty-state>.icon{width:28px;height:28px;color:var(--muted)}
+    .empty-state h2{font-size:16px;font-weight:600;margin:var(--space-16) 0 var(--space-8)}
+    .empty-state p{font-size:13px;color:var(--muted);margin:0 0 var(--space-16)}
+    .empty-state button{border:1px solid var(--border);background:var(--surface)}
+    .toast{display:flex;align-items:center;gap:var(--space-16);z-index:100}
+    .toast button{color:inherit;text-decoration:underline;text-underline-offset:3px;font-weight:600}
+    .toast button:hover{background:color-mix(in srgb,var(--surface) 14%,transparent)}
+    dialog{width:min(480px,calc(100% - 32px));max-height:calc(100dvh - 48px);overflow:auto;margin:auto;padding:0;border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--surface);color:var(--text);box-shadow:0 16px 48px color-mix(in srgb,var(--neutral-1000) 20%,transparent)}
+    dialog::backdrop{background:color-mix(in srgb,var(--neutral-1000) 35%,transparent)}
+    .dialog-head{padding:var(--space-16) var(--space-24);display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);gap:var(--space-12)}
+    .dialog-head h2{margin:0;font-size:16px;font-weight:600}
+    .dialog-body{padding:0 var(--space-24)}
+    .setting-row{display:flex;align-items:center;justify-content:space-between;gap:var(--space-24);padding:var(--space-24) 0;border-bottom:1px solid var(--line)}
+    .setting-row label,.setting-label{display:block;font-weight:500}
+    .setting-row p{font-size:12px;color:var(--muted);margin:var(--space-4) 0 0}
+    .switch{position:relative;display:block;width:36px;height:22px;flex:none}
+    .switch input{appearance:none;margin:0;width:36px;height:22px;border:1px solid var(--border);border-radius:22px;background:var(--pressed)}
+    .switch input:checked{background:var(--brand);border-color:var(--brand)}
+    .switch input::after{content:'';position:absolute;left:3px;top:3px;width:16px;height:16px;border-radius:50%;background:var(--neutral-0)}
+    .switch input:checked::after{left:17px}
+    .setting-row select{flex:none;max-width:160px}
+    .setting-row select:disabled{opacity:.5}
+    .privacy-location{display:flex;gap:var(--space-12);align-items:flex-start;padding:var(--space-24) 0}
+    .privacy-location>.icon{color:var(--muted);margin-top:2px}
+    .privacy-location p{margin:var(--space-4) 0 0;color:var(--muted);font-size:12px}
+    .dialog-foot{padding:var(--space-16) var(--space-24);border-top:1px solid var(--line);background:var(--soft);font-size:12px;color:var(--muted)}
+    @media(max-width:700px){
+      .page-head{flex-direction:row;align-items:center;gap:var(--space-12)}
+      .page-head>.outline-button{font-size:12px;padding:6px 8px}
+      .page-head>.outline-button .icon{display:none}
+      .search-field kbd{display:none}
+      .result-summary{margin-left:0;flex-basis:100%;padding-top:var(--space-4)}
+      .filter{padding:5px 8px}
+      .time-group .date{display:none}
+      .dialog-head,.dialog-body,.dialog-foot{padding-left:var(--space-16);padding-right:var(--space-16)}
+      .setting-row{gap:var(--space-12)}
+    }
+    @media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs><symbol id="i-device-mobile" viewBox="0 0 24 24"><path d="M6 5a2 2 0 0 1 2 -2h8a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-8a2 2 0 0 1 -2 -2v-14"/><path d="M11 4h2"/><path d="M12 17v.01"/></symbol><symbol id="i-device-desktop" viewBox="0 0 24 24"><path d="M3 5a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-16a1 1 0 0 1 -1 -1v-10"/><path d="M7 20h10"/><path d="M9 16v4"/><path d="M15 16v4"/></symbol><symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="M6 9l6 6l6 -6"/></symbol><symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="M9 6l6 6l-6 6"/></symbol><symbol id="i-copy" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></symbol><symbol id="i-circle-check" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 18 0a9 9 0 1 0 -18 0"/><path d="M9 12l2 2l4 -4"/></symbol><symbol id="i-alert-triangle" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M10.363 3.591l-8.106 13.534a1.914 1.914 0 0 0 1.636 2.871h16.214a1.914 1.914 0 0 0 1.636 -2.87l-8.106 -13.536a1.914 1.914 0 0 0 -3.274 0"/><path d="M12 16h.01"/></symbol><symbol id="i-circle-dashed" viewBox="0 0 24 24"><path d="M8.56 3.69a9 9 0 0 0 -2.92 1.95"/><path d="M3.69 8.56a9 9 0 0 0 -.69 3.44"/><path d="M3.69 15.44a9 9 0 0 0 1.95 2.92"/><path d="M8.56 20.31a9 9 0 0 0 3.44 .69"/><path d="M15.44 20.31a9 9 0 0 0 2.92 -1.95"/><path d="M20.31 15.44a9 9 0 0 0 .69 -3.44"/><path d="M20.31 8.56a9 9 0 0 0 -1.95 -2.92"/><path d="M15.44 3.69a9 9 0 0 0 -3.44 -.69"/></symbol><symbol id="i-shield-lock" viewBox="0 0 24 24"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"/><path d="M11 11a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12l0 2.5"/></symbol><symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1 -8.313 -12.454l0 .008"/></symbol><symbol id="i-sun" viewBox="0 0 24 24"><path d="M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"/><path d="M3 12h1m8 -9v1m8 8h1m-9 8v1m-6.4 -15.4l.7 .7m12.1 -.7l-.7 .7m0 11.4l.7 .7m-12.1 -.7l-.7 .7"/></symbol><symbol id="i-dots-vertical" viewBox="0 0 24 24"><path d="M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M11 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M11 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+</symbol><symbol id="i-search" viewBox="0 0 24 24">
+  <path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0" />
+  <path d="M21 21l-6 -6" />
+</symbol><symbol id="i-x" viewBox="0 0 24 24">
+  <path d="M18 6l-12 12" />
+  <path d="M6 6l12 12" />
+</symbol><symbol id="i-trash" viewBox="0 0 24 24">
+  <path d="M4 7l16 0" />
+  <path d="M10 11l0 6" />
+  <path d="M14 11l0 6" />
+  <path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" />
+  <path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" />
+</symbol><symbol id="i-history" viewBox="0 0 24 24">
+  <path d="M12 8l0 4l2 2" />
+  <path d="M3.05 11a9 9 0 1 1 .5 4m-.5 5v-5h5" />
+</symbol><symbol id="i-file-description" viewBox="0 0 24 24">
+  <path d="M14 3v4a1 1 0 0 0 1 1h4" />
+  <path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" />
+  <path d="M9 17h6" />
+  <path d="M9 13h6" />
+</symbol></defs></svg>
+  <header class="review-bar">
+    <div class="review-inner">
+      <span class="brand-name" style="color:var(--brand)">SayIn</span>
+      <span class="review-label" data-text="prototype">记录卡片 · 交互预览</span>
+      <div class="review-actions">
+        <button id="language" type="button" aria-label="Switch to English">English</button>
+        <button id="theme" class="icon-button" type="button" aria-label="切换深色主题"></button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <div class="page-head">
+      <div><h1 data-text="title">历史记录</h1><p class="page-subtitle" data-text="subtitle">保留每一段话，以及它的去向。</p></div>
+      <button type="button" id="privacy-open" class="outline-button" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-shield-lock"></use></svg><span data-text="privacyEntry">历史与隐私…</span></button>
+    </div>
+    <div class="history-toolbar">
+      <div class="search-field"><svg class="icon" aria-hidden="true"><use href="#i-search"></use></svg><input id="history-search" type="search" autocomplete="off" aria-label="搜索记录" placeholder="搜索原文、目标应用或设备"><kbd>Ctrl K</kbd></div>
+      <div class="filter-row"><div class="filters" id="filters" role="group" aria-label="状态筛选"></div><span class="result-summary" id="result-summary" role="status" aria-live="polite"></span></div>
+    </div>
+    <section id="records" class="records" aria-label="接收记录"></section>
+    <footer class="prototype-foot"><span class="foot-note"><svg class="icon" aria-hidden="true"><use href="#i-shield-lock"></use></svg><span id="storage-summary"></span></span><button type="button" id="reset-demo" data-text="resetDemo">重置演示</button></footer>
+  </main>
+  <div id="record-menu" class="record-menu" role="menu" hidden><button type="button" role="menuitem" id="record-details-action"></button><hr role="separator"><button type="button" role="menuitem" class="danger" id="record-delete-action"></button></div>
+  <dialog id="privacy-dialog" aria-labelledby="privacy-title" aria-describedby="privacy-demo-note">
+    <div class="dialog-head"><h2 id="privacy-title" data-text="privacyTitle">历史与隐私</h2><button type="button" id="privacy-close" class="icon-button" aria-label="关闭"><svg class="icon" aria-hidden="true"><use href="#i-x"></use></svg></button></div>
+    <div class="dialog-body">
+      <div class="setting-row"><div><label for="save-history" data-text="saveHistory">保存输入历史</label><p data-text="saveHint">关闭后不再保存新记录，不影响语音上屏。</p></div><label class="switch"><input type="checkbox" role="switch" id="save-history" checked></label></div>
+      <div class="setting-row"><div><label for="retention" data-text="retention">自动清理</label><p id="retention-hint"></p></div><select id="retention"></select></div>
+      <div class="privacy-location"><svg class="icon" aria-hidden="true"><use href="#i-device-desktop"></use></svg><div><span class="setting-label" data-text="localTitle">仅保存在这台电脑</span><p data-text="localHint">历史原文不上传云端。删除历史不会删除目标应用中的文字。</p></div></div>
+    </div>
+    <div class="dialog-foot" id="privacy-demo-note" data-text="policyDemo">方案预览 · 设置仅演示效果，不会存储或清理真实数据。</div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script>
+    'use strict';
+    const copy = {
+      zh: {prototype:'记录卡片 · 交互预览',title:'历史记录',subtitle:'保留每一段话，以及它的去向。',previewState:'首条状态预览',today:'今天',count:'3 条',records:'接收记录',demoNote:'演示数据 · 复制、详情、长文展开与主题切换可交互',submitted:'已提交',failed:'未输入',uncertain:'待核对',expired:'已过期',copy:'复制',details:'详情',collapse:'收起详情',full:'展开全文',less:'收起全文',copied:'已复制原文',copyFailed:'复制未完成，请选中原文后复制。',source:'来源设备',target:'目标程序',window:'窗口标题',received:'接收时间',executed:'执行尝试',deviceId:'设备标识',sequence:'记录序号',noAttempt:'未执行',noTarget:'未捕获目标',day:'今天',themeDark:'切换深色主题',themeLight:'切换浅色主题',detailSubmitted:'Windows 已接收输入事件；实际显示内容以目标应用为准。',detailFailed:'本次未执行输入。可核对目标应用后，再从手机发送。',detailUncertain:'无法确定上次输入的结果。请先核对目标应用，避免重复输入。',detailExpired:'请求已过期，未执行输入。',reasonFailed:'目标应用已切换，本次未输入。',reasonUncertain:'输入结果待核对，请先查看目标应用，避免重复发送。',reasonExpired:'等待超过有效期，本次未输入。'},
+      en: {prototype:'Record card · Interactive preview',title:'History',subtitle:'Every message, and where it went.',previewState:'First record state',today:'Today',count:'3 records',records:'Received messages',demoNote:'Sample data · Try copy, details, long text and themes',submitted:'Submitted',failed:'Not entered',uncertain:'Check result',expired:'Expired',copy:'Copy',details:'Details',collapse:'Hide details',full:'Show full text',less:'Show less',copied:'Original text copied',copyFailed:'Copy did not complete. Select the message to copy it.',source:'Source device',target:'Target process',window:'Window title',received:'Received',executed:'Input attempted',deviceId:'Device ID',sequence:'Record number',noAttempt:'Not attempted',noTarget:'No target captured',day:'Today',themeDark:'Switch to dark theme',themeLight:'Switch to light theme',detailSubmitted:'Windows accepted the input events. Check the target app for the displayed result.',detailFailed:'No input was attempted. Check the target app before sending again from your phone.',detailUncertain:'The previous result is uncertain. Check the target app to avoid duplicate input.',detailExpired:'The request expired before input was attempted.',reasonFailed:'The target app changed. No text was entered.',reasonUncertain:'Check the target app before sending again to avoid duplicate input.',reasonExpired:'The request expired. No text was entered.'}
+    };
+    const records = [
+      {id:'a',order:'11',time:'16:52',timestamp:'2026-11-13 16:52:21',device:'M2012K11AC',deviceId:'b3e8ec97-96aa-4c22-991b-d7db424257cf',app:'Windows Terminal',process:'WindowsTerminal.exe',window:'研读语音直达对话记录、协议与演示 | VoiceInput',state:'submitted',text:'本地初始化为git项目，排除掉不需要提交的文件，然后提交推送。许可证使用MIT。'},
+      {id:'b',order:'10',time:'16:48',timestamp:'2026-11-13 16:48:09',device:'M2012K11AC',deviceId:'b3e8ec97-96aa-4c22-991b-d7db424257cf',app:'Visual Studio Code',process:'Code.exe',window:'项目计划.md — SayIn',state:'submitted',text:'手机上说完，文字就应该出现在电脑当前光标处。桌面端只负责接收、输入和记录，不需要再确认一次。\n\n历史记录要能回答三个问题：刚才说了什么，发到了哪个软件，以及这次输入是什么结果。原文应该完整保存，保留换行、英文和特殊字符，例如 SayIn、I18N 和 {ENTER}，复制时也不能改动。\n\n常用信息直接展示，排查时才需要的设备标识、执行时间和完整窗口标题放进详情。长段落可以折叠，但展开和复制都应拿到完整原文。'},
+      {id:'c',order:'9',time:'16:45',timestamp:'2026-11-13 16:45:32',device:'M2012K11AC',deviceId:'b3e8ec97-96aa-4c22-991b-d7db424257cf',app:'记事本',appEn:'Notepad',process:'notepad.exe',window:'会议记录 — 记事本',state:'failed',text:'把这段讨论整理到会议记录里，下一次评审前再核对一遍。'}
+    ];
+    copy.zh.more='更多操作';copy.zh.viewDetails='查看详情';
+    copy.en.more='More actions';copy.en.viewDetails='View details';
+    const ui = {lang:'zh',theme:'light',open:new Set(),expanded:new Set(),menu:null,query:'',filter:'all',deleted:new Set(),save:true,retention:'30'};
+    const t = key => copy[ui.lang][key];
+    const icon = (name,extra='') => `<svg class="icon ${extra}" aria-hidden="true"><use href="#i-${name}"></use></svg>`;
+    const escapeHtml = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const statusIcon = state => ({submitted:'circle-check',failed:'alert-triangle',uncertain:'circle-dashed',expired:'circle-dashed'}[state]);
+    const appName = record => ui.lang === 'en' && record.appEn ? record.appEn : record.app;
+    
+
+    Object.assign(copy.zh,{prototype:'历史记录 · 方案预览',all:'全部',more:'更多操作',viewDetails:'查看详情',delete:'删除记录',deleted:'已删除 1 条记录',undo:'撤销',yesterday:'昨天',privacyEntry:'历史与隐私…',privacyTitle:'历史与隐私',saveHistory:'保存输入历史',saveHint:'关闭后不再保存新记录，不影响语音上屏。',retention:'自动清理',localTitle:'仅保存在这台电脑',localHint:'历史原文不上传云端。删除历史不会删除目标应用中的文字。',policyDemo:'方案预览 · 设置仅演示效果，不会存储或清理真实数据。',resetDemo:'重置演示',searchPlaceholder:'搜索原文、目标应用或设备',searchLabel:'搜索记录',filterLabel:'状态筛选',close:'关闭',emptyTitle:'还没有历史记录',emptyHint:'手机发送的文字与目标应用将记录在这里。',searchEmptyTitle:'没有找到匹配的记录',searchEmptyHint:'试试其他关键词，或清除搜索与筛选。',filterEmptyTitle:'这个状态下没有记录',filterEmptyHint:'切换到全部，查看其他输入记录。',clearFilters:'清除搜索与筛选',resetDone:'已恢复演示数据',keep7:'保留 7 天',keep30:'保留 30 天',keepForever:'永久保留',retentionHint:'到期后自动删除本机历史。',retentionForeverHint:'历史将保留到你手动删除。',retentionPausedHint:'仍按所选期限清理已有历史。',storagePaused:'演示数据 · 本机保存 · 已暂停记录',storageForever:'演示数据 · 本机保存 · 永久保留',storage30:'演示数据 · 本机保存 · 保留 30 天',storage7:'演示数据 · 本机保存 · 保留 7 天',showFull:'展开全文'});
+    Object.assign(copy.en,{prototype:'History · Design preview',all:'All',more:'More actions',viewDetails:'View details',delete:'Delete record',deleted:'1 record deleted',undo:'Undo',yesterday:'Yesterday',privacyEntry:'History & privacy…',privacyTitle:'History & privacy',saveHistory:'Save input history',saveHint:'Turn off to stop saving new records. Text input continues.',retention:'Auto-delete',localTitle:'Stored on this computer only',localHint:'History text is not uploaded to the cloud. Deleting a record leaves text in the target app unchanged.',policyDemo:'Design preview · Settings do not store or delete real data.',resetDemo:'Reset demo',searchPlaceholder:'Search text, target apps or devices',searchLabel:'Search history',filterLabel:'Filter by status',close:'Close',emptyTitle:'No history yet',emptyHint:'Messages from your phone and their target apps will appear here.',searchEmptyTitle:'No matching records',searchEmptyHint:'Try another keyword, or clear the search and filters.',filterEmptyTitle:'No records with this status',filterEmptyHint:'Select All to see your other records.',clearFilters:'Clear search and filters',resetDone:'Demo data restored',keep7:'Keep for 7 days',keep30:'Keep for 30 days',keepForever:'Keep forever',retentionHint:'Automatically remove local history when it expires.',retentionForeverHint:'Keep history until you delete it.',retentionPausedHint:'Existing history still follows the selected retention period.',storagePaused:'Sample data · Local only · Recording paused',storageForever:'Sample data · Local only · Kept forever',storage30:'Sample data · Local only · Kept for 30 days',storage7:'Sample data · Local only · Kept for 7 days',showFull:'Show full text'});
+    // Fixed sample dates make this design reference repeatable after today.
+    records.push(
+      {...records[2],id:'d',order:'8',time:'10:24',timestamp:'2026-11-12 10:24:12',state:'uncertain',text:'SayIn 的桌面端只负责接收、输入和记录。先核对刚才那句话有没有出现在文档中。'},
+      {...records[0],id:'e',order:'7',time:'09:16',timestamp:'2026-11-12 09:16:05',state:'submitted',app:'Microsoft Edge',process:'msedge.exe',window:'SayIn — GitHub',text:'请在项目说明里补充安装步骤，以及手机和电脑的配对方式。'},
+      {...records[1],id:'f',order:'6',time:'18:03',timestamp:'2026-11-10 18:03:44',state:'expired',text:'把下一轮评审安排在周五下午三点，会议材料提前一天发出。'}
+    );
+    const numberOfRecords = n => ui.lang==='zh'?`${n} 条`:`${n} ${n===1?'record':'records'}`;
+    function highlight(value){
+      const query=ui.query.trim();if(!query)return escapeHtml(value);
+      const lower=value.toLocaleLowerCase(),needle=query.toLocaleLowerCase();
+      let result='',start=0,index;
+      while((index=lower.indexOf(needle,start))!==-1){result+=escapeHtml(value.slice(start,index))+'<mark>'+escapeHtml(value.slice(index,index+query.length))+'</mark>';start=index+query.length;}
+      return result+escapeHtml(value.slice(start));
+    }
+    function renderList(){
+      const available=records.filter(record=>!ui.deleted.has(record.id));
+      const query=ui.query.trim().toLocaleLowerCase();
+      const matching=available.filter(record=>[record.text,record.app,record.appEn||'',record.process,record.device,record.window].some(value=>value.toLocaleLowerCase().includes(query)));
+      const visible=matching.filter(record=>ui.filter==='all'||record.state===ui.filter);
+      document.getElementById('filters').innerHTML=['all','submitted','failed','uncertain','expired'].map(state=>`<button type="button" class="filter" data-filter="${state}" aria-pressed="${ui.filter===state}">${escapeHtml(t(state))}<span class="filter-count">${matching.filter(record=>state==='all'||record.state===state).length}</span></button>`).join('');
+      document.getElementById('result-summary').textContent=numberOfRecords(visible.length);
+      const groups=new Map();
+      visible.forEach(record=>{const day=record.timestamp.slice(0,10);if(!groups.has(day))groups.set(day,[]);groups.get(day).push(record);});
+      const list=document.getElementById('records');
+      list.innerHTML=[...groups].map(([day,items])=>`<section class="date-group" aria-label="${day}"><h2 class="date-heading">${day==='2026-11-13'?t('today'):day==='2026-11-12'?t('yesterday'):day}<span>${numberOfRecords(items.length)}</span></h2><div class="group-records">${items.map(renderRecord).join('')}</div></section>`).join('');
+      if(!visible.length){
+        const kind=!available.length?'empty':query?'searchEmpty':'filterEmpty';
+        list.innerHTML=`<div class="empty-state">${icon(query?'search':'history')}<h2>${escapeHtml(t(kind+'Title'))}</h2><p>${escapeHtml(t(kind+'Hint'))}</p><button type="button" id="empty-action">${escapeHtml(t(available.length?'clearFilters':'resetDemo'))}</button></div>`;
+      }
+    }
+    function renderPrivacy(){
+      document.getElementById('save-history').checked=ui.save;
+      const retention=document.getElementById('retention');
+      retention.innerHTML=['7','30','Forever'].map(value=>`<option value="${value}" ${ui.retention===value?'selected':''}>${escapeHtml(t('keep'+value))}</option>`).join('');
+      document.getElementById('retention-hint').textContent=t(!ui.save?'retentionPausedHint':ui.retention==='Forever'?'retentionForeverHint':'retentionHint');
+      document.getElementById('storage-summary').textContent=t(!ui.save?'storagePaused':'storage'+ui.retention);
+    }
+
+    function renderRecord(record) {
+      const long = record.text.length > 160 && !ui.query.trim();
+      const expanded = ui.expanded.has(record.id);
+      const open = ui.open.has(record.id);
+      const isExpired = record.state === 'expired';
+      const detail = {submitted:'detailSubmitted',failed:'detailFailed',uncertain:'detailUncertain',expired:'detailExpired'}[record.state];
+      const notice = {failed:'reasonFailed',uncertain:'reasonUncertain',expired:'reasonExpired'}[record.state];
+      
+      const dateStr = record.timestamp.split(' ')[0];
+
+      const fields = [
+        [t('source'),record.device],
+        [t('target'),isExpired ? t('noTarget') : record.process],
+        [t('window'),isExpired ? '—' : record.window],
+        [t('received'),record.timestamp],
+        [t('executed'),record.state === 'submitted' || record.state === 'uncertain' ? record.timestamp : t('noAttempt')],
+        [t('deviceId'),record.deviceId],
+        [t('sequence'),record.order]
+      ];
+      
+      const textClickAttr = long && !expanded ? `data-action="expand" data-id="${record.id}" style="cursor:pointer" title="${escapeHtml(t('showFull'))}"` : '';
+
+      return `<article class="record" id="record-${record.id}" aria-label="${escapeHtml(t(record.state) + ' · ' + record.time)}">
+        <div class="record-main">
+          <div class="record-top">
+            <div class="time-group">
+              <time datetime="${record.timestamp.replace(' ','T')}+08:00">${record.time}</time>
+              <span class="date">${dateStr}</span>
+            </div>
+            <div class="top-actions">
+              <span class="status" data-state="${record.state}">${icon(statusIcon(record.state))}${escapeHtml(t(record.state))}</span>
+              <button type="button" class="more-button" id="more-${record.id}" data-action="more" data-id="${record.id}" aria-haspopup="menu" aria-expanded="${ui.menu === record.id}" aria-controls="record-menu" aria-label="${escapeHtml(t('more') + ' · ' + record.time)}" title="${escapeHtml(t('more'))}">${icon('dots-vertical')}</button>
+            </div>
+          </div>
+          <p class="message ${long && !expanded ? 'clamped' : ''}" id="text-${record.id}" ${textClickAttr}>${highlight(record.text)}</p>
+          ${long ? `<button type="button" class="expand-text" data-action="expand" data-id="${record.id}" aria-expanded="${expanded}" aria-controls="text-${record.id}">${escapeHtml(t(expanded ? 'less' : 'full'))}</button>` : ''}
+          ${notice ? `<p class="notice" data-state="${record.state}">${icon(statusIcon(record.state))}<span>${escapeHtml(t(notice))}</span></p>` : ''}
+        </div>
+        <div class="record-footer">
+          <div class="route"><span class="route-part">${icon('device-mobile')}${escapeHtml(record.device)}</span>${icon('chevron-right','arrow')}<span class="route-part destination">${icon('device-desktop')}${escapeHtml(isExpired ? t('noTarget') : appName(record))}</span></div>
+          <div class="card-actions">
+            <button type="button" data-action="copy" data-id="${record.id}" aria-label="${escapeHtml(t('copy') + ' · ' + record.time)}">${icon('copy')}<span>${escapeHtml(t('copy'))}</span></button>
+          </div>
+        </div>
+        <section class="detail-panel" id="details-${record.id}" aria-label="${escapeHtml(t('details'))}" ${open ? '' : 'hidden'}><dl>${fields.map(([label,value]) => `<dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd>`).join('')}</dl><p class="detail-note">${escapeHtml(t(detail))}</p></section>
+      </article>`;
+    }
+    function render() {
+      document.documentElement.lang = ui.lang === 'zh' ? 'zh-Hans' : 'en';
+      document.documentElement.dataset.theme = ui.theme;
+      document.title = `SayIn · ${t('title')}`;
+      document.querySelectorAll('[data-text]').forEach(node => node.textContent = t(node.dataset.text));
+      const language = document.getElementById('language');
+      language.textContent = ui.lang === 'zh' ? 'English' : '简体中文';
+      language.setAttribute('aria-label',ui.lang === 'zh' ? 'Switch to English' : '切换简体中文');
+      const theme = document.getElementById('theme');
+      theme.innerHTML = icon(ui.theme === 'light' ? 'moon' : 'sun');
+      theme.setAttribute('aria-label',t(ui.theme === 'light' ? 'themeDark' : 'themeLight'));
+      document.getElementById('records').setAttribute('aria-label',t('records'));
+      const search=document.getElementById('history-search');search.placeholder=t('searchPlaceholder');search.setAttribute('aria-label',t('searchLabel'));search.value=ui.query;
+      document.getElementById('filters').setAttribute('aria-label',t('filterLabel'));
+      document.getElementById('privacy-close').setAttribute('aria-label',t('close'));
+      renderList();renderPrivacy();
+      syncMenu();
+    }
+    function syncMenu() {
+      const menu=document.getElementById('record-menu');
+      document.querySelectorAll('[data-action="more"]').forEach(button=>button.setAttribute('aria-expanded',String(button.dataset.id===ui.menu)));
+      menu.hidden=ui.menu===null;
+      if(menu.hidden)return;
+      const trigger=document.getElementById(`more-${ui.menu}`);
+      const action=document.getElementById('record-details-action');
+      action.innerHTML=icon('file-description')+escapeHtml(t(ui.open.has(ui.menu)?'collapse':'viewDetails'));
+      document.getElementById('record-delete-action').innerHTML=icon('trash')+escapeHtml(t('delete'));
+      action.setAttribute('aria-controls',`details-${ui.menu}`);
+      action.setAttribute('aria-expanded',String(ui.open.has(ui.menu)));
+      menu.setAttribute('aria-labelledby',trigger.id);
+      const anchor=trigger.getBoundingClientRect();
+      const size=menu.getBoundingClientRect();
+      menu.style.left=`${Math.max(8,Math.min(anchor.right-size.width,innerWidth-size.width-8))}px`;
+      menu.style.top=`${anchor.bottom+4+size.height<=innerHeight-8?anchor.bottom+4:Math.max(8,anchor.top-size.height-4)}px`;
+    }
+    function closeMenu(restoreFocus=false) {
+      const id=ui.menu;ui.menu=null;syncMenu();
+      if(restoreFocus&&id)document.getElementById(`more-${id}`)?.focus({preventScroll:true});
+    }
+    function openMenu(id) {
+      ui.menu=id;syncMenu();
+      document.getElementById('record-details-action').focus({preventScroll:true});
+    }
+    let toastTimer;
+    let undoRecord=null;
+    function notify(message,undoId=null){
+      const toast=document.getElementById('toast');clearTimeout(toastTimer);undoRecord=undoId;
+      toast.innerHTML=`<span>${escapeHtml(message)}</span>${undoId?`<button type="button" id="undo-delete">${escapeHtml(t('undo'))}</button>`:''}`;toast.hidden=false;
+      // Keep Undo available while the pointer or keyboard focus is on the toast.
+      const hide=()=>{if(toast.matches(':hover')||toast.contains(document.activeElement)){toastTimer=setTimeout(hide,1000);return;}toast.hidden=true;undoRecord=null;};
+      toastTimer=setTimeout(hide,undoId?8000:2200);
+    }
+    async function copyOriginal(record) {
+      try {
+        if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(record.text);
+        else {
+          const previous = document.activeElement;
+          const textarea = document.createElement('textarea');
+          textarea.value = record.text;textarea.setAttribute('readonly','');textarea.style.cssText='position:fixed;left:-9999px;top:0';
+          document.body.append(textarea);textarea.select();const copied=document.execCommand('copy');textarea.remove();previous?.focus();
+          if (!copied) throw new Error('Copy rejected');
+        }
+        notify(t('copied'));
+      } catch {notify(t('copyFailed'));}
+    }
+    document.getElementById('records').addEventListener('click',event => {
+      if(event.target.closest('#empty-action')){records.some(record=>!ui.deleted.has(record.id))?clearFilters():resetDemo();return;}
+      const button=event.target.closest('[data-action]');if(!button)return;
+      const record=records.find(item=>item.id===button.dataset.id);if(!record)return;
+      if(button.dataset.action==='more'){
+        ui.menu===record.id?closeMenu(true):openMenu(record.id);return;
+      }
+      if(button.dataset.action==='copy'){copyOriginal(record);return;}
+      const set=ui.expanded;
+      set.has(record.id)?set.delete(record.id):set.add(record.id);
+      const action=button.dataset.action;render();
+      document.querySelector(`[data-action="${action}"][data-id="${record.id}"]`)?.focus({preventScroll:true});
+    });
+    document.getElementById('record-details-action').addEventListener('click',()=>{
+      const id=ui.menu;if(!id)return;
+      ui.open.has(id)?ui.open.delete(id):ui.open.add(id);
+      ui.menu=null;render();
+      document.getElementById(`more-${id}`)?.focus({preventScroll:true});
+    });
+    document.getElementById('language').addEventListener('click',()=>{ui.menu=null;ui.lang=ui.lang==='zh'?'en':'zh';render();});
+    document.getElementById('theme').addEventListener('click',()=>{ui.menu=null;ui.theme=ui.theme==='light'?'dark':'light';render();});
+    document.addEventListener('pointerdown',event=>{
+      if(ui.menu&&!event.target.closest('.record-menu,[data-action="more"]'))closeMenu();
+    });
+    document.addEventListener('focusin',event=>{
+      if(ui.menu&&!event.target.closest('.record-menu,[data-action="more"]'))closeMenu();
+    });
+    window.addEventListener('resize',()=>closeMenu());
+    document.addEventListener('scroll',()=>closeMenu(),true);
+    document.addEventListener('keydown',event=>{
+      if(document.getElementById('privacy-dialog').open)return;
+      const editing=event.target.matches('input,textarea,select,[contenteditable="true"]');
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'||!editing&&event.key==='/'){event.preventDefault();closeMenu();document.getElementById('history-search').focus();return;}
+      if(ui.menu){
+        if(event.key==='Escape'){event.preventDefault();closeMenu(true);return;}
+        if(['ArrowDown','ArrowUp','Home','End'].includes(event.key)){event.preventDefault();const items=[...document.querySelectorAll('#record-menu [role=menuitem]')];const index=items.indexOf(document.activeElement);const next=event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length;items[next].focus();return;}
+        if(event.key==='Tab'){closeMenu(true);return;}
+      }
+      const trigger=event.target.closest('[data-action="more"]');
+      if(trigger&&['ArrowDown','ArrowUp'].includes(event.key)){event.preventDefault();openMenu(trigger.dataset.id);return;}
+      if(event.key!=='Escape')return;
+      const current=document.activeElement?.closest('.record');
+      const id=current?.id.replace('record-','');
+      if(id&&ui.open.has(id)){ui.open.delete(id);render();document.getElementById(`more-${id}`)?.focus({preventScroll:true});}
+    });
+
+    function clearFilters(){ui.query='';ui.filter='all';ui.menu=null;render();document.getElementById('history-search').focus();}
+    function resetDemo(){ui.deleted.clear();ui.open.clear();ui.expanded.clear();ui.query='';ui.filter='all';ui.menu=null;ui.save=true;ui.retention='30';render();notify(t('resetDone'));document.getElementById('reset-demo').focus({preventScroll:true});}
+    document.getElementById('history-search').addEventListener('input',event=>{ui.query=event.target.value;closeMenu();renderList();});
+    document.getElementById('filters').addEventListener('click',event=>{const button=event.target.closest('[data-filter]');if(!button)return;ui.filter=button.dataset.filter;closeMenu();renderList();document.querySelector(`[data-filter="${ui.filter}"]`).focus({preventScroll:true});});
+    document.getElementById('record-delete-action').addEventListener('click',()=>{
+      const id=ui.menu;if(!id)return;
+      const visible=[...document.querySelectorAll('[data-action="more"]')].map(node=>node.dataset.id);const index=visible.indexOf(id);const next=visible[index+1]||visible[index-1];
+      ui.deleted.add(id);ui.menu=null;render();notify(t('deleted'),id);
+      (document.getElementById(`more-${next}`)||document.getElementById('empty-action')||document.getElementById('history-search')).focus({preventScroll:true});
+    });
+    document.getElementById('toast').addEventListener('click',event=>{if(!event.target.closest('#undo-delete')||!undoRecord)return;const id=undoRecord;ui.deleted.delete(id);render();clearTimeout(toastTimer);document.getElementById('toast').hidden=true;undoRecord=null;(document.getElementById(`more-${id}`)||document.getElementById('history-search')).focus({preventScroll:true});});
+    document.getElementById('reset-demo').addEventListener('click',resetDemo);
+    const privacyDialog=document.getElementById('privacy-dialog');
+    document.getElementById('privacy-open').addEventListener('click',()=>{closeMenu();privacyDialog.showModal();});
+    document.getElementById('privacy-close').addEventListener('click',()=>privacyDialog.close());
+    privacyDialog.addEventListener('close',()=>document.getElementById('privacy-open').focus({preventScroll:true}));
+    privacyDialog.addEventListener('click',event=>{if(event.target===privacyDialog){const rect=privacyDialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)privacyDialog.close();}});
+    document.getElementById('save-history').addEventListener('change',event=>{ui.save=event.target.checked;renderPrivacy();});
+    document.getElementById('retention').addEventListener('change',event=>{ui.retention=event.target.value;renderPrivacy();});
+    render();
+  </script>
+</body>
+</html>

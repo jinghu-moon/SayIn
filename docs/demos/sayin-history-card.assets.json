@@ -1,0 +1,55 @@
+{
+  "upstream": "https://github.com/tabler/tabler-icons",
+  "commit": "58f60538fe2fab2e1459a09198f9bd3b033bf90e",
+  "tag": "v3.51.0",
+  "license": "MIT",
+  "license_file": "Tabler-LICENSE",
+  "source_sha256": {
+    "device-mobile": "2f9d4b1a140f3b9c9057efa5964bc8a7a135ce5d32dfe4752ebdad9d086d5413",
+    "device-desktop": "2fdd2150904a844185250f26453a02f31ee9d77a1f936a1df9c2ecd77cfc788d",
+    "chevron-right": "83733bb6e03e1d20fd2674d06a493642c8ea6eef76c44ebb2239b9ef17dedff7",
+    "copy": "3a455a299db4ec939fd0473d15c81c1d3f30f65dec81a7de816317c989b06073",
+    "circle-check": "c4cb2e026be5f4c217c3ff9b0ccefb9a26b7a135bc82eef28a8bead0cc02a958",
+    "alert-triangle": "25b1f0c39f34647017df84a0cdc9e691c697737094a5956c360ab448a7fd5bef",
+    "circle-dashed": "7df7f2cf05d1283c7443382168b4dfa5c1d91cab1d709d48117df4d567e7ed54",
+    "shield-lock": "9fc37c3b11a297a81371652d89407b2bd19c17dfdffe0ff500d3426d96236d13",
+    "moon": "7cabaae40eea65310da478d3cad30b23cf1d7e99adad56378f82824338079668",
+    "sun": "6677490605af8987d55d6e4185b1f6c241eced65b63ccfece68cadb7ce90fbb5",
+    "dots-vertical": "7f23a3911c7f4bddfb27c7b181ef0d483c14d3b1d2dea3a81573c2beeb9794d8",
+    "search": "3dd53b9606283dfa0adcb0b10a7d9a4432369d4bebcfacf67f80fbe358381c34",
+    "x": "9350785360414c39450c3505f17d1745e55a7534edace8548e30cf49e3727d43",
+    "trash": "4b90fa07a6d980736951d9e83b91432972b2bcecf81be4578608a0983f2ebc9d",
+    "history": "5f8a5a975a8136a4755380c18db1fe533acf7dc4e34250ceae0272c5d2cb7312",
+    "file-description": "1db30f85efbd331fa3035d638c61deb2f346eac8c5d301aafff11bdecbe6c679"
+  },
+  "tokens": "Yue-Design-System/packages/tokens/src/{primitives/color,primitives/space,primitives/shape,semantics/feedback}.css",
+  "token_file_sha256": {
+    "color.css": "d1374d3af032d1d3ce714241569af2e88da05e87088c8ada3ac32f12879c5810",
+    "space.css": "8b13676a8b8548a9f05cc83065a0933a3fd6ca83cbe4989fdf91d235009458c8",
+    "shape.css": "7b78b2ff88b0e9c1cbd2699fafb32b466401760f829bc1d6007e83be1889db4e",
+    "semantics/feedback.css": "8aec006419d494f93f015db763cf8d7abbc80d8120a16b711c545c940fdfe987"
+  },
+  "brand": "#1f75db",
+  "other_colors": "Neutral surfaces and text; status colors use Yue semantic feedback tokens",
+  "scope": "Standalone design reference with sample data and lightweight in-memory search, filters, delete/undo and privacy previews; no persistence, transport or native input",
+  "feedback_roles": {
+    "submitted": "success",
+    "failed": "error",
+    "uncertain": "warning",
+    "expired": "warning"
+  },
+  "feedback_snapshot": {
+    "element_id": "yue-feedback-tokens",
+    "primitive_hues": [
+      "blue",
+      "green",
+      "red",
+      "amber"
+    ],
+    "themes": [
+      "light",
+      "dark"
+    ],
+    "usage": "*-foreground on *-bg with *-border; values copied from source, including dark primitive ramps"
+  }
+}

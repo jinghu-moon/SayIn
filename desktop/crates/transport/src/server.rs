@@ -1,5 +1,5 @@
 //! Service implementation (one supervised runtime, bounded per-connection work).
-use crate::interfaces::NetworkAuthorization;
+use crate::interfaces::NetworkBinding;
 use crate::{Error, HostIdentity, Result};
 use futures_channel::{mpsc as notifications, oneshot};
 use futures_util::{SinkExt, StreamExt};
@@ -159,19 +159,19 @@ impl NetworkService {
     pub fn start_on_network(
         receiver: Receiver,
         identity: HostIdentity,
-        authorization: NetworkAuthorization,
+        binding: NetworkBinding,
         port: u16,
     ) -> Result<Self> {
-        authorization.validate()?;
-        let bind = SocketAddr::new(authorization.address().into(), port);
-        Self::start_bound(receiver, identity, bind, Some(authorization))
+        binding.validate()?;
+        let bind = SocketAddr::new(binding.address().into(), port);
+        Self::start_bound(receiver, identity, bind, Some(binding))
     }
 
     fn start_bound(
         receiver: Receiver,
         identity: HostIdentity,
         bind: SocketAddr,
-        authorization: Option<NetworkAuthorization>,
+        binding: Option<NetworkBinding>,
     ) -> Result<Self> {
         let listener = std::net::TcpListener::bind(bind)?;
         listener.set_nonblocking(true)?;
@@ -201,11 +201,20 @@ impl NetworkService {
         let policy_stop = stop.clone();
         thread::Builder::new().name("voicelink-network".into()).spawn(move || {
             runtime.block_on(async move {
-                let Ok(listener)=TcpListener::from_std(listener) else {let _=done.send(());return;};
+                let listener=match TcpListener::from_std(listener) {
+                    Ok(listener)=>listener,
+                    Err(_)=>{
+                        let _=state.receiver.network_lost().await;
+                        if let Ok(mut snapshot)=state.snapshot.lock(){snapshot.running=false;}
+                        state.notify();
+                        let _=done.send(());
+                        return;
+                    }
+                };
                 let total=Arc::new(Semaphore::new(16));
                 let unauthenticated=Arc::new(Semaphore::new(8));
                 let mut connections=JoinSet::new();
-                let monitor=tokio::spawn(monitor_profile(state.clone(),authorization,policy_stop.clone(),stopping.clone(),crate::interfaces::available_interfaces));
+                let monitor=tokio::spawn(monitor_profile(state.clone(),binding,policy_stop.clone(),stopping.clone(),crate::interfaces::available_interfaces));
                 let mut maintenance=tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tokio::select! {
@@ -232,6 +241,9 @@ impl NetworkService {
                 }
                 let _=policy_stop.send(true);
                 monitor.abort();
+                // Persist suspension before publishing the stopped listener. This
+                // also covers accept failures and a cancelled profile monitor.
+                let _=state.receiver.network_lost().await;
                 *state.pairing.lock().await=None;
                 state.clear_pairing_snapshot();
                 connections.abort_all();
@@ -379,12 +391,12 @@ impl NetworkService {
 
 async fn monitor_profile(
     shared: Arc<Shared>,
-    authorization: Option<NetworkAuthorization>,
+    binding: Option<NetworkBinding>,
     stop: watch::Sender<bool>,
     mut stopping: watch::Receiver<bool>,
     query: impl Fn() -> Result<Vec<crate::interfaces::NetworkInterface>> + Clone + Send + 'static,
 ) {
-    let Some(authorization) = authorization else {
+    let Some(binding) = binding else {
         return;
     };
     let mut interval = tokio::time::interval(Duration::from_secs(2));
@@ -394,9 +406,9 @@ async fn monitor_profile(
             _=interval.tick()=>{
                 let permitted=timeout(Duration::from_secs(3),tokio::task::spawn_blocking(query.clone())).await
                     .ok().and_then(std::result::Result::ok).and_then(std::result::Result::ok)
-                    .is_some_and(|interfaces|authorization.permits(&interfaces));
+                    .is_some_and(|interfaces|binding.permits(&interfaces));
                 if !permitted {
-                    let pause=shared.receiver.pause();
+                    let pause=shared.receiver.network_lost();
                     let _=stop.send(true);
                     let _=pause.await;
                     break;
@@ -552,7 +564,11 @@ async fn connection(
     if token.len() != 32 {
         return Err(Error::Protocol("UNAUTHORIZED"));
     }
-    let session = shared.receiver.authenticate(device, token).await?;
+    let name = field(&first, "name")?.to_owned();
+    let session = shared
+        .receiver
+        .authenticate_named(device, token, name)
+        .await?;
     shared.authenticated(peer.ip());
     drop(unauthenticated);
     {

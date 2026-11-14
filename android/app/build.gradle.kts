@@ -24,7 +24,9 @@ android {
     }
 
     buildFeatures { compose = true }
+    sourceSets["main"].assets.srcDir(rootProject.file("local-asr/assets"))
     androidResources {
+        noCompress += "onnx"
         // Explicit locale_config.xml prevents dependency translations advertising extra languages.
         // Include script-qualified Chinese and legacy zh-CN library resources.
         // Pseudo locales are generated only in debug, not advertised as product languages.
@@ -42,7 +44,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }
@@ -52,7 +54,11 @@ kotlin {
 }
 
 dependencies {
+    // Reproducible download + model preparation: python scripts/prepare_x_asr.py
+    implementation(files(rootProject.file("local-asr/sherpa-onnx-2.0.1.aar")))
     testImplementation(libs.junit)
+    testImplementation(libs.mockwebserver)
+    testImplementation(libs.json.test)
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     debugImplementation(libs.compose.ui.test.manifest)
@@ -79,6 +85,13 @@ dependencies {
 }
 
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
+
+val verifyLocalAsr = tasks.register<Exec>("verifyLocalAsr") {
+    val projectRoot = rootProject.projectDir.parentFile
+    workingDir(projectRoot)
+    commandLine("python", projectRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-only")
+}
+tasks.named("preBuild") { dependsOn(verifyLocalAsr) }
 
 abstract class BuildPairingNative : Exec() {
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty

@@ -1,4 +1,4 @@
-//! Windows network identity and session-scoped authorization; IP shape is not trust.
+//! Exact listener scopes. Device authentication, not Windows category, establishes trust.
 use crate::{Error, Result};
 use std::{
     collections::BTreeMap,
@@ -35,8 +35,31 @@ pub struct NetworkInterface {
     pub address: Ipv4Addr,
     pub name: String,
     pub profiles: Vec<NetworkProfile>,
+    physical: bool,
 }
 impl NetworkInterface {
+    pub fn new(
+        adapter: Uuid,
+        address: Ipv4Addr,
+        name: String,
+        profiles: Vec<NetworkProfile>,
+    ) -> Self {
+        Self {
+            adapter,
+            address,
+            name,
+            profiles,
+            physical: false,
+        }
+    }
+    pub fn with_physical(mut self, physical: bool) -> Self {
+        self.physical = physical;
+        self
+    }
+    pub fn is_physical(&self) -> bool {
+        self.physical
+    }
+
     pub fn key(&self) -> String {
         format!("{}/{}", self.adapter, self.address)
     }
@@ -45,10 +68,9 @@ impl NetworkInterface {
             .iter()
             .any(|p| p.category == NetworkCategory::Public)
     }
-    /// `public_consent` must come from an explicit action on this computer.
-    pub fn authorize(&self, public_consent: bool) -> Result<NetworkAuthorization> {
+    /// A fresh OS-validated binding scope; no user-consent or trust decision.
+    pub fn binding(&self) -> Result<NetworkBinding> {
         if self.profiles.is_empty()
-            || (self.is_public() && !public_consent)
             || self.address.is_unspecified()
             || self.address.is_loopback()
             || self.address.is_multicast()
@@ -56,19 +78,19 @@ impl NetworkInterface {
         {
             return Err(Error::Protocol("INTERFACE_NOT_PERMITTED"));
         }
-        Ok(NetworkAuthorization {
+        Ok(NetworkBinding {
             interface: self.clone(),
         })
     }
 }
 
 /// Ephemeral capability for exactly one adapter, address and Windows network/profile set.
-/// Never persisted; even a consented Public profile must still match fresh OS discovery.
+/// Never persisted; every scope must still match fresh OS discovery.
 #[derive(Clone, Debug)]
-pub struct NetworkAuthorization {
+pub struct NetworkBinding {
     interface: NetworkInterface,
 }
-impl NetworkAuthorization {
+impl NetworkBinding {
     pub fn address(&self) -> Ipv4Addr {
         self.interface.address
     }
@@ -172,15 +194,22 @@ pub fn available_interfaces() -> Result<Vec<NetworkInterface>> {
                 .filter(|c| !c.is_control())
                 .take(80)
                 .collect();
-            interfaces.push(NetworkInterface {
-                adapter,
-                address,
-                name,
-                profiles: profiles.clone(),
-            });
+            use windows::Win32::NetworkManagement::IpHelper::{GetIfEntry2, MIB_IF_ROW2};
+            let mut row = MIB_IF_ROW2 {
+                InterfaceIndex: interface.index.unwrap_or(0),
+                ..Default::default()
+            };
+            // HardwareInterface is bit 0 in the Windows MIB_IF_ROW2 flags.
+            let physical = row.InterfaceIndex != 0
+                && unsafe { GetIfEntry2(&mut row) }.is_ok()
+                && row.InterfaceAndOperStatusFlags._bitfield & 1 != 0;
+            interfaces.push(
+                NetworkInterface::new(adapter, address, name, profiles.clone())
+                    .with_physical(physical),
+            );
         }
     }
-    interfaces.sort_by_key(|i| (i.adapter, i.address));
+    interfaces.sort_by_key(|i| (!i.is_physical(), i.adapter, i.address));
     interfaces.dedup_by_key(|i| (i.adapter, i.address));
     Ok(interfaces)
 }
@@ -193,6 +222,7 @@ mod tests {
             adapter: Uuid::from_u128(1),
             address: Ipv4Addr::new(192, 168, 1, 2),
             name: "Wi-Fi".into(),
+            physical: true,
             profiles: vec![NetworkProfile {
                 id: Uuid::from_u128(2),
                 category,
@@ -200,24 +230,24 @@ mod tests {
         }
     }
     #[test]
-    fn public_requires_local_consent_and_empty_profiles_are_denied() {
+    fn all_windows_categories_bind_automatically_but_empty_profiles_are_denied() {
         let mut i = interface(NetworkCategory::Public);
-        assert!(i.authorize(false).is_err());
-        assert!(i.authorize(true).unwrap().permits(std::slice::from_ref(&i)));
+        assert!(i.binding().is_ok());
+        assert!(i.binding().unwrap().permits(std::slice::from_ref(&i)));
         i.profiles.clear();
-        assert!(i.authorize(true).is_err());
-        assert!(interface(NetworkCategory::Private).authorize(false).is_ok());
-        assert!(interface(NetworkCategory::Domain).authorize(false).is_ok());
+        assert!(i.binding().is_err());
+        assert!(interface(NetworkCategory::Private).binding().is_ok());
+        assert!(interface(NetworkCategory::Domain).binding().is_ok());
     }
     #[test]
-    fn authorization_expires_on_any_identity_or_profile_change() {
+    fn binding_expires_on_any_identity_or_profile_change() {
         for category in [
             NetworkCategory::Public,
             NetworkCategory::Private,
             NetworkCategory::Domain,
         ] {
             let i = interface(category);
-            let grant = i.authorize(true).unwrap();
+            let grant = i.binding().unwrap();
             assert!(!grant.permits(&[]));
             let mut changed = i.clone();
             changed.adapter = Uuid::from_u128(3);
@@ -247,13 +277,12 @@ mod tests {
         }
     }
     #[test]
-    fn mixed_adapter_profiles_require_public_consent() {
+    fn mixed_adapter_profiles_do_not_require_an_extra_decision() {
         let mut i = interface(NetworkCategory::Domain);
         i.profiles.push(NetworkProfile {
             id: Uuid::from_u128(3),
             category: NetworkCategory::Public,
         });
-        assert!(i.authorize(false).is_err());
-        assert!(i.authorize(true).is_ok());
+        assert!(i.binding().is_ok());
     }
 }

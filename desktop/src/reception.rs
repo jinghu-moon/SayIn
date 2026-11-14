@@ -9,7 +9,7 @@ use voicelink_receiver::{
 };
 use voicelink_transport::{
     HostIdentity,
-    interfaces::{NetworkAuthorization, NetworkInterface, available_interfaces},
+    interfaces::{NetworkInterface, available_interfaces},
     server::{NetworkService, NetworkSnapshot},
     storage::secure_directory,
 };
@@ -35,34 +35,44 @@ pub enum ReceptionIssue {
     Network,
 }
 
-/// One chooser owns both the selected identity and its ephemeral consent.
+/// A local review authorizes only the request and control revision actually shown.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ReviewScope {
+    revision: String,
+    request: String,
+}
+
+/// Discovery and selection are independent of device trust and input permission.
 #[derive(Default)]
 struct NetworkSelection {
     interfaces: Vec<NetworkInterface>,
     selected: Option<String>,
-    authorization: Option<NetworkAuthorization>,
 }
 impl NetworkSelection {
-    fn replace(&mut self, interfaces: Vec<NetworkInterface>) {
-        *self = Self {
-            interfaces,
-            ..Self::default()
-        };
+    fn replace(&mut self, mut interfaces: Vec<NetworkInterface>, preferred: Option<&str>) {
+        interfaces.sort_by_key(|i| {
+            (
+                !i.is_physical(),
+                Some(i.key().as_str()) != preferred,
+                i.adapter,
+                i.address,
+            )
+        });
+        self.selected = interfaces.first().map(NetworkInterface::key);
+        self.interfaces = interfaces;
     }
     fn selected(&self) -> Option<&NetworkInterface> {
         self.interfaces
             .iter()
             .find(|i| Some(i.key().as_str()) == self.selected.as_deref())
     }
-    fn select(&mut self, key: &str) {
-        if self.selected.as_deref() != Some(key) && self.interfaces.iter().any(|i| i.key() == key) {
-            self.selected = Some(key.to_owned());
-            self.authorize_public(false);
-        }
-    }
-    fn authorize_public(&mut self, consent: bool) {
-        self.authorization = self.selected().and_then(|i| i.authorize(consent).ok());
-    }
+}
+
+#[derive(Clone, Copy)]
+enum HistoryChange {
+    Delete(i64),
+    Restore(i64),
+    Policy(voicelink_receiver::history::HistoryPolicy),
 }
 
 pub struct ReceptionState {
@@ -82,15 +92,23 @@ pub struct ReceptionState {
     pairing_image: Option<Arc<Image>>,
     network_task: Option<Task<()>>,
     network_watch: Option<Task<()>>,
-    network_requested: bool,
+    network_retry: Option<Task<()>>,
+    pairing_requested: bool,
     revoking: Option<String>,
     history: HistoryPage,
     latest: HistoryPage,
+    review_entry: Option<voicelink_receiver::history::HistoryEntry>,
+    review_revision: Option<String>,
     history_query: HistoryQuery,
     history_task: Option<Task<()>>,
     history_generation: u64,
     history_dirty: bool,
     history_failed: bool,
+    history_policy: Option<voicelink_receiver::history::HistoryPolicy>,
+    history_command: Option<Task<()>>,
+    history_command_failed: bool,
+    history_undo: Option<i64>,
+    history_undo_timer: Option<Task<()>>,
     bootstrapped: bool,
     automatic_ready: bool,
     preferred_interface: Option<String>,
@@ -123,15 +141,23 @@ impl ReceptionState {
             pairing_image: None,
             network_task: None,
             network_watch: None,
-            network_requested: false,
+            network_retry: None,
+            pairing_requested: false,
             revoking: None,
             history: HistoryPage::default(),
             latest: HistoryPage::default(),
+            review_entry: None,
+            review_revision: None,
             history_query: HistoryQuery::default(),
             history_task: None,
             history_generation: 0,
             history_dirty: false,
             history_failed: false,
+            history_policy: None,
+            history_command: None,
+            history_command_failed: false,
+            history_undo: None,
+            history_undo_timer: None,
             bootstrapped: !start_network,
             automatic_ready: true,
             preferred_interface: None,
@@ -188,56 +214,70 @@ impl ReceptionState {
     }
 
     fn observe(&mut self, receiver: Receiver, cx: &mut Context<Self>) {
-        self.watch = Some(cx.spawn(async move |owner, cx| {
-            let mut notifications = match receiver.subscribe().await {
-                Ok(notifications) => notifications,
-                Err(error) => {
-                    eprintln!("Receiver subscription: {error}");
-                    let _ = owner.update(cx, |this, cx| {
-                        this.phase = ReceptionPhase::Failed;
-                        this.issue = Some(ReceptionIssue::Command);
-                        cx.notify();
-                    });
-                    return;
-                }
-            };
-            while notifications.next().await.is_some() {
-                let snapshot = receiver.snapshot().await;
-                if owner
-                    .update(cx, |this, cx| {
-                        if this.closing {
-                            return;
-                        }
-                        match snapshot {
-                            Ok(snapshot) => {
-                                this.phase = ReceptionPhase::Ready;
-                                if !snapshot.storage_healthy {
-                                    this.issue = Some(ReceptionIssue::Storage);
-                                }
-                                this.snapshot = Some(snapshot);
-                                this.refresh_history(cx);
-                                if !this.bootstrapped {
-                                    this.bootstrapped = true;
-                                    if this.snapshot.as_ref().is_some_and(|s| s.paired_devices > 0)
-                                    {
-                                        this.discover_network(true, cx);
+        self.watch =
+            Some(cx.spawn(async move |owner, cx| {
+                let mut notifications = match receiver.subscribe().await {
+                    Ok(notifications) => notifications,
+                    Err(error) => {
+                        eprintln!("Receiver subscription: {error}");
+                        let _ = owner.update(cx, |this, cx| {
+                            this.phase = ReceptionPhase::Failed;
+                            this.issue = Some(ReceptionIssue::Command);
+                            cx.notify();
+                        });
+                        return;
+                    }
+                };
+                while notifications.next().await.is_some() {
+                    let snapshot = receiver.snapshot().await;
+                    if owner
+                        .update(cx, |this, cx| {
+                            if this.closing {
+                                return;
+                            }
+                            match snapshot {
+                                Ok(snapshot) => {
+                                    this.phase = ReceptionPhase::Ready;
+                                    if !snapshot.storage_healthy {
+                                        this.issue = Some(ReceptionIssue::Storage);
                                     }
+                                    if this.snapshot.as_ref().is_some_and(|old| {
+                                        old.paired_devices < snapshot.paired_devices
+                                    }) {
+                                        this.pairing_requested = false;
+                                    }
+                                    if this.snapshot.as_ref().map(|s| &s.control.state_rev)
+                                        != Some(&snapshot.control.state_rev)
+                                    {
+                                        this.review_entry = None;
+                                        this.review_revision = None;
+                                    }
+                                    this.snapshot = Some(snapshot);
+                                    this.refresh_history(cx);
+                                    if !this.bootstrapped {
+                                        this.bootstrapped = true;
+                                        this.pairing_requested = this
+                                            .snapshot
+                                            .as_ref()
+                                            .is_some_and(|s| s.paired_devices == 0);
+                                        this.discover_network(cx);
+                                        this.watch_network_recovery(cx);
+                                    }
+                                    this.maybe_enable(cx);
                                 }
-                                this.maybe_enable(cx);
+                                Err(error) => {
+                                    eprintln!("Receiver snapshot: {error}");
+                                    this.issue = Some(ReceptionIssue::Command);
+                                }
                             }
-                            Err(error) => {
-                                eprintln!("Receiver snapshot: {error}");
-                                this.issue = Some(ReceptionIssue::Command);
-                            }
-                        }
-                        cx.notify();
-                    })
-                    .is_err()
-                {
-                    break;
+                            cx.notify();
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
                 }
-            }
-        }));
+            }));
     }
 
     pub fn background_available(&self) -> bool {
@@ -338,19 +378,50 @@ impl ReceptionState {
         cx.notify();
     }
 
-    pub fn resume(&mut self, reviewed: bool, cx: &mut Context<Self>) {
+    pub(crate) fn review_scope(&self) -> Option<ReviewScope> {
+        let snapshot = self.snapshot.as_ref()?;
+        if !self.is_ready()
+            || snapshot.control.pause_reason.as_deref() != Some("outcome_review_required")
+            || self.review_revision.as_ref() != Some(&snapshot.control.state_rev)
+        {
+            return None;
+        }
+        Some(ReviewScope {
+            revision: snapshot.control.state_rev.clone(),
+            request: self.review_entry.as_ref()?.receipt.id.clone(),
+        })
+    }
+
+    pub fn resume(&mut self, cx: &mut Context<Self>) {
+        if let Some(snapshot) = self.snapshot.as_ref() {
+            self.resume_in_scope(snapshot.control.state_rev.clone(), false, cx);
+        }
+    }
+
+    pub(crate) fn resume_reviewed(&mut self, scope: ReviewScope, cx: &mut Context<Self>) -> bool {
+        if self.review_scope().as_ref() != Some(&scope) {
+            return false;
+        }
+        self.resume_in_scope(scope.revision, true, cx)
+    }
+
+    fn resume_in_scope(
+        &mut self,
+        revision: String,
+        reviewed: bool,
+        cx: &mut Context<Self>,
+    ) -> bool {
         if !self.is_ready() || self.is_busy() || self.closing {
-            return;
+            return false;
         }
         let Some(snapshot) = self.snapshot.as_ref() else {
-            return;
+            return false;
         };
-        if snapshot.control.active_device_id.is_none() {
-            return;
+        if snapshot.control.active_device_id.is_none() || snapshot.control.state_rev != revision {
+            return false;
         }
-        let revision = snapshot.control.state_rev.clone();
         let Some(receiver) = self.receiver.clone() else {
-            return;
+            return false;
         };
         self.command = Some(cx.spawn(async move |owner, cx| {
             let result = receiver.enable_foreground_input(revision, reviewed).await;
@@ -367,6 +438,7 @@ impl ReceptionState {
             });
         }));
         cx.notify();
+        true
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
@@ -377,9 +449,13 @@ impl ReceptionState {
         self.phase = ReceptionPhase::Stopping;
         self.watch = None;
         self.history_task = None;
+        self.history_command = None;
+        self.history_undo_timer = None;
+        self.history_undo = None;
         self.command = None;
         self.network_task = None;
         self.network_watch = None;
+        self.network_retry = None;
         self.selection = NetworkSelection::default();
         self.network_snapshot = None;
         self.pairing_image = None;
@@ -417,125 +493,92 @@ impl ReceptionState {
     pub fn selected_interface(&self) -> Option<&NetworkInterface> {
         self.selection.selected()
     }
-    pub fn network_authorized(&self) -> bool {
-        self.selection.authorization.is_some()
+    pub fn pairing_requested(&self) -> bool {
+        self.pairing_requested
     }
-    pub fn network_requested(&self) -> bool {
-        self.network_requested
-    }
-    pub fn select_interface(&mut self, key: &str, cx: &mut Context<Self>) {
-        if self.network.is_none() && !self.is_busy() && !self.closing {
-            self.selection.select(key);
-            cx.notify();
-        }
-    }
-    pub fn authorize_public_network(&mut self, consent: bool, cx: &mut Context<Self>) {
-        if self.network.is_none() && !self.is_busy() && !self.closing {
-            self.selection.authorize_public(consent);
-            cx.notify();
-        }
-    }
+    /// Explicit pairing is for adding a phone, never for restoring a network.
     pub fn prepare_network(&mut self, cx: &mut Context<Self>) {
         if !self.is_ready() || self.is_busy() || self.closing {
             return;
         }
-        self.network_requested = true;
+        self.pairing_requested = true;
         if self.network.is_some() {
             self.open_pairing(cx);
+        } else {
+            self.discover_network(cx);
+        }
+    }
+    pub fn retry_network(&mut self, cx: &mut Context<Self>) {
+        if self.is_ready() && !self.is_busy() && !self.closing && self.network.is_none() {
+            self.discover_network(cx);
+        }
+    }
+    /// Optional troubleshooting override, absent from the normal connection path.
+    pub fn select_interface(&mut self, key: &str, cx: &mut Context<Self>) {
+        if self.is_busy()
+            || self.closing
+            || !self.selection.interfaces.iter().any(|i| i.key() == key)
+        {
             return;
         }
-        self.discover_network(false, cx);
-    }
-    fn discover_network(&mut self, automatic: bool, cx: &mut Context<Self>) {
-        self.selection = NetworkSelection::default();
-        let operation = cx.background_spawn(async { available_interfaces() });
+        self.preferred_interface = Some(key.into());
+        let network = self.network.take();
+        self.network_snapshot = None;
+        self.pairing_image = None;
+        self.network_watch = None;
+        // Fence input before yielding to the async shutdown/rebind work.
+        let pausing = self.receiver.as_ref().map(Receiver::network_lost);
         self.network_task = Some(cx.spawn(async move |owner, cx| {
-            let result = operation.await;
+            if let Some(pausing) = pausing {
+                let _ = pausing.await;
+            }
+            if let Some(network) = network {
+                let _ = network.shutdown().await;
+            }
             let _ = owner.update(cx, |this, cx| {
                 this.network_task = None;
                 if this.closing {
                     return;
                 }
-                match result {
-                    Ok(interfaces) => {
-                        this.selection.replace(interfaces);
-                        this.issue = None;
-                        if automatic {
-                            let selected = this
-                                .preferred_interface
-                                .as_ref()
-                                .and_then(|key| {
-                                    this.selection.interfaces.iter().find(|i| i.key() == *key)
-                                })
-                                .or_else(|| {
-                                    (this.selection.interfaces.len() == 1)
-                                        .then(|| &this.selection.interfaces[0])
-                                })
-                                .map(NetworkInterface::key);
-                            if let Some(key) = selected {
-                                this.selection.select(&key);
-                                if this.selection.authorization.is_some() {
-                                    this.start_network(cx);
-                                } else {
-                                    this.network_requested = true;
-                                }
-                            } else {
-                                this.network_requested = true;
-                            }
-                        }
-                    }
-                    Err(error) => {
-                        this.network_requested = true;
-                        eprintln!("Read network profiles: {error}");
-                        this.issue = Some(ReceptionIssue::Network);
-                    }
-                }
-                cx.notify();
+                let preferred = this.preferred_interface.as_deref();
+                this.selection
+                    .interfaces
+                    .sort_by_key(|i| Some(i.key().as_str()) != preferred);
+                this.start_network(cx);
             });
         }));
         cx.notify();
     }
-    pub fn start_network(&mut self, cx: &mut Context<Self>) {
-        if !self.is_ready() || self.is_busy() || self.closing {
-            return;
-        }
-        let (Some(authorization), Some(receiver), Some(identity)) = (
-            self.selection.authorization.clone(),
-            self.receiver.clone(),
-            self.identity.clone(),
-        ) else {
-            return;
-        };
-        let interface = self.selection.selected.clone();
-        let preference_path = self.directory.join("network-interface.txt");
-        let operation = cx.background_spawn(async move {
-            let service = match NetworkService::start_on_network(
-                receiver.clone(),
-                identity.clone(),
-                authorization.clone(),
-                7788,
-            ) {
-                Ok(service) => Ok(service),
-                Err(voicelink_transport::Error::Io(error))
-                    if error.kind() == std::io::ErrorKind::AddrInUse =>
+    fn watch_network_recovery(&mut self, cx: &mut Context<Self>) {
+        self.network_retry = Some(cx.spawn(async move |owner, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(2))
+                    .await;
+                if owner
+                    .update(cx, |this, cx| {
+                        if this.closing {
+                            return false;
+                        }
+                        if this.network.is_none() && !this.is_busy() && this.is_ready() {
+                            this.discover_network(cx);
+                        }
+                        true
+                    })
+                    .unwrap_or(false)
                 {
-                    NetworkService::start_on_network(receiver, identity, authorization, 0)
+                    continue;
                 }
-                Err(error) => Err(error),
-            }?;
-            // Only interface identity is remembered. Public consent remains session-only.
-            if let Some(key) = interface {
-                use std::io::Write as _;
-                let saved = (|| -> std::io::Result<()> {
-                    let mut file = atomic_write_file::AtomicWriteFile::open(&preference_path)?;
-                    file.write_all(key.as_bytes())?;
-                    file.commit()
-                })();
-                if let Err(error) = saved {
-                    eprintln!("Remember network interface: {error}");
-                }
+                break;
             }
-            Ok::<_, voicelink_transport::Error>(service)
+        }));
+    }
+    fn discover_network(&mut self, cx: &mut Context<Self>) {
+        let preferred = self.preferred_interface.clone();
+        let operation = cx.background_spawn(async move {
+            let mut selection = NetworkSelection::default();
+            selection.replace(available_interfaces()?, preferred.as_deref());
+            Ok::<_, voicelink_transport::Error>(selection)
         });
         self.network_task = Some(cx.spawn(async move |owner, cx| {
             let result = operation.await;
@@ -545,17 +588,84 @@ impl ReceptionState {
                     return;
                 }
                 match result {
+                    Ok(selection) if !selection.interfaces.is_empty() => {
+                        this.selection = selection;
+                        this.start_network(cx);
+                    }
+                    _ => {
+                        this.selection = NetworkSelection::default();
+                        this.issue = Some(ReceptionIssue::Network);
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+    fn start_network(&mut self, cx: &mut Context<Self>) {
+        let (Some(receiver), Some(identity)) = (self.receiver.clone(), self.identity.clone())
+        else {
+            return;
+        };
+        let interfaces = self.selection.interfaces.clone();
+        let path = self.directory.join("network-interface.txt");
+        let operation = cx.background_spawn(async move {
+            let mut last = voicelink_transport::Error::Protocol("NETWORK_UNAVAILABLE");
+            for interface in interfaces {
+                let bind = |port| {
+                    NetworkService::start_on_network(
+                        receiver.clone(),
+                        identity.clone(),
+                        interface.binding()?,
+                        port,
+                    )
+                };
+                let result = match bind(7788) {
+                    Err(voicelink_transport::Error::Io(e))
+                        if e.kind() == std::io::ErrorKind::AddrInUse =>
+                    {
+                        bind(0)
+                    }
+                    other => other,
+                };
+                match result {
                     Ok(service) => {
+                        use std::io::Write as _;
+                        if let Ok(mut file) = atomic_write_file::AtomicWriteFile::open(&path) {
+                            let _ = file
+                                .write_all(interface.key().as_bytes())
+                                .and_then(|_| file.commit());
+                        }
+                        return Ok((service, interface.key()));
+                    }
+                    Err(error) => last = error,
+                }
+            }
+            Err(last)
+        });
+        self.network_task = Some(cx.spawn(async move |owner, cx| {
+            let result = operation.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.network_task = None;
+                if this.closing {
+                    return;
+                }
+                match result {
+                    Ok((service, key)) => {
+                        this.selection.selected = Some(key.clone());
+                        this.preferred_interface = Some(key);
                         this.network = Some(service.clone());
+                        if this.issue == Some(ReceptionIssue::Network) {
+                            this.issue = None;
+                        }
                         this.observe_network(service, cx);
-                        if this.network_requested {
+                        if this.pairing_requested {
                             this.open_pairing(cx);
                         }
                         this.maybe_enable(cx);
                     }
                     Err(error) => {
-                        eprintln!("Start network service: {error}");
-                        this.selection = NetworkSelection::default();
+                        eprintln!("Start network: {error}");
                         this.issue = Some(ReceptionIssue::Network);
                     }
                 }
@@ -574,6 +684,9 @@ impl ReceptionState {
                 let result = service.snapshot();
                 if owner
                     .update(cx, |this, cx| {
+                        if this.closing {
+                            return;
+                        }
                         if let Ok(snapshot) = result {
                             if snapshot.running {
                                 let previous = this
@@ -599,7 +712,6 @@ impl ReceptionState {
                                 this.network_snapshot = None;
                                 this.pairing_image = None;
                                 this.selection = NetworkSelection::default();
-                                this.automatic_ready = false;
                                 this.issue = Some(ReceptionIssue::Network);
                             }
                         }
@@ -634,7 +746,7 @@ impl ReceptionState {
         cx.notify();
     }
     pub fn close_pairing(&mut self, cx: &mut Context<Self>) {
-        self.network_requested = false;
+        self.pairing_requested = false;
         cx.notify();
         let Some(service) = self.network.clone() else {
             return;
@@ -660,18 +772,19 @@ impl ReceptionState {
         .detach();
     }
     fn maybe_enable(&mut self, cx: &mut Context<Self>) {
-        if self.automatic_ready
-            && self.network.is_some()
+        if self.network.is_some()
             && self.is_ready()
             && !self.is_busy()
             && self.snapshot.as_ref().is_some_and(|s| {
                 s.control.paused
                     && s.control.active_device_id.is_some()
-                    && s.control.pause_reason.as_deref() == Some("startup")
+                    && (s.control.pause_reason.as_deref() == Some("network_unavailable")
+                        || (self.automatic_ready
+                            && s.control.pause_reason.as_deref() == Some("startup")))
             })
         {
             self.automatic_ready = false;
-            self.resume(false, cx);
+            self.resume(cx);
         }
     }
     pub fn history(&self) -> &HistoryPage {
@@ -679,6 +792,9 @@ impl ReceptionState {
     }
     pub fn latest(&self) -> &HistoryPage {
         &self.latest
+    }
+    pub fn review_entry(&self) -> Option<&voicelink_receiver::history::HistoryEntry> {
+        self.review_entry.as_ref()
     }
     pub fn history_query(&self) -> &HistoryQuery {
         &self.history_query
@@ -688,6 +804,101 @@ impl ReceptionState {
     }
     pub fn history_failed(&self) -> bool {
         self.history_failed
+    }
+    pub fn history_policy(&self) -> Option<voicelink_receiver::history::HistoryPolicy> {
+        self.history_policy
+    }
+    pub fn history_busy(&self) -> bool {
+        self.history_command.is_some()
+    }
+    pub fn history_command_failed(&self) -> bool {
+        self.history_command_failed
+    }
+    pub fn history_undo(&self) -> Option<i64> {
+        self.history_undo
+    }
+
+    pub fn delete_history(&mut self, order: i64, cx: &mut Context<Self>) {
+        self.change_history(HistoryChange::Delete(order), cx);
+    }
+    pub fn restore_history(&mut self, cx: &mut Context<Self>) {
+        if let Some(order) = self.history_undo {
+            self.change_history(HistoryChange::Restore(order), cx);
+        }
+    }
+    pub fn set_history_policy(
+        &mut self,
+        policy: voicelink_receiver::history::HistoryPolicy,
+        cx: &mut Context<Self>,
+    ) {
+        self.change_history(HistoryChange::Policy(policy), cx);
+    }
+    fn change_history(&mut self, change: HistoryChange, cx: &mut Context<Self>) {
+        if self.closing || self.history_busy() {
+            return;
+        }
+        let Some(receiver) = self.receiver.clone() else {
+            return;
+        };
+        self.history_command_failed = false;
+        self.history_command = Some(cx.spawn(async move |owner, cx| {
+            let result = match change {
+                HistoryChange::Delete(order) => receiver.delete_history(order).await,
+                HistoryChange::Restore(order) => receiver.restore_history(order).await,
+                HistoryChange::Policy(policy) => {
+                    receiver.set_history_policy(policy).await.map(|_| true)
+                }
+            };
+            let _ = owner.update(cx, |this, cx| {
+                this.history_command = None;
+                if this.closing {
+                    return;
+                }
+                match result {
+                    Ok(true) => {
+                        match change {
+                            HistoryChange::Delete(order) => {
+                                this.history
+                                    .entries
+                                    .retain(|e| e.receipt.order != order.to_string());
+                                this.latest
+                                    .entries
+                                    .retain(|e| e.receipt.order != order.to_string());
+                                this.history_undo = Some(order);
+                                this.history_undo_timer = Some(cx.spawn(async move |owner, cx| {
+                                    cx.background_executor()
+                                        .timer(std::time::Duration::from_millis(
+                                            voicelink_receiver::history::UNDO_MILLIS as u64,
+                                        ))
+                                        .await;
+                                    let _ = owner.update(cx, |this, cx| {
+                                        this.history_undo = None;
+                                        cx.notify();
+                                    });
+                                }));
+                            }
+                            HistoryChange::Restore(_) => {
+                                this.history_undo = None;
+                                this.history_undo_timer = None;
+                            }
+                            HistoryChange::Policy(policy) => this.history_policy = Some(policy),
+                        }
+                        this.history_generation = this.history_generation.wrapping_add(1);
+                        this.refresh_history(cx);
+                    }
+                    Ok(false) => {
+                        this.history_command_failed = true;
+                        this.history_undo = None;
+                    }
+                    Err(error) => {
+                        eprintln!("History command failed: {error}");
+                        this.history_command_failed = true;
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
     pub fn search_history(&mut self, search: String, cx: &mut Context<Self>) {
         self.history_query.search = search.chars().take(256).collect();
@@ -728,6 +939,11 @@ impl ReceptionState {
         };
         let query = self.history_query.clone();
         let generation = self.history_generation;
+        let review_revision = self
+            .snapshot
+            .as_ref()
+            .filter(|s| s.control.pause_reason.as_deref() == Some("outcome_review_required"))
+            .map(|s| s.control.state_rev.clone());
         self.history_dirty = false;
         self.history_task = Some(cx.spawn(async move |owner, cx| {
             cx.background_executor()
@@ -764,7 +980,15 @@ impl ReceptionState {
                 Ok(Some(page))
             }
             .await;
-            let latest = receiver.history(HistoryQuery::default()).await;
+            let mut latest_query = HistoryQuery::default();
+            latest_query.limit = 1;
+            let latest = receiver.history(latest_query).await;
+            let review = if review_revision.is_some() {
+                receiver.review_history().await
+            } else {
+                Ok(None)
+            };
+            let policy = receiver.history_policy().await;
             let _ = owner.update(cx, |this, cx| {
                 this.history_task = None;
                 if this.closing {
@@ -783,8 +1007,28 @@ impl ReceptionState {
                         }
                     }
                 }
-                if let Ok(page) = latest {
-                    this.latest = page;
+                // A read started before a delete/policy command must not put
+                // stale data back after that command has updated the view.
+                if generation == this.history_generation && !this.history_busy() {
+                    if let Ok(page) = latest {
+                        this.latest = page;
+                    }
+                    // A history read belongs to the control version at its
+                    // start. Never pair an old request body with a newer gate.
+                    let current_review_revision = this
+                        .snapshot
+                        .as_ref()
+                        .filter(|s| {
+                            s.control.pause_reason.as_deref() == Some("outcome_review_required")
+                        })
+                        .map(|s| s.control.state_rev.clone());
+                    if current_review_revision == review_revision {
+                        this.review_entry = review.ok().flatten();
+                        this.review_revision = review_revision;
+                    }
+                    if let Ok(policy) = policy {
+                        this.history_policy = Some(policy);
+                    }
                 }
                 if this.history_dirty || generation != this.history_generation {
                     this.refresh_history(cx);

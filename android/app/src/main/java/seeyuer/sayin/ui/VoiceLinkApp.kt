@@ -38,6 +38,7 @@ import java.util.UUID
 import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientIssue
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.receptionScope
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
@@ -46,20 +47,15 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 
 @Composable
-fun VoiceLinkApp() {
-    val model: VoiceLinkViewModel = viewModel()
+fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDismiss: () -> Unit = {}, openSettings: Boolean = false, entryVersion: Int = 0) {
+    val context = LocalContext.current
+    val application = context.applicationContext as seeyuer.sayin.SayInApplication
+    val model = application.model
     val repository = model.repository
     val state by repository.state.collectAsStateWithLifecycle()
-    val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current
-    var draft by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
-    var draftId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var address by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue()) }
-    var port by rememberSaveable(stateSaver = TextFieldValue.Saver) { mutableStateOf(TextFieldValue("7788")) }
-    // Pairing secrets never enter saved instance state.
-    var code by remember { mutableStateOf(TextFieldValue()) }
-    var showCode by rememberSaveable { mutableStateOf(false) }
-    var confirmForget by remember { mutableStateOf(false) }
+    val speaking = model.speaking
+    val foregroundOwner = remember { Any() }
     var permissionDenied by remember { mutableStateOf(false) }
     var cameraDenied by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -69,10 +65,10 @@ fun VoiceLinkApp() {
         val action = pendingAction
         pendingAction = null
         permissionDenied = !granted
-        if (granted) { repository.foreground(true); action?.invoke() }
+        if (granted) { model.foreground(foregroundOwner, true); action?.invoke() }
     }
     fun withNetwork(action: () -> Unit) {
-        if (networkGranted()) { repository.foreground(true); action() }
+        if (networkGranted()) { model.foreground(foregroundOwner, true); action() }
         else if (Build.VERSION.SDK_INT >= 37) { pendingAction = action; networkPermission.launch(Manifest.permission.ACCESS_LOCAL_NETWORK) }
     }
     val prompt = stringResource(R.string.scan_prompt)
@@ -89,68 +85,35 @@ fun VoiceLinkApp() {
     DisposableEffect(lifecycle, repository) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> repository.foreground(networkGranted())
-                Lifecycle.Event.ON_STOP -> repository.foreground(false)
+                Lifecycle.Event.ON_START -> model.foreground(foregroundOwner, networkGranted())
+                Lifecycle.Event.ON_STOP -> model.foreground(foregroundOwner, false)
                 else -> Unit
             }
         }
         lifecycle.lifecycle.addObserver(observer)
-        repository.foreground(lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && networkGranted())
-        onDispose { lifecycle.lifecycle.removeObserver(observer) }
-    }
-    LaunchedEffect(state.savedDraft) {
-        if (state.savedDraft == draftId) { draft = TextFieldValue(); draftId = UUID.randomUUID().toString() }
+        model.foreground(foregroundOwner, lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && networkGranted())
+        onDispose { lifecycle.lifecycle.removeObserver(observer); model.foreground(foregroundOwner, false) }
     }
     VoiceLinkContent(
         state = state,
-        draft = draft,
-        onDraftChange = {
-            if (it.text != draft.text) draftId = UUID.randomUUID().toString()
-            draft = it
-        },
-        onSend = { repository.send(draft.text, draftId) },
+        session = speaking,
+        onSend = model::send,
+        cloudSettings = application.cloudSettings,
+        quick = quick, onExpand = onExpand, onDismiss = onDismiss, openSettings = openSettings, entryVersion = entryVersion,
+        onReconnect = { withNetwork(repository::connect) },
         onHistoryAction = repository::action,
         connectionActions = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (state.connection == Connection.ONLINE) {
-                    Action(if (state.paused) R.string.resume_input else R.string.pause_input,
-                        enabled = state.active && state.target != null, onClick = repository::togglePause)
-                } else if (state.paired) {
-                    Action(R.string.reconnect, enabled = !state.busy) { withNetwork(repository::connect) }
-                } else if (!state.busy && state.storageHealthy) {
-                    Action(R.string.scan_qr, primary = true) {
+                ConnectionActions(state,
+                    onScan = {
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchScanner()
                         else cameraPermission.launch(Manifest.permission.CAMERA)
-                    }
-                    Action(if (showCode) R.string.hide_pair_code else R.string.use_pair_code) { showCode = !showCode }
-                    if (showCode) {
-                        TextField(address, { address = it }, Modifier.fillMaxWidth(), label = stringResource(R.string.ip_address),
-                            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                        TextField(port, { port = it }, Modifier.fillMaxWidth(), label = stringResource(R.string.port),
-                            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-                        TextField(code, { code = it }, Modifier.fillMaxWidth(), label = stringResource(R.string.pairing_code),
-                            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                            visualTransformation = PasswordVisualTransformation())
-                        Action(R.string.pair_computer, primary = true, enabled = code.text.length == 8 && address.text.isNotEmpty()) {
-                            val entered = code.text
-                            code = TextFieldValue()
-                            withNetwork { repository.pairCode(address.text, port.text, entered) }
-                        }
-                    }
-                }
-                if (!state.paired && state.busy && state.connection != Connection.LOADING) {
-                    Text(stringResource(R.string.approve_on_computer))
-                    Action(R.string.cancel_pairing, onClick = repository::cancelPairing)
-                }
-                if (state.paired) {
-                    Action(R.string.forget_computer) { confirmForget = true }
-                    if (confirmForget) {
-                        Text(stringResource(R.string.forget_warning))
-                        Action(R.string.confirm_forget) { repository.forget(); confirmForget = false }
-                        Action(R.string.keep_computer) { confirmForget = false }
-                    }
-                }
-                state.issue?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
+                    },
+                    onPair = { address, port, code -> withNetwork { repository.pairCode(address, port, code) } },
+                    onCancel = repository::cancelPairing,
+                    onUpdateAddress = { address, port -> withNetwork { repository.updateAddress(address, port) } },
+                    onForget = repository::forget)
+                state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION) }?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
                 if (permissionDenied) Notice(stringResource(R.string.network_permission_denied), VoiceLinkIcon.Alert)
                 if (cameraDenied) Notice(stringResource(R.string.camera_permission_denied), VoiceLinkIcon.Alert)
             }
@@ -164,7 +127,7 @@ internal fun Action(label: Int, enabled: Boolean = true, primary: Boolean = fals
         R.string.scan_qr -> VoiceLinkIcon.Scan
         R.string.send_to_computer -> VoiceLinkIcon.Send
         R.string.reconnect -> VoiceLinkIcon.Wifi
-        R.string.mobile_connect_action, R.string.mobile_manage_connection -> VoiceLinkIcon.Computer
+        R.string.mobile_connect_action -> VoiceLinkIcon.Computer
         else -> null
     }
     Button(onClick, Modifier.fillMaxWidth(), enabled = enabled, minHeight = 48.dp,

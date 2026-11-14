@@ -29,17 +29,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut observations = Vec::new();
     for interface in interfaces {
         let started = Instant::now();
-        let default_permitted = interface.authorize(false).is_ok();
-        assert_eq!(default_permitted, !interface.is_public());
-        let authorization = interface.authorize(true)?;
-        authorization.validate()?;
+        let default_permitted = interface.binding().is_ok();
+        assert!(default_permitted);
+        let binding = interface.binding()?;
+        binding.validate()?;
         let directory =
             std::env::temp_dir().join(format!("voicelink-policy-probe-{}", Uuid::new_v4()));
         secure_directory(&directory)?;
         let receiver = Receiver::start(open_ledger(&directory)?, RefuseInput)?;
         let identity = HostIdentity::open(&directory, 0)?;
-        let service =
-            NetworkService::start_on_network(receiver.clone(), identity, authorization, 0)?;
+        let service = NetworkService::start_on_network(receiver.clone(), identity, binding, 0)?;
         // Cross a periodic monitor tick as well as the immediate startup check.
         tokio::time::sleep(Duration::from_millis(2300)).await;
         let snapshot = service.snapshot()?;
@@ -57,7 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::remove_dir_all(directory)?;
         observations.push(serde_json::json!({
             "interface":interface.name,"address":interface.address.to_string(),"public":interface.is_public(),
-            "default_permitted":default_permitted,"authorized_bind":true,"monitor_retained":true,
+            "default_permitted":default_permitted,"scoped_bind":true,"monitor_retained":true,
             "closed_pairing_window":true,"clean_shutdown":true,"elapsed_ms":started.elapsed().as_millis()
         }));
     }

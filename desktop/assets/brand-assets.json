@@ -12,11 +12,11 @@
     },
     "android/app/src/main/res/drawable/ic_launcher_foreground.xml": {
       "source": "assets/sayin-icons/B-field/android/res/drawable/ic_launcher_foreground.xml",
-      "sha256": "9f4a173284fcdca3518f17430062229456d9936318b896610a81b88c87ac3894"
+      "sha256": "2fdfc2065d65edc9bc83b05c2b998783aa1367978a41e02a3f16fcf73f8f2e6e"
     },
     "android/app/src/main/res/drawable/ic_launcher_monochrome.xml": {
       "source": "assets/sayin-icons/B-field/android/res/drawable/ic_launcher_monochrome.xml",
-      "sha256": "8bf80347d6a3cb49bea6ec689cf3c8485efe29661ebf09dd3eab4f88c1412bd2"
+      "sha256": "66441562b4be37e870f1c5da52bbb2a8f4ab06d77cd3a7962c363435e5fd14b0"
     },
     "android/app/src/main/res/drawable/ic_qs_tile_sayin.xml": {
       "source": "assets/sayin-icons/B-field/android/res/drawable/ic_qs_tile_sayin.xml",
@@ -36,43 +36,43 @@
     },
     "android/app/src/main/res/mipmap-hdpi/ic_launcher.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-hdpi/ic_launcher.png",
-      "sha256": "2a2bf7b7e2f866ac3278a9ca4ee5990054f8d4a54d8d901ee4777262d84d47da"
+      "sha256": "ad841ceddd7057a65e20a5588cd959817b7d631779b369befad5019b18751fe7"
     },
     "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-hdpi/ic_launcher_round.png",
-      "sha256": "81487e313dd6edadff1bf6922846e9866c04f3ea42e296b13c5653caca8f8ad0"
+      "sha256": "36866e8c8ef7a8cf9298b26c63cefe4504e99e783d84cac8f53fbc78958e10f7"
     },
     "android/app/src/main/res/mipmap-mdpi/ic_launcher.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-mdpi/ic_launcher.png",
-      "sha256": "88fdab6ce325e0db675ebd4a2bc1110076f5b291bc9a357d366cc56ea058eacf"
+      "sha256": "2dc60f5f75927bc3bdeac2fd9214b61409547175d2116ff5b73dd6820d77e4e9"
     },
     "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-mdpi/ic_launcher_round.png",
-      "sha256": "f285b92e07a39a66940472252c0f15063f4b285337ba31a16b89049b0b11fed2"
+      "sha256": "f1e030768c2e4ed8772af3fd76223fec5ec24546d7ac31ae89f5f557c42fcd78"
     },
     "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xhdpi/ic_launcher.png",
-      "sha256": "04747806dae312577732325bcc1e75eb1f143f84e5f11ad93adb29c519b08f44"
+      "sha256": "e16b7050eaf4705afd5309d3c7d7f55a5c0f6f993b4f037d10b1a90038531d79"
     },
     "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xhdpi/ic_launcher_round.png",
-      "sha256": "2258804a02e9b7fd12c63a2611e82524f689f8a0a1fbe9c416ebf0a7adaff317"
+      "sha256": "8da24b11bb409d20d7ad75590c7a9b8447cd2289b8c7f3937fbaae35504918ce"
     },
     "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xxhdpi/ic_launcher.png",
-      "sha256": "6cd26dcc49b1fa17408935ff8b1fdedfd6572e7a80ac55859f30875ec4f6f7d8"
+      "sha256": "6e621018cc39fbf4014d90e95d500a962c555112ff591ad4b2076a70666d7501"
     },
     "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xxhdpi/ic_launcher_round.png",
-      "sha256": "9d79b1381b286ab56166709f484e66438f1190338820f92bdba3a6c07958f1c6"
+      "sha256": "5324f731b18ea92dee92690aac834fbf083606befa7f1c4c9a1d62eed9f38392"
     },
     "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xxxhdpi/ic_launcher.png",
-      "sha256": "91c196f113dad906572aacfc778656769cf5028f7a4ab3c6a856581aad8574c4"
+      "sha256": "cab0354a5cd7fefe316346a4d4fdf7bfbc00a628707096e364afc65921da8701"
     },
     "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png": {
       "source": "assets/sayin-icons/B-field/android/res/mipmap-xxxhdpi/ic_launcher_round.png",
-      "sha256": "4c9034d621740ef574cce11fbe332ce624a8bd7bd6448d0158d67f7c91155e6a"
+      "sha256": "c959d65ea49e6515103fff6281291607bd6c17cc4ea7c50cefad6fcaecc78236"
     },
     "android/app/src/main/res/values/ic_launcher_background.xml": {
       "source": "assets/sayin-icons/B-field/android/res/values/ic_launcher_background.xml",

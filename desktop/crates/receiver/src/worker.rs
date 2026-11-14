@@ -185,7 +185,15 @@ impl Receiver {
             let mut pending = None;
             let mut shutdown_reply=None;
             let mut needs_dispatch=false;
+            let mut next_history_cleanup=Instant::now();
             loop {
+                if Instant::now()>=next_history_cleanup {
+                    match owner.ledger.clean_history(crate::history::now_millis()) {
+                        Ok(true)=>owner.notify(),Ok(false)=>{},
+                        Err(error)=>eprintln!("History cleanup failed: {error}"),
+                    }
+                    next_history_cleanup=Instant::now()+Duration::from_secs(1);
+                }
                 let command = match pending.take() {
                     Some(command) => command,
                     None => match commands.recv_timeout(Duration::from_millis(250)) {
@@ -323,6 +331,25 @@ impl Receiver {
     ) -> Result<crate::history::HistoryPage> {
         self.call(move |owner| owner.ledger.history(&query)).await
     }
+    pub async fn review_history(&self) -> Result<Option<crate::history::HistoryEntry>> {
+        self.call(|owner| owner.ledger.review_history()).await
+    }
+
+    pub async fn history_policy(&self) -> Result<crate::history::HistoryPolicy> {
+        self.call(|owner| owner.ledger.history_policy()).await
+    }
+    pub async fn set_history_policy(&self, policy: crate::history::HistoryPolicy) -> Result<()> {
+        self.mutate(move |owner| owner.ledger.set_history_policy(policy))
+            .await
+    }
+    pub async fn delete_history(&self, order: i64) -> Result<bool> {
+        self.mutate(move |owner| owner.ledger.delete_history(order))
+            .await
+    }
+    pub async fn restore_history(&self, order: i64) -> Result<bool> {
+        self.mutate(move |owner| owner.ledger.restore_history(order))
+            .await
+    }
 
     /// Each wake means "read the newest snapshot", not a replayable event.
     pub async fn subscribe(&self) -> Result<notifications::Receiver<()>> {
@@ -384,6 +411,21 @@ impl Receiver {
         self.call(move |owner| owner.ledger.authenticate(&device, &token))
             .await
     }
+    pub async fn authenticate_named(
+        &self,
+        device: String,
+        token: zeroize::Zeroizing<Vec<u8>>,
+        name: String,
+    ) -> Result<Session> {
+        // Display metadata publishes a fresh snapshot without requesting input
+        // dispatch; authenticating/renaming is never a send or retry command.
+        self.call(move |owner| {
+            let session = owner.ledger.authenticate_named(&device, &token, &name)?;
+            owner.notify();
+            Ok(session)
+        })
+        .await
+    }
     pub async fn submit(&self, session: Session, submit: Submit) -> Result<Receipt> {
         self.mutate(move |owner| owner.ledger.submit(&session, &submit))
             .await
@@ -408,6 +450,14 @@ impl Receiver {
             owner.ledger.bind_target(&target)
         })
         .await
+    }
+    /// Fence input immediately; keep the durable distinction from a user pause.
+    pub fn network_lost(
+        &self,
+    ) -> impl std::future::Future<Output = Result<ControlState>> + Send + 'static {
+        self.handle.paused.pause();
+        let receiver = self.clone();
+        async move { receiver.mutate(|owner| owner.ledger.network_lost()).await }
     }
     pub async fn resume(
         &self,

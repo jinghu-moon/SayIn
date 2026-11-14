@@ -187,6 +187,85 @@ fn real_coordinator_serializes_executes_once_and_deduplicates() {
 }
 
 #[test]
+fn network_recovery_uses_a_fresh_scope_and_never_replays_held_text() {
+    let directory = Directory::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (receiver, session, target) = ready(
+        &directory,
+        Adapter {
+            calls: calls.clone(),
+            preflight: true,
+            uncertain: false,
+        },
+    );
+    let paused = wait(receiver.network_lost()).unwrap();
+    assert_eq!(paused.pause_reason.as_deref(), Some("network_unavailable"));
+    let old = submit(&session, &target, "must not follow a new cursor");
+    assert_eq!(
+        wait(receiver.submit(session.clone(), old.clone()))
+            .unwrap()
+            .st,
+        State::Held
+    );
+    let recovered = wait(receiver.enable_foreground_input(paused.state_rev, false)).unwrap();
+    assert!(!recovered.paused);
+    assert_ne!(recovered.target.as_deref(), Some(target.as_str()));
+    assert_eq!(
+        wait(receiver.query(session.clone(), old.id.clone()))
+            .unwrap()
+            .unwrap()
+            .st,
+        State::Held
+    );
+    assert!(calls.lock().unwrap().is_empty());
+    wait(receiver.cancel(session.clone(), old.id)).unwrap();
+    let fresh = submit(&session, recovered.target.as_deref().unwrap(), "new text");
+    wait(receiver.submit(session.clone(), fresh.clone())).unwrap();
+    until(&receiver, &session, &fresh.id, State::Injected);
+    assert_eq!(*calls.lock().unwrap(), [fresh.id]);
+    wait(receiver.pause()).unwrap();
+    assert_eq!(
+        wait(receiver.network_lost())
+            .unwrap()
+            .pause_reason
+            .as_deref(),
+        Some("paused")
+    );
+    wait(receiver.shutdown()).unwrap();
+}
+
+#[test]
+fn network_loss_cannot_erase_uncertainty_or_authorize_review() {
+    let directory = Directory::new();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let (receiver, session, target) = ready(
+        &directory,
+        Adapter {
+            calls,
+            preflight: true,
+            uncertain: true,
+        },
+    );
+    let message = submit(&session, &target, "partial");
+    wait(receiver.submit(session.clone(), message.clone())).unwrap();
+    until(&receiver, &session, &message.id, State::Uncertain);
+    let state = wait(receiver.network_lost()).unwrap();
+    assert_eq!(
+        state.pause_reason.as_deref(),
+        Some("outcome_review_required")
+    );
+    assert!(wait(receiver.enable_foreground_input(state.state_rev, false)).is_err());
+    assert_eq!(
+        wait(receiver.query(session, message.id))
+            .unwrap()
+            .unwrap()
+            .st,
+        State::Uncertain
+    );
+    wait(receiver.shutdown()).unwrap();
+}
+
+#[test]
 fn prepared_application_is_durable_before_native_execution() {
     use voicelink_receiver::history::{HistoryQuery, TargetApplication};
     struct ObservedAdapter {

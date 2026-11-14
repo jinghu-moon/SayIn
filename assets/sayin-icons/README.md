@@ -7,6 +7,8 @@
 - Manifest：android:icon="@mipmap/ic_launcher"  android:roundIcon="@mipmap/ic_launcher_round"
 - play-store/ic_launcher-playstore.png：Google Play 商店图标，512×512，32 位 PNG，满铺方形（圆角由 Google Play 处理）。
 
+当前采用 B-field。其 Android Launcher 前景与单色层已按官方规范适配留白：108dp 画布上，图形以 48dp 宽等比居中，实际高约 36.57dp，完整落在中心直径 66dp 的安全圆内；背景保持不透明，图层不预制外轮廓遮罩或阴影。旧系统回退 PNG 同步调整内部图形，底板不缩小。SVG 母版、Windows 图标、应用内品牌图和商店图标保持原样。通过 `python scripts/sync_brand_assets.py` 同步已适配的平台源资源，避免在应用目录二次缩放。依据与验证见 [35 Android 启动器图标](../../docs/35-android-launcher-icon-safe-zone.md)。
+
 ### Android 其他场景（res/drawable/）
 - ic_stat_sayin.xml：状态栏通知小图标，24dp 纯白剪影，图形在 20dp 内。用 setSmallIcon(R.drawable.ic_stat_sayin)。
 - ic_qs_tile_sayin.xml：控制中心（快捷设置）磁贴图标，24dp 单色剪影，由系统按开/关状态着色。

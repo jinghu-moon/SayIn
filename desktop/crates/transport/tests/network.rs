@@ -102,7 +102,7 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
     )
     .await;
     let welcome = next(&mut socket, "welcome").await;
@@ -248,7 +248,7 @@ async fn pair(service: &NetworkService, invitation: &Invitation) -> Value {
 }
 
 #[tokio::test]
-async fn loopback_entry_rejects_lan_and_service_revalidates_scoped_authorization() {
+async fn loopback_entry_rejects_lan_and_service_revalidates_scoped_binding() {
     use voicelink_transport::interfaces::{NetworkCategory, NetworkInterface, NetworkProfile};
     let directory = Directory::new();
     let receiver = Receiver::start(
@@ -267,21 +267,22 @@ async fn loopback_entry_rejects_lan_and_service_revalidates_scoped_authorization
             .is_err()
         );
     }
-    let interface = NetworkInterface {
-        adapter: Uuid::new_v4(),
-        address: "192.0.2.1".parse().unwrap(),
-        name: "stale".into(),
-        profiles: vec![NetworkProfile {
+    let interface = NetworkInterface::new(
+        Uuid::new_v4(),
+        "192.0.2.1".parse().unwrap(),
+        "stale".into(),
+        vec![NetworkProfile {
             id: Uuid::new_v4(),
             category: NetworkCategory::Public,
         }],
-    };
-    assert!(interface.authorize(false).is_err());
+    )
+    .with_physical(true);
+    assert!(interface.binding().is_ok());
     assert!(
         NetworkService::start_on_network(
             receiver.clone(),
             identity,
-            interface.authorize(true).unwrap(),
+            interface.binding().unwrap(),
             0
         )
         .is_err()
@@ -321,7 +322,7 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
     )
     .await;
     let welcome = next(&mut socket, "welcome").await;
@@ -345,10 +346,34 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
         .unwrap();
     assert_eq!(history.entries.len(), 1);
     assert_eq!(history.entries[0].source_name, "Test Android");
+    let original_session = session.to_owned();
+    let paused = receiver.pause().await.unwrap();
+    let mut reconnect = crate::socket(&invitation).await;
+    send(&mut reconnect, json!({"v":2,"t":"hello","name":"Redmi K40","device_id":paired["device_id"],"token":paired["token"]})).await;
+    let renamed = next(&mut reconnect, "welcome").await;
+    assert_ne!(renamed["session_id"], original_session);
+    assert_eq!(renamed["paused"], true);
+    assert_eq!(receiver.state().await.unwrap().state_rev, paused.state_rev);
+    assert_eq!(
+        receiver.snapshot().await.unwrap().device_names[paired["device_id"].as_str().unwrap()],
+        "Redmi K40"
+    );
+    assert_eq!(
+        receiver
+            .history(voicelink_receiver::history::HistoryQuery::default())
+            .await
+            .unwrap()
+            .entries[0]
+            .source_name,
+        "Test Android"
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let mut socket = reconnect;
+    let renamed_session = renamed["session_id"].as_str().unwrap();
     let pause_id = Uuid::new_v4().to_string();
     send(
         &mut socket,
-        json!({"v":2,"t":"control","session_id":session,"id":pause_id,"name":"pause"}),
+        json!({"v":2,"t":"control","session_id":renamed_session,"id":pause_id,"name":"pause"}),
     )
     .await;
     assert_eq!(next(&mut socket, "controlled").await["paused"], true);
@@ -420,7 +445,7 @@ async fn explicit_rejection_and_revocation_prevent_authenticated_input() {
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
     )
     .await;
     assert!(matches!(

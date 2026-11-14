@@ -54,20 +54,21 @@ try {
     }
     $fixture = Get-Content -LiteralPath $fixturePath -Raw | ConvertFrom-Json
     if ($fixture.port -ne 17888 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
-    $instrumentationArguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $fixture.port)
+    $instrumentationArguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '60000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $fixture.port)
     if ($TransportOnly) { $instrumentationArguments += @('-e', 'class', 'seeyuer.sayin.data.TransportInstrumentedTest') }
+    else { $instrumentationArguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest') }
     $instrumentationArguments += 'seeyuer.sayin.test/androidx.test.runner.AndroidJUnitRunner'
     & $adbPath @instrumentationArguments > $logPath 2>&1
     $testOutput = Get-Content -LiteralPath $logPath -Raw
-    $expectedTests = if ($TransportOnly) { 1 } else { 11 }
-    $successPattern = if ($TransportOnly) { 'OK \(1 test\)' } else { 'OK \(11 tests\)' }
+    $expectedTests = if ($TransportOnly) { 1 } else { 37 }
+    $successPattern = if ($TransportOnly) { 'OK \(1 test\)' } else { 'OK \(37 tests\)' }
     if ($LASTEXITCODE -ne 0 -or $testOutput -notmatch $successPattern -or $testOutput -match 'FAILURES!!!|INSTRUMENTATION_FAILED') { throw "Instrumentation failed; see $logPath" }
     Start-Sleep -Milliseconds 150
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
-    if ($calls.fake_input_calls -ne 1) { throw 'Expected exactly one fake input call after reconnect/process reconstruction.' }
+    if ($calls.fake_input_calls -ne 2) { throw 'Expected one injected input and one uncertain attempt; reconnect must not repeat either.' }
     $evidence = @{ fixture = 'USB reverse -> loopback; fake input only'; instrumentation_tests = $expectedTests; fake_input_calls = $calls.fake_input_calls; transport_only = [bool]$TransportOnly }
     $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $projectRoot 'android\transport-test-result.json') -Encoding utf8
-    Write-Output "Android verification: $expectedTests test(s) passed; transport_only=$TransportOnly; exactly one fake input across held/expiry, reconnect and repository reconstruction."
+    Write-Output "Android verification: $expectedTests test(s) passed; transport_only=$TransportOnly; exactly two fake attempts (one injected, one uncertain), with no replay across reconnect/reconstruction."
 } finally {
     if ($process -and !$process.HasExited) {
         Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline

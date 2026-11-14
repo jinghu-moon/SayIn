@@ -1,0 +1,48 @@
+{
+  "scope": "Standalone prototype for first connection, connected and reconnection. State transitions, authorization, expiry and reconnection are explicitly simulated. No transport or native input.",
+  "reference": "sayin-history-card.html",
+  "reference_sha256": "157ad89bf900b1df2b947e82aa936b9450a7c73b03c224d9b1569693944fb859",
+  "tokens": "Exact feedback snapshot and neutral/brand/spacing/radius variables copied from reference. New roles derive from those variables.",
+  "brand": "../../assets/sayin-icons/B-field/windows/png/sayin-64.png",
+  "icons_source": "D:\\100_Projects\\110_Daily\\Yue-GPUI-Component\\crates\\yue-component-icons\\assets\\tabler\\outline",
+  "license": "MIT",
+  "license_file": "Tabler-LICENSE",
+  "source_sha256": {
+    "device-mobile": "2f9d4b1a140f3b9c9057efa5964bc8a7a135ce5d32dfe4752ebdad9d086d5413",
+    "device-desktop": "2fdd2150904a844185250f26453a02f31ee9d77a1f936a1df9c2ecd77cfc788d",
+    "history": "5f8a5a975a8136a4755380c18db1fe533acf7dc4e34250ceae0272c5d2cb7312",
+    "settings": "ef9cf42d822c00b4fad5bc5eeceddd4e1ec3774bb7ddd09891d0fba274bc3e95",
+    "player-play": "e2bff69284f1dc77224c47c03798017206a29d4ef665549db724b0a4534d8e5c",
+    "player-pause": "d9be9ab25e52cdcae17def18d41edc0855fa44caa8492cde2b5b8cd085e8c5a6",
+    "cursor-text": "3400eacd7569d554fcdef3c4ecc5d9f32af3ecd6d0b0b47590d599154aef9fdd",
+    "qrcode": "386c3e0e05c0fc80ecc36b754a644e2ed495c3722f0aeba0f086a15e291d8a4c",
+    "wifi": "3ae338dbaaf32c73894354408b563b3572184aec574cd31626db7aa34eb7a9b6",
+    "alert-triangle": "25b1f0c39f34647017df84a0cdc9e691c697737094a5956c360ab448a7fd5bef",
+    "file-description": "1db30f85efbd331fa3035d638c61deb2f346eac8c5d301aafff11bdecbe6c679",
+    "circle-check": "c4cb2e026be5f4c217c3ff9b0ccefb9a26b7a135bc82eef28a8bead0cc02a958",
+    "chevron-right": "83733bb6e03e1d20fd2674d06a493642c8ea6eef76c44ebb2239b9ef17dedff7",
+    "copy": "3a455a299db4ec939fd0473d15c81c1d3f30f65dec81a7de816317c989b06073",
+    "moon": "7cabaae40eea65310da478d3cad30b23cf1d7e99adad56378f82824338079668",
+    "sun": "6677490605af8987d55d6e4185b1f6c241eced65b63ccfece68cadb7ce90fbb5",
+    "x": "9350785360414c39450c3505f17d1745e55a7534edace8548e30cf49e3727d43",
+    "dots-vertical": "7f23a3911c7f4bddfb27c7b181ef0d483c14d3b1d2dea3a81573c2beeb9794d8",
+    "terminal-2": "ea232ff7461f39a6c65c5919c0f9b28de29d2586730a9eeef2b2428526ceb069"
+  },
+  "brand_asset_usage": "No brand bitmap is embedded in the current layout; product brand color remains #1f75db. Existing B-field source is unchanged.",
+  "qr_preview": {
+    "file": "sayin-pairing-demo-qr.png",
+    "encoded_text": "https://example.invalid/sayin-design-preview",
+    "size": [
+      205,
+      205
+    ],
+    "modules_including_quiet_zone": 41,
+    "module_pixels": 5,
+    "quiet_zone_modules": 4,
+    "resampling": "pixelated",
+    "sha256": "899fecf5a7ea21cb59a9af6ad58e2ff6e4f05e00856b28ed89831514241bcca3",
+    "scope": "Real QR encoding a reserved, non-pairing URL. Explicitly labeled as a sample in the UI."
+  },
+  "network_design": "Proposed automatic LAN selection for public and private categories, with no extra in-app public-network consent. Details reuse help; offline detection/recovery is simulated. Native policy remains unchanged.",
+  "application_icon_preview": "terminal-2 is an illustrative Tabler icon for the Windows Terminal sample, not an extracted executable icon. Native history uses win-icon-extractor."
+}

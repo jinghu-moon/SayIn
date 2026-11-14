@@ -1,7 +1,6 @@
 package seeyuer.sayin.data
 
 import android.content.Context
-import android.os.Build
 import android.os.SystemClock
 import androidx.room.Room
 import androidx.room.RoomDatabase
@@ -33,7 +32,10 @@ internal data class ClientState(
     val connection: Connection = Connection.LOADING,
     val paired: Boolean = false,
     val address: String = "",
+    val port: Int = 7788,
+    val connectionEpoch: Long = 0,
     val paused: Boolean = true,
+    val pauseReason: String? = null,
     val target: String? = null,
     val active: Boolean = false,
     val revision: String? = null,
@@ -41,7 +43,9 @@ internal data class ClientState(
     val storageHealthy: Boolean = true,
     val recovering: Boolean = false,
     val savedDraft: String? = null,
+    val rejectedDraft: String? = null,
     val history: List<OutboxItem> = emptyList(),
+    val historyText: Map<String, String> = emptyMap(),
 ) {
     val ready: Boolean get() = storageHealthy && !recovering && connection == Connection.ONLINE && active && !paused && target != null
     val busy: Boolean get() = connection in setOf(Connection.LOADING, Connection.CONNECTING, Connection.PAIRING, Connection.APPROVAL)
@@ -56,6 +60,7 @@ internal class VoiceLinkRepository(context: Context) {
     val state = mutable.asStateFlow()
     private lateinit var store: ProtectedStore
     private val database = Room.databaseBuilder(context.applicationContext, OutboxDatabase::class.java, "outbox.db")
+        .addMigrations(OutboxDatabase.KEEP_LEDGER)
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addCallback(object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
@@ -73,6 +78,8 @@ internal class VoiceLinkRepository(context: Context) {
     private var lastInbound = 0L
     private val queries = mutableMapOf<String, Set<String>>()
     private var lastDraftId: String? = null
+    private var reconnectJob: Job? = null
+    private var reconnectAttempt = 0
 
     init {
         scope.launch {
@@ -81,9 +88,14 @@ internal class VoiceLinkRepository(context: Context) {
                 dao.pendingCount()
                 store = ProtectedStore(context.applicationContext)
                 host = store.load()?.let(::PairedHost)
-                mutable.update { it.copy(connection = Connection.OFFLINE, paired = host != null, address = host?.address.orEmpty()) }
+                mutable.update { it.copy(connection = Connection.OFFLINE, paired = host != null, address = host?.address.orEmpty(), port = host?.port ?: 7788) }
                 scope.launch {
-                    try { dao.observe().collect { history -> mutable.update { it.copy(history = history) } } }
+                    try { dao.observe().collect { history ->
+                        val text = history.mapNotNull { item -> item.transcript?.let { encrypted ->
+                            runCatching { item.id to store.decrypt(encrypted).toString(Charsets.UTF_8) }.getOrNull()
+                        } }.toMap()
+                        mutable.update { it.copy(history = history, historyText = text) }
+                    } }
                     catch (cancel: CancellationException) { throw cancel }
                     catch (_: Exception) { enqueue(Event.StorageFailure) }
                 }
@@ -105,6 +117,8 @@ internal class VoiceLinkRepository(context: Context) {
     private sealed interface Event {
         data class Foreground(val active: Boolean) : Event
         data object Connect : Event
+        data class Retry(val generation: Long) : Event
+        data class UpdateAddress(val address: String, val port: String) : Event
         data class PairQr(val value: String) : Event
         data class PairCode(val address: String, val port: String, val code: String) : Event
         data class Open(val generation: Long, val socket: WebSocket) : Event
@@ -112,9 +126,8 @@ internal class VoiceLinkRepository(context: Context) {
         data class Closed(val generation: Long) : Event
         data class Tick(val generation: Long) : Event
         data class Timeout(val generation: Long) : Event
-        data class Send(val text: String, val draftId: String) : Event
+        data class Send(val text: String, val draftId: String, val expectedScope: ReceptionScope?) : Event
         data class Action(val id: String, val action: String) : Event
-        data object TogglePause : Event
         data object CancelPairing : Event
         data object Forget : Event
         data object StorageFailure : Event
@@ -130,9 +143,10 @@ internal class VoiceLinkRepository(context: Context) {
     fun connect() = enqueue(Event.Connect)
     fun pairQr(value: String) = enqueue(Event.PairQr(value))
     fun pairCode(address: String, port: String, code: String) = enqueue(Event.PairCode(address, port, code))
-    fun send(text: String, draftId: String) = enqueue(Event.Send(text, draftId))
+    fun send(text: String, draftId: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) =
+        enqueue(Event.Send(text, draftId, expectedScope))
     fun action(id: String, action: String) = enqueue(Event.Action(id, action))
-    fun togglePause() = enqueue(Event.TogglePause)
+    fun updateAddress(address: String, port: String) = enqueue(Event.UpdateAddress(address, port))
     fun cancelPairing() = enqueue(Event.CancelPairing)
     fun forget() = enqueue(Event.Forget)
     fun close() { socket?.cancel(); events.close(); scope.cancel(); client?.close() }
@@ -145,7 +159,20 @@ internal class VoiceLinkRepository(context: Context) {
                 if (!foreground) disconnect()
                 else if (host != null && session == null && client == null) connectHost()
             }
-            Event.Connect -> if (host != null && client == null) connectHost()
+            Event.Connect -> if (foreground && host != null && client == null) { reconnectAttempt = 0; connectHost() }
+            is Event.Retry -> if (event.generation == generation && foreground && host != null && client == null) connectHost()
+            is Event.UpdateAddress -> {
+                val saved = host ?: return
+                val updated = try { saved.withAddress(event.address, event.port) }
+                    catch (_: Exception) { mutable.update { it.copy(issue = ClientIssue.INVALID_PAIRING) }; return }
+                // Change routing only. Never replace host/device identity, token or pinned certificate.
+                try { store.save(updated.json) } catch (_: Exception) { storageFailed(); return }
+                disconnect()
+                host = updated
+                reconnectAttempt = 0
+                mutable.update { it.copy(address = updated.address, port = updated.port, issue = null) }
+                if (foreground) connectHost()
+            }
             is Event.PairQr -> {
                 check(host == null)
                 beginPairing(PairingInvitation.fromQr(event.value))
@@ -165,15 +192,15 @@ internal class VoiceLinkRepository(context: Context) {
             }
             is Event.Open -> if (event.generation == generation) {
                 socket = event.socket
+                val name = DeviceDisplayName.current()
                 val pending = invitation
                 if (pending != null) {
-                    val name = Build.MODEL.filterNot(Char::isISOControl).take(64).ifEmpty { "Android" }
                     sendFrame(JSONObject().put("v", 2).put("t", "pair").put("name", name)
                         .put("window_id", pending.windowId).put("secret", pending.secret))
                     mutable.update { it.copy(connection = Connection.APPROVAL) }
                 } else {
                     val saved = checkNotNull(host)
-                    sendFrame(JSONObject().put("v", 2).put("t", "hello").put("device_id", saved.deviceId).put("token", saved.token))
+                    sendFrame(JSONObject().put("v", 2).put("t", "hello").put("device_id", saved.deviceId).put("token", saved.token).put("name", name))
                 }
             }
             is Event.Message -> if (event.generation == generation) receive(strictJson(event.value))
@@ -185,10 +212,6 @@ internal class VoiceLinkRepository(context: Context) {
             }
             is Event.Send -> saveAndSend(event)
             is Event.Action -> historyAction(event.id, event.action)
-            Event.TogglePause -> if (session != null) {
-                sendFrame(base("control").put("id", UUID.randomUUID().toString())
-                    .put("name", if (mutable.value.paused) "resume" else "pause").put("expected_rev", mutable.value.revision))
-            }
             Event.CancelPairing -> disconnect()
             Event.Forget -> {
                 // Outstanding rows remain host-scoped. Forgetting cannot reassign them.
@@ -211,7 +234,7 @@ internal class VoiceLinkRepository(context: Context) {
         val owner = generation
         try {
             client = HostClient(endpoint)
-            mutable.update { it.copy(connection = if (pairing) Connection.PAIRING else Connection.CONNECTING, issue = null, address = endpoint.address) }
+            mutable.update { it.copy(connection = if (pairing) Connection.PAIRING else Connection.CONNECTING, issue = null, address = endpoint.address, port = endpoint.port) }
             socket = client!!.open(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) { enqueue(Event.Open(owner, webSocket)) }
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -234,11 +257,20 @@ internal class VoiceLinkRepository(context: Context) {
         invitation = null
         heartbeat?.cancel(); heartbeat = null
         deadline?.cancel(); deadline = null
+        reconnectJob?.cancel(); reconnectJob = null
         socket?.cancel(); socket = null
         client?.close(); client = null
-        mutable.update { it.copy(connection = Connection.OFFLINE, paused = true, active = false, target = null, revision = null, recovering = false) }
+        mutable.update { it.copy(connection = Connection.OFFLINE, connectionEpoch = generation, paused = true, active = false, target = null, revision = null, recovering = false) }
     }
-    private fun fail(issue: ClientIssue) { disconnect(); mutable.update { it.copy(issue = issue) } }
+    private fun fail(issue: ClientIssue) {
+        disconnect(); mutable.update { it.copy(issue = issue) }
+        if (issue == ClientIssue.CONNECTION && foreground && host != null && mutable.value.storageHealthy) {
+            val owner = generation
+            val wait = listOf(1000L, 2000L, 5000L, 10000L)[reconnectAttempt.coerceAtMost(3)]
+            reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(3)
+            reconnectJob = scope.launch { delay(wait); enqueue(Event.Retry(owner)) }
+        }
+    }
     private fun storageFailed() { disconnect(); mutable.update { it.copy(storageHealthy = false, issue = ClientIssue.STORAGE) } }
     private fun base(kind: String) = JSONObject().put("v", 2).put("t", kind).put("session_id", checkNotNull(session))
     private fun sendFrame(value: JSONObject) {
@@ -263,6 +295,7 @@ internal class VoiceLinkRepository(context: Context) {
                 require(session == null && invitation == null)
                 require(value.getString("host_id") == host?.hostId && value.getString("device_id") == host?.deviceId)
                 session = validId(value.getString("session_id"))
+                reconnectAttempt = 0
                 applyState(value)
                 deadline?.cancel(); deadline = null
                 val saved = checkNotNull(host)
@@ -300,7 +333,9 @@ internal class VoiceLinkRepository(context: Context) {
     private fun applyState(value: JSONObject) {
         val revision = value.getString("state_rev").also { require(it.matches(Regex("[0-9]{1,20}"))) }
         val target = if (value.isNull("target")) null else value.getString("target").also { require(it.length in 1..128) }
-        mutable.update { it.copy(paused = value.getBoolean("paused"), target = target, revision = revision,
+        val pauseReason = value.optString("pause_reason").takeIf { !value.isNull("pause_reason") && it.isNotEmpty() }
+            ?.also { require(it.length <= 128) }
+        mutable.update { it.copy(paused = value.getBoolean("paused"), pauseReason = pauseReason, target = target, revision = revision,
             active = value.optString("active_device_id") == host?.deviceId) }
     }
     private suspend fun saveStatus(value: JSONObject) {
@@ -322,9 +357,11 @@ internal class VoiceLinkRepository(context: Context) {
     }
     private suspend fun saveAndSend(event: Event.Send) {
         if (event.draftId == lastDraftId) return
-        if (!mutable.value.ready) { mutable.update { it.copy(issue = ClientIssue.NOT_READY) }; return }
+        if (event.expectedScope == null || mutable.value.receptionScope != event.expectedScope) {
+            mutable.update { it.copy(issue = ClientIssue.NOT_READY, rejectedDraft = event.draftId) }; return
+        }
         val normalized = try { normalizedText(event.text) } catch (_: Exception) {
-            mutable.update { it.copy(issue = ClientIssue.INVALID_TEXT) }; return
+            mutable.update { it.copy(issue = ClientIssue.INVALID_TEXT, rejectedDraft = event.draftId) }; return
         }
         val saved = checkNotNull(host)
         // The editor's saved UUID is the durable operation identity. A process
@@ -339,8 +376,9 @@ internal class VoiceLinkRepository(context: Context) {
         val target = checkNotNull(mutable.value.target)
         val operation = JSONObject().put("kind", "text").put("text", normalized).put("src", "manual")
         val payload = try { store.encrypt(operation.toString().toByteArray()) } catch (_: Exception) { storageFailed(); return }
-        val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis())
-        if (dao.pendingCount() >= 16 || dao.pendingBytes() + item.byteCount > 65536) { mutable.update { it.copy(issue = ClientIssue.QUOTA) }; return }
+        val transcript = try { store.encrypt(normalized.toByteArray(Charsets.UTF_8)) } catch (_: Exception) { storageFailed(); return }
+        val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis(), transcript)
+        if (dao.pendingCount() >= 16 || dao.pendingBytes() + item.byteCount > 65536) { mutable.update { it.copy(issue = ClientIssue.QUOTA, rejectedDraft = event.draftId) }; return }
         try { dao.enqueue(item) } catch (_: Exception) { storageFailed(); return }
         lastDraftId = event.draftId
         mutable.update { it.copy(savedDraft = event.draftId, issue = null) }
@@ -355,6 +393,13 @@ internal class VoiceLinkRepository(context: Context) {
     private suspend fun historyAction(id: String, action: String) {
         val saved = host ?: return
         val item = dao.find(id, saved.hostId, saved.deviceId) ?: return
+        if (action == "query") {
+            if (session == null || mutable.value.connection != Connection.ONLINE || queries.size >= 16 || queries.values.any { id in it }) return
+            val queryId = UUID.randomUUID().toString()
+            queries[queryId] = setOf(id)
+            sendFrame(base("query").put("id", queryId).put("refs", JSONArray(listOf(id))))
+            return
+        }
         if (item.payload == null) return
         when (action) {
             "retry" -> if (item.state == "review" && mutable.value.ready && item.target == mutable.value.target) submit(item)

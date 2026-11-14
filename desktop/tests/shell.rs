@@ -134,18 +134,98 @@ fn key(cx: &mut VisualTestContext, value: &str) {
     draw(cx);
 }
 
+fn choose(cx: &mut VisualTestContext, field: &str, option: &str) {
+    click(cx, field, Role::ComboBox);
+    click(cx, option, Role::ListBoxOption);
+}
+
+#[gpui_kit::test]
+fn sidebar_rows_fill_an_inset_column_across_locales_and_sizes(cx: &mut TestAppContext) {
+    let directory = Directory::new();
+    let (state, receiver, cx) = open(cx, PreferencesFile::in_directory(&directory.0));
+    for (language, navigation, labels) in [
+        (
+            LanguagePreference::English,
+            "Navigation",
+            ["Receive", "Devices", "History", "Settings"],
+        ),
+        (
+            LanguagePreference::Chinese,
+            "导航",
+            ["接收", "设备", "历史记录", "设置"],
+        ),
+    ] {
+        for appearance in [AppearancePreference::Light, AppearancePreference::Dark] {
+            state.update(cx, |state, cx| {
+                state.save(
+                    state
+                        .value()
+                        .clone()
+                        .with_language(language)
+                        .with_appearance(appearance),
+                    cx,
+                );
+            });
+            for width in [720., 1000.] {
+                let handle = cx.update(|window, _| window.window_handle());
+                cx.simulate_window_resize(
+                    handle,
+                    gpui_kit::size(gpui_kit::px(width), gpui_kit::px(660.)),
+                );
+                draw(cx);
+                let sidebar = node(cx, navigation, Role::TabList).bounds();
+                let rows = labels.map(|label| node(cx, label, Role::Tab).bounds());
+                assert!(
+                    rows[0].top() >= sidebar.top() + gpui_kit::px(12.),
+                    "navigation needs a top inset"
+                );
+                for row in rows {
+                    assert_eq!(row.left(), sidebar.left() + gpui_kit::px(12.));
+                    assert!(row.right() <= sidebar.right() - gpui_kit::px(12.));
+                    assert!(
+                        row.size.width >= sidebar.size.width - gpui_kit::px(26.),
+                        "the entire inset row is clickable"
+                    );
+                    assert!(row.size.height >= gpui_kit::px(36.));
+                }
+                for pair in rows.windows(2) {
+                    assert!(pair[1].top() >= pair[0].bottom() + gpui_kit::px(4.));
+                }
+                // Activate near the trailing edge, outside the text/icon group.
+                cx.simulate_click(
+                    gpui_kit::point(rows[2].right() - gpui_kit::px(6.), rows[2].center().y),
+                    Modifiers::default(),
+                );
+                draw(cx);
+                assert_eq!(node(cx, labels[2], Role::Tab).selected(), Some(true));
+                key(cx, "down");
+                assert_eq!(node(cx, labels[3], Role::Tab).selected(), Some(true));
+                key(cx, "home");
+            }
+        }
+    }
+    receiver.update(cx, |s, cx| s.stop(cx));
+    await_receiver(cx, &receiver, |s| s.is_stopped());
+}
+
 #[gpui_kit::test]
 fn navigation_supports_pointer_keyboard_and_ready_pairing(cx: &mut TestAppContext) {
     let directory = Directory::new();
     let (state, receiver, cx) = open(cx, PreferencesFile::in_directory(&directory.0));
     assert_eq!(node(cx, "Receive", Role::Tab).selected(), Some(true));
-    assert_ne!(node(cx, "Pair phone…", Role::Button).disabled(), Some(true));
+    assert_ne!(
+        node(cx, "Generate invitation", Role::Button).disabled(),
+        Some(true)
+    );
     assert_eq!(node(cx, "Receive", Role::Tab).selected(), Some(true));
     click(cx, "History", Role::Tab);
     assert_eq!(node(cx, "History", Role::Tab).selected(), Some(true));
     key(cx, "down");
     assert_eq!(node(cx, "Settings", Role::Tab).selected(), Some(true));
-    assert_eq!(node(cx, "English", Role::RadioButton).checked(), Some(true));
+    assert_eq!(
+        node(cx, "Language", Role::ComboBox).value(),
+        Some("English")
+    );
     key(cx, "home");
     assert_eq!(node(cx, "Receive", Role::Tab).selected(), Some(true));
     assert_eq!(
@@ -203,27 +283,35 @@ fn language_and_theme_changes_preserve_selection_focus_and_persist(cx: &mut Test
     let file = PreferencesFile::in_directory(&directory.0);
     let (state, receiver, cx) = open(cx, file.clone());
     click(cx, "Settings", Role::Tab);
-    click(cx, "简体中文", Role::RadioButton);
+    choose(cx, "Language", "简体中文");
     assert_eq!(node(cx, "设置", Role::Tab).selected(), Some(true));
     assert_eq!(
-        node(cx, "简体中文", Role::RadioButton).checked(),
-        Some(true)
+        node(cx, "界面语言", Role::ComboBox).value(),
+        Some("简体中文")
     );
-    assert_eq!(
-        node(cx, "简体中文", Role::RadioButton).focused(),
-        Some(true)
-    );
+    assert_eq!(node(cx, "界面语言", Role::ComboBox).focused(), Some(true));
     assert_eq!(file.load().unwrap().language(), LanguagePreference::Chinese);
-    // The same control remains focused; horizontal radio navigation uses Right.
-    key(cx, "right");
+    // Reopen the same retained field and commit the next locale by keyboard.
+    key(cx, "down");
+    key(cx, "end");
+    key(cx, "enter");
     assert_eq!(node(cx, "Settings", Role::Tab).selected(), Some(true));
     assert_eq!(file.load().unwrap().language(), LanguagePreference::English);
-    click(cx, "Dark", Role::RadioButton);
+    choose(cx, "Appearance", "Dark");
     assert_eq!(
         file.load().unwrap().appearance(),
         AppearancePreference::Dark
     );
-    assert_eq!(node(cx, "Dark", Role::RadioButton).checked(), Some(true));
+    assert_eq!(node(cx, "Appearance", Role::ComboBox).value(), Some("Dark"));
+    click(cx, "Appearance", Role::ComboBox);
+    key(cx, "home");
+    key(cx, "escape");
+    assert_eq!(node(cx, "Appearance", Role::ComboBox).focused(), Some(true));
+    assert_eq!(node(cx, "Appearance", Role::ComboBox).value(), Some("Dark"));
+    assert_eq!(
+        file.load().unwrap().appearance(),
+        AppearancePreference::Dark
+    );
     cx.update(|_, cx| assert_eq!(yue_component::current_theme(cx).mode(), ThemeMode::Dark));
     assert!(!state.read_with(cx, |state, _| state.is_saving()));
     // A fresh application state recovers exactly the choices committed by UI.
@@ -285,12 +373,12 @@ fn failed_write_keeps_ui_choice_and_retry_persists_it(cx: &mut TestAppContext) {
     // A directory at the destination provokes a real atomic-replace failure.
     fs::remove_file(file.path()).unwrap();
     fs::create_dir(file.path()).unwrap();
-    click(cx, "Dark", Role::RadioButton);
+    choose(cx, "Appearance", "Dark");
     assert_eq!(
         state.read_with(cx, |state, _| state.issue()),
         Some(voicelink_desktop::preferences::StorageIssue::Save)
     );
-    assert_eq!(node(cx, "Dark", Role::RadioButton).checked(), Some(true));
+    assert_eq!(node(cx, "Appearance", Role::ComboBox).value(), Some("Dark"));
     assert_ne!(node(cx, "Retry", Role::Button).disabled(), Some(true));
     fs::remove_dir(file.path()).unwrap();
     click(cx, "Retry", Role::Button);
@@ -320,15 +408,22 @@ fn controls_fit_the_minimum_window_in_both_locales(cx: &mut TestAppContext) {
         ["设置", "界面语言", "深色"],
     ] {
         click(cx, labels[0], Role::Tab);
-        let group = node(cx, labels[1], Role::RadioGroup);
-        let option = node(cx, labels[2], Role::RadioButton);
+        let group = node(cx, labels[1], Role::ComboBox);
+        let appearance = if labels[0] == "Settings" {
+            "Appearance"
+        } else {
+            "外观"
+        };
+        click(cx, appearance, Role::ComboBox);
+        let option = node(cx, labels[2], Role::ListBoxOption);
         assert!(group.bounds().left() >= gpui_kit::px(0.));
         assert!(group.bounds().right() <= gpui_kit::px(720.));
         assert!(option.bounds().top() > group.bounds().bottom());
         assert!(option.bounds().right() <= gpui_kit::px(720.));
         assert!(option.bounds().bottom() <= gpui_kit::px(540.));
+        key(cx, "escape");
         if labels[0] == "Settings" {
-            click(cx, "简体中文", Role::RadioButton);
+            choose(cx, "Language", "简体中文");
         }
     }
     receiver.update(cx, |s, cx| s.stop(cx));
@@ -346,10 +441,13 @@ fn receiver_starts_paused_and_enabling_needs_phone_but_never_a_window_lock(
         let snapshot = s.snapshot().unwrap();
         snapshot.control.paused && snapshot.control.target.is_none() && snapshot.paired_devices == 0
     }));
-    assert_eq!(
-        node(cx, "Enable receiving", Role::Button).disabled(),
-        Some(true)
-    );
+    cx.update(|window, _| {
+        assert!(
+            !snapshots(window)
+                .iter()
+                .any(|n| n.label() == Some("Enable receiving"))
+        )
+    });
     cx.update(|window, _| {
         assert!(
             !snapshots(window)
@@ -484,23 +582,19 @@ fn history_search_copy_filter_and_locale_preserve_original_text(cx: &mut TestApp
         cx.update(|_, cx| cx.read_from_clipboard().unwrap().text().unwrap()),
         original
     );
-    click(cx, "Result", Role::ComboBox);
-    key(cx, "end");
-    key(cx, "enter");
+    click(cx, "Expired", Role::Button);
     await_receiver(cx, &receiver, |s| {
         !s.history_loading() && s.history_query().state == Some(State::Expired)
     });
     assert!(receiver.read_with(cx, |s, _| s.history().entries.is_empty()));
     click(cx, "Settings", Role::Tab);
-    click(cx, "简体中文", Role::RadioButton);
+    choose(cx, "Language", "简体中文");
     click(cx, "历史记录", Role::Tab);
     assert_eq!(
         node(cx, "搜索原文、软件或窗口", Role::SearchInput).value(),
         Some("code.exe")
     );
-    click(cx, "处理结果", Role::ComboBox);
-    key(cx, "home");
-    key(cx, "enter");
+    click(cx, "全部", Role::Button);
     await_receiver(cx, &receiver, |s| {
         !s.history_loading() && s.history_query().state.is_none() && s.history().entries.len() == 1
     });
@@ -568,6 +662,13 @@ fn uncertain_input_requires_local_checkbox_and_does_not_release_held_text(cx: &m
         gpui_kit::size(gpui_kit::px(1000.), gpui_kit::px(660.)),
     );
     draw(cx);
+    await_receiver(cx, &receiver, |s| {
+        !s.history_loading() && s.review_entry().is_some()
+    });
+    assert!(receiver.read_with(cx, |s, _| matches!(
+        &s.review_entry().unwrap().operation,
+        Some(Operation::Text { text, .. }) if text == "fixture old text"
+    )));
     click(cx, "Review input…", Role::Button);
     assert_eq!(
         node(cx, "Reviewed, resume input", Role::Button).disabled(),
@@ -583,6 +684,31 @@ fn uncertain_input_requires_local_checkbox_and_does_not_release_held_text(cx: &m
     assert_ne!(
         node(cx, "Reviewed, resume input", Role::Button).disabled(),
         Some(true)
+    );
+    // A checked box is not reusable authorization for a later desktop state.
+    let checked_revision =
+        receiver.read_with(cx, |s, _| s.snapshot().unwrap().control.state_rev.clone());
+    receiver.update(cx, |s, cx| s.pause(cx));
+    await_receiver(cx, &receiver, |s| {
+        !s.is_busy() && s.snapshot().unwrap().control.state_rev != checked_revision
+    });
+    assert_eq!(
+        node(cx, "Reviewed, resume input", Role::Button).disabled(),
+        Some(true)
+    );
+    click(cx, "Reviewed, resume input", Role::Button);
+    assert!(receiver.read_with(cx, |s, _| s.snapshot().unwrap().control.paused));
+    await_receiver(cx, &receiver, |s| {
+        !s.history_loading() && s.review_entry().is_some()
+    });
+    assert_eq!(
+        node(cx, "Reviewed, resume input", Role::Button).disabled(),
+        Some(true)
+    );
+    click(
+        cx,
+        "I checked the target content and understand that previous messages will not retry automatically.",
+        Role::CheckBox,
     );
     click(cx, "Reviewed, resume input", Role::Button);
     await_receiver(cx, &receiver, |s| {
@@ -643,18 +769,165 @@ fn native_close_asks_and_settings_persist_each_close_choice(cx: &mut TestAppCont
         ..Default::default()
     });
     draw(cx);
-    click(cx, "Hide to tray", Role::RadioButton);
+    choose(cx, "When closing the window", "Hide to tray");
     assert_eq!(file.load().unwrap().close_behavior(), CloseBehavior::Tray);
     assert!(
         cx.simulate_close(),
         "tray choice allows the native window to close"
     );
-    click(cx, "Ask each time", Role::RadioButton);
+    choose(cx, "When closing the window", "Ask each time");
     assert_eq!(file.load().unwrap().close_behavior(), CloseBehavior::Ask);
     assert!(!cx.simulate_close());
     draw(cx);
     key(cx, "escape");
     assert!(receiver.read_with(cx, |s, _| s.is_ready()));
+    receiver.update(cx, |s, cx| s.stop(cx));
+    await_receiver(cx, &receiver, |s| s.is_stopped());
+}
+
+#[gpui_kit::test]
+fn history_cards_reflow_and_menu_privacy_delete_undo_work_through_controls(
+    cx: &mut TestAppContext,
+) {
+    use voicelink_receiver::{
+        history::TargetApplication,
+        ledger::InputOutcome,
+        protocol::{Operation, Submit, TextSource},
+    };
+    let directory = Directory::new();
+    let receiver_directory = directory.0.join("receiver");
+    voicelink_transport::storage::secure_directory(&receiver_directory).unwrap();
+    {
+        let mut ledger =
+            voicelink_receiver::windows_input::open_ledger(&receiver_directory).unwrap();
+        voicelink_transport::HostIdentity::open(&receiver_directory, 0).unwrap();
+        let device = "12345678-1234-4234-8234-123456789012";
+        ledger
+            .provision_device(device, &[9; 32], "Test phone".into())
+            .unwrap();
+        let session = ledger.authenticate(device, &[9; 32]).unwrap();
+        let target = "22345678-1234-4234-8234-123456789012";
+        let state = ledger.bind_target(target).unwrap();
+        ledger.resume(&state.state_rev, false).unwrap();
+        for index in 1..=3 {
+            let message = Submit::new(
+                session.id().into(),
+                format!("32345678-1234-4234-8234-{index:012}"),
+                target.into(),
+                Operation::Text {
+                    text: format!("Record {index} 中文 SayIn original"),
+                    src: TextSource::Ime,
+                },
+            );
+            ledger.submit(&session, &message).unwrap();
+            let job = ledger.prepare_next().unwrap().unwrap();
+            ledger
+                .mark_executing_at(
+                    &job,
+                    Some(TargetApplication::new(
+                        std::env::var("WINDIR").unwrap() + r"\explorer.exe",
+                        "Historical target".into(),
+                        42,
+                        123,
+                    )),
+                )
+                .unwrap();
+            ledger
+                .finish(&job, InputOutcome::Injected { method: "fixture" })
+                .unwrap();
+        }
+    }
+    let (settings, receiver, cx) = open(cx, PreferencesFile::in_directory(&directory.0));
+    await_receiver(cx, &receiver, |s| {
+        !s.history_loading() && s.history().entries.len() == 3
+    });
+    click(cx, "History", Role::Tab);
+    let handle = cx.update(|window, _| window.window_handle());
+    for (width, columns) in [(720., 1), (1040., 2), (1120., 2), (1600., 3)] {
+        cx.simulate_window_resize(
+            handle,
+            gpui_kit::size(gpui_kit::px(width), gpui_kit::px(1000.)),
+        );
+        draw(cx);
+        let bounds = ["History · 3", "History · 2", "History · 1"]
+            .map(|label| node(cx, label, Role::Group).bounds());
+        let distinct = bounds
+            .iter()
+            .map(|b| f32::from(b.left()).round() as i32)
+            .collect::<std::collections::BTreeSet<_>>();
+        assert_eq!(distinct.len(), columns, "{width}: {bounds:?}");
+        let source = node(cx, "Source · 3", Role::Group).bounds();
+        let destination = node(cx, "Destination · 3", Role::Group).bounds();
+        if width != 1040. {
+            assert!(
+                (f32::from(source.center().y) - f32::from(destination.center().y)).abs() <= 1.,
+                "roomy single card keeps the demo's inline route: {source:?} {destination:?}"
+            );
+            assert!(destination.left() > source.right());
+        } else {
+            assert!(
+                destination.top() >= source.bottom(),
+                "narrow multi-column cards stack route metadata"
+            );
+        }
+        for card in bounds {
+            assert!(
+                card.left() >= gpui_kit::px(140.) && card.right() <= gpui_kit::px(width),
+                "card stays within content: {card:?}"
+            );
+        }
+    }
+    let first_more = cx.update(|w, _| {
+        snapshots(w)
+            .into_iter()
+            .find(|n| n.label() == Some("More actions") && n.role() == Some(Role::Button))
+            .unwrap()
+            .bounds()
+            .center()
+    });
+    cx.simulate_click(first_more, Modifiers::default());
+    draw(cx);
+    key(cx, "enter");
+    assert!(cx.update(|w, _| {
+        snapshots(w)
+            .iter()
+            .any(|n| n.label() == Some("Window title"))
+    }));
+    cx.simulate_click(first_more, Modifiers::default());
+    draw(cx);
+    key(cx, "end");
+    key(cx, "enter");
+    await_receiver(cx, &receiver, |s| {
+        !s.history_busy()
+            && !s.history_loading()
+            && s.history().entries.len() == 2
+            && s.history_undo().is_some()
+    });
+    click(cx, "Undo", Role::Button);
+    await_receiver(cx, &receiver, |s| {
+        !s.history_busy() && !s.history_loading() && s.history().entries.len() == 3
+    });
+    click(cx, "History & privacy…", Role::Button);
+    click(cx, "Save input history", Role::Switch);
+    await_receiver(cx, &receiver, |s| {
+        !s.history_busy() && s.history_policy().is_some_and(|p| !p.is_enabled())
+    });
+    key(cx, "escape");
+    cx.executor().advance_clock(Duration::from_millis(500));
+    draw(cx);
+    click(cx, "Settings", Role::Tab);
+    choose(cx, "Language", "简体中文");
+    click(cx, "历史记录", Role::Tab);
+    click(cx, "历史与隐私…", Role::Button);
+    assert_eq!(
+        node(cx, "保存输入历史", Role::Switch).checked(),
+        Some(false)
+    );
+    key(cx, "escape");
+    assert_eq!(
+        settings.read_with(cx, |s, _| s.value().language()),
+        LanguagePreference::Chinese
+    );
     receiver.update(cx, |s, cx| s.stop(cx));
     await_receiver(cx, &receiver, |s| s.is_stopped());
 }

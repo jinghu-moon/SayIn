@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>言达 · SayIn 手机端布局优化 Demo</title>
+<style>
+:root{--bg:#F5F6F8;--ink:#15171A;--mut:#5A5D61;--card:#fff;--line:#D9DDE2;--seg:#E9ECEF;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0B0C0E;--ink:#F3F4F6;--mut:#A3A7AD;--card:#1D2023;--line:#32363B;--seg:#25282C;color-scheme:dark}}
+:root[data-theme="dark"]{--bg:#0B0C0E;--ink:#F3F4F6;--mut:#A3A7AD;--card:#1D2023;--line:#32363B;--seg:#25282C;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.6 "PingFang SC","Noto Sans SC","Microsoft YaHei",system-ui,sans-serif;padding:32px 16px 64px}
+.wrap{max-width:900px;margin:0 auto}
+.kick{font-size:12px;letter-spacing:.12em;color:var(--mut)}
+h1{font-size:24px;margin:4px 0 8px}
+header p{color:var(--mut);font-size:13px;max-width:620px}
+.row{display:flex;gap:32px;flex-wrap:wrap;margin-top:22px;align-items:flex-start}
+.seg{display:inline-flex;background:var(--seg);border-radius:12px;padding:3px}
+.seg button{border:0;background:transparent;color:var(--mut);font:inherit;font-size:13px;padding:6px 14px;border-radius:9px;min-height:36px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 0 0 1px var(--line)}
+button:focus-visible,textarea:focus-visible{outline:2px solid #1f75db;outline-offset:2px}
+.side{flex:1;min-width:240px;max-width:340px}
+.side h2{font-size:15px;margin:16px 0 8px}.side ol{padding-left:18px;color:var(--mut);font-size:13px}.side li{margin-bottom:8px}.side b{color:var(--ink)}
+.ph{--b:#f5f5f5;--c:#fff;--c2:#eee;--i:#1f1f1f;--s:#525252;--a:#1f75db;--ai:#fff;--dis:#eee;--dist:#737373;--rd:#D93025;position:relative;width:390px;max-width:100%;height:820px;border-radius:36px;overflow:hidden;background:var(--b);color:var(--i);border:1px solid var(--line);display:flex;flex-direction:column}
+.ph[data-sys="dark"]{--b:#121212;--c:#1f1f1f;--c2:#333;--i:#fafafa;--s:#c7c7c7;--a:#1f75db;--ai:#fff;--dis:#333;--dist:#a3a3a3;--rd:#FF8A80}
+.st{display:flex;justify-content:space-between;padding:12px 24px 4px;font-size:13px;font-weight:600}
+.hd{display:flex;align-items:center;gap:10px;padding:8px 16px}
+.hd svg{width:36px;height:36px;flex:none}.hd b{font-size:20px;letter-spacing:.01em;flex:1}
+.chip{display:inline-flex;align-items:center;gap:8px;border:0;background:var(--c);color:var(--i);font:inherit;font-size:13px;padding:0 14px;min-height:40px;border-radius:20px;cursor:pointer}
+.dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--s)}
+.dr{flex:1;min-height:0;margin:4px 16px 12px;background:var(--c);border-radius:28px;padding:18px 20px 14px;display:flex;flex-direction:column}
+.dh{display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--s);min-height:28px}
+.lv{display:none;align-items:center;gap:8px;color:var(--rd);font-weight:600}.lv i{width:3px;height:12px;border-radius:2px;background:currentColor;animation:wv .9s ease-in-out infinite}.lv i:nth-of-type(2){animation-delay:.15s}.lv i:nth-of-type(3){animation-delay:.3s}.lv i:nth-of-type(4){animation-delay:.45s}
+.live .lv{display:inline-flex}.live .tt{display:none}
+.sw{display:inline-flex;align-items:center;gap:8px;border:0;background:transparent;color:var(--s);font:inherit;font-size:13px;cursor:pointer;min-height:36px}
+.sw i{width:36px;height:20px;border-radius:10px;background:var(--c2);position:relative;transition:background .15s}.sw i::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#8A8F96;transition:transform .15s,background .15s}
+.sw[aria-checked="true"] i{background:var(--a)}.sw[aria-checked="true"] i::after{transform:translateX(16px);background:var(--ai)}
+.body{flex:1;min-height:0;position:relative;margin-top:6px}
+#td,#lt{position:absolute;inset:0;width:100%;height:100%;font:inherit;font-size:22px;line-height:1.55;color:var(--i);background:transparent;border:0;resize:none;outline:0;overflow:auto;padding:0}
+#td::placeholder{color:var(--s);opacity:1;font-size:19px}
+#lt{display:none;white-space:pre-wrap}.live #lt{display:block}.live #td{display:none}
+.int{color:var(--s)}.cu{display:inline-block;width:2px;height:24px;background:var(--a);vertical-align:-4px;margin-left:1px;animation:bk 1s steps(1) infinite}
+.ft{font-size:12px;color:var(--s);display:flex;justify-content:space-between;gap:12px;border-top:1px solid var(--c2);padding-top:10px;line-height:1.5}
+.hn{min-width:0;display:inline-flex;align-items:center;gap:7px;overflow-wrap:anywhere}.ft #ct{flex:none;white-space:nowrap}.hn[data-state="loading"]::before,.hn[data-state="warming"]::before{content:"";width:12px;height:12px;flex:none;border:1.5px solid var(--c2);border-top-color:var(--a);border-radius:50%;animation:spin .8s linear infinite}.hn[data-state="ready"]::before{content:"";width:9px;height:5px;flex:none;border-left:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);margin-top:-3px}.hero:disabled{background:var(--dis);color:var(--dist);box-shadow:none;cursor:default}.hero:disabled:active{transform:none}@keyframes spin{to{transform:rotate(360deg)}}
+.dk{background:var(--c);border-radius:28px 28px 0 0;padding:14px 16px 6px}
+.md{display:flex;background:var(--b);border-radius:22px;padding:3px}
+.md button{flex:1;border:0;background:transparent;color:var(--s);font:inherit;font-size:13px;min-height:40px;border-radius:19px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer}
+.md button[aria-pressed="true"]{background:var(--c);color:var(--a);font-weight:600;box-shadow:0 0 0 1px var(--c2)}
+.md button:disabled{opacity:.45;cursor:default}
+.md svg,.ac svg{width:18px;height:18px;fill:currentColor}
+.ctl{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;margin-top:14px}
+.col{display:flex;flex-direction:column;align-items:center;gap:6px;font-size:12px;color:var(--s)}
+.ac{width:56px;height:56px;border-radius:50%;border:0;background:var(--c2);color:var(--i);display:grid;place-items:center;cursor:pointer}
+.ac:disabled{background:var(--dis);color:var(--dist);cursor:default}
+#snd:not(:disabled){background:var(--a);color:var(--ai)}
+#snd.ready{animation:rd 1.2s ease-out 2}
+.hero{position:relative;width:88px;height:88px;border-radius:50%;border:0;background:var(--a);color:var(--ai);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 18px rgba(31,117,219,.35)}
+.hero svg{width:40px;height:40px;fill:currentColor}
+.hero.live{background:var(--rd);color:#fff;box-shadow:0 6px 18px rgba(217,48,37,.35)}
+.hero.live::before,.hero.live::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--rd);animation:pl 1.6s ease-out infinite}.hero.live::after{animation-delay:.8s}
+.hero:active{transform:scale(.96)}
+.hl{font-weight:600;color:var(--i);font-size:13px}
+.nv{display:flex;background:var(--c);padding:4px 8px 18px;border-top:1px solid var(--c2)}
+.nv button{flex:1;border:0;background:transparent;color:var(--s);font:inherit;font-size:12px;min-height:48px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer}
+.nv button[aria-current="page"]{color:var(--i);font-weight:700}.nv svg{width:24px;height:24px;fill:currentColor}
+.tst{position:absolute;left:50%;bottom:150px;transform:translateX(-50%);background:var(--i);color:var(--b);padding:10px 16px;border-radius:20px;font-size:13px;opacity:0;pointer-events:none;transition:opacity .2s;white-space:nowrap}.tst.show{opacity:1}
+@keyframes bk{50%{opacity:0}}
+@keyframes wv{0%,100%{height:4px}50%{height:14px}}
+@keyframes pl{from{transform:scale(1);opacity:.6}to{transform:scale(1.5);opacity:0}}
+@keyframes rd{0%{box-shadow:0 0 0 0 rgba(31,117,219,.5)}100%{box-shadow:0 0 0 14px rgba(31,117,219,0)}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.lv i{height:10px}}
+
+/* Connection panel: prototype states mirror first pairing, reconnect and desktop reception. */
+.hd .chip{min-height:48px;max-width:46%;gap:6px;padding:0 12px;flex:none}
+.chip #cn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip svg{width:16px;height:16px;flex:none;color:var(--s)}
+.chip.on .dot{background:var(--a)}.chip.attention .dot{background:var(--s)}
+.chip.busy .dot{border:1.5px solid var(--c2);border-top-color:var(--a);background:transparent;width:12px;height:12px;animation:spin .8s linear infinite}
+.connection-overlay{position:absolute;inset:0;z-index:10;display:flex;align-items:flex-end;background:rgb(0 0 0/.5)}
+.connection-overlay[hidden]{display:none}
+.connection-sheet{width:100%;max-height:calc(100% - 62px);background:var(--c);border-radius:28px 28px 0 0;padding:10px 20px 24px;overflow-y:auto;overscroll-behavior:contain;box-shadow:0 -8px 36px rgba(0,0,0,.12)}
+.sheet-handle{width:32px;height:4px;background:var(--c2);border-radius:4px;margin:0 auto 8px}
+.sheet-head{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.sheet-head h2{font-size:20px;flex:1}.sheet-close{border:0;background:transparent;color:var(--s);width:48px;height:48px;border-radius:50%;cursor:pointer;display:grid;place-items:center}
+.sheet-close svg{width:20px;height:20px;fill:currentColor}
+.computer-summary{display:flex;align-items:center;gap:12px;margin:8px 0 18px}
+.computer-symbol{width:52px;height:52px;background:var(--b);border-radius:16px;display:grid;place-items:center;flex:none}
+.computer-symbol svg{width:26px;height:26px;fill:currentColor}.computer-summary b{display:block;font-size:17px}.computer-summary p{color:var(--s);font-size:13px}
+.sheet-message{font-size:14px;line-height:1.65;margin-bottom:20px;color:var(--s)}
+.sheet-primary,.sheet-secondary{width:100%;border:0;border-radius:16px;min-height:48px;padding:12px 16px;font:inherit;font-size:15px;cursor:pointer;margin-top:8px}
+.sheet-primary{background:var(--a);color:var(--ai);font-weight:600}.sheet-secondary{background:transparent;color:var(--s)}
+.sheet-primary:disabled{background:var(--dis);color:var(--dist);cursor:default}
+.sheet-primary svg{width:18px;height:18px;vertical-align:-3px;fill:none;stroke:currentColor;stroke-width:1.8;margin-right:8px}
+.connection-help{margin-top:16px;border-top:1px solid var(--c2);padding-top:4px;color:var(--s);font-size:13px}
+.connection-help summary{min-height:48px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}
+.connection-help summary::-webkit-details-marker{display:none}.connection-help summary::after{content:'+';font-size:18px}.connection-help[open] summary::after{content:'−'}
+.connection-help p{margin:0 0 10px}.connection-help code{font-size:12px;overflow-wrap:anywhere}
+.connection-form{display:grid;gap:12px}.connection-form label{display:grid;gap:6px;font-size:13px;color:var(--s)}
+.connection-form input{width:100%;min-height:48px;border:1px solid var(--line);border-radius:12px;background:var(--b);color:var(--i);padding:10px 12px;font:inherit;font-size:16px}
+.connection-form input:focus-visible,summary:focus-visible,select:focus-visible{outline:2px solid var(--a);outline-offset:2px}
+.demo-review{margin-top:18px;padding-top:16px;border-top:1px solid var(--line)}.demo-review label{display:grid;gap:6px;color:var(--mut);font-size:13px}
+.demo-review select,.demo-review button{width:100%;min-height:40px;font:inherit;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--card);color:var(--ink)}
+.demo-review button{margin-top:10px;cursor:pointer}.demo-review p{font-size:12px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<g id="i-mic"><path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></g>
+<g id="i-stop"><rect x="6" y="6" width="12" height="12" rx="2"/></g>
+<g id="i-snd"><path d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2 .01 7Z"/></g>
+<g id="i-x"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41Z"/></g>
+<g id="i-ph"><path d="M17 1H7a2 2 0 0 0-2 2v18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2Zm0 18H7V5h10v14Z"/></g>
+<g id="i-cl"><path d="M19.35 10.04A7.49 7.49 0 0 0 12 4C9.11 4 6.6 5.64 5.35 8.04A5.994 5.994 0 0 0 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96Z"/></g>
+<g id="i-kb"><path d="M20 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2ZM11 8h2v2h-2V8Zm-3 0h2v2H8V8ZM5 8h2v2H5V8Zm2 8H5v-2h2v2Zm9 0H8v-2h8v2Zm0-3h-2v-2h2v2Zm3 3h-2v-2h2v2Zm0-3h-2v-2h2v2Zm0-3h-2V8h2v2Z"/></g>
+<g id="i-hi"><path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6a7 7 0 1 1 2.05 4.95l-1.42 1.42A9 9 0 1 0 13 3Zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12Z"/></g>
+<g id="i-pc"><path d="M21 2H3a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h7v2H8v2h8v-2h-2v-2h7a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Zm0 14H3V4h18v12Z"/></g>
+<g id="i-gr"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.488.488 0 0 0-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58ZM12 15.6A3.6 3.6 0 1 1 12 8.4a3.6 3.6 0 0 1 0 7.2Z"/></g>
+<g id="gb"><path d="M30 32H98A8 8 0 0 1 106 40V88A8 8 0 0 1 98 96H30A8 8 0 0 1 22 88V40A8 8 0 0 1 30 32ZM34 42H94A2 2 0 0 1 96 44V84A2 2 0 0 1 94 86H34A2 2 0 0 1 32 84V44A2 2 0 0 1 34 42Z" fill-rule="evenodd"/><path d="M42 50H68A2 2 0 0 1 70 52V58A2 2 0 0 1 68 60H42A2 2 0 0 1 40 58V52A2 2 0 0 1 42 50Z" fill-opacity="0.7"/><path d="M42 68H58A2 2 0 0 1 60 70V76A2 2 0 0 1 58 78H42A2 2 0 0 1 40 76V70A2 2 0 0 1 42 68Z" fill-opacity="0.4"/><path d="M80 47H84A2 2 0 0 1 86 49V79A2 2 0 0 1 84 81H80A2 2 0 0 1 78 79V49A2 2 0 0 1 80 47Z"/></g>
+</defs></svg>
+<div class="wrap">
+<header>
+<div class="kick">言达 · SAYIN · 手机端</div>
+<h1>说话页布局优化</h1>
+<p>把“说话”放到拇指最容易够到的位置并放大，其他功能退到辅助位置。可以直接试：点麦克风说话、点编辑区修改、点发送。</p>
+</header>
+<div class="row">
+<div class="ph" id="ph" data-sys="light">
+<div class="st"><span>23:03</span><span>5G&nbsp;&nbsp;100%</span></div>
+<div class="hd">
+<svg viewBox="0 0 128 128" aria-hidden="true"><rect x="4" y="4" width="120" height="120" rx="24" fill="#252525"/><g fill="#F3F3F1"><use href="#gb"/></g></svg>
+<b>SayIn</b>
+<button class="chip" id="chip" aria-label="连接电脑" aria-haspopup="dialog" aria-controls="connection-sheet" aria-expanded="false"><span class="dot"></span><span id="cn">连接电脑</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+</div>
+<section class="dr" id="dr" aria-label="草稿">
+<div class="dh"><span class="tt">草稿</span><span class="lv" role="status"><i></i><i></i><i></i><i></i><span id="tm">正在聆听 0:00</span></span>
+<button class="sw" id="au" role="switch" aria-checked="false"><span>说完自动发送</span><i></i></button></div>
+<div class="body"><textarea id="td" aria-label="草稿内容" placeholder="点下方麦克风开始说话，文字会出现在这里，也可以直接点进来修改。"></textarea><div id="lt" aria-live="off"></div></div>
+<div class="ft"><span class="hn" id="hn" role="status" aria-live="polite" aria-atomic="true"><span id="hintText">豆包识别 · 音频上传云端</span></span><span id="ct">0 字</span></div>
+</section>
+<div class="dk">
+<div class="md" role="group" aria-label="识别方式"><button data-m="local" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-ph"/></svg>本地</button><button data-m="cloud" aria-pressed="true"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-cl"/></svg>云端</button><button data-m="ime" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-kb"/></svg>输入法</button></div>
+<div class="ctl">
+<div class="col"><button class="ac" id="clr" aria-label="清空草稿" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button><span>清空</span></div>
+<div class="col"><button class="hero" id="hero" aria-label="点按开始说话"><svg id="hi2" viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"/></svg></button><span class="hl" id="hl">点按说话</span></div>
+<div class="col"><button class="ac" id="snd" aria-label="发送到电脑" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-snd"/></svg></button><span>发送到电脑</span></div>
+</div></div>
+<nav class="nv" aria-label="主导航">
+<button aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-mic"/></svg>说话</button>
+<button><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-hi"/></svg>记录</button>
+<button><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pc"/></svg>连接</button>
+<button><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-gr"/></svg>设置</button>
+</nav>
+<div class="connection-overlay" id="connection-overlay" hidden>
+<section class="connection-sheet" id="connection-sheet" role="dialog" aria-modal="true" aria-labelledby="connection-title" tabindex="-1">
+<div class="sheet-handle" aria-hidden="true"></div>
+<div class="sheet-head"><h2 id="connection-title">连接电脑</h2><button class="sheet-close" id="connection-close" aria-label="关闭连接面板"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"/></svg></button></div>
+<div id="connection-content"></div>
+</section></div>
+<div class="tst" id="ts" role="status"></div>
+</div>
+<aside class="side">
+<div class="demo-review">
+<label for="connection-scenario">连接场景 · 仅供演示
+<select id="connection-scenario">
+<option value="first">首次连接</option><option value="offline">已配对 · 电脑离线</option>
+<option value="connecting">正在重连</option><option value="approval">等待电脑批准</option>
+<option value="ready">已连接 · 可以发送</option><option value="paused">已连接 · 电脑暂停接收</option>
+<option value="review">已连接 · 电脑需要核对</option><option value="network">手机网络不可用</option>
+<option value="unreachable">已配对 · 原地址不可达</option><option value="expired">邀请已过期</option>
+<option value="rejected">电脑未批准</option><option value="storage">本机记录读取失败</option>
+</select></label>
+<button id="demo-desktop-approve" hidden>模拟电脑批准</button>
+<p>此区域用于评审，不属于 App。扫描、批准、重连均为模拟；不会连接设备或发送文字。等待批准时，可先收起手机面板，再点这里的「模拟电脑批准」。</p>
+</div>
+<div class="seg" role="group" aria-label="系统主题"><button data-sys="light" aria-pressed="true">浅色</button><button data-sys="dark" aria-pressed="false">深色</button></div>
+<h2>这版改了什么</h2>
+<ol>
+<li><b>麦克风成为主角。</b>88 像素的大按钮放在屏幕下方正中，单手就能按；说话时变红并有扩散的圈。</li>
+<li><b>连接状态收进顶栏。</b>原来整行的“连接电脑”缩成一个小标签，显示连接与接收状态，点击展开面板；连接正常时不会误触断开，草稿区因此多出一大块。</li>
+<li><b>识别方式贴近麦克风。</b>本地、云端、输入法放在按钮正上方，选完就能直接说。</li>
+<li><b>说完才亮起发送。</b>说话与发送先后分明，说完后发送按钮会闪一下提示。</li>
+<li><b>模型准备状态清晰。</b>首次选择本地时，底部依次显示加载、预热、就绪；准备期间不会录音，完成后由你点按开始。再次切回本地无需重复准备。</li>
+<li><b>草稿边说边出字。</b>没确认的部分颜色较淡，随时可以点进去改，不用先点“编辑”。</li>
+</ol>
+<h2>连接入口</h2>
+<ol><li>右上角是状态入口，点开面板查看原因和下一步；连接正常时不会断开。</li><li>首次扫码 / 配对码二选一，等待电脑明确批准；已有配对直接重连。</li><li>连接与接收分开：电脑暂停或待核对时仍显示已连接，只能去电脑恢复或核对。</li><li>连接恢复不清草稿、不自动发送、不解除电脑暂停，也不补发旧文字。</li><li>已配对但地址改变时，更新地址复用原身份。该能力是后续原生实现设计，当前 Android 尚未接入地址恢复。</li></ol>
+<h2>状态文案</h2>
+<ol><li>底部只保留当前识别状态与字数，连接状态由顶栏负责，不重复堆叠说明。</li><li>本地：正在加载本地模型… → 模型已加载，正在预热… → 本地识别已就绪。</li><li>云端：豆包识别 · 音频上传云端。输入法：使用输入法输入。</li><li>本页仅演示视觉与状态变化，加载、预热、识别均为模拟，不代表实机耗时或云端连通。</li></ol>
+<h2>可以试的</h2>
+<ol><li>未连接时也能说话、编辑；点发送打开连接面板，连接恢复后保留草稿，由你再次点发送。</li><li>打开“说完自动发送”，说完会直接发出。</li><li>切到“输入法”，麦克风会变成键盘，改用系统输入法的语音键盘。</li></ol>
+</aside>
+</div></div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const PH=['下午三点开会，记得带样品，会后把检验报告发给质量组。','把这批轴承套圈的外径抽检结果整理一下，下班前发给我。','今天先到这里，明天上午继续跟进订单进度。'];
+const HN={cloud:'豆包识别 · 音频上传云端',local:'本地识别已就绪',ime:'使用输入法输入'};
+// Visual prototype only: loading/warm-up timings do not load or run a model.
+let modelPhase='unloaded',modelTimer=null,autoSendTimer=null;
+const S={conn:false,busy:false,paired:false,link:'first',gate:'ready',sheet:false,sheetView:'status',host:'工作电脑',address:'192.168.1.23:7788',mode:'cloud',auto:false,live:false,t:0,com:'',pen:'',ph:'',i:0,ty:null,tm:null,pi:0,tt:null};
+const td=$('#td'),lt=$('#lt'),dr=$('#dr'),hero=$('#hero'),snd=$('#snd');
+const esc=s=>s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const txt=()=>S.live?S.com+S.pen:td.value;
+function icon(id){$('#hi2').innerHTML='<use href="#i-'+id+'"/>'}
+function preparing(){return S.mode==='local'&&(modelPhase==='loading'||modelPhase==='warming')}
+function hint(){
+ if(S.mode==='local'){
+  if(modelPhase==='loading')return ['loading','正在加载本地模型…'];
+  if(modelPhase==='warming')return ['warming','模型已加载，正在预热…'];
+  if(S.live)return ['listening','正在本机识别…'];
+  return ['ready',HN.local];
+ }
+ return [S.live?'listening':'idle',S.live?'正在通过豆包识别…':HN[S.mode]];
+}
+function prepareLocal(){
+ if(modelPhase!=='unloaded')return;
+ modelPhase='loading';render();
+ modelTimer=setTimeout(()=>{
+  modelPhase='warming';render();
+  modelTimer=setTimeout(()=>{modelPhase='ready';render()},1100);
+ },1000);
+}
+function render(){
+ const has=txt().trim().length>0;
+ dr.classList.toggle('live',S.live);
+ renderConnection();
+ hero.classList.toggle('live',S.live);
+ icon(S.live?'stop':S.mode==='ime'?'kb':'mic');
+ const hl=preparing()?'准备中…':S.live?'点按结束':S.mode==='ime'?'打开输入法':'点按说话';$('#hl').textContent=hl;hero.setAttribute('aria-label',hl);
+ $$('.md button').forEach(b=>{b.setAttribute('aria-pressed',b.dataset.m===S.mode);b.disabled=S.live});
+ const [status,message]=hint();$('#hn').dataset.state=status;
+ if($('#hintText').textContent!==message)$('#hintText').textContent=message;
+ hero.disabled=preparing();hero.setAttribute('aria-busy',preparing());
+ $('#ct').textContent=txt().replace(/\s/g,'').length+' 字';
+ snd.disabled=!has||S.live;$('#clr').disabled=!has||S.live;
+ if(S.live)$('#au').setAttribute('aria-checked',S.auto);
+ $('#au').setAttribute('aria-checked',S.auto)}
+function paint(){lt.innerHTML=esc(S.com)+'<span class="int">'+esc(S.pen)+'</span><span class="cu"></span>';lt.scrollTop=lt.scrollHeight;$('#ct').textContent=(S.com+S.pen).replace(/\s/g,'').length+' 字'}
+function toast(m){const t=$('#ts');t.textContent=m;t.classList.add('show');clearTimeout(S.tt);S.tt=setTimeout(()=>t.classList.remove('show'),2200)}
+function start(){
+ cancelAutoSend();
+ if(S.mode==='ime'){td.focus();return}
+ if(preparing())return;
+ if(S.mode==='local'&&modelPhase==='unloaded'){prepareLocal();return}
+ S.live=true;S.t=0;S.i=0;S.com=td.value?td.value+'\n':'';S.pen='';S.ph=PH[S.pi++%PH.length];snd.classList.remove('ready');
+ $('#tm').textContent='正在聆听 0:00';render();paint();
+ S.tm=setInterval(()=>{S.t++;$('#tm').textContent='正在聆听 '+Math.floor(S.t/60)+':'+String(S.t%60).padStart(2,'0')},1000);
+ S.ty=setInterval(()=>{if(S.i>=S.ph.length){S.com+=S.pen;S.pen='';clearInterval(S.ty);paint();return}const ch=S.ph[S.i++];S.pen+=ch;if('，。'.includes(ch)){S.com+=S.pen;S.pen=''}paint()},120)}
+function stop(){
+ clearInterval(S.ty);clearInterval(S.tm);td.value=S.com+S.pen;S.com='';S.pen='';S.live=false;render();
+ if(td.value.trim()){if(S.auto&&canSend()){const draft=td.value;autoSendTimer=setTimeout(()=>{autoSendTimer=null;if(S.auto&&canSend()&&!S.sheet&&td.value===draft)send()},500)}else{snd.classList.add('ready');setTimeout(()=>snd.classList.remove('ready'),2600)}}}
+
+function cancelAutoSend(){clearTimeout(autoSendTimer);autoSendTimer=null}
+function canSend(){return S.conn&&S.gate==='ready'&&S.link!=='storage'}
+function send(){cancelAutoSend();const v=td.value.trim();if(!v||S.live)return;if(!canSend()){openConnection();return}td.value='';snd.classList.remove('ready');render();toast('已发送到电脑光标处 · 未追加回车')}
+hero.onclick=()=>S.live?stop():start();
+snd.onclick=send;
+$('#clr').onclick=()=>{cancelAutoSend();td.value='';render();td.focus()};
+td.oninput=()=>{cancelAutoSend();render()};
+$('#chip').onclick=openConnection;
+$('#au').onclick=()=>{cancelAutoSend();S.auto=!S.auto;render()};
+$$('.md button').forEach(b=>b.onclick=()=>{cancelAutoSend();S.mode=b.dataset.m;if(S.mode==='local')prepareLocal();render();if(S.mode==='ime')td.focus()});
+$$('.nv button:not([aria-current])').forEach((b,i)=>b.onclick=i===1?openConnection:()=>toast('演示只展开说话页和连接面板'));
+$$('button[data-sys]').forEach(b=>b.onclick=()=>{$('#ph').dataset.sys=b.dataset.sys;$$('button[data-sys]').forEach(x=>x.setAttribute('aria-pressed',x===b))});
+
+// Connection is separate from the desktop's reception gate. No success means implicit sending.
+const overlay=$('#connection-overlay'),sheet=$('#connection-sheet'),content=$('#connection-content');
+let connectionTimer=null,connectionFocus=null,panelSignature='';
+function connectionStatus(){
+ if(S.link==='storage')return ['记录异常','无法读取本机记录','暂时无法安全发送。请到设置检查存储状态，已有草稿会保留。'];
+ if(S.link==='approval')return ['等待批准','请在电脑上批准连接','在电脑 SayIn 的接收页确认这台手机后，即可完成连接。'];
+ if(S.link==='network')return ['网络不可用','等待网络恢复','连接手机网络后会尝试恢复已有连接，草稿会保留。'];
+ if(S.link==='connecting')return ['连接中…','正在连接电脑','正在使用已保存的配对，不需要重新扫码。'];
+ if(S.conn){
+  if(S.gate==='paused')return ['接收已暂停','电脑已暂停接收','连接正常。请在电脑 SayIn 的接收页恢复接收后，再发送文字。'];
+  if(S.gate==='review')return ['需在电脑核对','请先在电脑核对','连接正常。请到目标软件核对上一条文字，再在电脑 SayIn 确认，避免重复输入。'];
+  return [S.host,'可以发送','文字将输入电脑当前光标所在的位置。'];
+ }
+ if(S.link==='unreachable')return ['连接未恢复','暂时连接不到电脑','请确认电脑 SayIn 正在运行，并与手机连接到可互通的局域网。'];
+ if(S.paired)return ['电脑离线','等待电脑连接','配对已保存。电脑 SayIn 恢复在线后，无需再次扫码或批准。'];
+ if(S.link==='expired')return ['邀请已过期','请重新获取邀请','在电脑接收页刷新二维码或配对码，然后重新连接。'];
+ if(S.link==='rejected')return ['未获批准','电脑未批准此次连接','请在电脑确认后重新发起连接。'];
+ return ['连接电脑','让文字到达电脑','打开电脑 SayIn 的接收页，扫描二维码即可连接。'];
+}
+function renderConnection(){
+ const [label]=connectionStatus(),chip=$('#chip');
+ chip.classList.toggle('on',canSend());chip.classList.toggle('busy',S.link==='connecting'||S.link==='approval');
+ chip.classList.toggle('attention',S.conn&&S.gate!=='ready');$('#cn').textContent=label;
+ chip.setAttribute('aria-label',label+'，查看连接');chip.setAttribute('aria-expanded',String(S.sheet));
+ $('#demo-desktop-approve').hidden=S.link!=='approval';
+ if(S.sheet){const signature=[S.link,S.gate,S.sheetView,S.host,S.address].join('|');if(signature!==panelSignature){const restoreFocus=content.contains(document.activeElement);panelSignature=signature;renderPanel();if(restoreFocus)$('#connection-close').focus()}}
+}
+function computerSummary(){return '<div class="computer-summary"><div class="computer-symbol"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-pc"/></svg></div><div><b>'+esc(S.host)+'</b><p>'+esc(S.conn?'已连接':S.link==='approval'?'等待批准':S.paired?'已保存配对':'尚未配对')+'</p></div></div>'}
+function action(label,fn,primary=true){const b=document.createElement('button');b.className=primary?'sheet-primary':'sheet-secondary';b.textContent=label;b.onclick=fn;content.append(b);return b}
+function renderPanel(){
+ const [,title,message]=connectionStatus();$('#connection-title').textContent=S.sheetView==='code'?'输入配对码':S.sheetView==='address'?'更新连接地址':title;
+ content.innerHTML=(S.paired||S.link==='approval'?computerSummary():'');
+ if(S.sheetView==='code'||S.sheetView==='address'){
+  const code=S.sheetView==='code';
+  content.innerHTML+='<p class="sheet-message">'+(code?'在电脑接收页切换到配对码，填写页面上的地址和代码。':'填写电脑接收页「连接帮助」中的当前地址，保留已有配对。')+'</p><form class="connection-form" id="connection-form"><label>电脑地址<input id="computer-address" name="address" placeholder="192.168.1.23:7788" value="'+esc(code?'':S.address)+'" autocomplete="off" spellcheck="false" required></label>'+(code?'<label>8 位配对码<input id="pair-code" name="code" inputmode="numeric" pattern="[0-9]{8}" maxlength="8" autocomplete="off" placeholder="00000000" required></label>':'')+'<button class="sheet-primary" type="submit">'+(code?'请求连接':'保存并重连')+'</button></form>';
+  $('#connection-form').onsubmit=e=>{e.preventDefault();S.address=$('#computer-address').value.trim();if(code)requestPairing();else reconnect()};
+  action('返回',()=>setPanelView('status'),false);return;
+ }
+ content.innerHTML+='<p class="sheet-message">'+esc(message)+'</p>';
+ if(S.link==='storage')return;
+ if(S.link==='approval'){action('取消连接请求',()=>{S.link='first';S.conn=false;S.paired=false;render()},false);return}
+ if(S.link==='connecting'){const b=action('正在重连…',()=>{});b.disabled=true;return}
+ if(S.link==='network')return;
+ if(!S.paired&&!S.conn){
+  const b=action('扫描电脑二维码',requestPairing);
+  b.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5m6 0h5v5m0 6v5h-5m-6 0H4v-5M8 8h3v3H8zm5 0h3v3h-3zm-5 5h3v3H8zm5 0h3v3h-3z"/></svg>扫描电脑二维码';
+  action('输入配对码',()=>setPanelView('code'),false);return;
+ }
+ if(!S.conn)action('重新连接',reconnect);
+ const help=document.createElement('details');help.className='connection-help';
+ help.innerHTML='<summary>连接帮助</summary><p>保持电脑 SayIn 运行，手机与电脑应连接到可互通的局域网。无需修改 Windows 的公用或专用网络分类。</p><p>已保存的地址<br><code>'+esc(S.address)+'</code></p>';
+ if(!S.conn){const b=document.createElement('button');b.className='sheet-secondary';b.textContent='电脑地址变了？';b.onclick=()=>setPanelView('address');help.append(b)}
+ content.append(help);
+}
+function setPanelView(view){S.sheetView=view;panelSignature='';renderConnection();const field=content.querySelector('input');if(field)field.focus();else $('#connection-close').focus()}
+function modalBackground(inert){
+ [...$('#ph').children].filter(el=>el!==overlay).forEach(el=>el.inert=inert);
+ $('header').inert=inert;$('.side').inert=inert;
+}
+function openConnection(){
+ cancelAutoSend();if(S.sheet)return;connectionFocus=document.activeElement;S.sheet=true;S.sheetView='status';panelSignature='';overlay.hidden=false;modalBackground(true);renderConnection();$('#connection-close').focus();
+}
+function closeConnection(){S.sheet=false;overlay.hidden=true;modalBackground(false);renderConnection();if(connectionFocus?.isConnected)connectionFocus.focus()}
+$('#connection-close').onclick=closeConnection;
+overlay.onclick=e=>{if(e.target===overlay)closeConnection()};
+sheet.onkeydown=e=>{
+ if(e.key==='Escape'){e.preventDefault();closeConnection();return}
+ if(e.key==='Tab'){
+  const items=[...sheet.querySelectorAll('button:not(:disabled),input,summary')].filter(el=>el.getClientRects().length),first=items[0],last=items.at(-1);
+  if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+  else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+ }
+};
+function requestPairing(){S.gate='ready';S.sheetView='status';S.link='approval';S.conn=false;render();$('#connection-close').focus()}
+function reconnect(){
+ clearTimeout(connectionTimer);S.sheetView='status';S.link='connecting';S.conn=false;render();
+ connectionTimer=setTimeout(()=>{S.link='online';S.conn=true;S.paired=true;render()},900);
+}
+function scenario(value){
+ cancelAutoSend();clearTimeout(connectionTimer);S.conn=['ready','paused','review'].includes(value);S.paired=!['first','approval','expired','rejected'].includes(value);
+ if(['ready','paused','review'].includes(value))S.gate=value;if(['first','approval','expired','rejected'].includes(value))S.gate='ready';S.link=S.conn?'online':value;S.sheetView='status';render();
+}
+$('#connection-scenario').onchange=e=>scenario(e.target.value);
+$('#demo-desktop-approve').onclick=()=>{S.paired=true;S.conn=true;S.link='online';S.gate='ready';render()};
+
+render();
+</script>
+</body>
+</html>

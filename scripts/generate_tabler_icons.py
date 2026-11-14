@@ -25,6 +25,14 @@ ICONS = {
     "Check": "check",
     "Alert": "alert-triangle",
     "Shield": "shield-lock",
+    "Close": "x",
+    "Stop": "player-stop",
+    "Clear": "trash",
+    "ChevronRight": "chevron-right",
+    "ChevronDown": "chevron-down",
+    "Cloud": "cloud",
+    "Phone": "device-mobile",
+    "More": "dots-vertical",
 }
 
 

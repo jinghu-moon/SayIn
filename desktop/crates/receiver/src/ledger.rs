@@ -40,6 +40,7 @@ pub struct ReceiverSnapshot {
     pub device_ids: Vec<String>,
     pub device_names: std::collections::BTreeMap<String, String>,
     pub pending: u32,
+    pub blocked: Option<Receipt>,
     pub recent: Vec<Receipt>,
 }
 
@@ -183,7 +184,7 @@ impl Ledger {
         if existing_database {
             let version: u32 =
                 database.pragma_query_value(None, "user_version", |row| row.get(0))?;
-            if !matches!(version, 1..=3) {
+            if !matches!(version, 1..=5) {
                 return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
             }
             let tables: u32 = database.query_row(
@@ -303,6 +304,27 @@ impl Ledger {
         ledger
             .database
             .prepare("SELECT display_name FROM devices LIMIT 0")?;
+        let version: u32 = ledger
+            .database
+            .pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version == 3 {
+            ledger.database.execute_batch("BEGIN IMMEDIATE; ALTER TABLE message_history ADD COLUMN deleted_at INTEGER; CREATE INDEX history_deleted ON message_history(deleted_at) WHERE deleted_at IS NOT NULL; CREATE INDEX history_received ON message_history(received_at); CREATE TABLE history_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),days INTEGER CHECK(days IN (7,30))) STRICT; INSERT INTO history_policy VALUES(1,1,NULL); PRAGMA user_version=4; COMMIT;")?;
+        } else if !matches!(version, 4 | 5) {
+            return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
+        }
+        ledger
+            .database
+            .prepare("SELECT deleted_at FROM message_history LIMIT 0")?;
+        ledger.history_policy()?;
+        let version: u32 = ledger
+            .database
+            .pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version < 5 {
+            ledger.database.execute_batch("BEGIN IMMEDIATE; ALTER TABLE message_history ADD COLUMN source_name TEXT NOT NULL DEFAULT ''; UPDATE message_history SET source_name=COALESCE((SELECT display_name FROM devices JOIN receipts ON receipts.device=devices.id WHERE receipts.accept_order=message_history.accept_order),''); PRAGMA user_version=5; COMMIT;")?;
+        }
+        ledger
+            .database
+            .prepare("SELECT source_name FROM message_history LIMIT 0")?;
         ledger.recover()?;
         Ok(ledger)
     }
@@ -388,6 +410,9 @@ impl Ledger {
         let recent = statement
             .query_map([], receipt)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
+        let blocked = self.database.query_row(
+            "SELECT id,accept_order,state,reason,method FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [], receipt
+        ).optional()?.filter(|r| r.st == State::Held);
         Ok(ReceiverSnapshot {
             control: self.state()?,
             storage_healthy: self.healthy,
@@ -395,6 +420,7 @@ impl Ledger {
             device_ids,
             device_names,
             pending,
+            blocked,
             recent,
         })
     }
@@ -451,6 +477,26 @@ impl Ledger {
             device: device.to_owned(),
             id,
         })
+    }
+
+    /// Authentication and metadata refresh share the ledger owner. Renaming
+    /// never changes control revision, pause, target, receipt or device identity.
+    pub fn authenticate_named(
+        &mut self,
+        device: &str,
+        token: &[u8],
+        name: &str,
+    ) -> Result<Session> {
+        if name.trim().is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control)
+        {
+            return Err(Error::Protocol("INVALID_NAME"));
+        }
+        let session = self.authenticate(device, token)?;
+        self.database.execute(
+            "UPDATE devices SET display_name=?1 WHERE id=?2 AND revoked=0 AND display_name<>?1",
+            params![name, device],
+        )?;
+        Ok(session)
     }
 
     fn authorize(&self, session: &Session) -> Result<()> {
@@ -551,11 +597,12 @@ impl Ledger {
             params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason])?;
         let order = tx.last_insert_rowid().to_string();
         tx.execute(
-            "INSERT INTO message_history(accept_order,body,received_at) VALUES(?1,?2,?3)",
+            "INSERT INTO message_history(accept_order,body,received_at,source_name) SELECT ?1,?2,?3,d.display_name FROM history_policy p JOIN devices d ON d.id=?4 WHERE p.singleton=1 AND p.enabled=1",
             params![
                 tx.last_insert_rowid(),
                 history,
-                crate::history::now_millis()
+                crate::history::now_millis(),
+                session.device
             ],
         )?;
         tx.commit()?;
@@ -587,6 +634,19 @@ impl Ledger {
         tx.execute("UPDATE control SET paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'paused' END,rev=rev+1", [])?;
         tx.execute(
             "UPDATE receipts SET state='held',reason='paused' WHERE state='accepted'",
+            [],
+        )?;
+        tx.commit()?;
+        self.state()
+    }
+
+    /// Suspend a live input scope without replacing an existing user/review pause.
+    /// Previously accepted text stays held; reconnect never implicitly releases it.
+    pub fn network_lost(&mut self) -> Result<ControlState> {
+        let tx = self.database.transaction()?;
+        tx.execute("UPDATE control SET pause_reason=CASE WHEN paused=0 THEN 'network_unavailable' ELSE pause_reason END,paused=1,rev=rev+1", [])?;
+        tx.execute(
+            "UPDATE receipts SET state='held',reason='network_unavailable' WHERE state='accepted'",
             [],
         )?;
         tx.commit()?;

@@ -4,6 +4,12 @@
 
 当前阶段的首要目标是：**解决根因、保持正确性、追求性能与合理架构，而不是维护历史实现。**
 
+## 项目思考原则
+
+- **第一性原理**：剥离经验、类比与既有假设，追溯至不可再还原的基本事实，再从这些事实出发推导答案。先明确用户目标、必要约束及可验证事实，不能把旧实现或同类软件的惯例当成必然需求。
+- **奥卡姆剃刀**：如无必要，勿增实体。每个新增概念、状态、配置、抽象、控件和步骤都应有明确必要性；能够用现有事实与更简单模型正确解决时，不引入额外实体。
+- 简单必须以正确性为前提；不得用隐藏状态、忽略错误或省略必要授权来制造表面简洁。
+
 ## 1. 兼容性
 
 当前阶段**不考虑向后兼容性**，向后兼容不是当前阶段的设计约束。
@@ -310,10 +316,12 @@
 - 设备令牌和 payload 指纹使用带域分离的 HMAC；待执行载荷和密钥用当前 Windows 用户 DPAPI 保护。缺失数据库/密钥/账本结构时拒绝静默创建新去重身份。
 - 配额使用同事务触发器维护计数，不能在新接受路径上扫描整个历史表；持久收据不静默清除。实时通知只作有界合并信号，读取最新快照，不累积无限历史事件。
 - 配对批准后自动待命，普通重启在网络许可有效时自动恢复；显式暂停和 uncertain 不自动越过。向当前光标输入，不再手动锁定窗口或倒计时。每次操作独立捕获并核对前台窗口、进程创建时间、活动会话、输入桌面、权限和修饰键；不抢焦点、不自动追加 Enter。通用全局输入仍有不可原子消除的前台窗口竞态。
-- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。此阶段仍无 mDNS/IPv6/剪贴板输入通道/语音识别/root 模块。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
+- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。此阶段仍无 mDNS/IPv6/剪贴板输入通道/root 模块；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
 - 修改后执行 `cargo test --workspace --all-targets --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、包限定格式检查、工作区构建和双端 i18n/依赖检查。含真实接收线程的 GPUI 测试启用 `allow_parking`；纯 UI/状态测试仍优先使用确定性调度。
 - 当前具体实现与验证见[09接收核心实施记录](docs/09-desktop-receiver-core-implementation.md)和[13当前光标交互](docs/13-desktop-current-cursor-and-ui-redesign.md)。
 - 最新四页原生界面、托盘生命周期、账本 schema 3 和验收边界见[16桌面端重构实施记录](docs/16-desktop-ui-refactor-implementation.md)。正文历史和执行时目标在协调线程保存；目标 metadata 先于输入执行持久化，不能在浏览历史时抓当前程序补填。旧配对/收据身份必须保留；缺失已安装的历史结构或设备名称列时先拒绝打开，不能先执行崩溃恢复写入。
+- 当前历史页与账本 schema 4 见[25历史界面重构](docs/25-desktop-history-ui-refactor.md)：响应式卡片、后台应用图标、删除撤销和保留策略。清理仅影响展示历史，不删除收据、去重指纹或队列；默认永久保留。用户指定的 `win-icon-extractor =0.3.0` 为 AGPL-3.0-only，不得把含该依赖的桌面分发物全部标为 MIT。
+- 当前账本 schema 5 与设备名称见[26历史去向与设备商品名称](docs/26-history-route-and-device-display-name.md)：Android 普通权限读取商品名，`hello.name` 必需且仅在 UUID/令牌认证成功后刷新同一设备。改名不改变接收闸门/身份、不补发；历史来源名称在接收事务中保存快照，不能关联当前设备名回写旧历史。软件可读名称与图标一并在后台从 exe 资源读取，完整路径留在详情。
 - 接收后 30 秒期限覆盖 accepted 与 held，人工 release 不续期；协调线程必须在无查询/界面刷新时主动过期并通知。有效 held 队首仍阻塞后续，执行中及 uncertain 不由定时器改判，正文历史保留。根因、双端原因提示和回归证据见[19已接收但未落字修复](docs/19-received-but-not-typed-queue-expiry-fix.md)。
 - Windows 输入权限按双方 `TokenIntegrityLevel` 比较，允许向相同或更低级别目标提交；不能仅凭目标管理员标志拒绝。查询失败仍拒绝，勿默认提权。held 到期保留原始阻断 reason，避免过期掩盖原因；真实 EDIT 进程验证工具及 tranvoice 对比见[20输入权限修复](docs/20-native-input-integrity-and-tranvoice-comparison.md)。
 - 显式打开主窗口必须同时处理隐藏、最小化和已关闭三种状态，不能仅调用 `activate_window()` 假设窗口会显示。Windows 启动可见主界面使用普通可见模式，并核对主窗口而不只核对进程存活；真实窗口回归和退出销毁顺序见[17托盘打开修复](docs/17-tray-main-window-restore-fix.md)。
@@ -322,7 +330,7 @@
 
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
-- 已支持代码协议和手工 IPv4/二维码；没有 mDNS 或后台保活。Windows 用 Network List Manager 启动前和监听期间约每 2 秒核对所选接口许可；Private/Domain 默认允许，Public 必须电脑本地明确会话授权，绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，不持久保存、不更改系统网络分类。切换接口/刷新清除授权；网络范围变化、查询失败或超时会停止服务并暂停输入。详见 [11 公用网络授权](docs/11-public-network-session-authorization.md)。此检查存在有界检测窗口，不声称网络变更与 socket 输入原子联动。手机/电脑防火墙不自动变更。
+- 已支持代码协议和手工 IPv4/二维码；没有 mDNS 或空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。无 mDNS 时手机仍使用保存地址；已支持连接帮助内更新 IPv4/端口并保留固定证书身份，跨地址自动发现尚未实现。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
 - 双端通信真机回归用 `scripts/verify_android_transport.ps1`，现包含四页 Compose 界面测试，运行前须手动解锁手机；默认普通安装，当前已授权的 Root 设备可加 `-UseExistingRootInstall` 沿用 06 安装方法。测试仅通过 `adb reverse` 连接本机 loopback 专用假输入服务，自动批准仅在该测试例程；绝不能挪到产品监听流程。测试必须使用独立 host/device 与命名空间，不覆盖用户的手机配对凭据或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
@@ -332,8 +340,19 @@
 
 - 产品名称在简体中文与 English 中统一为 **SayIn**；采用用户确认的 `assets/sayin-icons/B-field`（光标入框）原始图标，F-yan 仅保留源方案。
 - 通过 `python scripts/sync_brand_assets.py` 同步双端品牌资源及来源 SHA-256 清单，不重画或改色；业务功能图标继续使用 Tabler。
+- Android Launcher 可按官方自适应图标规范等比调整内部留白：108dp 图层、中心直径 66dp 安全圆，当前 B-field 图形宽 48dp；前景与单色层几何一致。不得连带缩小背景底板或修改品牌颜色，详见 [35 Android 启动器图标](docs/35-android-launcher-icon-safe-zone.md)。
 - Android 最终包名为 `seeyuer.sayin`，详见第 10 节；Windows app_id、既有数据目录、配对/历史身份及 Rust 内部 crate 名称保留。Windows 运行产物为 `sayin.exe`。
 - 接入范围与验收证据见 [21 SayIn 命名与图标](docs/21-sayin-brand-name-and-icons.md)。
+
+## 16. 交互简化与默认行为
+
+用户明确要求：**尽可能减少用户选择和操作负担**，此规则适用于原生软件、方案与 demo。
+
+- 能可靠自动判断的技术配置由软件处理，提供合理默认行为；不能把内部状态、网络接口或实现步骤直接变成必填选择。
+- 仅在用户意图无法推断、存在实质不同的结果，或必须获得用户授权时才要求选择。不得增加重复确认、重复配对或无意义的流程。
+- 主流程优先完成任务，低频设置与技术细节按需展开；异常时说明问题并给出最直接的恢复操作。
+- 首次配对与日常重连分开：已有设备复用身份，网络恢复不能要求重新扫码；保留用户主动暂停及待核对状态。
+- 评审控件仅用于 demo，不得直接照搬到产品。改动安全或网络策略仍需修改完整调用链并验证，不能只隐藏原有授权控件。
 
 ## 核心原则
 
@@ -353,4 +372,40 @@
 >
 > **代码改完不是完成，验证通过才是完成。**
 
-手机端四页 UI、输入法入口和保持亮屏实现与验证状态见 [14手机端重设计](docs/14-mobile-four-tab-ui-redesign.md)。当前无离线 ASR、自动发送、浮窗或常驻通知；不要把参考图中的规划控件写成已实现功能。
+手机端四页 UI、输入法入口和保持亮屏实现与验证状态见 [14手机端重设计](docs/14-mobile-four-tab-ui-redesign.md)。说话页使用统一输入来源与明确完成输入后的可选智能发送（默认手动），见 [29统一说话交互](docs/29-mobile-unified-speak-interaction.md)。本地识别已接入 sherpa-onnx 2.0.1 + X-ASR 480ms 中英带标点 FP32：AudioRecord、partial 更新、结束定稿与生命周期取消共用同一草稿 / 发送入口。AAR 与模型摘要固定于 `android/asr-artifacts.json`，先执行 `python scripts/prepare_x_asr.py` 准备资源；构建自动验证摘要，JNI 类名与字段必须保留。25 项 JVM 测试及 1 项 Redmi K40 非 UI 原生推理测试已通过；麦克风实录、完整 UI / 通信回归、长期功耗和目标日常手机性能尚待验收，详见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。31 为当时阶段记录；当前共享会话、可选快捷卡/磁贴/悬浮球和录音前台服务见第 19 节，仍无独立 VAD。不得将文件推理验证描述成实录到电脑落字通过。
+
+
+## 17. Android 云端流式识别
+
+- 首期为豆包流式语音识别 2.0 小时版，固定官方 WSS `bigmodel_async` 与 `volc.seedasr.sauc.duration`；不静默探测资源套餐、切换引擎、重连重传音频或重复发送。
+- `SpeakSession` 持有统一 `RecognitionEngine`，`SpeechRecognition` 管理本地/云端麦克风与识别资源；页面只展示共享会话；流式全文快照覆盖冻结的草稿选区，仅用户明确结束且收到最终结果后才能进入现有完成输入/发送判断。partial、断网、取消、尾包超时不得授权自动发送。
+- 手机直连云服务，电脑协议仍只承载用户选择发送的文本。APP Key 或 APP ID + Access Token 只在 AndroidKeyStore AES-GCM 加密配置中持久化，独立于配对密钥、存于 noBackupFilesDir；缺失密钥/篡改拒绝读取，不写入日志、实例状态或桌面端。
+- 配置由 Application 的 ViewModelStore 唯一持有，后台串行读写；仅显式选择云端并点击录音才上传真实音频。验证服务只发送 1 秒生成静音、不访问麦克风、不触发 LAN 发送，明确说明可能计费及不能验证准确率/热词。
+- PCM 为 16kHz/mono/16bit、约 200ms 分包；未压缩 PCM socket 队列预算 64KB，超过即停止报错，不静默丢包。最终结果等候 10 秒，握手等候 12 秒。云端错误仅保留类型化状态，不输出服务响应或请求凭据。
+- 本轮基线 25 项 JVM 测试，新增协议与 WebSocket 模拟测试后 38 项；完整仪器化套件预期从 19 增至 23 项，编译通过不能描述为完整真机套件通过。实际执行证据与未覆盖范围见 [32 豆包云端流式识别](docs/32-doubao-cloud-streaming-asr.md)。SayIt 为 AGPL 参考工程，本次协议代码基于官方资料独立实现，不复制其源码。
+
+
+### 豆包结束包判定补充
+
+- 最终结果由消息 flags 的 bit 1 判定，bit 0 只表示有 sequence；不得要求最终序号必须为负数。真实 `bigmodel_async` 已复现 `flags=3, sequence=+5`，与官方 message-flow 示例一致；正序号最终包、负序号最终包均需接受，非最终标记不能因负序号被当成最终包。
+- 2026-11-13 的实测修复与凭据模式边界见 [33 云端结束包误判修复](docs/33-doubao-final-packet-fix.md)。`DoubaoLiveInstrumentedTest` 是显式 `-e liveCloud true` 才执行的付费云服务测试，默认假设跳过；完整通信验证脚本排除该类，常规套件在该阶段为 23 项，另有 3 项 opt-in 实际云服务测试；当前手机重构后为 27 项，见下节。凭据只在手机测试进程内加载，不导出到电脑或日志。
+
+## 18. 手机说话页与连接联动
+
+- 原生说话页按 [34 手机端重构](docs/34-android-speak-and-connection-refactor.md) 实现；顶栏连接入口只展开状态面板，不能误触断开。扫码/代码首次连接均需电脑批准；已有身份自动重连，地址维护只改路由，不替换证书、主机/设备 ID、token 或 Outbox。
+- 手机读取真实 `pause_reason`，`outcome_review_required` 与主动暂停分开；手机不提供恢复/核对电脑输入操作。前台 WSS 失败按 1/2/5/10 秒退避；当前无可见 Activity 且未录音时断开，主动录音的前台服务可维持 LAN。只查询旧收据，不补发。无 mDNS 或空闲后台保活。
+- 发送范围包含连接代次和端口，快速恢复到同一地址/target/revision 也不能复用旧自动发送票据。草稿冻结到对应请求，收到该请求 injected 终态后才清空；受阻时解释原因并保留草稿。
+- 本地模型真实加载、独立静音流预热、就绪后再允许用户录音；进程共享会话复用权重，段间替换流；收起保留已开始录音，进程会话关闭时释放。预热不打开麦克风、不触发云请求或发送，不用定时器伪装就绪。
+- 34 阶段 JVM 42 项，常规仪器化 27 项；当前结果见第 19 节；付费云服务测试仍需显式 opt-in。手机 UI 验证使用隔离偏好与 debug-only 空 Activity，不更改用户后台启动权限。loopback fixture 预期恰好两次 fake 执行（一次 injected、一次 uncertain），与旧的一次执行基线分开；不能当作真实 Wi-Fi/目标应用输入证明。
+
+
+## 19. 完整说话页、快捷卡与桌面联动
+
+- 当前实施见 [37 手机统一说话界面与桌面联动](docs/37-android-unified-speak-and-desktop-coordination.md)，替代 29/31/34 中页面独占录音、无快捷入口及旧智能发送的阶段设计。
+- 完整页和 QuickActivity 使用 Application 唯一 SpeakSession/VoiceLinkViewModel/CloudSettings。页面、入口、语言与形态切换不得创建第二次录音、第二份草稿或重复提交；AppCompat floating decor 安装完成后设置快捷卡尺寸，避免窗口布局覆盖。
+- 说完自动发送默认关闭。只有显式结束、ASR final、可见说话页、有效完整 ReceptionScope 和合法非组合文字才授权三秒倒计时；编辑/更多/连接/离页/收起/入口/形态/范围变化撤销。后台结束不因重新打开而恢复授权；不按语种、长度或旧编辑记录猜测。
+- microphone 前台服务获系统接受后才启动录音，START_NOT_STICKY；收起可继续已开始录音，取消准备不能延迟开麦。磁贴只打开快捷卡；悬浮球默认关闭、按需授权，specialUse 空闲服务不开麦、不发送。不擅自设置后台/悬浮窗权限。
+- 草稿与请求身份用独立 Keystore AES-GCM/AtomicFile，150ms 合并落盘；恢复完成前禁止录音/发送，坏文件不静默覆盖。不能把草稿合并写入描述为同步持久化。Room schema 2 仅追加加密 transcript，终态清 payload 不清展示正文，保留当前用户配对与账本；旧终态原文缺失就如实显示。
+- saved/accepted/held/executing/review/uncertain 冻结当前请求，不新 ID 重发；回执查询允许终态 payload=null。uncertain 必须电脑本地核对后才能显式开始新草稿，手机不解除接收闸门。
+- 双端 injected 统一「已提交输入」，不证明目标框实际显示文字。电脑核对授权绑定请求 ID + state_rev，状态变化清除旧勾选，过期确认不能恢复接收；协调线程再校验原版本。
+- 当前 42 项 JVM、37 项常规设备测试和 108 项 Rust 工作区测试的结果及日志以 37 文档为准。fixture 必须恰好两次 fake 输入尝试（injected、uncertain），查询/重连/进程恢复不得重放；付费云测试仍显式 opt-in。真实麦克风、Wi-Fi 落字和长期功耗不能用 fake UI 或 loopback 证明。

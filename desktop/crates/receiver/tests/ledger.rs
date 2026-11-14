@@ -605,7 +605,7 @@ fn missing_installed_history_fails_without_changing_receipts() {
 #[test]
 fn additive_history_upgrade_preserves_device_and_receipt_identity() {
     use voicelink_receiver::history::HistoryQuery;
-    for version in [1, 2] {
+    for version in [1, 2, 3, 4] {
         let fixture = Fixture::new();
         let (mut ledger, session) = fixture.ready();
         let message = fixture.submit(&session, "existing pending original");
@@ -613,8 +613,16 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
         drop(ledger);
         let database = rusqlite::Connection::open(fixture.path()).unwrap();
         database
-            .execute_batch("ALTER TABLE devices DROP COLUMN display_name")
+            .execute_batch("ALTER TABLE message_history DROP COLUMN source_name;")
             .unwrap();
+        if version < 4 {
+            database.execute_batch("DROP INDEX history_received; DROP INDEX history_deleted; ALTER TABLE message_history DROP COLUMN deleted_at; DROP TABLE history_policy;").unwrap();
+        }
+        if version < 3 {
+            database
+                .execute_batch("ALTER TABLE devices DROP COLUMN display_name")
+                .unwrap();
+        }
         if version == 1 {
             database
                 .execute_batch("DROP TABLE message_history")
@@ -656,7 +664,7 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
         let installed: u32 = database
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(installed, 3);
+        assert_eq!(installed, 5);
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device",
@@ -694,6 +702,75 @@ fn missing_installed_device_name_fails_before_recovery() {
         .query_row("SELECT state FROM receipts", [], |r| r.get(0))
         .unwrap();
     assert_eq!(state, "accepted");
+}
+
+#[test]
+fn authenticated_rename_preserves_identity_pause_dedup_and_historical_name() {
+    use voicelink_receiver::history::HistoryQuery;
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready_named("M2012K11AC");
+    let message = fixture.submit(&session, "original before rename");
+    let receipt = ledger.submit(&session, &message).unwrap();
+    ledger.pause().unwrap();
+    let before = ledger.state().unwrap();
+    code(
+        ledger.authenticate_named(&fixture.device, &[8; 32], "Intruder"),
+        "UNAUTHORIZED",
+    );
+    code(
+        ledger.authenticate_named(&fixture.device, &fixture.token, "\n"),
+        "INVALID_NAME",
+    );
+    code(
+        ledger.authenticate_named(&fixture.device, &fixture.token, &"😀".repeat(65)),
+        "INVALID_NAME",
+    );
+    assert_eq!(
+        ledger.snapshot().unwrap().device_names[&fixture.device],
+        "M2012K11AC"
+    );
+    let refreshed = ledger
+        .authenticate_named(&fixture.device, &fixture.token, "Redmi K40")
+        .unwrap();
+    let after = ledger.state().unwrap();
+    assert_eq!(before.state_rev, after.state_rev);
+    assert_eq!(before.paused, after.paused);
+    assert_eq!(before.target, after.target);
+    assert_eq!(before.active_device_id, after.active_device_id);
+    assert_eq!(
+        ledger.snapshot().unwrap().device_names[&fixture.device],
+        "Redmi K40"
+    );
+    let history = ledger.history(&HistoryQuery::default()).unwrap();
+    assert_eq!(history.entries[0].source_name, "M2012K11AC");
+    let mut duplicate = message.clone();
+    duplicate.session_id = refreshed.id().into();
+    assert_eq!(
+        ledger.submit(&refreshed, &duplicate).unwrap().order,
+        receipt.order
+    );
+    ledger
+        .submit(&refreshed, &fixture.submit(&refreshed, "new after rename"))
+        .unwrap();
+    assert_eq!(
+        ledger.history(&HistoryQuery::default()).unwrap().entries[0].source_name,
+        "Redmi K40"
+    );
+    drop(ledger);
+    let mut ledger = fixture.open();
+    assert_eq!(
+        ledger.snapshot().unwrap().device_names[&fixture.device],
+        "Redmi K40"
+    );
+    assert_eq!(
+        ledger.history(&HistoryQuery::default()).unwrap().entries[1].source_name,
+        "M2012K11AC"
+    );
+    ledger.revoke(&fixture.device).unwrap();
+    code(
+        ledger.authenticate_named(&fixture.device, &fixture.token, "Revoked"),
+        "UNAUTHORIZED",
+    );
 }
 
 #[test]
@@ -809,6 +886,57 @@ fn uncertain_history_keeps_body_and_target_but_never_retries_on_restart() {
 }
 
 #[test]
+fn review_history_finds_exact_uncertain_text_beyond_latest_page_and_respects_deletion() {
+    use voicelink_receiver::history::HistoryQuery;
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    assert!(ledger.review_history().unwrap().is_none());
+    let mut last = String::new();
+    for text in ["previously reviewed", "needs review now"] {
+        let message = fixture.submit(&session, text);
+        last = ledger.submit(&session, &message).unwrap().order;
+        let job = ledger.prepare_next().unwrap().unwrap();
+        ledger.mark_executing(&job).unwrap();
+        ledger
+            .finish(&job, InputOutcome::Uncertain { reason: "partial" })
+            .unwrap();
+        if text == "previously reviewed" {
+            let state = ledger.state().unwrap();
+            ledger.resume(&state.state_rev, true).unwrap();
+        }
+    }
+    for _ in 0..35 {
+        // Exercise the real accept path within its 20/s token bucket.
+        std::thread::sleep(std::time::Duration::from_millis(55));
+        let later = fixture.submit(&session, "later held text");
+        ledger.submit(&session, &later).unwrap();
+        ledger.cancel(&session, &later.id).unwrap();
+    }
+    assert!(
+        !ledger
+            .history(&HistoryQuery::default())
+            .unwrap()
+            .entries
+            .iter()
+            .any(|e| e.receipt.st == State::Uncertain)
+    );
+    let review = ledger.review_history().unwrap().unwrap();
+    assert_eq!(review.receipt.order, last);
+    assert!(
+        matches!(review.operation, Some(Operation::Text { text, .. }) if text == "needs review now")
+    );
+    ledger.delete_history(last.parse().unwrap()).unwrap();
+    assert!(
+        ledger.review_history().unwrap().is_none(),
+        "never substitute an older reviewed message"
+    );
+    assert_eq!(
+        ledger.state().unwrap().pause_reason.as_deref(),
+        Some("outcome_review_required")
+    );
+}
+
+#[test]
 fn explicit_pause_survives_restart_for_automatic_startup_policy() {
     let fixture = Fixture::new();
     let (mut ledger, _) = fixture.ready();
@@ -818,5 +946,134 @@ fn explicit_pause_survives_restart_for_automatic_startup_policy() {
     assert_eq!(
         ledger.state().unwrap().pause_reason.as_deref(),
         Some("paused")
+    );
+}
+
+#[test]
+fn deleting_history_retains_deduplication_and_undo_restores_the_original() {
+    use voicelink_receiver::history::HistoryQuery;
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let submit = fixture.submit(&session, "原文 {ENTER} English");
+    let accepted = ledger.submit(&session, &submit).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    ledger.mark_executing(&job).unwrap();
+    ledger
+        .finish(&job, InputOutcome::Injected { method: "fixture" })
+        .unwrap();
+    let order = accepted.order.parse().unwrap();
+    assert!(ledger.delete_history(order).unwrap());
+    assert!(
+        ledger
+            .history(&HistoryQuery::default())
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    assert_eq!(
+        ledger.query(&session, &submit.id).unwrap().unwrap().st,
+        State::Injected
+    );
+    assert_eq!(
+        ledger.submit(&session, &submit).unwrap().order,
+        accepted.order
+    );
+    assert!(ledger.prepare_next().unwrap().is_none());
+    assert!(ledger.restore_history(order).unwrap());
+    let page = ledger.history(&HistoryQuery::default()).unwrap();
+    assert!(
+        matches!(&page.entries[0].operation,Some(Operation::Text{text,..})if text=="原文 {ENTER} English")
+    );
+    assert!(!ledger.delete_history(i64::MAX).unwrap());
+    assert!(!ledger.restore_history(i64::MAX).unwrap());
+}
+
+#[test]
+fn saving_can_be_disabled_without_blocking_input_or_forgetting_receipts() {
+    use voicelink_receiver::history::{HistoryPolicy, HistoryQuery};
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    ledger
+        .set_history_policy(HistoryPolicy::new(false, Some(30)).unwrap())
+        .unwrap();
+    let submit = fixture.submit(&session, "do not retain a history copy");
+    let accepted = ledger.submit(&session, &submit).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    ledger.mark_executing(&job).unwrap();
+    ledger
+        .finish(&job, InputOutcome::Injected { method: "fixture" })
+        .unwrap();
+    assert!(
+        ledger
+            .history(&HistoryQuery::default())
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    assert_eq!(
+        ledger.query(&session, &submit.id).unwrap().unwrap().st,
+        State::Injected
+    );
+    assert_eq!(
+        ledger.submit(&session, &submit).unwrap().order,
+        accepted.order
+    );
+    drop(ledger);
+    let ledger = fixture.open();
+    assert_eq!(
+        ledger.history_policy().unwrap(),
+        HistoryPolicy::new(false, Some(30)).unwrap()
+    );
+    assert!(HistoryPolicy::new(true, Some(1)).is_err());
+}
+
+#[test]
+fn retention_and_expired_undo_do_not_remove_delivery_identity() {
+    use voicelink_receiver::history::{HistoryPolicy, HistoryQuery};
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let mut message = fixture.submit(&session, "expired history");
+    let receipt = ledger.submit(&session, &message).unwrap();
+    let order = receipt.order.parse().unwrap();
+    assert!(ledger.delete_history(order).unwrap());
+    drop(ledger);
+    let database = rusqlite::Connection::open(fixture.path()).unwrap();
+    database
+        .execute("UPDATE message_history SET received_at=1,deleted_at=1", [])
+        .unwrap();
+    drop(database);
+    let mut ledger = fixture.open();
+    let session = ledger
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    message.session_id = session.id().into();
+    assert!(!ledger.restore_history(order).unwrap());
+    ledger
+        .set_history_policy(HistoryPolicy::new(true, Some(7)).unwrap())
+        .unwrap();
+    assert!(
+        ledger
+            .history(&HistoryQuery::default())
+            .unwrap()
+            .entries
+            .is_empty()
+    );
+    assert!(ledger.query(&session, &message.id).unwrap().is_some());
+    assert_eq!(
+        ledger.submit(&session, &message).unwrap().order,
+        receipt.order
+    );
+    drop(ledger);
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM message_history", [], |r| r
+            .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        db.query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
     );
 }

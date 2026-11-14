@@ -8,6 +8,8 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 @Entity(tableName = "outbox")
@@ -22,6 +24,7 @@ internal data class OutboxItem(
     val order: String?,
     val reason: String?,
     val createdAt: Long,
+    val transcript: ByteArray? = null,
 )
 
 @Dao
@@ -42,5 +45,13 @@ internal interface OutboxDao {
     @Query("DELETE FROM outbox WHERE payload IS NULL AND id NOT IN (SELECT id FROM outbox ORDER BY createdAt DESC LIMIT 100)") suspend fun trimTerminal()
 }
 
-@Database(entities = [OutboxItem::class], version = 1, exportSchema = true)
-internal abstract class OutboxDatabase : RoomDatabase() { abstract fun outbox(): OutboxDao }
+@Database(entities = [OutboxItem::class], version = 2, exportSchema = true)
+internal abstract class OutboxDatabase : RoomDatabase() {
+    abstract fun outbox(): OutboxDao
+    companion object {
+        // Keep the user's paired identity and existing ledger; previous terminal text cannot be reconstructed.
+        val KEEP_LEDGER = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) { db.execSQL("ALTER TABLE outbox ADD COLUMN transcript BLOB") }
+        }
+    }
+}

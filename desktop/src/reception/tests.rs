@@ -17,50 +17,36 @@ use yue_component::{
 };
 
 fn interface(id: u8, category: NetworkCategory) -> NetworkInterface {
-    NetworkInterface {
-        adapter: format!("00000000-0000-4000-8000-{id:012}").parse().unwrap(),
-        address: format!("192.0.2.{id}").parse().unwrap(),
-        name: format!("Test Wi-Fi {id}"),
-        profiles: vec![NetworkProfile {
+    NetworkInterface::new(
+        format!("00000000-0000-4000-8000-{id:012}").parse().unwrap(),
+        format!("192.0.2.{id}").parse().unwrap(),
+        format!("Test Wi-Fi {id}"),
+        vec![NetworkProfile {
             id: "00000000-0000-4000-8000-999999999999".parse().unwrap(),
             category,
         }],
-    }
+    )
+    .with_physical(true)
 }
 
 #[test]
-fn changing_selection_or_refreshing_never_transfers_public_consent() {
-    let first = interface(1, NetworkCategory::Public);
-    let second = interface(2, NetworkCategory::Public);
-    let private = interface(3, NetworkCategory::Private);
+fn automatic_selection_prefers_physical_lan_then_remembered_path_without_category_consent() {
+    let public = interface(1, NetworkCategory::Public);
+    let private = interface(2, NetworkCategory::Private);
+    let virtual_adapter = interface(3, NetworkCategory::Domain).with_physical(false);
     let mut selection = NetworkSelection::default();
-    selection.replace(vec![first.clone(), second.clone(), private.clone()]);
-    selection.select(&first.key());
-    assert!(selection.authorization.is_none());
-    selection.authorize_public(true);
-    assert!(
-        selection
-            .authorization
-            .as_ref()
-            .unwrap()
-            .permits(std::slice::from_ref(&first))
+    selection.replace(
+        vec![virtual_adapter.clone(), private.clone(), public.clone()],
+        Some(&virtual_adapter.key()),
     );
-    selection.select(&second.key());
-    assert!(selection.authorization.is_none());
-    selection.select(&first.key());
-    assert!(selection.authorization.is_none());
-    selection.authorize_public(true);
-    selection.authorize_public(false);
-    assert!(selection.authorization.is_none());
-    selection.select(&private.key());
-    assert!(selection.authorization.is_some());
-    selection.select(&first.key());
-    selection.authorize_public(true);
-    selection.replace(vec![first.clone()]);
+    assert!(selection.selected().unwrap().is_physical());
+    assert!(selection.selected().unwrap().binding().is_ok());
+    selection.replace(vec![public.clone(), private.clone()], Some(&private.key()));
+    assert_eq!(selection.selected().unwrap().key(), private.key());
+    selection.replace(vec![public.clone()], Some(&private.key()));
+    assert_eq!(selection.selected().unwrap().key(), public.key());
+    selection.replace(vec![], None);
     assert!(selection.selected().is_none());
-    assert!(selection.authorization.is_none());
-    selection.select(&first.key());
-    assert!(selection.authorization.is_none());
 }
 
 fn draw(cx: &mut VisualTestContext) {
@@ -158,106 +144,55 @@ fn open(
 }
 
 #[gpui_kit::test]
-fn public_consent_controls_start_and_keyboard_switching_clears_it(cx: &mut TestAppContext) {
+fn public_network_does_not_add_decisions_and_details_preserve_focus_and_locale(
+    cx: &mut TestAppContext,
+) {
     let (directory, state, settings, cx) = open(cx);
-    let handle = cx.update(|window, _| window.window_handle());
-    // Inject OS discovery metadata only. All controls and handlers are production code.
     state.update(cx, |s, cx| {
-        s.network_requested = true;
-        s.selection.replace(vec![
-            interface(1, NetworkCategory::Public),
-            interface(2, NetworkCategory::Public),
-        ]);
+        s.selection
+            .replace(vec![interface(1, NetworkCategory::Public)], None);
         cx.notify();
     });
     draw(cx);
     draw(cx);
-    let first = "Test Wi-Fi 1 · 192.0.2.1 · Public network";
-    let second = "Test Wi-Fi 2 · 192.0.2.2 · Public network";
-    let consent = "Allow selected Public network for this session";
-    click(cx, first, Role::RadioButton);
+    cx.update(|window, _| {
+        let nodes = snapshots(window);
+        assert!(
+            !nodes
+                .iter()
+                .any(|n| n.role() == Some(Role::RadioButton) || n.role() == Some(Role::CheckBox))
+        );
+        assert!(
+            !nodes
+                .iter()
+                .any(|n| n.label() == Some("Allow selected Public network for this session"))
+        );
+    });
+    click(cx, "Connection help…", Role::Button);
+    click(cx, "Connection details", Role::Button);
+    let selected = state.read_with(cx, |s, _| s.selected_interface().unwrap().key());
+    key(cx, "escape");
     assert_eq!(
-        node(cx, "Start pairing", Role::Button).disabled(),
+        node(cx, "Connection help…", Role::Button).focused(),
         Some(true)
     );
-    click(cx, "Start pairing", Role::Button);
-    assert!(!state.read_with(cx, |s, _| s.is_busy() || s.network.is_some()));
-    click(cx, consent, Role::CheckBox);
-    assert_eq!(node(cx, consent, Role::CheckBox).checked(), Some(true));
-    assert!(state.read_with(cx, |s, _| s.network_authorized()));
-    assert_ne!(
-        node(cx, "Start pairing", Role::Button).disabled(),
-        Some(true)
-    );
-    key(cx, "space");
-    assert!(!state.read_with(cx, |s, _| s.network_authorized()));
-    key(cx, "space");
-    assert!(state.read_with(cx, |s, _| s.network_authorized()));
-    click(cx, second, Role::RadioButton);
-    assert_eq!(node(cx, consent, Role::CheckBox).checked(), Some(false));
-    key(cx, "up");
-    assert_eq!(node(cx, first, Role::RadioButton).checked(), Some(true));
-    assert!(!state.read_with(cx, |s, _| s.network_authorized()));
-    click(cx, consent, Role::CheckBox);
-    // The same permission controls remain usable in both locales at minimum size.
-    cx.simulate_window_resize(
-        handle,
-        gpui_kit::size(gpui_kit::px(720.), gpui_kit::px(540.)),
-    );
-    for (language, consent_label, start_label) in [
-        (LanguagePreference::English, consent, "Start pairing"),
-        (
-            LanguagePreference::Chinese,
-            "本次会话允许所选公用网络",
-            "开始配对",
-        ),
-    ] {
-        settings.update(cx, |s, cx| {
-            s.save(s.value().clone().with_language(language), cx)
-        });
-        draw(cx);
-        draw(cx);
-        cx.simulate_event(gpui_kit::ScrollWheelEvent {
-            position: gpui_kit::point(gpui_kit::px(360.), gpui_kit::px(350.)),
-            delta: gpui_kit::ScrollDelta::Pixels(gpui_kit::point(
-                gpui_kit::px(0.),
-                gpui_kit::px(-3000.),
-            )),
-            touch_phase: gpui_kit::TouchPhase::Moved,
-            ..Default::default()
-        });
-        draw(cx);
-        draw(cx);
-        let permission = node(cx, consent_label, Role::CheckBox);
-        let start = node(cx, start_label, Role::Button);
-        assert_eq!(permission.checked(), Some(true));
-        for control in [permission, start] {
-            assert!(control.bounds().left() >= gpui_kit::px(0.));
-            assert!(control.bounds().right() <= gpui_kit::px(720.));
-            assert!(control.bounds().top() >= gpui_kit::px(0.));
-            assert!(control.bounds().bottom() <= gpui_kit::px(540.));
-        }
-    }
     settings.update(cx, |s, cx| {
         s.save(
-            s.value().clone().with_language(LanguagePreference::English),
+            s.value().clone().with_language(LanguagePreference::Chinese),
             cx,
         )
     });
-    cx.simulate_window_resize(
-        handle,
-        gpui_kit::size(gpui_kit::px(1100.), gpui_kit::px(1500.)),
+    draw(cx);
+    draw(cx);
+    click(cx, "连接帮助…", Role::Button);
+    assert_eq!(
+        state.read_with(cx, |s, _| s.selected_interface().unwrap().key()),
+        selected
     );
-    draw(cx);
-    draw(cx);
     key(cx, "escape");
-    click(cx, "Pair phone…", Role::Button);
-    assert!(!state.read_with(cx, |s, _| s.network_authorized()));
-    wait(cx, &state, |s| !s.is_busy());
-    assert!(state.read_with(cx, |s, _| s.selected_interface().is_none()));
+    assert_eq!(node(cx, "连接帮助…", Role::Button).focused(), Some(true));
     state.update(cx, |s, cx| s.stop(cx));
     wait(cx, &state, |s| s.is_stopped());
-    assert!(!state.read_with(cx, |s, _| s.network_authorized()));
     std::fs::remove_dir_all(directory).unwrap();
 }
 
@@ -334,17 +269,124 @@ fn pairing_qr_renders_as_image_reuses_cache_and_clears_on_close(cx: &mut TestApp
         });
         assert!(state.read_with(cx, |s, _| Arc::ptr_eq(&first, &s.pairing_image().unwrap())));
     }
+    click(cx, "改用配对码", Role::Button);
+    assert_eq!(node(cx, "返回二维码", Role::Button).focused(), Some(true));
+    cx.update(|window, _| {
+        assert!(
+            !snapshots(window)
+                .iter()
+                .any(|n| n.role() == Some(Role::Image))
+        );
+    });
     click(cx, "关闭配对", Role::Button);
     wait(cx, &state, |s| s.pairing_image().is_none());
     assert!(service.snapshot().unwrap().window.is_none());
-    click(cx, "配对手机…", Role::Button);
+    click(cx, "生成配对邀请", Role::Button);
     wait(cx, &state, |s| s.pairing_image().is_some());
     let next = state.read_with(cx, |s, _| s.pairing_image().unwrap());
     assert!(!Arc::ptr_eq(&first, &next));
     assert_ne!(first.id, next.id);
+    assert!(node(cx, "配对二维码", Role::Image).visible());
     state.update(cx, |s, cx| s.stop(cx));
     wait(cx, &state, |s| s.is_stopped());
     assert!(state.read_with(cx, |s, _| s.pairing_image().is_none()));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[gpui_kit::test]
+fn listener_recovery_restores_only_transient_pause_without_opening_pairing(
+    cx: &mut TestAppContext,
+) {
+    let (directory, state, _, cx) = open(cx);
+    let receiver = state.read_with(cx, |s, _| s.receiver.clone().unwrap());
+    let provisioning = receiver.clone();
+    cx.background_spawn(async move {
+        provisioning
+            .provision_device(
+                "12345678-1234-4234-8234-123456789012".into(),
+                vec![9; 32].into(),
+                "Redmi K40".into(),
+            )
+            .await
+            .unwrap();
+    })
+    .detach();
+    wait(cx, &state, |s| {
+        s.snapshot().is_some_and(|s| s.paired_devices == 1)
+    });
+    let bind = |s: &mut ReceptionState, cx: &mut Context<ReceptionState>| {
+        let service = NetworkService::start_loopback(
+            s.receiver.clone().unwrap(),
+            s.identity.clone().unwrap(),
+            "127.0.0.1:0".parse().unwrap(),
+        )
+        .unwrap();
+        s.network = Some(service.clone());
+        s.issue = None;
+        s.observe_network(service.clone(), cx);
+        service
+    };
+    let service = state.update(cx, bind);
+    wait(cx, &state, |s| {
+        s.snapshot().is_some_and(|s| !s.control.paused) && !s.is_busy()
+    });
+    let scope = state.read_with(cx, |s, _| s.snapshot().unwrap().control.target.clone());
+    click(cx, "All history", Role::Button);
+    node(cx, "Search text, application or window", Role::SearchInput);
+    cx.background_spawn(async move {
+        service.shutdown().await.unwrap();
+    })
+    .detach();
+    wait(cx, &state, |s| {
+        s.network.is_none()
+            && s.snapshot()
+                .is_some_and(|s| s.control.pause_reason.as_deref() == Some("network_unavailable"))
+    });
+    let service = state.update(cx, bind);
+    wait(cx, &state, |s| {
+        s.snapshot().is_some_and(|s| !s.control.paused) && !s.is_busy()
+    });
+    assert_ne!(
+        scope,
+        state.read_with(cx, |s, _| s.snapshot().unwrap().control.target.clone())
+    );
+    assert!(!state.read_with(cx, |s, _| s.pairing_requested()));
+    assert!(service.snapshot().unwrap().window.is_none());
+    // Automatic listener recovery must not navigate away from the user's work.
+    node(cx, "Search text, application or window", Role::SearchInput);
+    click(cx, "Receive", Role::Tab);
+    node(cx, "Pause receiving", Role::Button);
+    node(cx, "All history", Role::Button);
+    state.update(cx, |s, cx| s.pause(cx));
+    wait(cx, &state, |s| {
+        !s.is_busy()
+            && s.snapshot()
+                .is_some_and(|s| s.control.pause_reason.as_deref() == Some("paused"))
+    });
+    cx.background_spawn(async move {
+        service.shutdown().await.unwrap();
+    })
+    .detach();
+    wait(cx, &state, |s| s.network.is_none());
+    let service = state.update(cx, bind);
+    wait(cx, &state, |s| {
+        s.network_snapshot().is_some() && !s.is_busy()
+    });
+    assert!(state.read_with(cx, |s, _| s.snapshot().unwrap().control.paused));
+    assert_eq!(
+        state
+            .read_with(cx, |s, _| s
+                .snapshot()
+                .unwrap()
+                .control
+                .pause_reason
+                .clone())
+            .as_deref(),
+        Some("paused")
+    );
+    assert!(service.snapshot().unwrap().window.is_none());
+    state.update(cx, |s, cx| s.stop(cx));
+    wait(cx, &state, |s| s.is_stopped());
     std::fs::remove_dir_all(directory).unwrap();
 }
 
