@@ -85,13 +85,13 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
     DisposableEffect(lifecycle, repository) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> model.foreground(foregroundOwner, networkGranted())
+                Lifecycle.Event.ON_START -> model.foreground(foregroundOwner, true)
                 Lifecycle.Event.ON_STOP -> model.foreground(foregroundOwner, false)
                 else -> Unit
             }
         }
         lifecycle.lifecycle.addObserver(observer)
-        model.foreground(foregroundOwner, lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) && networkGranted())
+        model.foreground(foregroundOwner, lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         onDispose { lifecycle.lifecycle.removeObserver(observer); model.foreground(foregroundOwner, false) }
     }
     VoiceLinkContent(
@@ -155,6 +155,9 @@ internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.QUOTA -> R.string.error_quota
     ClientIssue.NOT_READY -> R.string.error_not_ready
     ClientIssue.PROTOCOL -> R.string.error_protocol
+    ClientIssue.LOCAL_NETWORK_PERMISSION -> R.string.network_permission_denied
+    ClientIssue.DISCOVERY -> R.string.error_discovery
+    ClientIssue.CANDIDATE_CONNECTION -> R.string.error_candidate_connection
     ClientIssue.TLS_REQUIRED -> R.string.error_tls
 }
 internal fun receiptText(value: String): Int = when (value) {

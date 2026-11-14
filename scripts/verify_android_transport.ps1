@@ -56,7 +56,7 @@ try {
     if ($fixture.port -ne 17888 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
     $instrumentationArguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '60000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $fixture.port)
     if ($TransportOnly) { $instrumentationArguments += @('-e', 'class', 'seeyuer.sayin.data.TransportInstrumentedTest') }
-    else { $instrumentationArguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest') }
+    else { $instrumentationArguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest') }
     $instrumentationArguments += 'seeyuer.sayin.test/androidx.test.runner.AndroidJUnitRunner'
     & $adbPath @instrumentationArguments > $logPath 2>&1
     $testOutput = Get-Content -LiteralPath $logPath -Raw

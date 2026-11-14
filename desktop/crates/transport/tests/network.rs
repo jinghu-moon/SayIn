@@ -457,3 +457,81 @@ async fn explicit_rejection_and_revocation_prevent_authenticated_input() {
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
 }
+
+#[tokio::test]
+async fn same_identity_moves_ipv4_and_port_then_queries_without_resuming_or_replaying() {
+    let directory = Directory::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let receiver =
+        Receiver::start(open_ledger(&directory.0).unwrap(), Adapter(calls.clone())).unwrap();
+    let identity = HostIdentity::open(&directory.0, 0).unwrap();
+    let old = NetworkService::start_loopback(
+        receiver.clone(),
+        identity.clone(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let invitation = invitation(&old).await;
+    let paired = pair(&old, &invitation).await;
+    let state = receiver
+        .bind_target(Uuid::new_v4().to_string())
+        .await
+        .unwrap();
+    receiver.resume(state.state_rev, false).await.unwrap();
+    let mut original = socket(&invitation).await;
+    let hello = json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]});
+    send(&mut original, hello.clone()).await;
+    let welcome = next(&mut original, "welcome").await;
+    let id = Uuid::new_v4().to_string();
+    send(&mut original, json!({"v":2,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"text","text":"once across migration","src":"manual"}})).await;
+    while next(&mut original, "status").await["st"] != "injected" {}
+    receiver.pause().await.unwrap();
+    old.shutdown().await.unwrap();
+    // Hold the old port so the new random endpoint must differ in both fields.
+    let _reserved = std::net::TcpListener::bind(("127.0.0.2", invitation.port)).unwrap();
+    let moved =
+        NetworkService::start_loopback(receiver.clone(), identity, "127.0.0.2:0".parse().unwrap())
+            .unwrap();
+    let route = moved.snapshot().unwrap().address;
+    assert_ne!(route.ip(), invitation.address);
+    assert_ne!(route.port(), invitation.port);
+    assert_eq!(
+        moved.snapshot().unwrap().discovery,
+        voicelink_transport::server::PublicationStatus::Disabled
+    );
+    let mut endpoint = invitation.clone();
+    endpoint.address = route.ip();
+    endpoint.port = route.port();
+    // Certificate, tls_name, host/device identity and token remain exactly old.
+    let mut connection = socket(&endpoint).await;
+    send(&mut connection, hello.clone()).await;
+    let restored = next(&mut connection, "welcome").await;
+    assert_eq!(restored["host_id"], invitation.host_id);
+    assert_eq!(restored["device_id"], paired["device_id"]);
+    assert_eq!(restored["paused"], true);
+    assert_ne!(restored["session_id"], welcome["session_id"]);
+    let query = Uuid::new_v4().to_string();
+    send(
+        &mut connection,
+        json!({"v":2,"t":"query","session_id":restored["session_id"],"id":query,"refs":[id]}),
+    )
+    .await;
+    assert_eq!(next(&mut connection, "status").await["st"], "injected");
+    assert_eq!(next(&mut connection, "queried").await["ref"], query);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    receiver
+        .revoke(paired["device_id"].as_str().unwrap().into())
+        .await
+        .unwrap();
+    let mut revoked = socket(&endpoint).await;
+    send(&mut revoked, hello).await;
+    assert!(matches!(
+        timeout(Duration::from_secs(2), revoked.next())
+            .await
+            .unwrap(),
+        None | Some(Err(_))
+    ));
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    moved.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}

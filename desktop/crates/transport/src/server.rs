@@ -1,4 +1,5 @@
 //! Service implementation (one supervised runtime, bounded per-connection work).
+pub use crate::discovery::PublicationStatus;
 use crate::interfaces::NetworkBinding;
 use crate::{Error, HostIdentity, Result};
 use futures_channel::{mpsc as notifications, oneshot};
@@ -69,6 +70,7 @@ pub struct NetworkSnapshot {
     pub approval: Option<PendingApproval>,
     pub connections: usize,
     pub running: bool,
+    pub discovery: PublicationStatus,
 }
 struct Pairing {
     info: BootstrapInfo,
@@ -187,6 +189,11 @@ impl NetworkService {
                 approval: None,
                 connections: 0,
                 running: true,
+                discovery: if binding.is_some() {
+                    PublicationStatus::Publishing
+                } else {
+                    PublicationStatus::Disabled
+                },
             }),
             observers: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),
@@ -197,6 +204,12 @@ impl NetworkService {
             .worker_threads(2)
             .enable_all()
             .build()?;
+        // A loopback fixture never advertises. A LAN publisher is scoped to the
+        // exact listener binding and is withdrawn before network-lost handling.
+        let publisher = binding.as_ref().and_then(|binding| {
+            crate::discovery::Publisher::start(binding, address, &shared.identity.host_id).ok()
+        });
+        let binding_is_lan = binding.is_some();
         let state = shared.clone();
         let policy_stop = stop.clone();
         thread::Builder::new().name("voicelink-network".into()).spawn(move || {
@@ -231,6 +244,10 @@ impl NetworkService {
                             });
                         },
                         _=maintenance.tick()=>{
+                            if let Some(publisher)=publisher.as_ref(){publisher.maintain();}
+                            let status = if binding_is_lan { publisher.as_ref().map_or(PublicationStatus::Unavailable, |p|p.status()) } else { PublicationStatus::Disabled };
+                            let changed = state.snapshot.lock().is_ok_and(|mut s| { let changed=s.discovery != status; s.discovery=status; changed });
+                            if changed { state.notify(); }
                             let mut window=state.pairing.lock().await;
                             if window.as_ref().is_some_and(|window|Instant::now()>=window.expires) {
                                 *window=None;state.clear_pairing_snapshot();
@@ -239,6 +256,7 @@ impl NetworkService {
                         _=connections.join_next(),if !connections.is_empty()=>{},
                     }
                 }
+                drop(publisher);
                 let _=policy_stop.send(true);
                 monitor.abort();
                 // Persist suspension before publishing the stopped listener. This
@@ -248,7 +266,7 @@ impl NetworkService {
                 state.clear_pairing_snapshot();
                 connections.abort_all();
                 while connections.join_next().await.is_some() {}
-                if let Ok(mut snapshot)=state.snapshot.lock(){snapshot.running=false;snapshot.connections=0;}
+                if let Ok(mut snapshot)=state.snapshot.lock(){snapshot.running=false;snapshot.connections=0;snapshot.discovery=PublicationStatus::Disabled;}
                 state.notify();
                 let _=done.send(());
             });

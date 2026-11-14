@@ -536,6 +536,18 @@ impl ReceiveView {
                 .map(|s| s.address.to_string())
                 .unwrap_or_else(|| settings.text(M::ReceiveNoAddress));
             body = body.child(note(address, cx));
+            if let Some(network) = service.network_snapshot() {
+                use voicelink_transport::server::PublicationStatus;
+                let message = match network.discovery {
+                    PublicationStatus::Publishing => Some(M::DiscoveryPublishing),
+                    PublicationStatus::Published => Some(M::DiscoveryPublished),
+                    PublicationStatus::Unavailable => Some(M::DiscoveryUnavailable),
+                    PublicationStatus::Disabled => None,
+                };
+                if let Some(message) = message {
+                    body = body.child(note(settings.text(message), cx));
+                }
+            }
             if let Some(interface) = service.selected_interface() {
                 body = body.child(note(
                     format!(

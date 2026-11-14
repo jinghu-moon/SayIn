@@ -91,6 +91,18 @@ pub struct NetworkBinding {
     interface: NetworkInterface,
 }
 impl NetworkBinding {
+    pub(crate) fn interface_index(&self) -> Result<u32> {
+        self.validate()?;
+        if_addrs::get_if_addrs()?
+            .into_iter()
+            .find(|i| {
+                i.ip() == IpAddr::V4(self.address())
+                    && Uuid::parse_str(&i.adapter_name).ok() == Some(self.interface.adapter)
+            })
+            .and_then(|i| i.index)
+            .filter(|index| *index != 0)
+            .ok_or(Error::Protocol("INTERFACE_NOT_PERMITTED"))
+    }
     pub fn address(&self) -> Ipv4Addr {
         self.interface.address
     }

@@ -60,7 +60,7 @@ python scripts/generate_tabler_icons.py
 
 当前支持扫码/8 位配对码二选一、本机 KeyStore AES-256-GCM 凭据、TLS 1.3 固定叶证书与主机名验证、Room WAL/FULL 持久 Outbox、最终文字预览、相同请求 ID 查询、显式 unknown/held/uncertain 状态和前台重连。电脑自动选择网络并批准配对后待命，手机发送的文字直接输入电脑当前光标；显式暂停需要在电脑恢复。发送成功以实际回执为准，不以 socket send 成功冒充目标程序显示成功。
 
-应用在没有可见入口且未录音时断开 WSS；用户主动录音期间由 microphone 前台服务维持会话。没有 mDNS/IPv6 或 Root 辅助模块。TLS 1.3 不可用时拒绝降级，旧 Android 默认安全提供程序可能不支持。完整实现/测试边界见 [10 实施记录](../docs/10-secure-pairing-and-android-transport.md)。
+应用在没有可见入口且未录音时断开 WSS；用户主动录音期间由 microphone 前台服务维持会话。已接入有界系统 NSD/mDNS 找回已配对电脑；尚无 IPv6 或 Root 辅助模块。TLS 1.3 不可用时拒绝降级，旧 Android 默认安全提供程序可能不支持。完整实现/测试边界见 [10 实施记录](../docs/10-secure-pairing-and-android-transport.md)。
 
 选型与协议依据见[03选型文档](../docs/03-android-technology-selection.md)和[01协议v2](../docs/01-voicelink-protocol-v2.md)。
 
@@ -73,7 +73,7 @@ python scripts/generate_tabler_icons.py
 
 ## 说话页与连接入口（2026-11-14）
 
-原生界面已按手机 Demo 重构：顶栏连接状态面板、草稿主区、底部来源与居中录音入口、清空/发送。首次扫码或代码连接等待电脑批准；已配对前台自动重连，连接帮助可维护 IPv4:端口，固定证书身份及历史不变。电脑主动暂停与待核对必须在电脑处理，手机不能解除；重连不补发旧文本。
+原生界面已按手机 Demo 重构：顶栏连接状态面板、草稿主区、底部来源与居中录音入口、清空/发送。首次扫码或代码连接等待电脑批准；已配对前台自动重连，旧地址失败后有界发现，完整固定证书与令牌认证成功后才保存新路由；连接帮助仍可维护 IPv4:端口，固定证书身份及历史不变。电脑主动暂停与待核对必须在电脑处理，手机不能解除；重连不补发旧文本。
 
 本地识别选中后真实加载并预热，准备期间不录音。同页复用模型权重、每段更换流；云端继续使用原配置，不上传未明确开始录音的音频。新增状态文案和紧凑布局支持中英、明暗、大字号及键盘场景。
 
@@ -89,3 +89,6 @@ python scripts/generate_tabler_icons.py
 草稿使用独立 Keystore AES-GCM + AtomicFile 合并保存；Room schema 2 为发送记录增加独立加密正文，终态释放待执行载荷而保留最近 100 条展示记录。升级安装保留本包配对、密钥及账本，不卸载清数据。
 
 42 项 JVM、37 项常规设备与双端 fixture 测试、实际窗口检查、已知边界和人工验收步骤见 [37 手机统一说话界面与桌面联动](../docs/37-android-unified-speak-and-desktop-coordination.md)。
+
+
+已配对发现的资源与安全规则、真实 LAN/回环验证及旧 Android API 限制见 [40 实施记录](../docs/40-paired-host-discovery-and-reconnect.md)。`scripts/verify_android_discovery.ps1 -Lan` 使用真实 NSD、独立身份和随机端口，不使用 ADB reverse；不带 `-Lan` 只验证隔离连接/认证/回执，不代表真实发现。`-Revoked` 验证撤销身份无法迁移路由。此独立测试类不进入常规 37 项套件；不得运行付费云测试冒充连接验证。

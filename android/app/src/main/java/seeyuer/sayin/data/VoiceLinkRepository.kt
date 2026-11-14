@@ -2,6 +2,8 @@ package seeyuer.sayin.data
 
 import android.content.Context
 import android.os.SystemClock
+import android.net.Network
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -27,12 +29,13 @@ import seeyuer.sayin.pairing.NativePairing
 import java.util.UUID
 
 internal enum class Connection { LOADING, OFFLINE, CONNECTING, PAIRING, APPROVAL, ONLINE }
-internal enum class ClientIssue { INVALID_PAIRING, CONNECTION, STORAGE, INVALID_TEXT, QUOTA, NOT_READY, PROTOCOL, TLS_REQUIRED }
+internal enum class ClientIssue { INVALID_PAIRING, CONNECTION, STORAGE, INVALID_TEXT, QUOTA, NOT_READY, PROTOCOL, TLS_REQUIRED, LOCAL_NETWORK_PERMISSION, DISCOVERY, CANDIDATE_CONNECTION }
 internal data class ClientState(
     val connection: Connection = Connection.LOADING,
     val paired: Boolean = false,
     val address: String = "",
     val port: Int = 7788,
+    val discovering: Boolean = false,
     val connectionEpoch: Long = 0,
     val paused: Boolean = true,
     val pauseReason: String? = null,
@@ -52,7 +55,18 @@ internal data class ClientState(
 }
 
 /** Single bounded mailbox owns socket generation, protocol state and DB writes. */
-internal class VoiceLinkRepository(context: Context) {
+internal class VoiceLinkRepository(context: Context, private val discovery: HostDiscovery = NsdHostDiscovery(context.applicationContext),
+    private val localPermission: () -> Boolean = { context.applicationContext.localNetworkPermitted() },
+) {
+    private val app = context.applicationContext
+    private val networkMonitor = LanNetwork(app) { enqueue(Event.NetworkChanged) }
+    private var network: Network? = null
+    private var networkKey = ""
+    private var permissionJob: Job? = null
+    private var discoveryJob: Job? = null
+    private var discoveredRound = false
+    private val candidates = ArrayDeque<HostCandidate>()
+    private var connectingHost: PairedHost? = null
     private val job = SupervisorJob()
     private val scope = CoroutineScope(job + Dispatchers.IO)
     private val events = Channel<Event>(64)
@@ -111,13 +125,15 @@ internal class VoiceLinkRepository(context: Context) {
                 }
             }
         }
-        job.invokeOnCompletion { database.close() }
+        job.invokeOnCompletion { networkMonitor.stop(); database.close() }
     }
 
     private sealed interface Event {
         data class Foreground(val active: Boolean) : Event
         data object Connect : Event
         data class Retry(val generation: Long) : Event
+        data object NetworkChanged : Event
+        data class Discovered(val generation: Long, val candidates: List<HostCandidate>, val denied: Boolean) : Event
         data class UpdateAddress(val address: String, val port: String) : Event
         data class PairQr(val value: String) : Event
         data class PairCode(val address: String, val port: String, val code: String) : Event
@@ -149,18 +165,46 @@ internal class VoiceLinkRepository(context: Context) {
     fun updateAddress(address: String, port: String) = enqueue(Event.UpdateAddress(address, port))
     fun cancelPairing() = enqueue(Event.CancelPairing)
     fun forget() = enqueue(Event.Forget)
-    fun close() { socket?.cancel(); events.close(); scope.cancel(); client?.close() }
+    fun close() { permissionJob?.cancel(); networkMonitor.stop(); discoveryJob?.cancel(); socket?.cancel(); events.close(); scope.cancel(); client?.close() }
 
     private suspend fun handle(event: Event) {
         if (!mutable.value.storageHealthy) return
         when (event) {
             is Event.Foreground -> {
+                val wasForeground = foreground
                 foreground = event.active
-                if (!foreground) disconnect()
-                else if (host != null && session == null && client == null) connectHost()
+                if (!foreground) { permissionJob?.cancel(); permissionJob = null; networkMonitor.stop(); candidates.clear(); disconnect() }
+                else if (!localPermission()) { watchPermission(); fail(ClientIssue.LOCAL_NETWORK_PERMISSION) }
+                else {
+                    watchPermission()
+                    networkMonitor.start()
+                    if (!wasForeground) { network = networkMonitor.current(); networkKey = networkMonitor.key(network) }
+                    if (host != null && session == null && client == null && discoveryJob == null) connectHost()
+                }
             }
             Event.Connect -> if (foreground && host != null && client == null) { reconnectAttempt = 0; connectHost() }
             is Event.Retry -> if (event.generation == generation && foreground && host != null && client == null) connectHost()
+            Event.NetworkChanged -> if (foreground) {
+                if (!localPermission()) {
+                    networkMonitor.stop(); fail(ClientIssue.LOCAL_NETWORK_PERMISSION); return
+                }
+                val current = networkMonitor.current()
+                val key = networkMonitor.key(current)
+                if (key != networkKey || mutable.value.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
+                    networkMonitor.start()
+                    network = current; networkKey = key
+                    if (host != null) connectHost()
+                }
+            }
+            is Event.Discovered -> if (event.generation == generation && foreground) {
+                discoveryJob = null
+                mutable.update { it.copy(discovering = false) }
+                if (event.denied || !localPermission()) fail(ClientIssue.LOCAL_NETWORK_PERMISSION)
+                else {
+                    candidates.addAll(event.candidates.distinct().take(4).filter { it.address != host?.address || it.port != host?.port })
+                    if (!tryCandidate()) scheduleRetry(ClientIssue.DISCOVERY)
+                }
+            }
             is Event.UpdateAddress -> {
                 val saved = host ?: return
                 val updated = try { saved.withAddress(event.address, event.port) }
@@ -179,6 +223,7 @@ internal class VoiceLinkRepository(context: Context) {
             }
             is Event.PairCode -> {
                 check(host == null)
+                if (!localPermission()) { fail(ClientIssue.LOCAL_NETWORK_PERMISSION); return }
                 numericAddress(event.address)
                 val port = event.port.toInt().also { require(it in 1..65535) }
                 require(event.code.length == 8 && event.code.all { it in '0'..'9' })
@@ -191,6 +236,7 @@ internal class VoiceLinkRepository(context: Context) {
                 beginPairing(received)
             }
             is Event.Open -> if (event.generation == generation) {
+                if (!localPermission()) { fail(ClientIssue.LOCAL_NETWORK_PERMISSION); return }
                 socket = event.socket
                 val name = DeviceDisplayName.current()
                 val pending = invitation
@@ -224,17 +270,60 @@ internal class VoiceLinkRepository(context: Context) {
         }
     }
 
+    private fun watchPermission() {
+        if (permissionJob != null) return
+        val initial = localPermission()
+        permissionJob = scope.launch {
+            var permitted = initial
+            while (true) {
+                delay(1000)
+                val current = localPermission()
+                if (current != permitted) { permitted = current; enqueue(Event.NetworkChanged) }
+            }
+        }
+    }
     private fun beginPairing(value: PairingInvitation) {
         disconnect()
         invitation = value
         open(value, pairing = true)
     }
-    private fun connectHost() { disconnect(); open(checkNotNull(host), pairing = false) }
-    private fun open(endpoint: HostEndpoint, pairing: Boolean) {
+    private fun connectHost() {
+        candidates.clear(); discoveredRound = false
+        disconnect(); open(checkNotNull(host), pairing = false)
+    }
+    private fun discoverHost() {
+        val saved = host ?: return
+        discoveredRound = true
+        if (!localPermission()) { fail(ClientIssue.LOCAL_NETWORK_PERMISSION); return }
         val owner = generation
+        val selectedNetwork = network
+        mutable.update { it.copy(discovering = true, issue = null) }
+        discoveryJob = scope.launch {
+            try {
+                val result = withTimeoutOrNull(12000) { discovery.discover(saved.hostId, selectedNetwork) }.orEmpty()
+                enqueue(Event.Discovered(owner, result, false))
+            } catch (cancel: CancellationException) { throw cancel }
+            catch (_: SecurityException) { enqueue(Event.Discovered(owner, emptyList(), true)) }
+            catch (_: Exception) { enqueue(Event.Discovered(owner, emptyList(), false)) }
+        }
+    }
+    private fun tryCandidate(): Boolean {
+        val saved = host ?: return false
+        while (candidates.isNotEmpty()) {
+            val route = candidates.removeFirst()
+            val candidate = runCatching { saved.withAddress(route.address, route.port.toString()) }.getOrNull() ?: continue
+            open(candidate, pairing = false)
+            return true
+        }
+        return false
+    }
+    private fun open(endpoint: HostEndpoint, pairing: Boolean) {
+        if (!localPermission()) { fail(ClientIssue.LOCAL_NETWORK_PERMISSION); return }
+        val owner = generation
+        connectingHost = endpoint as? PairedHost
         try {
-            client = HostClient(endpoint)
-            mutable.update { it.copy(connection = if (pairing) Connection.PAIRING else Connection.CONNECTING, issue = null, address = endpoint.address, port = endpoint.port) }
+            client = HostClient(endpoint, network?.takeUnless { numericAddress(endpoint.address).isLoopbackAddress })
+            mutable.update { it.copy(connection = if (pairing) Connection.PAIRING else Connection.CONNECTING, issue = null, address = if (pairing) endpoint.address else host?.address.orEmpty(), port = if (pairing) endpoint.port else host?.port ?: 7788) }
             socket = client!!.open(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) { enqueue(Event.Open(owner, webSocket)) }
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -245,13 +334,15 @@ internal class VoiceLinkRepository(context: Context) {
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { enqueue(Event.Closed(owner)) }
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) { enqueue(Event.Closed(owner)) }
             })
-            deadline = scope.launch { delay(if (pairing) 125000 else 12000); enqueue(Event.Timeout(owner)) }
+            deadline = scope.launch { delay(if (pairing) 125000 else if (discoveredRound) 6000 else 12000); enqueue(Event.Timeout(owner)) }
         } catch (failure: IllegalStateException) {
             fail(if (failure.message == "TLS13_REQUIRED") ClientIssue.TLS_REQUIRED else ClientIssue.CONNECTION)
         }
     }
     private fun disconnect() {
         generation++
+        discoveryJob?.cancel(); discoveryJob = null
+        connectingHost = null
         session = null
         queries.clear()
         invitation = null
@@ -260,18 +351,32 @@ internal class VoiceLinkRepository(context: Context) {
         reconnectJob?.cancel(); reconnectJob = null
         socket?.cancel(); socket = null
         client?.close(); client = null
-        mutable.update { it.copy(connection = Connection.OFFLINE, connectionEpoch = generation, paused = true, active = false, target = null, revision = null, recovering = false) }
+        mutable.update { it.copy(connection = Connection.OFFLINE, discovering = false, connectionEpoch = generation, paused = true, active = false, target = null, revision = null, recovering = false) }
     }
     private fun fail(issue: ClientIssue) {
+        val candidateFailed = discoveredRound && connectingHost != null && session == null
         disconnect(); mutable.update { it.copy(issue = issue) }
-        if (issue == ClientIssue.CONNECTION && foreground && host != null && mutable.value.storageHealthy) {
-            val owner = generation
-            val wait = listOf(1000L, 2000L, 5000L, 10000L)[reconnectAttempt.coerceAtMost(3)]
-            reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(3)
-            reconnectJob = scope.launch { delay(wait); enqueue(Event.Retry(owner)) }
+        if (!localPermission()) {
+            mutable.update { it.copy(issue = ClientIssue.LOCAL_NETWORK_PERMISSION) }; return
+        }
+        if (foreground && host != null && mutable.value.storageHealthy &&
+            (issue == ClientIssue.CONNECTION || candidateFailed && issue == ClientIssue.PROTOCOL)) {
+            if (!discoveredRound) discoverHost()
+            else if (!tryCandidate()) scheduleRetry(if (candidateFailed) ClientIssue.CANDIDATE_CONNECTION else ClientIssue.DISCOVERY)
         }
     }
-    private fun storageFailed() { disconnect(); mutable.update { it.copy(storageHealthy = false, issue = ClientIssue.STORAGE) } }
+    private fun scheduleRetry(issue: ClientIssue) {
+        mutable.update { it.copy(issue = issue) }
+        val owner = generation
+        val wait = listOf(1000L, 2000L, 5000L, 10000L)[reconnectAttempt.coerceAtMost(3)]
+        reconnectAttempt = (reconnectAttempt + 1).coerceAtMost(3)
+        reconnectJob = scope.launch { delay(wait); enqueue(Event.Retry(owner)) }
+    }
+    private fun storageFailed() {
+        permissionJob?.cancel(); permissionJob = null
+        networkMonitor.stop(); candidates.clear()
+        disconnect(); mutable.update { it.copy(storageHealthy = false, issue = ClientIssue.STORAGE) }
+    }
     private fun base(kind: String) = JSONObject().put("v", 2).put("t", kind).put("session_id", checkNotNull(session))
     private fun sendFrame(value: JSONObject) {
         val current = checkNotNull(socket)
@@ -294,13 +399,22 @@ internal class VoiceLinkRepository(context: Context) {
             "welcome" -> {
                 require(session == null && invitation == null)
                 require(value.getString("host_id") == host?.hostId && value.getString("device_id") == host?.deviceId)
-                session = validId(value.getString("session_id"))
+                val sessionId = validId(value.getString("session_id"))
+                session = sessionId
+                applyState(value) // Validate the entire authenticated welcome before persisting routing.
+                // Full pinned TLS + authenticated host/device welcome precede route commit.
+                val authenticated = checkNotNull(connectingHost)
+                val previous = checkNotNull(host)
+                if (authenticated.address != previous.address || authenticated.port != previous.port) {
+                    try { store.save(authenticated.json) } catch (_: Exception) { storageFailed(); return }
+                    host = authenticated
+                }
+                candidates.clear()
                 reconnectAttempt = 0
-                applyState(value)
                 deadline?.cancel(); deadline = null
                 val saved = checkNotNull(host)
                 val pending = dao.pending(saved.hostId, saved.deviceId)
-                mutable.update { it.copy(connection = Connection.ONLINE, issue = null, recovering = pending.isNotEmpty()) }
+                mutable.update { it.copy(connection = Connection.ONLINE, address = saved.address, port = saved.port, issue = null, recovering = pending.isNotEmpty()) }
                 if (pending.isNotEmpty()) {
                     val id = UUID.randomUUID().toString()
                     queries[id] = pending.map { it.id }.toSet()

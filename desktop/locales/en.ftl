@@ -218,3 +218,7 @@ receive-empty-help = New text from your phone appears here.
 
 execution-time = Execution attempt: { $time }
 received-time = Received: { $time }
+
+discovery-publishing = Starting local discovery…
+discovery-published = Paired phones can find this computer on this network.
+discovery-unavailable = Local discovery is unavailable. Saved-address connections still work; update the address on your phone if needed.

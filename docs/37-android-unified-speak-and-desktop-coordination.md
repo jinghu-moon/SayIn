@@ -109,7 +109,7 @@ cargo fmt -p voicelink-desktop -p voicelink-receiver -p voicelink-pairing -p voi
 
 `-SkipBuild` 复用前一步已构建 APK 和既有 fixture；首次环境需先构建 `voicelink-transport --example android_fixture` 或不传此开关。脚本使用已存在的 root 授权更新安装，不改变设备安全策略。
 
-[验证摘要](research/37-verification.json)。`refer/`、`docs/research/` 为既有忽略目录；本机截图和日志不自动进入 Git。工作区保留此前未提交修改，此轮未提交或推送。
+[验证摘要](research/37-verification.json)。`refer/`、`docs/research/` 为既有忽略目录；本机截图和日志不自动进入 Git。以上为 37 阶段记录，当时保留此前未提交修改且未提交或推送；后续由主 agent 完成共同收尾与提交交付，见文末及 [40 实施记录](40-paired-host-discovery-and-reconnect.md)。
 
 这些检查不能证明真实麦克风、实际 Wi-Fi、普通目标程序落字、付费云识别质量、悬浮球/磁贴在各 OEM 上的长期后台表现或持续功耗。尚未对比性能/功耗指标；进程缓存模型的内存与闲置释放策略需根据实测决定，不能声称低延迟/性能目标已验收。
 
@@ -122,3 +122,9 @@ cargo fmt -p voicelink-desktop -p voicelink-receiver -p voicelink-pairing -p voi
 5. 手机横竖屏打开键盘、大字号和快捷卡检查：编辑区与发送按钮可见；横屏不得强制锁死方向。测试系统磁贴与悬浮球时按系统提示授权，拒绝也能使用完整说话页。
 
 不要为了测试而在真实目标程序主动制造 `uncertain`；该分支已有隔离 fake input 和桌面核对授权测试。普通输入能否显示、真实云识别质量、OEM 后台限制、持续功耗和日常机型性能，仍以实际验收为准。
+
+## 主 agent 共同收尾（2026-11-14）
+
+已将本阶段双端界面与已配对电脑自动发现一并完成集成。桌面原生渲染检查产出 113 张中英/明暗、多尺寸及四页/菜单截图，抽查接收状态与宽屏三列历史；真机完成完整说话页、快捷卡、150% 字号与横屏键盘回归，原生 QuickActivity 的输入法可用区域和 48dp 发送目标检查通过。
+
+最终共同版本 Android 45 项 JVM、37 项常规设备测试、3 组各 1 项独立发现测试通过；Rust 完整工作区 111 项通过；构建、Lint（0 error）、Clippy、包限定格式、i18n 与依赖检查通过。真实 LAN NSD 端口迁移已验证，不再把当前实现描述为没有 mDNS；身份、安全语义和未实测边界以 [40 实施记录](40-paired-host-discovery-and-reconnect.md)为准。日常配对、草稿、历史和 Outbox 保留，未强退日常桌面进程。

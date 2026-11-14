@@ -215,3 +215,7 @@ receive-empty-help = 手机发送的新文字会显示在这里。
 
 execution-time = 执行尝试：{ $time }
 received-time = 收到：{ $time }
+
+discovery-publishing = 正在启动局域网发现…
+discovery-published = 已配对手机可在当前网络自动找到此电脑。
+discovery-unavailable = 局域网发现暂不可用。保存地址仍可连接；必要时可在手机中更新地址。

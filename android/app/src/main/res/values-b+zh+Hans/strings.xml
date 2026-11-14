@@ -280,4 +280,7 @@
     <string name="speak_listening_time">聆听 %1$d:%2$02d</string>
     <string name="speak_source_local_short">本地</string>
     <string name="speak_restoring_draft">正在恢复草稿…</string>
+    <string name="error_discovery">未找到已配对电脑。请确认手机与电脑在同一局域网，也可在连接帮助中更新地址。</string>
+    <string name="error_candidate_connection">已发现候选电脑，但未能完成连接认证。配对信息已保留，请检查电脑或更新地址。</string>
+    <string name="discovering_computer">正在查找电脑…</string>
 </resources>

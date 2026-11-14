@@ -284,4 +284,7 @@
     <string name="speak_listening_time">Listening %1$d:%2$02d</string>
     <string name="speak_source_local_short">Local</string>
     <string name="speak_restoring_draft">Restoring draft…</string>
+    <string name="error_discovery">Couldn’t find your paired computer. Check that both devices are on the same local network, or update its address in connection help.</string>
+    <string name="error_candidate_connection">Found a possible computer, but couldn’t authenticate the connection. Your pairing is retained. Check the computer or update its address.</string>
+    <string name="discovering_computer">Finding your computer…</string>
 </resources>

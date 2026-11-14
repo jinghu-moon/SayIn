@@ -29,12 +29,12 @@ internal fun ConnectionChip(state: ClientState, onClick: () -> Unit, modifier: M
             contentColor = MiuixTheme.colorScheme.onSurface),
         cornerRadius = 24.dp, insideMargin = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (state.busy || state.recovering) CircularProgressIndicator(size = 12.dp, strokeWidth = 2.dp)
+            if (state.busy || state.recovering || state.discovering) CircularProgressIndicator(size = 12.dp, strokeWidth = 2.dp)
             else Box(Modifier.size(8.dp).background(if (state.ready) {
                 if (MiuixTheme.colorScheme.background.luminance() < 0.5f) YuePalette.SuccessDark else YuePalette.SuccessLight
             }
                 else MiuixTheme.colorScheme.onSurfaceSecondary, CircleShape))
-            Text(stringResource(connectionChipText(state.connectionPresentation)), Modifier.weight(1f, fill = false),
+            Text(stringResource(if (state.discovering) R.string.discovering_computer else connectionChipText(state.connectionPresentation)), Modifier.weight(1f, fill = false),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
             Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(16.dp))
         }

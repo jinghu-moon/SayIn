@@ -1,5 +1,6 @@
 package seeyuer.sayin.data
 
+import android.net.Network
 import okhttp3.ConnectionSpec
 import okhttp3.Dns
 import okhttp3.OkHttpClient
@@ -20,7 +21,7 @@ import javax.net.ssl.TrustManagerFactory
 import javax.net.ssl.X509TrustManager
 
 /** A client exists for exactly one saved host. No system-wide TLS changes. */
-internal class HostClient(endpoint: HostEndpoint) {
+internal class HostClient(endpoint: HostEndpoint, network: Network? = null) {
     private val client: OkHttpClient
     private val url = "https://${endpoint.tlsName}:${endpoint.port}/v2"
 
@@ -36,6 +37,7 @@ internal class HostClient(endpoint: HostEndpoint) {
         check("TLSv1.3" in tls.supportedSSLParameters.protocols) { "TLS13_REQUIRED" }
         val address = numericAddress(endpoint.address)
         client = OkHttpClient.Builder()
+            .apply { if (network != null) socketFactory(network.socketFactory) }
             .sslSocketFactory(tls.socketFactory, trust)
             // Leave OkHttp's normal hostname/SAN verifier enabled.
             .dns(Dns { name -> if (name == endpoint.tlsName) listOf(address) else throw UnknownHostException() })

@@ -62,6 +62,7 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
                 approval: None,
                 connections: 0,
                 running: true,
+                discovery: PublicationStatus::Disabled,
             }),
             observers: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),

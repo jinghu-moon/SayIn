@@ -27,7 +27,7 @@ class TransportInstrumentedTest {
             override fun getDatabasePath(name: String) = target.getDatabasePath(namespace + name)
             override fun getSharedPreferences(name: String, mode: Int) = target.getSharedPreferences(namespace + name, mode)
         }
-        var repository = VoiceLinkRepository(context)
+        var repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
         try {
             suspend fun waitFor(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15000) {
                 while (!predicate(repository.state.value)) {
@@ -95,7 +95,7 @@ class TransportInstrumentedTest {
             waitFor { it.ready }
             repository.close()
             delay(250)
-            repository = VoiceLinkRepository(context)
+            repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
             waitFor { it.connection == Connection.OFFLINE }
             repository.foreground(true)
             waitFor { it.ready }
@@ -110,7 +110,7 @@ class TransportInstrumentedTest {
             // Changing only a route preserves identity and queries the same encrypted Outbox.
             val original = PairedHost(checkNotNull(ProtectedStore(context).load()))
             repository.updateAddress("127.0.0.1", "1")
-            withTimeout(5000) { while (repository.state.value.issue != ClientIssue.CONNECTION) delay(20) }
+            withTimeout(5000) { while (repository.state.value.issue != ClientIssue.DISCOVERY) delay(20) }
             val failedEpoch = repository.state.value.connectionEpoch
             // No manual Connect: the foreground reconnect loop must make another attempt.
             withTimeout(6000) { while (repository.state.value.connectionEpoch <= failedEpoch) delay(20) }

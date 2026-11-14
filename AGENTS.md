@@ -316,7 +316,7 @@
 - 设备令牌和 payload 指纹使用带域分离的 HMAC；待执行载荷和密钥用当前 Windows 用户 DPAPI 保护。缺失数据库/密钥/账本结构时拒绝静默创建新去重身份。
 - 配额使用同事务触发器维护计数，不能在新接受路径上扫描整个历史表；持久收据不静默清除。实时通知只作有界合并信号，读取最新快照，不累积无限历史事件。
 - 配对批准后自动待命，普通重启在网络许可有效时自动恢复；显式暂停和 uncertain 不自动越过。向当前光标输入，不再手动锁定窗口或倒计时。每次操作独立捕获并核对前台窗口、进程创建时间、活动会话、输入桌面、权限和修饰键；不抢焦点、不自动追加 Enter。通用全局输入仍有不可原子消除的前台窗口竞态。
-- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。此阶段仍无 mDNS/IPv6/剪贴板输入通道/root 模块；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
+- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。已支持 IPv4 有界 mDNS/NSD 恢复（见第 20 节）；仍无 IPv6/剪贴板输入通道/root 模块；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
 - 修改后执行 `cargo test --workspace --all-targets --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、包限定格式检查、工作区构建和双端 i18n/依赖检查。含真实接收线程的 GPUI 测试启用 `allow_parking`；纯 UI/状态测试仍优先使用确定性调度。
 - 当前具体实现与验证见[09接收核心实施记录](docs/09-desktop-receiver-core-implementation.md)和[13当前光标交互](docs/13-desktop-current-cursor-and-ui-redesign.md)。
 - 最新四页原生界面、托盘生命周期、账本 schema 3 和验收边界见[16桌面端重构实施记录](docs/16-desktop-ui-refactor-implementation.md)。正文历史和执行时目标在协调线程保存；目标 metadata 先于输入执行持久化，不能在浏览历史时抓当前程序补填。旧配对/收据身份必须保留；缺失已安装的历史结构或设备名称列时先拒绝打开，不能先执行崩溃恢复写入。
@@ -330,7 +330,7 @@
 
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
-- 已支持代码协议和手工 IPv4/二维码；没有 mDNS 或空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。无 mDNS 时手机仍使用保存地址；已支持连接帮助内更新 IPv4/端口并保留固定证书身份，跨地址自动发现尚未实现。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
+- 已支持代码协议和手工 IPv4/二维码；已支持有界 IPv4 mDNS/NSD，无空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。手机先连保存地址，失败后通过有界 NSD 找回同一身份，完整认证后才持久更新 IPv4/端口；连接帮助内手动维护仍保留，详见 40。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
 - 双端通信真机回归用 `scripts/verify_android_transport.ps1`，现包含四页 Compose 界面测试，运行前须手动解锁手机；默认普通安装，当前已授权的 Root 设备可加 `-UseExistingRootInstall` 沿用 06 安装方法。测试仅通过 `adb reverse` 连接本机 loopback 专用假输入服务，自动批准仅在该测试例程；绝不能挪到产品监听流程。测试必须使用独立 host/device 与命名空间，不覆盖用户的手机配对凭据或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
@@ -393,7 +393,7 @@
 ## 18. 手机说话页与连接联动
 
 - 原生说话页按 [34 手机端重构](docs/34-android-speak-and-connection-refactor.md) 实现；顶栏连接入口只展开状态面板，不能误触断开。扫码/代码首次连接均需电脑批准；已有身份自动重连，地址维护只改路由，不替换证书、主机/设备 ID、token 或 Outbox。
-- 手机读取真实 `pause_reason`，`outcome_review_required` 与主动暂停分开；手机不提供恢复/核对电脑输入操作。前台 WSS 失败按 1/2/5/10 秒退避；当前无可见 Activity 且未录音时断开，主动录音的前台服务可维持 LAN。只查询旧收据，不补发。无 mDNS 或空闲后台保活。
+- 手机读取真实 `pause_reason`，`outcome_review_required` 与主动暂停分开；手机不提供恢复/核对电脑输入操作。前台 WSS 失败按 1/2/5/10 秒退避；当前无可见 Activity 且未录音时断开，主动录音的前台服务可维持 LAN。只查询旧收据，不补发。已支持有界 mDNS/NSD，仍无空闲后台保活。
 - 发送范围包含连接代次和端口，快速恢复到同一地址/target/revision 也不能复用旧自动发送票据。草稿冻结到对应请求，收到该请求 injected 终态后才清空；受阻时解释原因并保留草稿。
 - 本地模型真实加载、独立静音流预热、就绪后再允许用户录音；进程共享会话复用权重，段间替换流；收起保留已开始录音，进程会话关闭时释放。预热不打开麦克风、不触发云请求或发送，不用定时器伪装就绪。
 - 34 阶段 JVM 42 项，常规仪器化 27 项；当前结果见第 19 节；付费云服务测试仍需显式 opt-in。手机 UI 验证使用隔离偏好与 debug-only 空 Activity，不更改用户后台启动权限。loopback fixture 预期恰好两次 fake 执行（一次 injected、一次 uncertain），与旧的一次执行基线分开；不能当作真实 Wi-Fi/目标应用输入证明。
@@ -408,4 +408,13 @@
 - 草稿与请求身份用独立 Keystore AES-GCM/AtomicFile，150ms 合并落盘；恢复完成前禁止录音/发送，坏文件不静默覆盖。不能把草稿合并写入描述为同步持久化。Room schema 2 仅追加加密 transcript，终态清 payload 不清展示正文，保留当前用户配对与账本；旧终态原文缺失就如实显示。
 - saved/accepted/held/executing/review/uncertain 冻结当前请求，不新 ID 重发；回执查询允许终态 payload=null。uncertain 必须电脑本地核对后才能显式开始新草稿，手机不解除接收闸门。
 - 双端 injected 统一「已提交输入」，不证明目标框实际显示文字。电脑核对授权绑定请求 ID + state_rev，状态变化清除旧勾选，过期确认不能恢复接收；协调线程再校验原版本。
-- 当前 42 项 JVM、37 项常规设备测试和 108 项 Rust 工作区测试的结果及日志以 37 文档为准。fixture 必须恰好两次 fake 输入尝试（injected、uncertain），查询/重连/进程恢复不得重放；付费云测试仍显式 opt-in。真实麦克风、Wi-Fi 落字和长期功耗不能用 fake UI 或 loopback 证明。
+- 37 阶段为 42 项 JVM、37 项常规设备测试和 108 项 Rust 工作区测试；40 阶段为 45 项 JVM、37 项常规设备测试、3 组独立发现测试及 111 项 Rust 测试，实际边界以相应实施记录为准。常规 fixture 必须恰好两次 fake 输入尝试（injected、uncertain），查询/重连/进程恢复不得重放；付费云测试仍显式 opt-in。真实麦克风、Wi-Fi 落字和长期功耗不能用 fake UI 或 loopback 证明。
+
+
+## 20. 已配对电脑地址发现
+
+- 实施与边界见 [40 自动发现与重连](docs/40-paired-host-discovery-and-reconnect.md)。Windows 原生 DNS-SD 在当前有效绑定接口发布 `_voicelink._tcp`，请求/实例接口索引非零；SRV 指向系统实际 mDNS 主机名，TXT ipv4 仅为当前绑定地址；不能用自定义 TLS 名替代实际可解析的发现 DNS 名。监听停止、范围变化或超时取消发布，不修改防火墙/Windows 分类。
+- Android 保存端点优先；失败后浏览 2 秒、最多 8 个实例/4 个去重 IPv4 候选、单解析 2 秒、发现总预算 12 秒、候选认证 6 秒，统一回合间 1/2/5/10 秒退避。仅当前 LAN IPv4 前缀、与 TXT ipv4 一致的解析地址进入候选；名称、host ID、版本、IP/端口均不建立信任。
+- 必须使用原完整固定 DER、tls_name、host/device UUID/token；TLS Open 之前不发 token，完整 welcome 验证与认证成功后才加密保存新路由。旧请求先 query；不自动 submit/release、重配对、换证书或解除暂停/存储阻断/uncertain，不复用旧连接自动发送票据。
+- target37 检查 ACCESS_LOCAL_NETWORK；无许可不连接/发现，有连接需求期间监测撤销；退出需求、切网及取消关闭任务并使 generation 失效。API34+ 注销 ServiceInfoCallback；不支持 stopServiceResolution 的旧 Android 仅允许一个在途 OS 解析，等待其回调期间不叠加，迟到结果禁止使用。
+- `verify_android_discovery.ps1` 独立身份/数据/随机端口，LAN 模式没有 ADB reverse，输入为 fake；不能据此声称真实目标应用输入/换真实 IPv4/切换多网卡/Android37 授权界面或长期功耗均已验证。常规通信套件排除独立发现类及付费云测试。

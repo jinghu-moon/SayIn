@@ -58,3 +58,9 @@ Desktop.ini
 *.tmp
 *.bak
 *~
+
+# Isolated discovery verification summaries
+/android/discovery-*-result.json
+# External model weights are prepared from audited artifact manifests
+/assets/models/
+/assets/translation-model/

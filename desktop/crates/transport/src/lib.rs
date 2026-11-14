@@ -1,4 +1,5 @@
 //! Bounded local-network pairing + TLS1.3/WebSocket transport.
+mod discovery;
 mod identity;
 pub mod interfaces;
 pub mod server;

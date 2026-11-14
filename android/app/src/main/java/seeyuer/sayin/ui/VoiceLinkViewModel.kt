@@ -4,9 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.ContextCompat
-import android.Manifest
-import android.content.pm.PackageManager
-import android.os.Build
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -53,10 +50,7 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
         refreshConnection()
     }
     private fun refreshConnection() {
-        val app = getApplication<Application>()
-        val permitted = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(app,
-            Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
-        repository.foreground(permitted && (foregroundOwners.isNotEmpty() || speaking.recognition.state.value.busy))
+        repository.foreground(foregroundOwners.isNotEmpty() || speaking.recognition.state.value.busy)
     }
     fun send() {
         if (speaking.markSubmitted()) repository.send(speaking.draft.text, speaking.draftId, speaking.receiver.receptionScope)
