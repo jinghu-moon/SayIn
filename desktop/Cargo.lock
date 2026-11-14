@@ -6747,6 +6747,7 @@ dependencies = [
  "futures-channel",
  "getrandom 0.4.3",
  "hmac 0.13.0",
+ "image",
  "rusqlite",
  "serde",
  "serde_json",

@@ -8,3 +8,5 @@
 *.webp binary
 *.jpg binary
 *.zip binary
+# Benchmark evidence is byte-addressed by SHA-256; preserve its original bytes.
+docs/benchmarks/** -text whitespace=cr-at-eol

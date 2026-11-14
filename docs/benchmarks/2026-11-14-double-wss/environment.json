@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-14T21:46:05.4136007+08:00",
+  "baseline": "f9b52bec3513515d14be3ebd75fac1946120e7b3 plus initial uncommitted image-network-bench files",
+  "phone": "Redmi K40 / M2012K11AC / Android 13 API 33",
+  "wifi_standard": 5,
+  "wifi_frequency_mhz": 5825,
+  "rssi_start_dbm": -52,
+  "rssi_end_dbm": -52,
+  "tx_link_mbps": 192,
+  "rx_link_mbps": 192,
+  "desktop_link": "Gigabit Ethernet",
+  "server_bind_ipv4": "192.168.71.6",
+  "client_bind_ipv4": "192.168.71.72",
+  "tcp_port": 62190,
+  "tcp_endpoint": "192.168.71.6:62190",
+  "quic_endpoint_unused": "192.168.71.6:57860",
+  "firewall_profiles_enabled": {
+    "Public": false,
+    "Private": false,
+    "Domain": false
+  },
+  "firewall_changed": false,
+  "adb_reverse_used": false,
+  "rounds": 6,
+  "sample_count": 8,
+  "modes": [
+    "wss",
+    "wss-split",
+    "tls-split"
+  ],
+  "worker_threads_each": 4,
+  "payload_chunk_bytes": 49152,
+  "production_pairing_used": false,
+  "production_app_modified": false,
+  "receiver": "streaming SHA-256 and discard; no decode or persistent image storage",
+  "windows_receiver_peak_working_set_observed_bytes": 14225408,
+  "udp_port_unused": 57860,
+  "existing_unrelated_adb_reverse_at_start": "tcp:17888",
+  "adb_reverse_at_end": [],
+  "adb_reverse_modified_by_benchmark": false,
+  "adb_reverse_change_cause": "undetermined; benchmark did not issue reverse add/remove commands"
+}
