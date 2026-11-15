@@ -1,6 +1,6 @@
 # 61 · Root 采集模块 Android 17 适配与新手机验证
 
-日期：2026-11-15 至 2026-11-16。基线：`d7dbc00`（0.2）。阶段：**0.3 正式安装/重启和 14 项回归通过；锁屏验收发现门禁语义缺口，已修复为 0.3.1，等待完成修复版验收**。
+日期：2026-11-15 至 2026-11-16。基线：`d7dbc00`（0.2）。阶段：**0.3.1 已通过 KernelSU 正式升级/重启核对、正式 ELF 14 项回归和相同 ELF 的真实锁屏/解锁测试；App 读取与保活未接入，管理器 Action/启用后开机恢复/卸载仍待验收**。
 
 用户已连接新手机，要求传送模块，由用户安装、agent 测试。新设备实际为 Xiaomi `25102RKBEC` / `myron`、Android 17/API 37、arm64-v8a、HyperOS `OS4.0.6.0.XPMCNXM`，Root 身份为 `u:r:ksu:s0`。没有复用旧手机 Android 13 的成绩描述新机通过。工作区其它 Android/桌面修改保持原样，无 stash、reset 或并行 agent。
 
@@ -113,4 +113,20 @@ ELF SHA-256 37e9c853b1da4ad7395228135d521bf365edd1226046895c96b4c76d0df56561
 544cfdef2fbc509e74c1940aa621aaec881d7cae4f51712e9254a59b8e92ca7a
 ```
 
-用户需通过管理器更新并重启。当前正式目录仍为 0.3，不能把临时修复版的结果写成正式程序已修好；正式更新结果待下一次重启后续记。
+交付时用户需通过管理器更新并重启，当时正式目录仍为 0.3。用户随后完成升级，实际核对结果见下一节。
+
+## 7. 0.3.1 正式升级后的最终核对
+
+用户再次反馈“已重启”后，新机正式目录为 `version=0.3.1-dev` / `versionCode=4`，`sys.boot_completed=1`，没有 disable/remove/update 标记。13 个安装文件摘要匹配；正式 ELF SHA-256 为 `480bd86fbb29474a156f7bcf2501449c3883a990ecddbcdd0832a8c894492979`，与此前锁屏/解锁 4 项验证的临时 ELF **逐字节身份一致**。不额外让用户重复锁/解锁；本次没有声称再次在正式路径进行那 4 项人工协助流程。
+
+再次实际执行：
+
+```powershell
+python root-helper/tests/verify_device.py --serial f3ba305a --installed --allow-synthetic-clipboard-writes
+```
+
+正式 0.3.1 的 **14/14 全部通过**。`device-api37-f3ba305a-installed.json` 保存最新正式 ELF 结果，`installed-files-api37-v031.json` 保存升级文件/默认状态核对。日常 enabled 文件不存在；在这个前提下显式执行正式 `service.sh` 正常返回，保持关闭，没有初始化日常历史。
+
+本阶段代码提交为 `a9a03b1`（Android 17 profile、门禁修复、验证工具和记录），已推送 GitHub；本节为用户升级后的验收补记。没有将其他 Android/桌面 agent 的工作纳入本阶段提交。
+
+当前完成：本机 KernelSU 管理器安装升级和重启后切换、默认关闭、正式路径隔离采集/过滤/持久化/停止故障回归、双机新 ELF 回归、真实锁屏及恢复。未完成：管理器 Action 实际启用/关闭、开启采集后的跨重启恢复、真实卸载、长期功耗、更多 ROM；App 面板读取及保活仍未实现。默认日常采集继续关闭。
