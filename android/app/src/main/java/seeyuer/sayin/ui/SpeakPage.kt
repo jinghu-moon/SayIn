@@ -254,7 +254,7 @@ internal fun SpeakPage(
                 ConnectionChip(state, ::connect, Modifier.widthIn(max = 160.dp), compact = true)
                 if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
             }
-            Column(Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
+            Column(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (minimal) 0.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (showTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (session.sendMode == SpeakSendMode.Automatic) Icon(VoiceLinkIcon.Automatic.vector, autoLabel,
