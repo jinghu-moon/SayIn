@@ -1,5 +1,6 @@
-//! ONLY an Android transport test fixture: loopback, fake input and auto approval.
-//! Never link this into the product or bind it to a LAN interface.
+//! Opt-in isolated Android fixture: fake input and test-only local approval.
+//! Loopback by default; --lan explicitly uses one validated physical interface.
+//! Never link this into the product or use a daily identity/data directory.
 use std::{
     path::PathBuf,
     sync::{
@@ -72,20 +73,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     secure_directory(&output)?;
     let calls = Arc::new(AtomicUsize::new(0));
-    let receiver = Receiver::start(open_ledger(&output)?, FakeInput(calls.clone()))?;
+    let mut ledger = open_ledger(&output)?;
     let identity = HostIdentity::open(&output, 0)?;
-    let service =
-        NetworkService::start_loopback(receiver.clone(), identity, "127.0.0.1:17888".parse()?)?;
+    if std::env::args().any(|arg| arg == "--images") {
+        let images = output.join("images");
+        secure_directory(&images)?;
+        ledger.attach_images(voicelink_receiver::images::storage::ImageStore::open(
+            &images,
+            identity.host_id(),
+        )?)?;
+    }
+    let receiver = Receiver::start(ledger, FakeInput(calls.clone()))?;
+    let port = std::env::args()
+        .find_map(|arg| arg.strip_prefix("--port=").map(str::to_owned))
+        .map(|port| port.parse::<u16>())
+        .transpose()?
+        .unwrap_or(17888);
+    let service = if std::env::args().any(|arg| arg == "--lan") {
+        let binding = voicelink_transport::interfaces::available_interfaces()?
+            .into_iter()
+            .find(|interface| interface.is_physical() && interface.binding().is_ok())
+            .ok_or("no valid physical LAN interface")?
+            .binding()?;
+        NetworkService::start_on_network(receiver.clone(), identity, binding, port)?
+    } else {
+        NetworkService::start_loopback(
+            receiver.clone(),
+            identity,
+            std::net::SocketAddr::from(([127, 0, 0, 1], port)),
+        )?
+    };
     service.open_pairing().await?;
     let snapshot = service.snapshot()?;
     let window = snapshot.window.ok_or("pairing window missing")?;
     std::fs::write(
         output.join("fixture.json"),
         serde_json::to_vec(
-            &serde_json::json!({"port":snapshot.address.port(),"code":window.code.to_string()}),
+            &serde_json::json!({"address":snapshot.address.ip().to_string(),"port":snapshot.address.port(),"code":window.code.to_string()}),
         )?,
     )?;
-    println!("Loopback-only Android test fixture ready (fake input).");
+    println!("Isolated Android test fixture ready (fake input).");
     let target = Uuid::new_v4().to_string();
     let until = std::time::Instant::now() + Duration::from_secs(180);
     let mut ready = false;

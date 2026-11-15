@@ -316,7 +316,7 @@
 - 设备令牌和 payload 指纹使用带域分离的 HMAC；待执行载荷和密钥用当前 Windows 用户 DPAPI 保护。缺失数据库/密钥/账本结构时拒绝静默创建新去重身份。
 - 配额使用同事务触发器维护计数，不能在新接受路径上扫描整个历史表；持久收据不静默清除。实时通知只作有界合并信号，读取最新快照，不累积无限历史事件。
 - 配对批准后自动待命，普通重启在网络许可有效时自动恢复；显式暂停和 uncertain 不自动越过。向当前光标输入，不再手动锁定窗口或倒计时。每次操作独立捕获并核对前台窗口、进程创建时间、活动会话、输入桌面、权限和修饰键；不抢焦点、不自动追加 Enter。通用全局输入仍有不可原子消除的前台窗口竞态。
-- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。已支持 IPv4 有界 mDNS/NSD 恢复（见第 20 节）；仍无 IPv6/剪贴板输入通道/root 模块；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
+- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。已支持 IPv4 有界 mDNS/NSD 恢复（见第 20 节）；仍无 IPv6/root 模块；图片剪贴板生产链路与验收边界见第 21 节；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
 - 修改后执行 `cargo test --workspace --all-targets --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、包限定格式检查、工作区构建和双端 i18n/依赖检查。含真实接收线程的 GPUI 测试启用 `allow_parking`；纯 UI/状态测试仍优先使用确定性调度。
 - 当前具体实现与验证见[09接收核心实施记录](docs/09-desktop-receiver-core-implementation.md)和[13当前光标交互](docs/13-desktop-current-cursor-and-ui-redesign.md)。
 - 最新四页原生界面、托盘生命周期、账本 schema 3 和验收边界见[16桌面端重构实施记录](docs/16-desktop-ui-refactor-implementation.md)。正文历史和执行时目标在协调线程保存；目标 metadata 先于输入执行持久化，不能在浏览历史时抓当前程序补填。旧配对/收据身份必须保留；缺失已安装的历史结构或设备名称列时先拒绝打开，不能先执行崩溃恢复写入。
@@ -418,3 +418,12 @@
 - 必须使用原完整固定 DER、tls_name、host/device UUID/token；TLS Open 之前不发 token，完整 welcome 验证与认证成功后才加密保存新路由。旧请求先 query；不自动 submit/release、重配对、换证书或解除暂停/存储阻断/uncertain，不复用旧连接自动发送票据。
 - target37 检查 ACCESS_LOCAL_NETWORK；无许可不连接/发现，有连接需求期间监测撤销；退出需求、切网及取消关闭任务并使 generation 失效。API34+ 注销 ServiceInfoCallback；不支持 stopServiceResolution 的旧 Android 仅允许一个在途 OS 解析，等待其回调期间不叠加，迟到结果禁止使用。
 - `verify_android_discovery.ps1` 独立身份/数据/随机端口，LAN 模式没有 ADB reverse，输入为 fake；不能据此声称真实目标应用输入/换真实 IPv4/切换多网卡/Android37 授权界面或长期功耗均已验证。常规通信套件排除独立发现类及付费云测试。
+
+
+## 21. 双 WSS 图片输入
+
+- 用户选定双 WSS：`/v2` 控制、按需 `/v2/images` 顺序二进制块；复用同一完整固定证书、TLS 名称、端口、精确网卡与网络范围。图片连接只绑定当前已认证控制会话，不能建立配对或信任。
+- 图片资源先有界校验、DPAPI 加密同步落盘，再以 WAL/FULL 接受事务绑定 schema 6 的收据、资源与历史。每设备一张、主机两张、完整解码并发一；10MiB 编码、1600 万像素、单边 8192、块正文 48KiB。
+- 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
+- 生产 NativeInput 在最终目标捕获前完成资源读取和解码；持久 executing 后发布 PNG/DIBV5/历史与云排除标记，只发一次 Ctrl+V、不追加 Enter。部分提交进入 uncertain，只补释放本次仍按下的键。提交成功不证明目标应用已显示图片。
+- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。生产临时 RichEdit/EDIT 与自动回归已通过；手机实现、界面及完整真实应用矩阵以逐阶段记录为准，不把回环/fake 输入、旧网络测速或构建通过冒充整链路验收。

@@ -188,6 +188,7 @@ impl Ledger {
         } else {
             0
         };
+        self.retire_history_images()?;
         Ok(changed + expired > 0)
     }
     pub(crate) fn target_payload(

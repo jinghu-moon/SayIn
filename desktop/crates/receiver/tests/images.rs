@@ -247,3 +247,79 @@ fn protected_files_survive_reopen_and_reject_wrong_scope_tamper_and_substitution
     assert!(store.remove("../not-an-image").is_err());
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[test]
+fn transient_resource_ownership_bounds_and_cleans_canceled_blocking_results() {
+    let directory = std::env::temp_dir().join(format!("sayin-image-owners-{}", Uuid::new_v4()));
+    let scope = scope();
+    let store = ImageStore::open(&directory, &Uuid::new_v4().to_string()).unwrap();
+    let bytes = png();
+    let first = store
+        .prepare(&scope.device, metadata(&bytes), &bytes, &Dpapi)
+        .unwrap();
+    let second = store
+        .prepare(&scope.device, metadata(&bytes), &bytes, &Dpapi)
+        .unwrap();
+    assert!(
+        store
+            .prepare(&scope.device, metadata(&bytes), &bytes, &Dpapi)
+            .is_err()
+    );
+    let retained = first.clone();
+    let id = first.image().resource_id.clone();
+    drop(first);
+    assert!(store.contains(&id).unwrap());
+    drop(retained);
+    drop(second);
+    let until = Instant::now() + Duration::from_secs(2);
+    while std::fs::read_dir(&directory).unwrap().next().is_some() && Instant::now() < until {
+        std::thread::yield_now();
+    }
+    assert_eq!(std::fs::read_dir(&directory).unwrap().count(), 0);
+    let worker_store = store.clone();
+    let device = scope.device.clone();
+    // A canceled awaiting future drops the blocking job's returned owner.
+    let result = std::thread::spawn(move || {
+        worker_store
+            .prepare(&device, metadata(&bytes), &bytes, &Dpapi)
+            .unwrap()
+    })
+    .join()
+    .unwrap();
+    let id = result.image().resource_id.clone();
+    drop(result);
+    let until = Instant::now() + Duration::from_secs(2);
+    while store.contains(&id).unwrap() && Instant::now() < until {
+        std::thread::yield_now();
+    }
+    assert!(!store.contains(&id).unwrap());
+    drop(store);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn cleanup_failure_blocks_further_resource_creation() {
+    let directory =
+        std::env::temp_dir().join(format!("sayin-image-cleanup-failure-{}", Uuid::new_v4()));
+    let scope = scope();
+    let store = ImageStore::open(&directory, &Uuid::new_v4().to_string()).unwrap();
+    let bytes = png();
+    let resource = store
+        .prepare(&scope.device, metadata(&bytes), &bytes, &Dpapi)
+        .unwrap();
+    let path = directory.join(format!("{}.image", resource.image().resource_id));
+    std::fs::remove_file(&path).unwrap();
+    std::fs::create_dir(&path).unwrap();
+    drop(resource);
+    let until = Instant::now() + Duration::from_secs(2);
+    while store.transient_count() != 0 && Instant::now() < until {
+        std::thread::yield_now();
+    }
+    assert_eq!(store.transient_count(), 0);
+    assert!(matches!(
+        store.prepare(&scope.device, metadata(&bytes), &bytes, &Dpapi),
+        Err(voicelink_receiver::Error::Protocol("IMAGE_STORAGE_BLOCKED"))
+    ));
+    drop(store);
+    std::fs::remove_dir_all(directory).unwrap();
+}

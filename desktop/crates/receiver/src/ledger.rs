@@ -63,6 +63,7 @@ pub struct Execution {
     id: String,
     target: String,
     operation: Operation,
+    image_authorization: Option<std::sync::Arc<crate::images::ImageAuthorization>>,
 }
 impl Drop for Execution {
     fn drop(&mut self) {
@@ -73,6 +74,13 @@ impl Drop for Execution {
     }
 }
 impl Execution {
+    pub fn image_authorized(&self) -> bool {
+        !matches!(self.operation, Operation::Image { .. })
+            || self
+                .image_authorization
+                .as_ref()
+                .is_some_and(|value| value.valid())
+    }
     pub fn device(&self) -> &str {
         &self.device
     }
@@ -126,6 +134,17 @@ pub struct Ledger {
     rates: HashMap<String, Bucket>,
     deadlines: HashMap<(String, String), Instant>,
     healthy: bool,
+    pub(crate) image_store: Option<crate::images::storage::ImageStore>,
+    pub(crate) prepared_images: HashMap<
+        String,
+        (
+            crate::images::wire::UploadScope,
+            crate::images::storage::PreparedResource,
+            Instant,
+        ),
+    >,
+    pub(crate) image_authorizations:
+        HashMap<String, (String, std::sync::Arc<crate::images::ImageAuthorization>)>,
     // Fields drop in declaration order: keep the namespace lock until SQLite
     // has closed/checkpointed and all protected state has been released.
     _lock: std::fs::File,
@@ -184,7 +203,7 @@ impl Ledger {
         if existing_database {
             let version: u32 =
                 database.pragma_query_value(None, "user_version", |row| row.get(0))?;
-            if !matches!(version, 1..=5) {
+            if !matches!(version, 1..=6) {
                 return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
             }
             let tables: u32 = database.query_row(
@@ -264,6 +283,9 @@ impl Ledger {
             rates: HashMap::new(),
             deadlines: HashMap::new(),
             healthy: true,
+            image_store: None,
+            prepared_images: HashMap::new(),
+            image_authorizations: HashMap::new(),
         };
         let expected = ledger.mac(b"ledger-key-check", b"voicelink-v2");
         let existing: Option<Vec<u8>> = ledger
@@ -309,7 +331,7 @@ impl Ledger {
             .pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 3 {
             ledger.database.execute_batch("BEGIN IMMEDIATE; ALTER TABLE message_history ADD COLUMN deleted_at INTEGER; CREATE INDEX history_deleted ON message_history(deleted_at) WHERE deleted_at IS NOT NULL; CREATE INDEX history_received ON message_history(received_at); CREATE TABLE history_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),days INTEGER CHECK(days IN (7,30))) STRICT; INSERT INTO history_policy VALUES(1,1,NULL); PRAGMA user_version=4; COMMIT;")?;
-        } else if !matches!(version, 4 | 5) {
+        } else if !matches!(version, 4..=6) {
             return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
         }
         ledger
@@ -325,6 +347,36 @@ impl Ledger {
         ledger
             .database
             .prepare("SELECT source_name FROM message_history LIMIT 0")?;
+        let version: u32 = ledger
+            .database
+            .pragma_query_value(None, "user_version", |r| r.get(0))?;
+        if version < 6 {
+            ledger.database.execute_batch("BEGIN IMMEDIATE;
+                CREATE TABLE image_resources(resource_id TEXT PRIMARY KEY,device TEXT NOT NULL,metadata TEXT NOT NULL,accept_order INTEGER NOT NULL UNIQUE REFERENCES receipts(accept_order)) STRICT;
+                CREATE TABLE image_garbage(resource_id TEXT PRIMARY KEY) STRICT;
+                ALTER TABLE receipts ADD COLUMN image_resource TEXT;
+                CREATE INDEX image_pending ON receipts(accept_order) WHERE image_resource IS NOT NULL AND state IN ('accepted','held','executing');
+                CREATE TRIGGER image_history_retired AFTER DELETE ON message_history BEGIN
+                    INSERT OR IGNORE INTO image_garbage(resource_id) SELECT image_resource FROM receipts WHERE accept_order=OLD.accept_order AND image_resource IS NOT NULL AND state NOT IN ('accepted','held','executing');
+                END;
+                CREATE TRIGGER image_receipt_retired AFTER UPDATE OF state ON receipts WHEN NEW.image_resource IS NOT NULL AND NEW.state NOT IN ('accepted','held','executing') BEGIN
+                    INSERT OR IGNORE INTO image_garbage(resource_id) SELECT NEW.image_resource WHERE NOT EXISTS(SELECT 1 FROM message_history WHERE accept_order=NEW.accept_order);
+                END;
+                PRAGMA user_version=6; COMMIT;")?;
+        }
+        ledger.database.prepare(
+            "SELECT resource_id,device,metadata,accept_order FROM image_resources LIMIT 0",
+        )?;
+        ledger
+            .database
+            .prepare("SELECT image_resource FROM receipts LIMIT 0")?;
+        ledger
+            .database
+            .prepare("SELECT resource_id FROM image_garbage LIMIT 0")?;
+        let image_triggers: u32 = ledger.database.query_row("SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('image_history_retired','image_receipt_retired')", [], |r|r.get(0))?;
+        if image_triggers != 2 {
+            return Err(Error::Protocol("LEDGER_SCHEMA_CORRUPT"));
+        }
         ledger.recover()?;
         Ok(ledger)
     }
@@ -471,6 +523,7 @@ impl Ledger {
         {
             return Err(Error::Protocol("UNAUTHORIZED"));
         }
+        self.invalidate_device_images(device);
         let id = Uuid::new_v4().to_string();
         self.sessions.insert(device.to_owned(), id.clone());
         Ok(Session {
@@ -551,6 +604,27 @@ impl Ledger {
         if control.target.as_deref() != Some(&submit.target) {
             return Err(Error::Protocol("TARGET_MISMATCH"));
         }
+        if let Operation::Image { image } = &submit.op {
+            let (scope, original, expires) = self
+                .prepared_images
+                .get(&image.resource_id)
+                .ok_or(Error::Protocol("IMAGE_NOT_READY"))?;
+            if !self
+                .image_authorizations
+                .get(&image.resource_id)
+                .is_some_and(|(_, value)| value.valid())
+                || self.image_store.is_none()
+                || *expires <= now
+                || original.image() != image
+                || scope.device != session.device
+                || scope.session != session.id
+                || scope.target != submit.target
+                || scope.revision != control.state_rev
+                || control.paused
+            {
+                return Err(Error::Protocol("IMAGE_SCOPE"));
+            }
+        }
         let rate = self
             .rates
             .entry(session.device.clone())
@@ -577,6 +651,12 @@ impl Ledger {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )?;
         let bytes = submit.op.bytes() as i64;
+        if matches!(submit.op, Operation::Image { .. }) {
+            let (total, device): (u32, u32) = tx.query_row("SELECT COUNT(*),COALESCE(SUM(device=?1),0) FROM receipts INDEXED BY image_pending WHERE image_resource IS NOT NULL AND state IN ('accepted','held','executing')", [&session.device], |r| Ok((r.get(0)?,r.get(1)?)))?;
+            if total >= 2 || device >= 1 {
+                return Err(Error::Protocol("IMAGE_QUEUE_FULL"));
+            }
+        }
         if device_count >= 16
             || global_count >= 32
             || device_bytes + bytes > 65536
@@ -595,17 +675,30 @@ impl Ledger {
         let reason = control.paused.then_some("paused");
         tx.execute("INSERT INTO receipts(device,id,payload_mac,payload,original_target,execute_target,bytes,state,reason) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8)",
             params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason])?;
-        let order = tx.last_insert_rowid().to_string();
+        let accept_order = tx.last_insert_rowid();
+        let order = accept_order.to_string();
+        if let Operation::Image { image } = &submit.op {
+            tx.execute("INSERT INTO image_resources(resource_id,device,metadata,accept_order) VALUES(?1,?2,?3,?4)", params![image.resource_id,session.device,serde_json::to_string(&image.metadata).expect("metadata"),accept_order])?;
+            tx.execute(
+                "UPDATE receipts SET image_resource=?1 WHERE device=?2 AND id=?3",
+                params![image.resource_id, session.device, submit.id],
+            )?;
+        }
         tx.execute(
             "INSERT INTO message_history(accept_order,body,received_at,source_name) SELECT ?1,?2,?3,d.display_name FROM history_policy p JOIN devices d ON d.id=?4 WHERE p.singleton=1 AND p.enabled=1",
             params![
-                tx.last_insert_rowid(),
+                accept_order,
                 history,
                 crate::history::now_millis(),
                 session.device
             ],
         )?;
         tx.commit()?;
+        if let Operation::Image { image } = &submit.op
+            && let Some((_, resource, _)) = self.prepared_images.remove(&image.resource_id)
+        {
+            resource.accept();
+        }
         self.deadlines.insert(
             (session.device.clone(), submit.id.clone()),
             Instant::now() + Duration::from_secs(30),
@@ -630,6 +723,7 @@ impl Ledger {
     }
 
     pub fn pause(&mut self) -> Result<ControlState> {
+        self.invalidate_all_images();
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'paused' END,rev=rev+1", [])?;
         tx.execute(
@@ -655,6 +749,7 @@ impl Ledger {
 
     pub fn bind_target(&mut self, target: &str) -> Result<ControlState> {
         validate_uuid(target)?;
+        self.invalidate_all_images();
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET target=?1,paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'target_changed' END,rev=rev+1", [target])?;
         tx.execute(
@@ -706,6 +801,14 @@ impl Ledger {
         let row = self
             .query(session, id)?
             .ok_or(Error::Protocol("UNKNOWN_ID"))?;
+        let is_image: bool = self.database.query_row(
+            "SELECT image_resource IS NOT NULL FROM receipts WHERE device=?1 AND id=?2",
+            params![session.device, id],
+            |r| r.get(0),
+        )?;
+        if is_image {
+            return Err(Error::Protocol("IMAGE_REAUTHORIZE_REQUIRED"));
+        }
         if row.st != State::Held {
             return Err(Error::Protocol("TOO_LATE"));
         }
@@ -747,6 +850,7 @@ impl Ledger {
     }
 
     pub fn revoke(&mut self, device: &str) -> Result<()> {
+        self.invalidate_device_images(device);
         let tx = self.database.transaction()?;
         tx.execute("UPDATE devices SET revoked=1 WHERE id=?1", [device])?;
         tx.execute("UPDATE receipts SET state='cancelled',reason='device_revoked',payload=NULL,bytes=0 WHERE device=?1 AND state IN ('accepted','held')", [device])?;
@@ -761,6 +865,7 @@ impl Ledger {
     /// Expire only bounded live pending identities, never an executing input.
     /// No history scan and no timer-based transition can resurrect old text.
     pub(crate) fn expire_pending(&mut self, now: Instant) -> Result<bool> {
+        self.prune_images(now)?;
         let due = self
             .deadlines
             .iter()
@@ -827,11 +932,25 @@ impl Ledger {
         let operation: Operation = serde_json::from_slice(&plaintext)
             .map_err(|_| Error::Protocol("CORRUPT_PENDING_PAYLOAD"))?;
         operation.validate()?;
+        let image_authorization = if let Operation::Image { image } = &operation {
+            let alive = self
+                .image_authorizations
+                .get(&image.resource_id)
+                .map(|(_, value)| value.clone());
+            if !alive.as_ref().is_some_and(|value| value.valid()) {
+                self.database.execute("UPDATE receipts SET state='held',reason='image_session_ended' WHERE device=?1 AND id=?2", params![device,id])?;
+                return Ok(None);
+            }
+            alive
+        } else {
+            None
+        };
         Ok(Some(Execution {
             device,
             id,
             target: target.ok_or(Error::Protocol("MISSING_TARGET"))?,
             operation,
+            image_authorization,
         }))
     }
 
@@ -854,6 +973,10 @@ impl Ledger {
             return Err(Error::Protocol("STORAGE_UNAVAILABLE"));
         }
         let state = self.state()?;
+        if !job.image_authorized() {
+            self.hold(job, "image_session_ended")?;
+            return Ok(false);
+        }
         if state.paused
             || state.target.as_deref() != Some(&job.target)
             || state.active_device_id.as_deref() != Some(&job.device)
@@ -909,6 +1032,9 @@ impl Ledger {
             return Err(error);
         }
         self.deadlines.remove(&(job.device.clone(), job.id.clone()));
+        if let Operation::Image { image } = &job.operation {
+            self.image_authorizations.remove(&image.resource_id);
+        }
         self.find(&job.device, &job.id)?
             .ok_or(Error::Protocol("UNKNOWN_ID"))
     }

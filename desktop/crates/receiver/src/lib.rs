@@ -4,6 +4,8 @@ pub mod images;
 pub mod ledger;
 pub mod protocol;
 #[cfg(windows)]
+pub mod windows_clipboard;
+#[cfg(windows)]
 pub mod windows_input;
 pub mod worker;
 

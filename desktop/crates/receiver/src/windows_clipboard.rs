@@ -1,6 +1,6 @@
-//! Native clipboard ownership experiment, used only by the opt-in fixture.
+//! Native image clipboard publication shared by production input and history.
+use crate::images::payload::PreparedImage;
 use std::time::{Duration, Instant};
-use voicelink_receiver::images::payload::PreparedImage;
 use windows::{
     Win32::{
         Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND},
@@ -15,6 +15,80 @@ use windows::{
     },
     core::w,
 };
+
+/// Clipboard ownership needs a responsive window even while the input worker
+/// is waiting or decoding. This thread only pumps messages; it never focuses a
+/// window, reads user content, renders delayed formats or injects input.
+pub struct ClipboardOwner(usize);
+const STOP_OWNER: u32 = windows::Win32::UI::WindowsAndMessaging::WM_APP + 37;
+impl ClipboardOwner {
+    pub fn new() -> crate::Result<Self> {
+        let (ready, receiver) = std::sync::mpsc::sync_channel(0);
+        std::thread::Builder::new()
+            .name("sayin-clipboard-owner".into())
+            .spawn(move || {
+                use windows::{Win32::UI::WindowsAndMessaging::*, core::w};
+                unsafe {
+                    let owner = CreateWindowExW(
+                        Default::default(),
+                        w!("STATIC"),
+                        w!("SayIn clipboard owner"),
+                        WINDOW_STYLE::default(),
+                        0,
+                        0,
+                        0,
+                        0,
+                        Some(HWND_MESSAGE),
+                        None,
+                        None,
+                        None,
+                    );
+                    let owner = match owner {
+                        Ok(owner) => owner,
+                        Err(_) => {
+                            let _ = ready.send(None);
+                            return;
+                        }
+                    };
+                    if ready.send(Some(owner.0 as usize)).is_err() {
+                        let _ = DestroyWindow(owner);
+                        return;
+                    }
+                    let mut message = MSG::default();
+                    while GetMessageW(&mut message, None, 0, 0).0 > 0 {
+                        if message.hwnd == owner && message.message == STOP_OWNER {
+                            break;
+                        }
+                        let _ = TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                    let _ = DestroyWindow(owner);
+                }
+            })?;
+        // Creating a hidden local window has no interaction or network work.
+        // If the receiver disappears, the creator destroys its own window.
+        let owner = receiver
+            .recv_timeout(Duration::from_secs(2))
+            .map_err(|_| crate::Error::Protocol("CLIPBOARD_OWNER"))?
+            .ok_or(crate::Error::Protocol("CLIPBOARD_OWNER"))?;
+        Ok(Self(owner))
+    }
+    pub fn window(&self) -> HWND {
+        HWND(self.0 as *mut _)
+    }
+}
+impl Drop for ClipboardOwner {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = windows::Win32::UI::WindowsAndMessaging::PostMessageW(
+                Some(self.window()),
+                STOP_OWNER,
+                Default::default(),
+                Default::default(),
+            );
+        }
+    }
+}
 
 struct Block(Option<HGLOBAL>, usize);
 impl Block {
@@ -166,4 +240,35 @@ pub fn publish(
         return Err(after("guard_after_clipboard"));
     }
     Ok(published)
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn hidden_owner_pumps_messages_without_input_or_polling_and_stops_on_drop() {
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        let owner = super::ClipboardOwner::new().unwrap();
+        let hwnd = owner.window();
+        let mut result = 0;
+        unsafe {
+            assert_ne!(
+                SendMessageTimeoutW(
+                    hwnd,
+                    WM_NULL,
+                    Default::default(),
+                    Default::default(),
+                    SMTO_ABORTIFHUNG,
+                    500,
+                    Some(&mut result)
+                ),
+                windows::Win32::Foundation::LRESULT(0)
+            );
+        }
+        drop(owner);
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while unsafe { IsWindow(Some(hwnd)).as_bool() } && std::time::Instant::now() < until {
+            std::thread::yield_now();
+        }
+        assert!(!unsafe { IsWindow(Some(hwnd)).as_bool() });
+    }
 }

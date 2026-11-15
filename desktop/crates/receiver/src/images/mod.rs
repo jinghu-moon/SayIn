@@ -1,4 +1,5 @@
 //! Image resources are separate from input requests and the text queue budget.
+mod ledger;
 pub mod payload;
 pub mod storage;
 pub mod wire;
@@ -11,6 +12,29 @@ pub const MAX_IMAGE_BYTES: u32 = 10 * 1024 * 1024;
 pub const MAX_IMAGE_PIXELS: u64 = 16_000_000;
 pub const MAX_IMAGE_SIDE: u32 = 8192;
 pub const MAX_CHUNK_BYTES: usize = 48 * 1024;
+
+/// A single explicit image intent, fenced both by its control connection and
+/// local control changes. Resuming reception cannot revive an invalid intent.
+pub struct ImageAuthorization {
+    connection: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    active: std::sync::atomic::AtomicBool,
+}
+impl ImageAuthorization {
+    pub fn new(connection: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Self {
+        Self {
+            connection,
+            active: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+    pub fn valid(&self) -> bool {
+        use std::sync::atomic::Ordering::Acquire;
+        self.active.load(Acquire) && self.connection.load(Acquire)
+    }
+    pub(crate) fn invalidate(&self) {
+        self.active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ImageMime {

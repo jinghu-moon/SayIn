@@ -9,11 +9,11 @@
 
 **继续采用持久 WSS 连接、TLS 1.3、UTF-8 JSON。** 对几百字节到几 KB 的最终文字，没有证据表明换成 QUIC、自定义 UDP、二进制编码或音频传输就能改善主要体验。先解决连接唤醒、确认语义、磁盘提交、输入注入、焦点保护和有界排队，再依据剖析结果优化。
 
-2026-11-15 图片扩展决定：用户选定**双 WSS**。现有 `/v2` 继续承载文字、身份认证、状态与回执；按需 `/v2/images` 承载单张图片的有界二进制顺序块，同一 TLS 1.3 固定证书、同一精确网卡/IPv4/端口监听。图片连接必须绑定当前已认证控制会话；仅持有发现地址或上传 ID 不构成授权。控制断开、代次/范围变化、撤销、暂停或取消不得留下未来自动粘贴授权。不得在验证证书前发送凭据，不新增配对或接纳新证书。资源准备与 submit 分开；重连先查旧收据，不自动上传、submit、release 或重贴。选择依据、资源限额和实施状态见 [38 图片设计](38-image-input-design.md)、[44 Kotlin 同期实测](44-kotlin-all-transports-wifi5-benchmark.md)和 [45 实施记录](45-image-input-implementation.md)。本段是已定的实施约束，尚不表示生产解码器已支持图片。
+2026-11-15 图片扩展决定：用户选定**双 WSS**。现有 `/v2` 继续承载文字、身份认证、状态与回执；按需 `/v2/images` 承载单张图片的有界二进制顺序块，同一 TLS 1.3 固定证书、同一精确网卡/IPv4/端口监听。图片连接必须绑定当前已认证控制会话；仅持有发现地址或上传 ID 不构成授权。控制断开、代次/范围变化、撤销、暂停或取消不得留下未来自动粘贴授权。不得在验证证书前发送凭据，不新增配对或接纳新证书。资源准备与 submit 分开；重连先查旧收据，不自动上传、submit、release 或重贴。选择依据、资源限额和实施状态见 [38 图片设计](38-image-input-design.md)、[44 Kotlin 同期实测](44-kotlin-all-transports-wifi5-benchmark.md)和 [45 实施记录](45-image-input-implementation.md)。电脑生产链路现已实现；Android 图片发送和界面尚在后续阶段，不代表整链路验收完成。
 
 ### 图片扩展基础类型（阶段 2）
 
-双端已实现以下基础格式与测试，尚未在生产端点开放或广告 capability：
+双端共享以下严格基础格式；电脑配置受保护图片目录后才开放图片 capability：
 
 - `ImageMetadata` 为精确字段 `{bytes,mime,width,height,sha256}`。`bytes` 为 1..10485760，MIME 仅 `image/png` / `image/jpeg`；方向处理后的宽高均 1..8192、乘积不超过 16000000。`sha256` 为最终冻结编码字节的 SHA-256 小写 64 位十六进制。整数不接受字符串/浮点替代；未知字段拒绝。
 - `ImageReference` 为 `{resource_id,metadata}`，resource_id 是电脑分配的 canonical UUID v4，区别于上传 ID 和 submit 请求 UUID。引用中的全部元数据必须参与原请求指纹，不能只对 ID 去重。
@@ -21,6 +21,26 @@
 - 错误、重复块、乱序、会话/设备/接收范围/版本变化或期限超出会使整次上传失效，不能忽略坏块后继续 finish。空闲期限 60 秒、绝对期限 300 秒；finish 同时校验完整长度与摘要，解码及实际 MIME/尺寸验证仍是成为资源的必要条件。
 
 跨语言黄金向量：上传 ID `12345678-1234-4234-8234-123456789abc`，offset=0，正文 `01 02 03`，完整帧 hex 为 `53494d4712345678123442348234123456789abc000000000000000000000003010203`。该三字节正文只验证二进制格式，不是可接受的图片。
+
+### 图片双 WSS 消息（阶段 3）
+
+电脑在当前已认证 `/v2` 的 `welcome` 中增加 `image` capability 和 `image_channel`：`{path:"/v2/images",binding:"<32 字节随机值的 base64url>",max_image_bytes:10485760,max_pixels:16000000,max_side:8192,chunk_bytes:49152}`。未配置资源存储时 channel 为 null、不广告 image。binding 只属于这一条控制连接，不能用于创建或替换控制会话，不进入发现广播或日志。
+
+图片连接沿用保存的精确端点、完整固定证书与 tls_name；TLS 验证完成后首条发送 `{v:2,t:"image_hello",session_id,device_id,binding}`。服务端核对当前控制会话与常量时间 token 比较，回复 `{v:2,t:"image_welcome",session_id,host_id,device_id}`。首版一条图片连接处理一张图，每控制连接最多一条，主机最多两条，后台完整解码/保护一次一个；不新增监听端口，不更改网卡/Windows 范围约束。
+
+| 通道 | 消息 | 结果与边界 |
+| --- | --- | --- |
+| 图片 | `{v:2,t:"image_begin",session_id,id,target,state_rev,metadata}` | id 是新上传 UUID；精确匹配当前接收范围，回复 `image_begun{id}` |
+| 图片 | SIMG 二进制块 | 顺序追加，回复 `image_progress{id,received}`；received 是累计字节，不代表持久接受 |
+| 图片 | `{v:2,t:"image_finish",session_id,id}` | 完整性、实际图片校验、DPAPI 同步落盘与范围复核后回复 `image_ready{id,image:ImageReference}` |
+| 图片 | `{v:2,t:"image_cancel",session_id,id}` | 回复 `image_canceled{id}` 并结束本次连接，回收未接受资源；不能代替已接受输入的 cancel |
+| 控制 | 原 submit，op 为 `{kind:"image",image:ImageReference}` | 独立请求 UUID；资源必须来自相同 device/session/target/revision，且未过期、未消费；WAL/FULL 接受事务完成后才返回 accepted |
+
+图片回复同样带 `v:2,t`，上传回复带原上传 id。未知操作、格式/顺序/范围错误结束整次图片连接，不继续使用部分资源。上传中空闲 60 秒、总计 300 秒，准备资源最多保留 60 秒；图片 JSON 沿用 10 条/秒限制，二进制块独立限制 4096 条/秒、突发 256 条，避免微小块耗尽调度；这不是固定的图片字节限速。按块及每秒检查授权和范围，后台解码结束后及资源注册时再次核对。控制断开、会话替换、设备撤销及网络监听停止都会阻断旧任务；本地暂停/换范围使单次图片意图失效，恢复不会复活它，新图片可以在恢复后重新明确发送。
+
+账本 schema 6 用 `image_resources` 将 device、规范元数据、资源 ID 与 receipt accept_order 绑定；不把大图放入 SQLite/文字字节配额。接受事务用图片 pending 部分索引限主机 2 / 每设备 1，并保留原有操作数、去重与接受期限。完整 op/目标参与 HMAC 指纹；同请求同图直接返回旧回执，同 ID 换资源或元数据拒绝。资源先落盘，接受后转为持久资源；未接受资源由有限所有权及独立清理线程回收，后台任务取消仍会释放，清理失败阻断新资源而不静默突破预算。启动检查已引用文件缺失后拒绝继续，孤儿只在启动维护中扫描。
+
+图片执行保留原有串行输入、前台身份/权限/会话、暂停代次及持久 executing 边界。图片预解码在最终目标捕获之前；一次发布 PNG/DIBV5 和隐私标记，再核对剪贴板序列/归属后只提交一次 Ctrl+V，不追加 Enter。成功 method=`clipboard_image` 只表示粘贴事件全部提交。可能已输入或执行中崩溃仍为 uncertain，待执行重启为 held。旧图片 held 不支持 release（`IMAGE_REAUTHORIZE_REQUIRED`），需先核对旧请求，再明确发起新图片操作；绝不由重连重新上传、重新 submit 或重新粘贴。文字和 Enter 的旧行为不变。
 
 v1 具备合理的传输基础，但不能据此认定已满足「低延迟、速度快、高性能」。其主要问题是：把接收与上屏混为一谈；承诺崩溃后恰好上屏一次；暂停文字可能阻塞恢复指令；去重窗口和补发机制不完整；没有计算持久化和粘贴等待；高估 Android 后台保活能力。
 

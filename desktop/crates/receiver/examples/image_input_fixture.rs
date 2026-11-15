@@ -1,8 +1,7 @@
 //! Opt-in local image experiment. No production protocol, pairing or user files.
 //! Publishes synthetic images to the real clipboard and pastes ONLY into its own RichEdit.
-#[path = "image_input/clipboard.rs"]
-mod clipboard;
 use voicelink_receiver::images::payload;
+use voicelink_receiver::windows_clipboard as clipboard;
 
 use image::{DynamicImage, ImageBuffer, ImageFormat, Rgba};
 use std::{

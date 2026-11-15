@@ -1,5 +1,6 @@
 //! Opt-in real SendInput verification against this executable's own child EDIT.
-//! No production data, network, clipboard or user application is used.
+//! No production data, network or user application is used. --image explicitly
+//! replaces the real clipboard and pastes into a disposable child RichEdit.
 use std::{
     future::Future,
     path::Path,
@@ -50,25 +51,97 @@ fn wait<T>(future: impl Future<Output = T>) -> T {
     }
 }
 
-fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
+unsafe extern "system" fn stream_image(
+    cookie: usize,
+    buffer: *mut u8,
+    length: i32,
+    written: *mut i32,
+) -> u32 {
+    unsafe {
+        let output = &mut *(cookie as *mut Vec<u8>);
+        if length < 0 || output.len() + length as usize > 1024 * 1024 {
+            return 1;
+        }
+        output.extend_from_slice(std::slice::from_raw_parts(buffer, length as usize));
+        *written = length;
+    }
+    0
+}
+fn picture_count(
+    target: windows::Win32::Foundation::HWND,
+) -> Result<usize, Box<dyn std::error::Error>> {
+    use windows::Win32::UI::Controls::RichEdit::{EDITSTREAM, EM_STREAMOUT, SF_RTF};
+    let mut bytes = Vec::<u8>::new();
+    let mut stream = EDITSTREAM {
+        dwCookie: (&mut bytes as *mut Vec<u8>) as usize,
+        dwError: 0,
+        pfnCallback: Some(stream_image),
+    };
+    unsafe {
+        SendMessageW(
+            target,
+            EM_STREAMOUT,
+            Some(WPARAM(SF_RTF as usize)),
+            Some(LPARAM((&mut stream as *mut EDITSTREAM) as isize)),
+        );
+    }
+    if stream.dwError != 0 {
+        return Err("RTF export failed".into());
+    }
+    Ok(String::from_utf8(bytes)?.matches("\\pict").count())
+}
+
+fn edit_target(directory: &Path, is_image: bool) -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: This process creates, focuses, pumps and destroys only its own
     // disposable EDIT. The parent validates its HWND and PID before injection.
     unsafe {
+        if is_image {
+            windows::Win32::System::LibraryLoader::LoadLibraryW(w!("Msftedit.dll"))?;
+            windows::Win32::System::Ole::OleInitialize(None)?;
+        }
+        let root = if is_image {
+            Some(CreateWindowExW(
+                Default::default(),
+                w!("STATIC"),
+                w!("SayIn disposable image target"),
+                WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                100,
+                100,
+                640,
+                240,
+                None,
+                None,
+                None,
+                None,
+            )?)
+        } else {
+            None
+        };
         let hwnd = CreateWindowExW(
             Default::default(),
-            w!("EDIT"),
+            if is_image {
+                w!("RICHEDIT50W")
+            } else {
+                w!("EDIT")
+            },
             w!("existing|"),
-            WS_OVERLAPPEDWINDOW | WS_VISIBLE | WINDOW_STYLE(ES_MULTILINE as u32),
+            (if is_image {
+                WS_CHILD
+            } else {
+                WS_OVERLAPPEDWINDOW
+            }) | WS_VISIBLE
+                | WINDOW_STYLE(ES_MULTILINE as u32),
             100,
             100,
             640,
             240,
-            None,
+            root,
             None,
             None,
             None,
         )?;
-        let _ = SetForegroundWindow(hwnd);
+        let root = root.unwrap_or(hwnd);
+        let _ = SetForegroundWindow(root);
         let _ = SetFocus(Some(hwnd));
         SendMessageW(
             hwnd,
@@ -79,6 +152,7 @@ fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let deadline = Instant::now() + Duration::from_secs(20);
         let mut recorded = false;
         let mut ready = false;
+        let mut reported = false;
         while Instant::now() < deadline && !directory.join("stop").exists() {
             let mut message = MSG::default();
             while PeekMessageW(&mut message, None, 0, 0, PM_REMOVE).as_bool() {
@@ -86,9 +160,19 @@ fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 DispatchMessageW(&message);
             }
             if !ready {
-                let _ = SetForegroundWindow(hwnd);
+                let _ = SetForegroundWindow(root);
                 let _ = SetFocus(Some(hwnd));
-                if GetForegroundWindow() == hwnd && GetFocus() == hwnd {
+                if !reported {
+                    eprintln!(
+                        "fixture root={:?}, target={:?}, foreground={:?}, focus={:?}",
+                        root,
+                        hwnd,
+                        GetForegroundWindow(),
+                        GetFocus()
+                    );
+                    reported = true;
+                }
+                if GetForegroundWindow() == root && GetFocus() == hwnd {
                     SendMessageW(
                         hwnd,
                         EM_SETSEL,
@@ -98,7 +182,7 @@ fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
                     std::fs::write(
                         directory.join("window.json"),
                         serde_json::to_vec(
-                            &serde_json::json!({"hwnd":hwnd.0 as usize,"pid":std::process::id()}),
+                            &serde_json::json!({"hwnd":root.0 as usize,"pid":std::process::id()}),
                         )?,
                     )?;
                     ready = true;
@@ -107,10 +191,19 @@ fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
             let mut buffer = [0u16; 256];
             let length = GetWindowTextW(hwnd, &mut buffer).max(0) as usize;
             let text = String::from_utf16_lossy(&buffer[..length]);
-            if !recorded && text == format!("{ORIGINAL}{TEXT}") {
+            let pictures = if is_image { picture_count(hwnd)? } else { 0 };
+            if !recorded
+                && (if is_image {
+                    pictures == 1 && length == ORIGINAL.len() + 1
+                } else {
+                    text == format!("{ORIGINAL}{TEXT}")
+                })
+            {
                 std::fs::write(
                     directory.join("observed.json"),
-                    serde_json::to_vec(&serde_json::json!({"text":text,"pid":std::process::id()}))?,
+                    serde_json::to_vec(
+                        &serde_json::json!({"text":text,"pictures":pictures,"pid":std::process::id()}),
+                    )?,
                 )?;
                 recorded = true;
             }
@@ -118,11 +211,19 @@ fn edit_target(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
         }
         let mut buffer = [0u16; 256];
         let length = GetWindowTextW(hwnd, &mut buffer).max(0) as usize;
+        std::fs::write(
+            directory.join("final.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "text":String::from_utf16_lossy(&buffer[..length]),
+                "length":length,
+                "pictures":if is_image { picture_count(hwnd)? } else { 0 },
+            }))?,
+        )?;
         eprintln!(
             "Own EDIT final text: {:?}",
             String::from_utf16_lossy(&buffer[..length])
         );
-        DestroyWindow(hwnd)?;
+        DestroyWindow(root)?;
     }
     Ok(())
 }
@@ -162,7 +263,11 @@ impl InputAdapter for FixtureInput {
     }
 }
 
-fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Error>> {
+fn verify(
+    directory: &Path,
+    child_pid: u32,
+    is_image: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !directory.join("window.json").exists() {
         if Instant::now() >= deadline {
@@ -173,10 +278,16 @@ fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Er
     let window: serde_json::Value =
         serde_json::from_slice(&std::fs::read(directory.join("window.json"))?)?;
     assert_eq!(window["pid"], child_pid);
+    let mut ledger = open_ledger(&directory.join("ledger"))?;
+    let store = voicelink_receiver::images::storage::ImageStore::open(
+        &directory.join("images"),
+        &Uuid::new_v4().to_string(),
+    )?;
+    ledger.attach_images(store.clone())?;
     let receiver = Receiver::start(
-        open_ledger(&directory.join("ledger"))?,
+        ledger,
         FixtureInput {
-            native: NativeInput::default(),
+            native: NativeInput::with_images(store.clone()),
             hwnd: window["hwnd"].as_u64().unwrap() as usize,
             pid: child_pid,
         },
@@ -193,15 +304,48 @@ fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Er
         let target = wait(receiver.enable_foreground_input(state.state_rev, false))?
             .target
             .unwrap();
-        let operation = Submit::new(
-            session.id().into(),
-            Uuid::new_v4().to_string(),
-            target,
+        let op = if is_image {
+            use voicelink_receiver::images::{
+                ImageAuthorization, ImageMetadata, ImageMime, digest, wire::UploadScope,
+            };
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image::DynamicImage::new_rgba8(3, 2).write_to(&mut bytes, image::ImageFormat::Png)?;
+            let bytes = bytes.into_inner();
+            let resource = store.prepare(
+                session.device(),
+                ImageMetadata {
+                    bytes: bytes.len() as u32,
+                    mime: ImageMime::Png,
+                    width: 3,
+                    height: 2,
+                    sha256: digest(&bytes),
+                },
+                &bytes,
+                &voicelink_receiver::windows_input::Dpapi,
+            )?;
+            let image = resource.image().clone();
+            let state = wait(receiver.state())?;
+            wait(receiver.register_image(
+                session.clone(),
+                UploadScope {
+                    device: session.device().into(),
+                    session: session.id().into(),
+                    target: target.clone(),
+                    revision: state.state_rev,
+                },
+                resource,
+                Arc::new(ImageAuthorization::new(Arc::new(
+                    std::sync::atomic::AtomicBool::new(true),
+                ))),
+            ))?;
+            Operation::Image { image }
+        } else {
             Operation::Text {
                 text: TEXT.into(),
                 src: TextSource::Manual,
-            },
-        );
+            }
+        };
+        let operation = Submit::new(session.id().into(), Uuid::new_v4().to_string(), target, op);
         wait(receiver.submit(session.clone(), operation.clone()))?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -228,7 +372,11 @@ fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Er
         }
         let observed: serde_json::Value =
             serde_json::from_slice(&std::fs::read(directory.join("observed.json"))?)?;
-        assert_eq!(observed["text"], format!("{ORIGINAL}{TEXT}"));
+        if is_image {
+            assert_eq!(observed["pictures"], 1);
+        } else {
+            assert_eq!(observed["text"], format!("{ORIGINAL}{TEXT}"));
+        }
         assert_eq!(
             wait(receiver.submit(session, operation))?.st,
             State::Injected
@@ -239,9 +387,15 @@ fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Er
             history.entries[0].target.as_ref().unwrap().process_id,
             child_pid
         );
-        println!(
-            "PASS: real native EDIT received exact CJK + emoji + literal {{ENTER}} at caret; prefix preserved; no appended Enter; duplicate did not execute; target PID recorded."
-        );
+        if is_image {
+            println!(
+                "PASS: production DPAPI/receipt/NativeInput path pasted one image into child RichEdit; no Enter; duplicate did not execute; target PID recorded."
+            );
+        } else {
+            println!(
+                "PASS: real native EDIT received exact CJK + emoji + literal {{ENTER}} at caret; prefix preserved; no appended Enter; duplicate did not execute; target PID recorded."
+            );
+        }
         Ok(())
     })();
     wait(receiver.shutdown())?;
@@ -251,19 +405,32 @@ fn verify(directory: &Path, child_pid: u32) -> Result<(), Box<dyn std::error::Er
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = std::env::args().collect::<Vec<_>>();
     if arguments.get(1).is_some_and(|arg| arg == "--edit-target") {
-        return edit_target(Path::new(&arguments[2]));
+        return edit_target(
+            Path::new(&arguments[2]),
+            arguments.get(3).is_some_and(|arg| arg == "--image"),
+        );
     }
     let directory = std::env::temp_dir().join(format!("voicelink-real-edit-{}", Uuid::new_v4()));
     std::fs::create_dir_all(directory.join("ledger"))?;
+    let is_image = arguments.get(1).is_some_and(|arg| arg == "--image");
     let mut child = Command::new(std::env::current_exe()?)
         .arg("--edit-target")
         .arg(&directory)
+        .arg(if is_image { "--image" } else { "--text" })
         .spawn()?;
-    let result = verify(&directory, child.id());
+    let result = verify(&directory, child.id(), is_image);
     std::fs::write(directory.join("stop"), b"")?;
     let child_status = child.wait()?;
+    let final_content = std::fs::read(directory.join("final.json"));
     std::fs::remove_dir_all(&directory)?;
     result?;
+    let final_content: serde_json::Value = serde_json::from_slice(&final_content?)?;
+    if is_image {
+        assert_eq!(final_content["pictures"], 1);
+        assert_eq!(final_content["length"], ORIGINAL.len() + 1);
+    } else {
+        assert_eq!(final_content["text"], format!("{ORIGINAL}{TEXT}"));
+    }
     if !child_status.success() {
         return Err("EDIT child failed".into());
     }
