@@ -9,6 +9,8 @@
 
 构建与启动说明：[Android](android/README.md)、[Windows](desktop/README.md)。工程决策和验收记录在 [docs](docs/)。
 
+可选 Root 模块位于 [root-helper](root-helper/README.md)，采用 C++ 独立采集和加密保存剪贴板历史；首个后端限定 Android 13 arm64，默认关闭。SayIn 面板读取及应用保活尚未接入，普通手机行为不变。
+
 更新资源：`python scripts/sync_brand_assets.py`。原始图标位于 `assets/sayin-icons/B-field`，脚本原样同步平台资源，Windows 任务栏明暗主题使用对应托盘图标。
 
 Windows 保留既有 `%APPDATA%\seeyuer\VoiceLink\config` 数据目录、配对和历史。Android 最终包名为 `seeyuer.sayin`，与旧开发包 `seeyuer.voice.link` 独立安装，新包需要重新配对，旧包数据保留。

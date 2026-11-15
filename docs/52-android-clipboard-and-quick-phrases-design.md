@@ -2,6 +2,8 @@
 
 状态：设计与交互 demo；原生实现、验证与差异记录见 [53 实施记录](53-android-input-assist-implementation.md)。日期：2026-11-15。修订 2：清除全部、常用语拖拽排序、两个列表的复制/粘贴菜单。
 
+后续边界确认（2026-11-15）：**非 Root 手机保持本文单条剪贴板现状；Root 手机通过模块独立采集，计划由 SayIn 在同一剪贴板标签读取和管理模块历史**，不靠保活 SayIn 采集。见 [55 调研及已确认方向](55-android-clipboard-projects-research.md#7-对-sayin-的落地方向)。模块侧限定采集及加密历史已实现，见 [60](60-root-helper-native-clipboard-collection.md)；App 面板读取尚未接入，以下首版范围和验证不包含该增强。
+
 原生现状以 [51 三区语音栏](51-android-three-zone-voice-bar.md)、当前 `SpeakPage.kt` / `SpeakSession.kt` 为准。评审原型：仓库根 `refer/SayIn 底部控制区对比.html`；它是被 Git 忽略的本机参考文件，仓库内保留相同内容的评审快照 [组合面板 demo](demos/sayin-input-assist.html)。本设计不代替现有协议说明。
 
 ## 1. 目标、事实与边界
