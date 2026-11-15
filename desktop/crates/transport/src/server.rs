@@ -38,6 +38,7 @@ use voicelink_receiver::{
 };
 use zeroize::Zeroizing;
 
+mod image_channel;
 #[cfg(test)]
 mod tests;
 
@@ -88,6 +89,9 @@ struct Shared {
     snapshot: Mutex<NetworkSnapshot>,
     observers: Mutex<Vec<notifications::Sender<()>>>,
     failures: Mutex<VecDeque<(IpAddr, Instant, u8)>>,
+    image_bindings: Mutex<HashMap<String, Arc<image_channel::Binding>>>,
+    image_slots: Arc<Semaphore>,
+    image_decode: Arc<Semaphore>,
 }
 impl Shared {
     fn notify(&self) {
@@ -197,6 +201,9 @@ impl NetworkService {
             }),
             observers: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),
+            image_bindings: Mutex::new(HashMap::new()),
+            image_slots: Arc::new(Semaphore::new(2)),
+            image_decode: Arc::new(Semaphore::new(1)),
         });
         let (stop, mut stopping) = watch::channel(false);
         let (done, completion) = oneshot::channel();
@@ -505,7 +512,7 @@ fn validate_upgrade(
     response: Response,
 ) -> std::result::Result<Response, tokio_tungstenite::tungstenite::handshake::server::ErrorResponse>
 {
-    if request.uri().path() != "/v2"
+    if !matches!(request.uri().path(), "/v2" | "/v2/images")
         || request.uri().query().is_some()
         || request.headers().contains_key("origin")
     {
@@ -554,9 +561,19 @@ async fn connection(
         .max_write_buffer_size(65536)
         .max_message_size(Some(65536))
         .max_frame_size(Some(65536));
+    let image_path = std::sync::atomic::AtomicBool::new(false);
+    // Tungstenite's Callback contract requires an owned HTTP error response.
+    #[allow(clippy::result_large_err)]
+    let upgrade = |request: &Request, response| {
+        image_path.store(
+            request.uri().path() == "/v2/images",
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        validate_upgrade(request, response)
+    };
     let mut socket = timeout(
         Duration::from_secs(5),
-        accept_hdr_async_with_config(stream, validate_upgrade, Some(config)),
+        accept_hdr_async_with_config(stream, upgrade, Some(config)),
     )
     .await
     .map_err(|_| Error::Protocol("HANDSHAKE_TIMEOUT"))??;
@@ -564,6 +581,17 @@ async fn connection(
     let first = timeout(Duration::from_secs(5), read_json(&mut socket))
         .await
         .map_err(|_| Error::Protocol("AUTH_TIMEOUT"))??;
+    if image_path.load(std::sync::atomic::Ordering::Relaxed) {
+        return image_channel::serve(
+            &shared,
+            &mut socket,
+            first,
+            &mut stop,
+            peer.ip(),
+            unauthenticated,
+        )
+        .await;
+    }
     if first.get("v").and_then(Value::as_u64) != Some(2) {
         return Err(Error::Protocol("VERSION_MISMATCH"));
     }
@@ -714,18 +742,31 @@ fn constant_time_equal(a: &[u8], b: &[u8]) -> bool {
     bool::from(a.ct_eq(b))
 }
 struct Rate {
+    per_second: f64,
+    burst: f64,
     tokens: f64,
     updated: Instant,
 }
 impl Rate {
     fn new() -> Self {
         Self {
+            per_second: 10.,
+            burst: 10.,
             tokens: 10.,
             updated: Instant::now(),
         }
     }
+    fn image_chunks() -> Self {
+        Self {
+            per_second: 4096.,
+            burst: 256.,
+            tokens: 256.,
+            updated: Instant::now(),
+        }
+    }
     fn take(&mut self) -> Result<()> {
-        self.tokens = (self.tokens + self.updated.elapsed().as_secs_f64() * 10.).min(10.);
+        self.tokens =
+            (self.tokens + self.updated.elapsed().as_secs_f64() * self.per_second).min(self.burst);
         self.updated = Instant::now();
         if self.tokens < 1. {
             return Err(Error::Protocol("RATE_LIMITED"));
@@ -743,10 +784,12 @@ async fn authenticated(
     let mut notifications = shared.receiver.subscribe().await?;
     let initial = shared.receiver.snapshot().await?;
     let control = initial.control.clone();
+    let image_binding = image_channel::ControlBinding::new(shared, &session)?;
     send(socket,&json!({"v":2,"t":"welcome","session_id":session.id(),"host_id":shared.identity.host_id,
         "device_id":session.device(),"active_device_id":control.active_device_id,"state_rev":control.state_rev,
         "paused":control.paused,"pause_reason":control.pause_reason,"target":control.target,
-        "capabilities":["text","key_enter","control","query"],"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
+        "image_channel":image_binding.description(),
+        "capabilities":if shared.receiver.image_store().is_some() {vec!["text","key_enter","control","query","image"]} else {vec!["text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
             "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536}})).await?;
     let mut revision = control.state_rev;
     let mut tracked = HashMap::<String, Receipt>::new();

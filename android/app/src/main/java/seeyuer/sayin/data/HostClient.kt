@@ -52,6 +52,7 @@ internal class HostClient(endpoint: HostEndpoint, network: Network? = null) {
     }
 
     fun open(listener: WebSocketListener): WebSocket = client.newWebSocket(Request.Builder().url(url).build(), listener)
+    fun openImages(listener: WebSocketListener): WebSocket = client.newWebSocket(Request.Builder().url("$url/images").build(), listener)
     fun close() {
         client.dispatcher.cancelAll()
         client.connectionPool.evictAll()

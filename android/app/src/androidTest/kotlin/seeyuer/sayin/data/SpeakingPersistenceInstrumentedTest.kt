@@ -44,7 +44,8 @@ class SpeakingPersistenceInstrumentedTest {
                 db.execSQL("INSERT INTO outbox VALUES (?,?,?,?,?,?,?,?,?,?)", arrayOf<Any?>(oldId, "host", "device", "target", null, 0, "injected", "1", null, 1L))
                 db.version = 1
             }
-            val database = Room.databaseBuilder(context, OutboxDatabase::class.java, name).addMigrations(OutboxDatabase.KEEP_LEDGER).build()
+            val database = Room.databaseBuilder(context, OutboxDatabase::class.java, name)
+                .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES).build()
             try {
                 val dao = database.outbox()
                 val old = dao.find(oldId, "host", "device")!!

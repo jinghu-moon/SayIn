@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-14T21:15:14.6542751+08:00",
+  "phone": "Redmi K40 / M2012K11AC / Android 13 API 33",
+  "wifi_standard": 5,
+  "wifi_frequency_mhz": 5825,
+  "rssi_start_dbm": -53,
+  "rssi_end_dbm": -53,
+  "tx_link_mbps": 192,
+  "rx_link_mbps": 192,
+  "desktop_link": "Gigabit Ethernet",
+  "server_bind_ipv4": "192.168.71.6",
+  "client_bind_ipv4": "192.168.71.72",
+  "tcp_port": 54754,
+  "udp_port": 60112,
+  "firewall_profiles_enabled": {
+    "Public": false,
+    "Domain": false,
+    "Private": false
+  },
+  "firewall_changed": false,
+  "adb_reverse_used": false,
+  "existing_unrelated_adb_reverse_preserved": "tcp:17888",
+  "rounds": 3,
+  "sample_count": 8,
+  "worker_threads_each": 4,
+  "payload_chunk_bytes": 49152,
+  "production_pairing_used": false,
+  "production_app_modified": false,
+  "receiver": "streaming per-part SHA-256 and discard; no image decode or persistent storage",
+  "windows_receiver_peak_working_set_observed_bytes": 15564800
+}

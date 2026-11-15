@@ -1,0 +1,19 @@
+{
+  "user_feedback": "测试没有问题",
+  "followup_feedback": "测试过浏览器和word没有问题",
+  "history_actions_feedback": "功能没有问题，但是图片的历史记录卡片的渲染有问题：图片非常模糊且超过卡片高度",
+  "history_rendering_after_fix_feedback": "显示正常",
+  "chat_and_transparent_png_followup": "已测试，没问题",
+  "followup_question_scope": "Common chat application draft image preview, transparent PNG and absence of unintended sending",
+  "scope": "User confirmed browser/Word, then common-chat/transparent-PNG/no-unintended-send manual acceptance; precise application identities/versions were not supplied. Earlier three database receipts describe only the first isolated session, not a fabricated count for the later feedback.",
+  "native_input_calls": 3,
+  "receipts": [
+    [
+      "injected",
+      "clipboard_image",
+      3
+    ]
+  ],
+  "evidence_id": "image-manual-7565ac0b-7b89-4e78-aee9-1bc3090fce89",
+  "daily_identity_untouched": true
+}

@@ -66,6 +66,9 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
             }),
             observers: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),
+            image_bindings: Mutex::new(HashMap::new()),
+            image_slots: Arc::new(Semaphore::new(2)),
+            image_decode: Arc::new(Semaphore::new(1)),
         });
         let changed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let source = changed.clone();

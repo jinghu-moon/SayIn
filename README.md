@@ -2,7 +2,7 @@
 
 在手机上说话或输入，文字通过局域网直接进入电脑当前光标所在的输入区域。电脑端常驻托盘，记录每条原文、来源手机、执行时目标程序和结果，无需逐条桌面确认。
 
-- Android：Kotlin / Jetpack Compose / Miuix，包名 `seeyuer.sayin`。
+- Android 10+（API 29）：Kotlin / Jetpack Compose / Miuix，包名 `seeyuer.sayin`。
 - Windows：Rust / GPUI / Yue-GPUI-Component，桌面程序 `sayin.exe`。
 - 主题：`#1f75db`，其他界面颜色使用 Yue neutral；简体中文、English 和跟随系统。
 - 项目图标：用户选定的 [SayIn B-field](assets/sayin-icons/README.md)，F-yan 保留为源方案。

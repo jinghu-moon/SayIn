@@ -79,14 +79,14 @@ internal fun MobileHistoryPage(state: ClientState, action: (String, String) -> U
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon((if (item.state == "injected") VoiceLinkIcon.Check else if (item.state in setOf("uncertain", "review", "failed")) VoiceLinkIcon.Alert else VoiceLinkIcon.Computer).vector,
                     null, Modifier.size(18.dp))
-                Text(stringResource(receiptText(item.state)), Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
+                Text(stringResource(if (item.state == "uploading") R.string.image_uploading else receiptText(item.state)), Modifier.weight(1f), fontSize = 13.sp, fontWeight = FontWeight.Medium)
                 WindowIconDropdownMenu(DropdownEntry(listOf(DropdownItem(stringResource(R.string.history_details), onClick = { detailId = item.id }))),
                     Modifier.size(48.dp).testTag("history-more-${item.id}"), minHeight = 48.dp, minWidth = 48.dp) {
                     Icon(VoiceLinkIcon.More.vector, stringResource(R.string.history_details), Modifier.size(22.dp))
                 }
             }
             val text = state.historyText[item.id]
-            Text(text ?: stringResource(R.string.history_text_unavailable), fontSize = 17.sp, lineHeight = 27.sp,
+            Text(if (item.kind == "image") stringResource(R.string.image_history) else text ?: stringResource(R.string.history_text_unavailable), fontSize = 17.sp, lineHeight = 27.sp,
                 maxLines = 4, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.testTag("history-text-${item.id}"))
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -107,8 +107,8 @@ internal fun MobileHistoryPage(state: ClientState, action: (String, String) -> U
         if (detail != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.history_details), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Text(state.historyText[detail.id] ?: stringResource(R.string.history_text_unavailable), fontSize = 18.sp, lineHeight = 28.sp)
-            Caption(stringResource(receiptText(detail.state)))
+            Text(if (detail.kind == "image") stringResource(R.string.image_history) else state.historyText[detail.id] ?: stringResource(R.string.history_text_unavailable), fontSize = 18.sp, lineHeight = 28.sp)
+            Caption(stringResource(if (detail.kind == "image" && detail.state == "injected") R.string.image_paste_submitted else receiptText(detail.state)))
             Caption(formatter.format(Date(detail.createdAt)))
             Caption(stringResource(R.string.operation_label, detail.id))
             HistoryRecovery(detail, state, action)
@@ -130,7 +130,8 @@ private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (Strin
         Action(R.string.discard_request) { action(item.id, "discard") }
     }
     if (item.state in setOf("saved", "accepted", "executing")) Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.id, "query") }
-    if (item.state == "held") Action(R.string.release_request, state.ready) { action(item.id, "release") }
+    if (item.state == "held" && item.kind == "image") Caption(stringResource(R.string.image_held))
+    if (item.state == "held" && item.kind != "image") Action(R.string.release_request, state.ready) { action(item.id, "release") }
     if (item.state in setOf("held", "accepted")) Action(R.string.cancel_request, state.connection == Connection.ONLINE) { action(item.id, "cancel") }
     if (item.state == "uncertain") Notice(stringResource(R.string.uncertain_warning), VoiceLinkIcon.Alert)
 }

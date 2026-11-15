@@ -1,0 +1,308 @@
+//! File commit precedes the receipt transaction. Only ciphertext touches disk.
+use super::{ImageMetadata, ImageReference, MAX_IMAGE_BYTES};
+use crate::{
+    Error, Result,
+    ledger::Protector,
+    protocol::{strict_json, validate_uuid},
+};
+use atomic_write_file::AtomicWriteFile;
+use serde::{Deserialize, Serialize};
+use std::{
+    fs,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    },
+};
+use uuid::Uuid;
+use zeroize::Zeroizing;
+
+const MAGIC: &[u8; 8] = b"SIIMAGE1";
+const MAX_ENVELOPE: usize = 4096;
+const MAX_PROTECTED: u64 = MAX_IMAGE_BYTES as u64 + 65536;
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Envelope {
+    host_id: String,
+    device_id: String,
+    resource: ImageReference,
+}
+
+#[derive(Clone)]
+pub struct ImageStore {
+    directory: PathBuf,
+    host: String,
+    transient: Arc<Transient>,
+    cleanup: std::sync::mpsc::SyncSender<(PathBuf, Arc<Transient>)>,
+    retired: Arc<Retired>,
+}
+struct Retired {
+    tasks: std::sync::mpsc::SyncSender<(String, PathBuf)>,
+    completed: std::sync::Mutex<std::sync::mpsc::Receiver<(String, bool)>>,
+    outstanding: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+#[derive(Default)]
+struct Transient {
+    count: AtomicUsize,
+    blocked: AtomicBool,
+}
+
+/// The last unaccepted owner removes its ciphertext, even if a blocking job's
+/// awaiting future was canceled. The reservation also bounds abandoned jobs.
+#[derive(Clone)]
+pub struct PreparedResource(Arc<PreparedOwner>);
+struct PreparedOwner {
+    store: ImageStore,
+    image: ImageReference,
+    accepted: AtomicBool,
+}
+impl PreparedResource {
+    pub fn image(&self) -> &ImageReference {
+        &self.0.image
+    }
+    pub(crate) fn belongs_to(&self, store: &ImageStore) -> bool {
+        Arc::ptr_eq(&self.0.store.transient, &store.transient)
+    }
+    pub(crate) fn accept(&self) {
+        self.0.accepted.store(true, Ordering::Release);
+    }
+}
+impl Drop for PreparedOwner {
+    fn drop(&mut self) {
+        if !self.accepted.load(Ordering::Acquire) {
+            // No filesystem work on the ledger or network runtime thread.
+            let task = (
+                self.store
+                    .path(&self.image.resource_id)
+                    .expect("validated resource"),
+                self.store.transient.clone(),
+            );
+            if self.store.cleanup.try_send(task).is_err() {
+                self.store.transient.blocked.store(true, Ordering::Release);
+            }
+        } else {
+            self.store.transient.count.fetch_sub(1, Ordering::AcqRel);
+        }
+    }
+}
+impl ImageStore {
+    /// Caller supplies a private, ACL-restricted directory inside its own host namespace.
+    pub fn open(directory: &Path, host: &str) -> Result<Self> {
+        validate_uuid(host)?;
+        fs::create_dir_all(directory)?;
+        let (cleanup, tasks) = std::sync::mpsc::sync_channel::<(PathBuf, Arc<Transient>)>(2);
+        std::thread::Builder::new()
+            .name("sayin-image-cleanup".into())
+            .spawn(move || {
+                while let Ok((path, state)) = tasks.recv() {
+                    if let Err(error) = fs::remove_file(path)
+                        && error.kind() != std::io::ErrorKind::NotFound
+                    {
+                        state.blocked.store(true, Ordering::Release);
+                    }
+                    state.count.fetch_sub(1, Ordering::AcqRel);
+                }
+            })?;
+        let (retire, retired) = std::sync::mpsc::sync_channel::<(String, PathBuf)>(2);
+        let (done, completed) = std::sync::mpsc::sync_channel(2);
+        std::thread::Builder::new()
+            .name("sayin-image-retention".into())
+            .spawn(move || {
+                while let Ok((id, path)) = retired.recv() {
+                    let removed = match fs::remove_file(&path) {
+                        Ok(()) => true,
+                        Err(error) => error.kind() == std::io::ErrorKind::NotFound,
+                    };
+                    // Failed unlinks remain in the durable garbage table and
+                    // are retried on the next maintenance pass.
+                    if done.send((id, removed)).is_err() {
+                        break;
+                    }
+                }
+            })?;
+        Ok(Self {
+            directory: directory.to_path_buf(),
+            host: host.to_owned(),
+            transient: Arc::new(Transient::default()),
+            cleanup,
+            retired: Arc::new(Retired {
+                tasks: retire,
+                completed: std::sync::Mutex::new(completed),
+                outstanding: std::sync::Mutex::new(std::collections::HashSet::new()),
+            }),
+        })
+    }
+    fn path(&self, id: &str) -> Result<PathBuf> {
+        validate_uuid(id)?;
+        Ok(self.directory.join(format!("{id}.image")))
+    }
+    /// Includes cleanup jobs until their unlink attempt has completed.
+    pub fn transient_count(&self) -> usize {
+        self.transient.count.load(Ordering::Acquire)
+    }
+    pub fn contains(&self, id: &str) -> Result<bool> {
+        Ok(self.path(id)?.is_file())
+    }
+    pub(crate) fn retire(&self, id: &str) -> Result<()> {
+        let path = self.path(id)?;
+        let mut outstanding = self.retired.outstanding.lock().expect("retirement lock");
+        if outstanding.len() >= 2 || outstanding.contains(id) {
+            return Ok(());
+        }
+        if self.retired.tasks.try_send((id.to_owned(), path)).is_ok() {
+            outstanding.insert(id.to_owned());
+        }
+        Ok(())
+    }
+    pub(crate) fn retired(&self) -> Vec<String> {
+        let mut successful = Vec::new();
+        let completed = self.retired.completed.lock().expect("retirement lock");
+        let mut outstanding = self.retired.outstanding.lock().expect("retirement lock");
+        while let Ok((id, removed)) = completed.try_recv() {
+            outstanding.remove(&id);
+            if removed {
+                successful.push(id);
+            }
+        }
+        successful
+    }
+    pub fn prepare(
+        &self,
+        device: &str,
+        metadata: ImageMetadata,
+        bytes: &[u8],
+        protector: &dyn Protector,
+    ) -> Result<PreparedResource> {
+        if self.transient.blocked.load(Ordering::Acquire) {
+            return Err(Error::Protocol("IMAGE_STORAGE_BLOCKED"));
+        }
+        self.transient
+            .count
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < 2).then_some(n + 1)
+            })
+            .map_err(|_| Error::Protocol("IMAGE_UPLOAD_LIMIT"))?;
+        match self.write(device, metadata, bytes, protector) {
+            Ok(image) => Ok(PreparedResource(Arc::new(PreparedOwner {
+                store: self.clone(),
+                image,
+                accepted: AtomicBool::new(false),
+            }))),
+            Err(error) => {
+                self.transient.count.fetch_sub(1, Ordering::AcqRel);
+                Err(error)
+            }
+        }
+    }
+    /// Off the coordinator/UI thread. A successful return means protected bytes
+    /// were synced and atomically published, NOT that a receipt was accepted.
+    pub fn write(
+        &self,
+        device: &str,
+        metadata: ImageMetadata,
+        bytes: &[u8],
+        protector: &dyn Protector,
+    ) -> Result<ImageReference> {
+        validate_uuid(device)?;
+        metadata.verify_image(bytes)?;
+        let resource = ImageReference {
+            resource_id: Uuid::new_v4().to_string(),
+            metadata,
+        };
+        let envelope = serde_json::to_vec(&Envelope {
+            host_id: self.host.clone(),
+            device_id: device.to_owned(),
+            resource: resource.clone(),
+        })
+        .map_err(|_| Error::Protocol("IMAGE_ENCODING"))?;
+        if envelope.len() > MAX_ENVELOPE {
+            return Err(Error::Protocol("IMAGE_ENCODING"));
+        }
+        let mut plaintext = Zeroizing::new(Vec::with_capacity(12 + envelope.len() + bytes.len()));
+        plaintext.extend_from_slice(MAGIC);
+        plaintext.extend_from_slice(&(envelope.len() as u32).to_be_bytes());
+        plaintext.extend_from_slice(&envelope);
+        plaintext.extend_from_slice(bytes);
+        // Current-user DPAPI is authenticated encryption, already used by the
+        // ledger. A bounded 10MiB resource needs no second key hierarchy.
+        let protected = protector.protect(&plaintext)?;
+        if protected.len() as u64 > MAX_PROTECTED {
+            return Err(Error::Protocol("IMAGE_PROTECTED_LIMIT"));
+        }
+        let path = self.path(&resource.resource_id)?;
+        if path.exists() {
+            return Err(Error::Protocol("IMAGE_ID_CONFLICT"));
+        }
+        let mut file = AtomicWriteFile::open(path)?;
+        file.write_all(&protected)?;
+        file.sync_all()?;
+        file.commit()?;
+        Ok(resource)
+    }
+    pub fn read(
+        &self,
+        device: &str,
+        resource: &ImageReference,
+        protector: &dyn Protector,
+    ) -> Result<Zeroizing<Vec<u8>>> {
+        validate_uuid(device)?;
+        resource.validate()?;
+        let path = self.path(&resource.resource_id)?;
+        let mut protected = Vec::new();
+        fs::File::open(path)?
+            .take(MAX_PROTECTED + 1)
+            .read_to_end(&mut protected)?;
+        if protected.len() as u64 > MAX_PROTECTED {
+            return Err(Error::Protocol("IMAGE_PROTECTED_LIMIT"));
+        }
+        let plaintext = protector.unprotect(&protected)?;
+        if plaintext.len() < 12 || &plaintext[..8] != MAGIC {
+            return Err(Error::Protocol("IMAGE_STORAGE_FORMAT"));
+        }
+        let size = u32::from_be_bytes(plaintext[8..12].try_into().expect("fixed slice")) as usize;
+        if size > MAX_ENVELOPE || 12 + size > plaintext.len() {
+            return Err(Error::Protocol("IMAGE_STORAGE_FORMAT"));
+        }
+        let envelope: Envelope = serde_json::from_value(strict_json(&plaintext[12..12 + size])?)
+            .map_err(|_| Error::Protocol("IMAGE_STORAGE_FORMAT"))?;
+        if envelope.host_id != self.host
+            || envelope.device_id != device
+            || envelope.resource != *resource
+        {
+            return Err(Error::Protocol("IMAGE_RESOURCE_SCOPE"));
+        }
+        let bytes = Zeroizing::new(plaintext[12 + size..].to_vec());
+        resource.metadata.verify_bytes(&bytes)?;
+        Ok(bytes)
+    }
+    pub fn remove(&self, id: &str) -> Result<()> {
+        match fs::remove_file(self.path(id)?) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+    /// Startup only, before upload tasks exist. No scan on the accept hot path.
+    pub fn clean_orphans(&self, mut referenced: impl FnMut(&str) -> Result<bool>) -> Result<()> {
+        for entry in fs::read_dir(&self.directory)? {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
+                return Err(Error::Protocol("IMAGE_STORAGE_LAYOUT"));
+            }
+            let name = entry.file_name();
+            let id = name.to_str().and_then(|s| s.strip_suffix(".image"));
+            let keep = if let Some(id) = id.filter(|id| validate_uuid(id).is_ok()) {
+                referenced(id)?
+            } else {
+                false
+            };
+            if !keep {
+                fs::remove_file(entry.path())?;
+            }
+        }
+        Ok(())
+    }
+}

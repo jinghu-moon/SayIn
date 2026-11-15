@@ -98,6 +98,7 @@ impl Coordinator {
 }
 
 struct Handle {
+    image_store: Option<crate::images::storage::ImageStore>,
     sender: mpsc::SyncSender<Command>,
     paused: Arc<InputGate>,
     closed: AtomicBool,
@@ -127,6 +128,7 @@ pub struct Receiver {
 impl Receiver {
     /// Ledger creation/opening belongs off the GUI thread at service startup.
     pub fn start(ledger: Ledger, mut adapter: impl InputAdapter) -> Result<Self> {
+        let image_store = ledger.image_store.clone();
         let (sender, commands) = mpsc::sync_channel::<Command>(64);
         let (input, jobs) = mpsc::sync_channel::<Work>(1);
         let paused = Arc::new(InputGate::new());
@@ -138,7 +140,9 @@ impl Receiver {
                 while let Ok(work) = jobs.recv() {
                     let job = match work {
                         Work::Prepare(job) => {
-                            let result = if input_paused.is_paused() {
+                            let result = if !job.image_authorized() {
+                                Err("image_session_ended")
+                            } else if input_paused.is_paused() {
                                 Err("paused")
                             } else {
                                 std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -161,7 +165,11 @@ impl Receiver {
                         }
                         Work::Execute(job) => job,
                     };
-                    let outcome = if input_paused.is_paused() {
+                    let outcome = if !job.image_authorized() {
+                        InputOutcome::Failed {
+                            reason: "image_session_ended",
+                        }
+                    } else if input_paused.is_paused() {
                         InputOutcome::Failed {
                             reason: "paused_before_input",
                         }
@@ -271,6 +279,7 @@ impl Receiver {
         })?;
         Ok(Self {
             handle: Arc::new(Handle {
+                image_store,
                 sender,
                 paused,
                 closed: AtomicBool::new(false),
@@ -333,6 +342,33 @@ impl Receiver {
     }
     pub async fn review_history(&self) -> Result<Option<crate::history::HistoryEntry>> {
         self.call(|owner| owner.ledger.review_history()).await
+    }
+    /// Resolve a still-visible, authenticated history reference on the ledger
+    /// owner. File decryption/decoding belongs on the caller's background worker.
+    pub async fn history_image(
+        &self,
+        order: i64,
+    ) -> Result<Option<(String, crate::images::ImageReference)>> {
+        self.call(move |owner| {
+            let query = crate::history::HistoryQuery {
+                before: order.checked_add(1),
+                limit: 1,
+                ..Default::default()
+            };
+            let page = owner.ledger.history(&query)?;
+            Ok(page
+                .entries
+                .into_iter()
+                .find(|e| e.receipt.order == order.to_string())
+                .and_then(|e| {
+                    if let Some(crate::protocol::Operation::Image { image }) = e.operation {
+                        Some((e.device, image))
+                    } else {
+                        None
+                    }
+                }))
+        })
+        .await
     }
 
     pub async fn history_policy(&self) -> Result<crate::history::HistoryPolicy> {
@@ -428,6 +464,27 @@ impl Receiver {
     }
     pub async fn submit(&self, session: Session, submit: Submit) -> Result<Receipt> {
         self.mutate(move |owner| owner.ledger.submit(&session, &submit))
+            .await
+    }
+    pub fn image_store(&self) -> Option<crate::images::storage::ImageStore> {
+        self.handle.image_store.clone()
+    }
+    pub async fn register_image(
+        &self,
+        session: Session,
+        scope: crate::images::wire::UploadScope,
+        image: crate::images::storage::PreparedResource,
+        authorization: Arc<crate::images::ImageAuthorization>,
+    ) -> Result<()> {
+        self.call(move |owner| {
+            owner
+                .ledger
+                .register_image(&session, scope, image, authorization)
+        })
+        .await
+    }
+    pub async fn discard_image(&self, session: Session, id: String) -> Result<bool> {
+        self.call(move |owner| owner.ledger.discard_image(&session, &id))
             .await
     }
     pub async fn query(&self, session: Session, id: String) -> Result<Option<Receipt>> {

@@ -1,0 +1,14 @@
+{
+  "model": "hy-mt2-1.8b-q4",
+  "modelSha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+  "device": "M2012K11AC",
+  "asrWeightsCoResident": true,
+  "sdk": 33,
+  "debuggable": true,
+  "preparation": "verified local import",
+  "preparationMs": 1467,
+  "firstMs": 1496,
+  "totalMs": 2392,
+  "procStatus": "VmPeak:\t10344520 kB\nVmSize:\t 9124752 kB\nVmLck:\t       0 kB\nVmPin:\t       0 kB\nVmHWM:\t 2324984 kB\nVmRSS:\t  947656 kB\nVmData:\t 3802796 kB\nVmStk:\t    8192 kB\nVmExe:\t      16 kB\nVmLib:\t  180064 kB\nVmPTE:\t    4472 kB\nVmSwap:\t    4892 kB",
+  "passed": true
+}

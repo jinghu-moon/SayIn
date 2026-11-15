@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -59,6 +60,7 @@ internal fun SpeakPage(
     onExpand: () -> Unit = {},
     onDismiss: () -> Unit = {},
     onRequestAction: (String, String) -> Unit = { _, _ -> },
+    onImage: () -> Unit = {},
 ) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -159,6 +161,11 @@ internal fun SpeakPage(
         val tight = maxHeight < 430.dp
         val smallControls = tight || quick
         val collapsedSources = tight && (WindowInsets.ime.getBottom(LocalDensity.current) > 0 || maxHeight < 220.dp)
+        // Font scaling and a tall landscape IME consume real editor space.
+        // Fold secondary actions before they can displace a complete text line.
+        val fontScale = LocalDensity.current.fontScale
+        val collapsedTranslation = collapsedSources || maxHeight < 300.dp * fontScale
+        val minimalDetails = maxHeight < 120.dp * fontScale
         Column(Modifier.fillMaxSize().padding(horizontal = if (quick) 12.dp else 16.dp, vertical = if (tight) 0.dp else 8.dp)
             .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(28.dp))) {
             Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (tight) 12.dp else 18.dp)) {
@@ -198,7 +205,7 @@ internal fun SpeakPage(
                             }
                         })
                 }
-                if (!collapsedSources) TranslationControls(session, smallControls, ::translate)
+                if (!collapsedTranslation) TranslationControls(session, smallControls, ::translate)
                 if (activeCountdown != null) Row(Modifier.fillMaxWidth().testTag("auto-countdown"), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.speak_countdown, session.secondsRemaining), Modifier.weight(1f), fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.primary)
@@ -206,7 +213,7 @@ internal fun SpeakPage(
                         Modifier.testTag("cancel-auto-send"), minHeight = 48.dp, colors = plainTextButtonColors())
                 }
                 if (!tight) HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                Row(Modifier.fillMaxWidth().padding(vertical = if (tight) 0.dp else 6.dp), verticalAlignment = Alignment.CenterVertically,
+                if (!minimalDetails) Row(Modifier.fillMaxWidth().padding(vertical = if (tight) 0.dp else 6.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (preparing) CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
                     else if (source == SpeakInputSource.Local && session.model == LocalModelPhase.Ready && !asr.busy && asr.issue == null)
@@ -252,13 +259,15 @@ internal fun SpeakPage(
                     color = MiuixTheme.colorScheme.error)
             }
             Column(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .padding(horizontal = 12.dp, vertical = if (tight) 4.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(if (tight) 4.dp else 10.dp)) {
+                .padding(horizontal = 12.dp, vertical = if (minimalDetails) 0.dp else if (tight) 4.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(if (tight) 4.dp else 10.dp)) {
                 if (!quick && !collapsedSources) InputSourcePicker(source, !session.busy && !session.requestLocked, tight) {
                     session.selectSource(it); focusManager.clearFocus(); keyboard?.hide(); showPreview = false
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         val menu = buildList {
+                            add(DropdownItem(stringResource(R.string.image_choose), enabled = state.paired && state.storageHealthy && !session.busy && !session.requestLocked,
+                                onClick = { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); onImage() }))
                             if (session.busy) add(DropdownItem(stringResource(R.string.speak_abort), onClick = { session.cancelRecording() }))
                             else add(DropdownItem(stringResource(R.string.speak_clear_draft), enabled = draft.text.isNotEmpty() && !session.requestLocked && !session.draftRestoring,
                                 onClick = { session.clearDraft() }))
@@ -271,7 +280,7 @@ internal fun SpeakPage(
                             if (quick || collapsedSources) {
                                 add(DropdownItem(stringResource(R.string.speak_source_title), enabled = !session.busy && !session.requestLocked, onClick = { showSources = true }))
                             }
-                            if (collapsedSources) {
+                            if (collapsedTranslation) {
                                 if (session.translation.ticket != null) {
                                     add(DropdownItem(stringResource(R.string.translation_original), selected = !session.translationShown, onClick = { session.showTranslation(false) }))
                                     add(DropdownItem(stringResource(R.string.translation_english), selected = session.translationShown, onClick = { session.showTranslation(true) }))
@@ -359,10 +368,11 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val showIcons = !compact && maxWidth >= 320.dp * fontScale
         Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-            .padding(4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            .padding(4.dp).horizontalScroll(rememberScrollState()).selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
             SpeakInputSource.entries.forEach { item ->
                 val selected = source == item
-                Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                Row(Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp)
                     .background(if (selected) MiuixTheme.colorScheme.surfaceContainer else Color.Transparent, RoundedCornerShape(12.dp))
                     .selectable(selected, enabled = enabled, role = Role.Tab, onClick = { onSelect(item) })
                     .testTag("input-source-${item.name}").padding(horizontal = if (showIcons) 8.dp else 2.dp, vertical = 8.dp),
@@ -372,7 +382,7 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
                         null, Modifier.size(18.dp), tint = color)
                     if (showIcons) Spacer(Modifier.width(8.dp))
                     Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_source_local_short else sourceLabel(item)),
-                        modifier = Modifier.testTag("input-source-label-${item.name}"),
+                        modifier = Modifier.width(IntrinsicSize.Max).testTag("input-source-label-${item.name}"),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         fontSize = if (compact) 12.sp else 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = color)
                 }

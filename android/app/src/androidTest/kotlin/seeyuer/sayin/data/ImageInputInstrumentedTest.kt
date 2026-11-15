@@ -1,0 +1,184 @@
+package seeyuer.sayin.data
+
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.core.content.FileProvider
+import androidx.room.Room
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.util.UUID
+
+@RunWith(AndroidJUnit4::class)
+class ImageInputInstrumentedTest {
+    @Test fun jpegAllExifOrientationsAreAppliedOnceAndMetadataIsRemoved() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        check(context.packageName.endsWith(".imagetest"))
+        val file = File(context.cacheDir, "exif-${UUID.randomUUID()}.jpg")
+        val colors = intArrayOf(0xffff0000.toInt(), 0xff00ff00.toInt(), 0xff0000ff.toInt(), 0xffffff00.toInt())
+        val expected = arrayOf(intArrayOf(0,1,2,3), intArrayOf(1,0,3,2), intArrayOf(3,2,1,0), intArrayOf(2,3,0,1),
+            intArrayOf(0,2,1,3), intArrayOf(2,0,3,1), intArrayOf(3,1,2,0), intArrayOf(1,3,0,2))
+        val bitmap = Bitmap.createBitmap(96,64,Bitmap.Config.ARGB_8888)
+        for (y in 0 until 64) for (x in 0 until 96) bitmap.setPixel(x,y,colors[(if(y>=32)2 else 0)+(if(x>=48)1 else 0)])
+        try {
+            for (orientation in 1..8) {
+                file.outputStream().use { assertTrue(bitmap.compress(Bitmap.CompressFormat.JPEG,100,it)) }
+                androidx.exifinterface.media.ExifInterface(file).apply {
+                    setAttribute(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,orientation.toString())
+                    setLatLong(30.0,120.0);saveAttributes()
+                }
+                prepareMobileImage(file.readBytes()).use { prepared ->
+                    assertEquals(if(orientation>=5)64 else 96,prepared.metadata.width)
+                    assertEquals(if(orientation>=5)96 else 64,prepared.metadata.height)
+                    val decoded = BitmapFactory.decodeByteArray(prepared.bytes,0,prepared.bytes.size)
+                    try {
+                        val points = arrayOf(8 to 8, decoded.width-9 to 8, 8 to decoded.height-9, decoded.width-9 to decoded.height-9)
+                        points.forEachIndexed { index, (x,y) ->
+                            val actual=decoded.getPixel(x,y);val wanted=colors[expected[orientation-1][index]]
+                            for(shift in intArrayOf(0,8,16)) assertTrue("EXIF $orientation corner $index",kotlin.math.abs((actual ushr shift and 255)-(wanted ushr shift and 255))<24)
+                        }
+                    } finally { decoded.recycle() }
+                    val exif=androidx.exifinterface.media.ExifInterface(prepared.bytes.inputStream())
+                    assertNull(exif.latLong)
+                    // Re-encoded pixels are already upright. An absent/undefined
+                    // orientation is valid too; no transform may remain in EXIF.
+                    val outputOrientation = exif.getAttributeInt(
+                        androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                        androidx.exifinterface.media.ExifInterface.ORIENTATION_UNDEFINED,
+                    )
+                    assertTrue(outputOrientation in setOf(
+                        androidx.exifinterface.media.ExifInterface.ORIENTATION_UNDEFINED,
+                        androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL,
+                    ))
+                }
+                val truncated=file.readBytes().let { it.copyOf(it.size-2) }
+                assertThrows(IllegalArgumentException::class.java) { prepareMobileImage(truncated) }
+            }
+        } finally { bitmap.recycle();file.delete() }
+    }
+    private fun png(): ByteArray {
+        val bitmap=Bitmap.createBitmap(3,2,Bitmap.Config.ARGB_8888)
+        bitmap.setPixel(0,0,0x804060ff.toInt())
+        return try { ByteArrayOutputStream().use { output -> assertTrue(bitmap.compress(Bitmap.CompressFormat.PNG,100,output)); output.toByteArray() } }
+        finally { bitmap.recycle() }
+    }
+
+    @Test fun actualBitmapPreparationAndKeystoreFilesPreserveFrozenPixelsAndRejectWrongIdentity() {
+        val target=InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName.endsWith(".imagetest")) { "Use the isolated imageTest application" }
+        val directory=File(target.noBackupFilesDir,"image-files-${UUID.randomUUID()}")
+        val store=ProtectedStore(target)
+        val files=ImageFiles(directory,store::encryptImage,store::decryptImage)
+        val host=UUID.randomUUID().toString();val device=UUID.randomUUID().toString()
+        val source=png()
+        try {
+            prepareMobileImage(source).use { prepared ->
+                assertEquals(3,prepared.metadata.width);assertEquals(2,prepared.metadata.height)
+                val bitmap=BitmapFactory.decodeByteArray(prepared.bytes,0,prepared.bytes.size)
+                assertEquals(0x804060ff.toInt(),bitmap.getPixel(0,0));bitmap.recycle()
+                val reference=files.write(host,device,prepared.metadata,prepared.bytes)
+                val ciphertext=directory.resolve("${reference.resourceId}.image").readBytes()
+                assertFalse(ciphertext.contentEquals(prepared.bytes))
+                val restored=ImageFiles(directory,store::encryptImage,store::decryptImage).read(host,device,reference)
+                assertArrayEquals(prepared.bytes,restored);restored.fill(0)
+                assertThrows(IllegalArgumentException::class.java) { files.read(UUID.randomUUID().toString(),device,reference) }
+                assertThrows(IllegalArgumentException::class.java) { files.read(host,UUID.randomUUID().toString(),reference) }
+                ciphertext[ciphertext.lastIndex]=(ciphertext.last().toInt() xor 1).toByte()
+                directory.resolve("${reference.resourceId}.image").writeBytes(ciphertext)
+                assertThrows(Exception::class.java) { files.read(host,device,reference) }
+            }
+            assertThrows(IllegalArgumentException::class.java) { prepareMobileImage("not an image".toByteArray()) }
+        } finally { source.fill(0);directory.deleteRecursively() }
+    }
+
+    @Test fun schemaUpgradeKeepsExistingOutboxAndSeparatesImageQuotaFromText() = runBlocking {
+        val target=InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName.endsWith(".imagetest"))
+        val name="image-migration-${UUID.randomUUID()}.db"
+        val id=UUID.randomUUID().toString();val host=UUID.randomUUID().toString();val device=UUID.randomUUID().toString()
+        target.openOrCreateDatabase(name,0,null).use { db ->
+            db.execSQL("CREATE TABLE outbox (id TEXT NOT NULL PRIMARY KEY,hostId TEXT NOT NULL,deviceId TEXT NOT NULL,target TEXT NOT NULL,payload BLOB,byteCount INTEGER NOT NULL,state TEXT NOT NULL,`order` TEXT,reason TEXT,createdAt INTEGER NOT NULL,transcript BLOB)")
+            db.execSQL("INSERT INTO outbox VALUES(?,?,?,'scope',?,2,'saved',NULL,NULL,1,?)",arrayOf(id,host,device,byteArrayOf(1,2),byteArrayOf(3,4)))
+            db.version=2
+        }
+        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES).build()
+        try {
+            val dao=database.outbox();val original=checkNotNull(dao.find(id,host,device))
+            assertEquals("text",original.kind);assertArrayEquals(byteArrayOf(1,2),original.payload)
+            assertArrayEquals(byteArrayOf(3,4),original.transcript)
+            val image=OutboxItem(UUID.randomUUID().toString(),host,device,"scope",byteArrayOf(7),0,"uploading",null,null,2,
+                kind="image",imageResource=UUID.randomUUID().toString(),imageReference=byteArrayOf(8),imageByteCount=MAX_IMAGE_BYTES)
+            dao.enqueue(image)
+            assertEquals(2,dao.pendingBytes());assertEquals(MAX_IMAGE_BYTES,dao.pendingImageBytes())
+            try { dao.enqueue(image.copy(id=UUID.randomUUID().toString()));fail("Second pending image must be refused") } catch (_: IllegalStateException) { }
+            dao.status(image.id,host,device,"cancelled",null,"image_not_submitted",true)
+            assertEquals(0,dao.pendingImages());assertEquals(2,dao.pendingBytes())
+        } finally { database.close();target.deleteDatabase(name) }
+    }
+
+    @Test fun pinnedDualWssImageAndCancellationAndRestartNeverReplay() = runBlocking {
+        val args=InstrumentationRegistry.getArguments()
+        val code=args.getString("fixtureCode");assumeTrue("Run the isolated --images fixture",code!=null)
+        val target=InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName.endsWith(".imagetest"))
+        val namespace="image-transport-${UUID.randomUUID()}-"
+        val context=object:ContextWrapper(target) {
+            override fun getApplicationContext(): Context=this
+            override fun getDatabasePath(name:String)=target.getDatabasePath(namespace+name)
+            override fun getSharedPreferences(name:String,mode:Int)=target.getSharedPreferences(namespace+name,mode)
+        }
+        val source=File(target.filesDir,"test-images/${UUID.randomUUID()}.png").apply { parentFile!!.mkdirs();writeBytes(png()) }
+        var repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()})
+        suspend fun waitFor(predicate:(ClientState)->Boolean):ClientState=withTimeout(15000) {
+            while(!predicate(repository.state.value)) { check(repository.state.value.storageHealthy);delay(20) }
+            repository.state.value
+        }
+        try {
+            waitFor{it.connection==Connection.OFFLINE};repository.foreground(true)
+            repository.pairCode(args.getString("fixtureAddress")?:"127.0.0.1",args.getString("fixturePort")?:"17889",code!!)
+            waitFor{it.ready&&it.imageSupported}
+            repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
+            val prepared=waitFor{it.imageDraft!=null&&!it.imagePreparing}
+            val image=checkNotNull(prepared.imageDraft).image
+            repository.sendImage(image.resourceId)
+            val delivered=waitFor{it.history.any{row->row.kind=="image"&&row.state=="injected"}}
+            val first=delivered.history.single()
+            assertNull(first.payload);assertEquals("image",first.kind);assertNotNull(first.imageReference)
+            assertEquals(0,first.byteCount);assertEquals(image.resourceId,first.imageResource)
+            repository.sendImage(image.resourceId);repository.cancelImage()
+            waitFor{it.history.any{row->row.state=="cancelled"&&row.reason=="image_not_submitted"}}
+            assertEquals(2,repository.state.value.history.size)
+            val paired=PairedHost(checkNotNull(ProtectedStore(context).load()))
+            repository.foreground(false);waitFor{it.connection==Connection.OFFLINE};repository.close();delay(200)
+            val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").build()
+            val pendingId=UUID.randomUUID().toString()
+            try {
+                database.outbox().enqueue(OutboxItem(pendingId,paired.hostId,paired.deviceId,checkNotNull(prepared.target),
+                    ProtectedStore(context).encrypt("{\"kind\":\"image_pending\"}".toByteArray()),0,"uploading",null,null,System.currentTimeMillis(),
+                    kind="image",imageResource=image.resourceId,imageReference=first.imageReference,imageByteCount=image.metadata.bytes))
+            } finally {database.close()}
+            repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()})
+            waitFor{it.connection==Connection.OFFLINE};repository.foreground(true)
+            val restored=waitFor{it.ready&&!it.recovering&&it.history.any{row->row.id==pendingId&&row.state=="review"}}
+            assertNotNull(restored.imageDraft);assertEquals(image,restored.imageDraft!!.image)
+            assertNotNull(restored.history.single{it.id==pendingId}.payload)
+            repository.action(pendingId,"retry");delay(250)
+            assertEquals("review",repository.state.value.history.single{it.id==pendingId}.state)
+            assertEquals(1,repository.state.value.history.count{it.state=="injected"})
+        } finally {
+            repository.close();delay(200)
+            target.deleteDatabase(namespace+"outbox.db");target.deleteSharedPreferences(namespace+"paired_host")
+            File(target.noBackupFilesDir,"images/${namespace}outbox").deleteRecursively();source.delete()
+        }
+    }
+}

@@ -22,6 +22,7 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
+import seeyuer.sayin.R
 import seeyuer.sayin.asr.*
 import seeyuer.sayin.data.*
 import seeyuer.sayin.designsystem.VoiceLinkTheme
@@ -41,13 +42,14 @@ class TranslationUiInstrumentedTest {
         val result = CompletableDeferred<TranslationResult>()
         var partial: (String) -> Unit = {}
         var calls = 0
+        var releases = 0
         override suspend fun translate(file: File, model: TranslationModel, source: String, threads: Int, outputLimit: Int, timeoutMillis: Int,
             onProgress: (TranslationProgress) -> Unit, onPartial: (String) -> Unit): TranslationResult {
             calls++; partial = onPartial
             return withContext(NonCancellable) { result.await() }
         }
         override fun cancel() { result.complete(TranslationResult(TranslationEnd.Cancelled)) }
-        override suspend fun release() {}
+        override suspend fun release() { releases++ }
         override fun close() { cancel() }
     }
     private class Recognition : RecognitionEngine {
@@ -68,6 +70,8 @@ class TranslationUiInstrumentedTest {
         val store = TranslationModelStore(context, model, suffix)
         store.file.parentFile!!.mkdirs(); store.file.writeBytes(byteArrayOf(1, 2, 3))
         var quick by mutableStateOf(false)
+        var imageOpen by mutableStateOf(false)
+        var imageRequests = 0
         var sends = 0
         try {
             compose.setContent {
@@ -78,12 +82,13 @@ class TranslationUiInstrumentedTest {
                     SpeakSession(isolated, TextFieldValue("会议改到周六。\n请不要自动发送。😊"), recognition = Recognition(),
                         translator = engine, translationModel = model, modelStore = store).also {
                         session = it; it.selectSource(SpeakInputSource.Keyboard)
-                        it.updateReceiver(ClientState(connection = Connection.ONLINE, address = "127.0.0.1", active = true, paused = false, target = "target"))
+                        it.updateReceiver(ClientState(connection = Connection.ONLINE, address = "127.0.0.1", paired = true, active = true, paused = false, target = "target"))
                     }
                 }
                 VoiceLinkTheme {
                     Box(Modifier.size(360.dp, if (quick) 400.dp else 680.dp)) {
-                        SpeakPage(retained.receiver, retained, { if (retained.markSubmitted()) sends++ }, {}, quick = quick)
+                        SpeakPage(retained.receiver, retained, { if (retained.markSubmitted()) sends++ }, {},
+                            quick = quick, connectionOpen = imageOpen, onImage = { imageRequests++; imageOpen = true })
                     }
                 }
             }
@@ -99,6 +104,21 @@ class TranslationUiInstrumentedTest {
             compose.onNodeWithTag("draft").assertTextContains("The meeting", substring = true)
             compose.runOnIdle { assertEquals(1, engine.calls); assertEquals(0, sends) }
             screenshot("translation-quick")
+            var releasesBeforeImage = 0
+            compose.runOnIdle { releasesBeforeImage = engine.releases }
+            compose.onNodeWithTag("speak-more").performClick()
+            compose.onNodeWithText(context.getString(R.string.image_choose)).performClick()
+            compose.waitUntil(5000) { imageOpen }
+            // Opening the image sheet uses the same visibility handoff as production.
+            // A completed text translation survives background resource release.
+            compose.waitUntil(5000) { engine.releases > releasesBeforeImage && !session.translationStopping }
+            compose.runOnIdle {
+                assertEquals(1, imageRequests); assertEquals(0, sends); assertEquals(1, engine.calls)
+                assertTrue(session.translation.complete)
+                assertEquals("会议改到周六。\n请不要自动发送。😊", session.draft.text)
+                imageOpen = false
+            }
+            compose.onNodeWithTag("draft").assertTextContains("The meeting", substring = true)
             compose.onNodeWithTag("translation-original").performClick()
             compose.onNodeWithTag("draft").assertTextContains("会议改到周六", substring = true)
             compose.onNodeWithTag("translation-english").performClick()

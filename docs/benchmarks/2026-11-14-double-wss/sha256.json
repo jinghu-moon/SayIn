@@ -1,0 +1,7 @@
+{
+  "src/main.rs": "8bab691f424daa2765aa56958d633111cd5aba487aa61edb5f7c9466829b4acd",
+  "Cargo.lock": "379e0fc38ea15dda1d7a9d473172b4f1b7ae0bf778d02346465214834c756349",
+  "target/release/sayin-image-transport-bench.exe": "7612ff9847b3513fc3cb475f50fd42c892d36e27f97c87c24a56f6ac65219444",
+  "target/aarch64-linux-android/release/sayin-image-transport-bench": "b58d3e503ceedc751b57e99cd34ef63ced55d11fadd2fe55423eaeff13709539",
+  "results.jsonl.uncompressed": "ff952f03827d9a3bc6ac0aa108b186d01cd60924166e881903ad2fd1d427408b"
+}

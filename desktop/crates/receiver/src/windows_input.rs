@@ -177,9 +177,21 @@ impl ForegroundLease {
 pub struct NativeInput {
     prepared: Option<ForegroundLease>,
     application: Option<crate::history::TargetApplication>,
+    image_store: Option<crate::images::storage::ImageStore>,
+    image: Option<crate::images::payload::PreparedImage>,
+    clipboard_owner: Option<crate::windows_clipboard::ClipboardOwner>,
 }
 impl NativeInput {
+    pub fn with_images(store: crate::images::storage::ImageStore) -> Self {
+        Self {
+            image_store: Some(store),
+            ..Self::default()
+        }
+    }
     fn check(&self, job: &Execution) -> Result<()> {
+        if !job.image_authorized() {
+            return Err(Error::Protocol("IMAGE_SESSION_ENDED"));
+        }
         let lease = self
             .prepared
             .as_ref()
@@ -388,6 +400,25 @@ fn events(operation: &Operation) -> Vec<INPUT> {
             keyboard(VK_RETURN.0, false, false),
             keyboard(VK_RETURN.0, false, true),
         ],
+        Operation::Image { .. } => vec![
+            keyboard(VK_CONTROL.0, false, false),
+            keyboard(0x56, false, false),
+            keyboard(0x56, false, true),
+            keyboard(VK_CONTROL.0, false, true),
+        ],
+    }
+}
+
+/// Only release keys still down in the accepted prefix of our Ctrl+V batch.
+/// Never submit another key-down or release a key we did not press.
+fn paste_release_events(inserted: usize) -> Vec<INPUT> {
+    match inserted {
+        1 | 3 => vec![keyboard(VK_CONTROL.0, false, true)],
+        2 => vec![
+            keyboard(0x56, false, true),
+            keyboard(VK_CONTROL.0, false, true),
+        ],
+        _ => Vec::new(),
     }
 }
 
@@ -398,8 +429,29 @@ impl InputAdapter for NativeInput {
     fn preflight(&mut self, job: &Execution) -> std::result::Result<(), &'static str> {
         self.prepared = None;
         self.application = None;
+        self.image = None;
+        let mut prepared_image = None;
+        if let Operation::Image { image } = job.operation() {
+            let store = self.image_store.as_ref().ok_or("image_unavailable")?;
+            let bytes = store
+                .read(job.device(), image, &Dpapi)
+                .map_err(|_| "image_storage_failed")?;
+            prepared_image = Some(
+                image
+                    .metadata
+                    .prepare_image(&bytes)
+                    .map_err(|_| "image_invalid")?,
+            );
+            if self.clipboard_owner.is_none() {
+                self.clipboard_owner = Some(
+                    crate::windows_clipboard::ClipboardOwner::new()
+                        .map_err(|_| "clipboard_owner_failed")?,
+                );
+            }
+        }
         let foreground = foreground().map_err(preflight_reason)?;
         self.application = application_at(foreground).ok();
+        self.image = prepared_image;
         self.prepared = Some(ForegroundLease {
             device: job.device().into(),
             request: job.id().into(),
@@ -409,6 +461,7 @@ impl InputAdapter for NativeInput {
         Ok(())
     }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
+        let prepared_image = self.image.take();
         if gate.is_paused() {
             return InputOutcome::Failed {
                 reason: "paused_before_input",
@@ -420,14 +473,51 @@ impl InputAdapter for NativeInput {
             };
         }
         let mut events = events(job.operation());
+        let fence = gate.snapshot();
+        let published = if matches!(job.operation(), Operation::Image { .. }) {
+            let Some(image) = prepared_image.as_ref() else {
+                return InputOutcome::Failed {
+                    reason: "image_unprepared",
+                };
+            };
+            match crate::windows_clipboard::publish(
+                self.clipboard_owner
+                    .as_ref()
+                    .expect("prepared owner")
+                    .window(),
+                image,
+                || !gate.is_paused() && gate.snapshot() == fence && self.check(job).is_ok(),
+            ) {
+                Ok(published) => Some(published),
+                Err(failure) => {
+                    return InputOutcome::Failed {
+                        reason: if failure.clipboard_changed {
+                            "clipboard_changed_not_pasted"
+                        } else {
+                            "clipboard_unavailable"
+                        },
+                    };
+                }
+            }
+        } else {
+            None
+        };
         // Foreground/session checks can cross a thread boundary or take time.
         // Recheck a newly requested pause as close to SendInput as possible.
-        if gate.is_paused() {
+        if gate.is_paused()
+            || gate.snapshot() != fence
+            || self.check(job).is_err()
+            || published.as_ref().is_some_and(|value| !value.unchanged())
+        {
             for event in &mut events {
                 event.Anonymous = INPUT_0::default();
             }
             return InputOutcome::Failed {
-                reason: "paused_before_input",
+                reason: if published.is_some() {
+                    "clipboard_changed_not_pasted"
+                } else {
+                    "paused_before_input"
+                },
             };
         }
         // SAFETY: A bounded initialized INPUT array is passed with the exact
@@ -440,15 +530,32 @@ impl InputAdapter for NativeInput {
         }
         if inserted == 0 {
             return InputOutcome::Failed {
-                reason: "send_input_rejected",
+                reason: if published.is_some() {
+                    "clipboard_changed_not_pasted"
+                } else {
+                    "send_input_rejected"
+                },
             };
         }
         if inserted != count || self.check(job).is_err() {
+            if published.is_some() && inserted < count {
+                let release = paste_release_events(inserted);
+                unsafe {
+                    SendInput(&release, std::mem::size_of::<INPUT>() as i32);
+                }
+            }
             return InputOutcome::Uncertain {
                 reason: "partial_input_or_focus_changed",
             };
         }
-        InputOutcome::Injected { method: "unicode" }
+        self.image = None;
+        InputOutcome::Injected {
+            method: if published.is_some() {
+                "clipboard_image"
+            } else {
+                "unicode"
+            },
+        }
     }
 }
 
@@ -500,6 +607,30 @@ fn application_at(identity: (usize, u32, u64, u32)) -> Result<crate::history::Ta
 mod tests {
     use super::*;
     use crate::protocol::TextSource;
+
+    #[test]
+    fn partial_paste_releases_only_our_still_pressed_keys_without_repeating_paste() {
+        for (inserted, expected) in [
+            (0, vec![]),
+            (1, vec![VK_CONTROL.0]),
+            (2, vec![0x56, VK_CONTROL.0]),
+            (3, vec![VK_CONTROL.0]),
+            (4, vec![]),
+        ] {
+            let release = paste_release_events(inserted);
+            let codes = release
+                .iter()
+                .map(|event| {
+                    // SAFETY: The helper constructs only keyboard INPUT unions.
+                    let key = unsafe { event.Anonymous.ki };
+                    assert_eq!(event.r#type, INPUT_KEYBOARD);
+                    assert_eq!(key.dwFlags, KEYEVENTF_KEYUP);
+                    key.wVk.0
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(codes, expected);
+        }
+    }
 
     #[test]
     fn input_permissions_follow_uipi_equal_or_lower_integrity_rule() {

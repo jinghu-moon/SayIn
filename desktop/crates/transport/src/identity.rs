@@ -40,6 +40,9 @@ pub struct HostIdentity {
 }
 
 impl HostIdentity {
+    pub fn host_id(&self) -> &str {
+        &self.host_id
+    }
     pub fn open(directory: &Path, paired_devices: u32) -> Result<Self> {
         let path = directory.join("host-identity.dpapi");
         let ledger_key = fs::read(directory.join("receiver-key.dpapi"))?;

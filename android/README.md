@@ -13,7 +13,7 @@
 | AGP | 9.3.1（保留内置Kotlin） |
 | Gradle Wrapper | 9.7.0 |
 | SDK平台 / Build Tools | android-37.0 / 37.0.0 |
-| minSdk / targetSdk | 26 / 37 |
+| minSdk / targetSdk | 29 / 37 |
 | Java / Kotlin字节码目标 | 17 / 17 |
 
 ## 本机构建
@@ -35,6 +35,15 @@ Android SDK位置由未提交的`local.properties`（`sdk.dir=...`）或环境�
 APK输出：`app/build/outputs/apk/debug/app-debug.apk`。
 
 手工配对使用共享 Rust JNI `voicelink-pairing`，构建前需安装 Rust `1.99.1` 的 `aarch64-linux-android` target 和 Android NDK `29.0.14206865`。Gradle 通过 Variant API 自动运行 `scripts/build_pairing_android.ps1`，当前仅打包 `arm64-v8a`。这与构建 JDK 及 JVM 字节码目标独立。
+
+测试专用 x86_64 构建额外需要同工具链的 `x86_64-linux-android` target，只可对隔离 imageTest 显式启用：
+
+```powershell
+./scripts/gradle.ps1 '-Psayin.instrumentationBuildType=imageTest' '-Psayin.emulatorTests=true' :app:assembleImageTest :app:assembleImageTestAndroidTest
+./scripts/verify_android_platform.ps1 -DeviceSerial emulator-5582
+```
+
+模拟器参数会禁用日常 Debug/Release variants。常规 JVM/Debug/Lint 使用默认参数单独执行；随后不带 emulatorTests 构建 imageTest，即恢复默认 arm64。平台和通信脚本只操作 `seeyuer.sayin.imagetest`，不覆盖日常包。环境与实测范围见 [49](../docs/49-android-platform-support-and-validation.md)。
 
 当前连接的小米手机在无SIM情况下拦截普通USB安装，但已验证可使用设备现有Root授权，通过`su -c 'pm install -r ...'`安装本项目APK。具体命令和实际结果见[06设备安装记录](../docs/06-android-device-installation.md)。
 
@@ -60,7 +69,7 @@ python scripts/generate_tabler_icons.py
 
 当前支持扫码/8 位配对码二选一、本机 KeyStore AES-256-GCM 凭据、TLS 1.3 固定叶证书与主机名验证、Room WAL/FULL 持久 Outbox、最终文字预览、相同请求 ID 查询、显式 unknown/held/uncertain 状态和前台重连。电脑自动选择网络并批准配对后待命，手机发送的文字直接输入电脑当前光标；显式暂停需要在电脑恢复。发送成功以实际回执为准，不以 socket send 成功冒充目标程序显示成功。
 
-应用在没有可见入口且未录音时断开 WSS；用户主动录音期间由 microphone 前台服务维持会话。已接入有界系统 NSD/mDNS 找回已配对电脑；尚无 IPv6 或 Root 辅助模块。TLS 1.3 不可用时拒绝降级，旧 Android 默认安全提供程序可能不支持。完整实现/测试边界见 [10 实施记录](../docs/10-secure-pairing-and-android-transport.md)。
+应用在没有可见入口且未录音时断开 WSS；用户主动录音期间由 microphone 前台服务维持会话。已接入有界系统 NSD/mDNS 找回已配对电脑；尚无 IPv6 或 Root 辅助模块。最低 Android 10 与系统 TLS 1.3 要求保持一致，不再允许 Android 8/9 安装后才在连接阶段失败，也不降级 TLS 或新增安全提供程序。平台决策和验证见 [49](../docs/49-android-platform-support-and-validation.md)，通信实现见 [10 实施记录](../docs/10-secure-pairing-and-android-transport.md)。
 
 选型与协议依据见[03选型文档](../docs/03-android-technology-selection.md)和[01协议v2](../docs/01-voicelink-protocol-v2.md)。
 
@@ -95,6 +104,7 @@ python scripts/generate_tabler_icons.py
 
 已配对发现的资源与安全规则、真实 LAN/回环验证及旧 Android API 限制见 [40 实施记录](../docs/40-paired-host-discovery-and-reconnect.md)。`scripts/verify_android_discovery.ps1 -Lan` 使用真实 NSD、独立身份和随机端口，不使用 ADB reverse；不带 `-Lan` 只验证隔离连接/认证/回执，不代表真实发现。`-Revoked` 验证撤销身份无法迁移路由。此独立测试类不进入常规 37 项套件；不得运行付费云测试冒充连接验证。
 
+当前完整隔离回归：`scripts/verify_android_transport.ps1 -FullSuite`。仅构建/安装 `seeyuer.sayin.imagetest`，文字/图片分别使用独立电脑身份；不再通过日常包运行仪器化测试。`-TransportOnly` 仅文字数据回归，单独 `-Lan` 为真实局域网图片数据测试；专用发现、平台授权与付费云端测试不混入常规套件。
 ## 本地中译英
 
 三种输入来源完成草稿后可选择“翻译成英文”。翻译由手机 llama.cpp CPU JNI 执行；原文和可编辑译文分别保留，译文只能手动发送，复用既有 Outbox 和接收范围检查。翻译失败不会回退云服务。完整页和快捷卡共享任务；横屏键盘展开等高度不足场景的翻译入口位于“更多”。
@@ -111,4 +121,4 @@ python scripts/check_translation_package.py android/app/build/outputs/apk/debug/
 
 这些准备命令在开发电脑执行，安装后的 Android 产品不需要 Python、Termux 或本地 HTTP 服务。APK 不包含 GGUF。首次使用由用户明确准备单一 Hy-MT2-1.8B Q4_K_M（1,133,080,448 bytes），从固定来源下载并 SHA-256 校验到私有目录；之后离线翻译。Debug 另可导入同一摘要的本机模型，Release 不暴露文件选择器。准备期间需要约 1.15 GB 额外可用存储；网络失败保留原稿和旧可用模型。
 
-回归脚本 `verify_android_transport.ps1 -IsolatedTranslation` 与 `verify_android_translation_product.ps1` 使用独立 `seeyuer.sayin.translationverification` 包，不覆盖日常数据；共享设备必须串行运行。前者验证完整常规套件和恰好两次 fake 输入，后者显式验证真实 JNI 与 ASR 权重共存；两者都不证明真实麦克风到 Wi-Fi 目标应用落字。模型比较和 K40 实测、K90 待验收边界见 [50 本地翻译实施](../docs/50-android-local-translation-implementation.md)。
+回归脚本 `verify_android_transport.ps1 -FullSuite` 与 `verify_android_translation_product.ps1 -BuildType debug` 共用独立 `seeyuer.sayin.imagetest` 包（imageTest）；真实Release验证使用显式隔离的 `seeyuer.sayin.translationverification` 包，不覆盖日常数据；共享设备必须串行运行。前者验证完整常规套件和恰好两次 fake 输入，后者显式验证真实 JNI 与 ASR 权重共存；两者都不证明真实麦克风到 Wi-Fi 目标应用落字。模型比较和 K40 实测、K90 待验收边界见 [50 本地翻译实施](../docs/50-android-local-translation-implementation.md)。

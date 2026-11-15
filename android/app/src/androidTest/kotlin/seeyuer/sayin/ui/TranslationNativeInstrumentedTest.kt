@@ -16,7 +16,7 @@ class TranslationNativeInstrumentedTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         assumeTrue(InstrumentationRegistry.getArguments().getString("localTranslation") == "true")
-        check(context.packageName == "seeyuer.sayin.translationverification")
+        check(context.packageName == "seeyuer.sayin.imagetest")
         val model = TranslationCatalog.read(context).defaultModel
         val source = File(context.getExternalFilesDir(null), "models/${model.fileName}")
         val store = TranslationModelStore(context, model)

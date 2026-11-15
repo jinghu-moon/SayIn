@@ -8,5 +8,7 @@
 *.webp binary
 *.jpg binary
 *.zip binary
+# Benchmark evidence is byte-addressed by SHA-256; preserve its original bytes.
+docs/benchmarks/** -text whitespace=cr-at-eol
 # Preserve upstream license notice bytes and their intentional whitespace.
 docs/licenses/translation/** -text whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof

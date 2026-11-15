@@ -1,26 +1,28 @@
-param([string]$NdkVersion = '29.0.14206865')
+param([string]$NdkVersion = '29.0.14206865', [ValidateSet('arm64-v8a','x86_64')][string]$Abi = 'arm64-v8a')
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path $PSScriptRoot -Parent
 $sdkRoot = Join-Path $env:LOCALAPPDATA 'Android\Sdk'
 $ndkBin = Join-Path $sdkRoot "ndk\$NdkVersion\toolchains\llvm\prebuilt\windows-x86_64\bin"
-$linker = Join-Path $ndkBin 'aarch64-linux-android26-clang.cmd'
+$triple = if ($Abi -eq 'x86_64') { 'x86_64-linux-android' } else { 'aarch64-linux-android' }
+$linker = Join-Path $ndkBin "$($triple)29-clang.cmd"
 if (!(Test-Path -LiteralPath $linker)) { throw "Android NDK $NdkVersion is required." }
-$priorLinker = $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER
-$priorCc = $env:CC_aarch64_linux_android
-$priorAr = $env:AR_aarch64_linux_android
+$linkerVariable = 'CARGO_TARGET_'+$triple.Replace('-','_').ToUpperInvariant()+'_LINKER'
+$ccVariable = 'CC_'+$triple.Replace('-','_')
+$arVariable = 'AR_'+$triple.Replace('-','_')
+$prior = @{}
+foreach ($name in @($linkerVariable,$ccVariable,$arVariable)) { $prior[$name] = [Environment]::GetEnvironmentVariable($name,'Process') }
 Push-Location (Join-Path $projectRoot 'desktop')
 try {
-    $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $linker
-    $env:CC_aarch64_linux_android = $linker
-    $env:AR_aarch64_linux_android = Join-Path $ndkBin 'llvm-ar.exe'
-    & cargo build -p voicelink-pairing --release --locked --target aarch64-linux-android
+    [Environment]::SetEnvironmentVariable($linkerVariable,$linker,'Process')
+    [Environment]::SetEnvironmentVariable($ccVariable,$linker,'Process')
+    [Environment]::SetEnvironmentVariable($arVariable,(Join-Path $ndkBin 'llvm-ar.exe'),'Process')
+    & cargo build -p voicelink-pairing --release --locked --target $triple
     if ($LASTEXITCODE -ne 0) { throw 'Android pairing native build failed.' }
-    $jniDirectory = Join-Path $projectRoot 'android\app\build\generated\pairingJni\arm64-v8a'
+    $jniDirectory = Join-Path $projectRoot "android/app/build/generated/pairingJni/$Abi"
     New-Item -ItemType Directory -Path $jniDirectory -Force | Out-Null
-    Copy-Item -LiteralPath 'target\aarch64-linux-android\release\libvoicelink_pairing.so' -Destination $jniDirectory -Force
+    $targetDirectory = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { 'target' }
+    Copy-Item -LiteralPath (Join-Path $targetDirectory "$triple/release/libvoicelink_pairing.so") -Destination $jniDirectory -Force
 } finally {
     Pop-Location
-    $env:CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER = $priorLinker
-    $env:CC_aarch64_linux_android = $priorCc
-    $env:AR_aarch64_linux_android = $priorAr
+    foreach ($name in $prior.Keys) { [Environment]::SetEnvironmentVariable($name,$prior[$name],'Process') }
 }

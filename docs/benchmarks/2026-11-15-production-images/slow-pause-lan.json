@@ -1,0 +1,327 @@
+{
+  "desktop": {
+    "slow_link": true,
+    "adb_reverse": false,
+    "mobile": "imageTest Debug",
+    "real_lan": true,
+    "target_peak_working_set_bytes": 0,
+    "input_calls": 0,
+    "native_target": false,
+    "core_peak_working_set_bytes": 21929984,
+    "release_core": true,
+    "scope": "Production LAN Repository / dual WSS, zero-input pause and reconnect scenario; text marker causes fixture-emulated local pause, explicit marker cancellation cues fixture-emulated local resume",
+    "pause_probe": true,
+    "sources": [
+      {
+        "name": "001_370.73KB_1.jpg",
+        "sha256": "72b4e565ff7f7ec0758c9d1afc34b6b23d8ca554d1650e6edd0eca940b7a2638",
+        "bytes": 379624
+      },
+      {
+        "name": "002_509.31KB_2.jpg",
+        "sha256": "603067420c323d63be50400f6869a580bb5d827aec081fc79e1c4998377321e3",
+        "bytes": 521534
+      },
+      {
+        "name": "003_823.82KB_3.jpg",
+        "sha256": "2ec9d1589e918802496cff3c1f6204af312304fdd2914a7468af9098579f27c5",
+        "bytes": 843588
+      },
+      {
+        "name": "004_1.21MB_4.jpg",
+        "sha256": "2ee02486f2f05b2cfdb5a9bbe6f94c2cef5530ae6294b6302d40d06d3e8f0e76",
+        "bytes": 1268552
+      },
+      {
+        "name": "005_2.04MB_5.jpg",
+        "sha256": "561122be79226856734b04c2d53fb59af3ea33c39f9940e10213f8e661a87576",
+        "bytes": 2136152
+      },
+      {
+        "name": "006_10.08MB_6.jpg",
+        "sha256": "cc9149f1da494cb3599ae225d98a1679e9d583ae761098231e72931043fd7306",
+        "bytes": 10567181
+      },
+      {
+        "name": "007_25.17MB_7.jpg",
+        "sha256": "faf3f697674712532c06ce2949132e075d5786a47d2a36bec2ac02bd0ccce766",
+        "bytes": 26392479
+      },
+      {
+        "name": "008_55.94MB_8.jpg",
+        "sha256": "bd67a10fb216fb8df618351b5b5ad6b89c8dcc0a098f3a09c51711e3482f37aa",
+        "bytes": 58658641
+      }
+    ]
+  },
+  "mobile": {
+    "scope": "Real LAN production Repository/dual WSS; marker acceptance + fixture <=50ms polling + durable local pause + pushed state to Android. Fake adapter, no paste; not one-way latency.",
+    "controlled_slow_link": true,
+    "measurements": [
+      {
+        "iteration": 1,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "explicit_cancel_ms": 23.937084,
+        "control_marker_to_paused_ms": 85.434531
+      },
+      {
+        "iteration": 2,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "explicit_cancel_ms": 28.234323,
+        "control_marker_to_paused_ms": 196.548958
+      },
+      {
+        "iteration": 3,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "explicit_cancel_ms": 29.52901,
+        "control_marker_to_paused_ms": 105.497031
+      },
+      {
+        "iteration": 4,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "explicit_cancel_ms": 38.561042,
+        "control_marker_to_paused_ms": 126.238906
+      },
+      {
+        "iteration": 5,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "explicit_cancel_ms": 36.940052,
+        "control_marker_to_paused_ms": 148.165052
+      }
+    ],
+    "image_inputs": 0
+  },
+  "relay": {
+    "scope": "LAN encrypted TCP pacing, independent per connection/direction; not actual poor Wi-Fi",
+    "rate_bytes_per_second": 131072,
+    "chunk_bytes": 4096,
+    "additional_delay_per_write_ms": 10,
+    "max_connections": 4,
+    "elapsed_seconds": 29.375,
+    "rejected_connections": 0,
+    "streams": [
+      {
+        "direction": "up",
+        "bytes": 803,
+        "elapsed_seconds": 3.60999999998603
+      },
+      {
+        "direction": "down",
+        "bytes": 1551,
+        "elapsed_seconds": 3.60999999998603
+      },
+      {
+        "direction": "down",
+        "bytes": 1216,
+        "elapsed_seconds": 1.2350000000442378
+      },
+      {
+        "direction": "up",
+        "bytes": 91331,
+        "elapsed_seconds": 1.2350000000442378
+      },
+      {
+        "direction": "up",
+        "bytes": 1064,
+        "elapsed_seconds": 2.3119999999762513
+      },
+      {
+        "direction": "down",
+        "bytes": 2174,
+        "elapsed_seconds": 2.3119999999762513
+      },
+      {
+        "direction": "down",
+        "bytes": 1216,
+        "elapsed_seconds": 1.1869999999762513
+      },
+      {
+        "direction": "up",
+        "bytes": 87265,
+        "elapsed_seconds": 1.1869999999762513
+      },
+      {
+        "direction": "up",
+        "bytes": 1274,
+        "elapsed_seconds": 2.6869999999762513
+      },
+      {
+        "direction": "down",
+        "bytes": 2858,
+        "elapsed_seconds": 2.6869999999762513
+      },
+      {
+        "direction": "down",
+        "bytes": 1215,
+        "elapsed_seconds": 1.2339999999967404
+      },
+      {
+        "direction": "up",
+        "bytes": 91361,
+        "elapsed_seconds": 1.2339999999967404
+      },
+      {
+        "direction": "up",
+        "bytes": 1064,
+        "elapsed_seconds": 2.312000000034459
+      },
+      {
+        "direction": "down",
+        "bytes": 2174,
+        "elapsed_seconds": 2.312000000034459
+      },
+      {
+        "direction": "down",
+        "bytes": 1216,
+        "elapsed_seconds": 1.202999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 87265,
+        "elapsed_seconds": 1.202999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 1274,
+        "elapsed_seconds": 2.7189999999827705
+      },
+      {
+        "direction": "down",
+        "bytes": 2857,
+        "elapsed_seconds": 2.7189999999827705
+      },
+      {
+        "direction": "down",
+        "bytes": 1216,
+        "elapsed_seconds": 1.202999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 87265,
+        "elapsed_seconds": 1.202999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 1064,
+        "elapsed_seconds": 2.375
+      },
+      {
+        "direction": "down",
+        "bytes": 2175,
+        "elapsed_seconds": 2.375
+      },
+      {
+        "direction": "down",
+        "bytes": 1216,
+        "elapsed_seconds": 1.2189999999827705
+      },
+      {
+        "direction": "up",
+        "bytes": 87265,
+        "elapsed_seconds": 1.2189999999827705
+      },
+      {
+        "direction": "up",
+        "bytes": 1275,
+        "elapsed_seconds": 2.75
+      },
+      {
+        "direction": "down",
+        "bytes": 2861,
+        "elapsed_seconds": 2.75
+      },
+      {
+        "direction": "down",
+        "bytes": 1217,
+        "elapsed_seconds": 1.2810000000172295
+      },
+      {
+        "direction": "up",
+        "bytes": 83170,
+        "elapsed_seconds": 1.2810000000172295
+      },
+      {
+        "direction": "up",
+        "bytes": 1064,
+        "elapsed_seconds": 2.375
+      },
+      {
+        "direction": "down",
+        "bytes": 2177,
+        "elapsed_seconds": 2.375
+      },
+      {
+        "direction": "down",
+        "bytes": 1217,
+        "elapsed_seconds": 1.2349999999860302
+      },
+      {
+        "direction": "up",
+        "bytes": 91362,
+        "elapsed_seconds": 1.2349999999860302
+      },
+      {
+        "direction": "up",
+        "bytes": 1275,
+        "elapsed_seconds": 2.922000000020489
+      },
+      {
+        "direction": "down",
+        "bytes": 2859,
+        "elapsed_seconds": 2.922000000020489
+      },
+      {
+        "direction": "down",
+        "bytes": 1217,
+        "elapsed_seconds": 1.702999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 103620,
+        "elapsed_seconds": 1.702999999979511
+      },
+      {
+        "direction": "up",
+        "bytes": 1064,
+        "elapsed_seconds": 2.3439999999827705
+      },
+      {
+        "direction": "down",
+        "bytes": 2176,
+        "elapsed_seconds": 2.3439999999827705
+      },
+      {
+        "direction": "down",
+        "bytes": 1215,
+        "elapsed_seconds": 1.2189999999827705
+      },
+      {
+        "direction": "up",
+        "bytes": 83170,
+        "elapsed_seconds": 1.2189999999827705
+      },
+      {
+        "direction": "up",
+        "bytes": 1275,
+        "elapsed_seconds": 0.625
+      },
+      {
+        "direction": "down",
+        "bytes": 2860,
+        "elapsed_seconds": 0.625
+      }
+    ]
+  },
+  "local_pause_ms": [
+    2.4438,
+    2.9509,
+    2.8811,
+    3.1306,
+    2.6782
+  ]
+}

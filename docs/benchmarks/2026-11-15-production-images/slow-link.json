@@ -1,0 +1,208 @@
+{
+  "desktop": {
+    "mobile": "imageTest Debug",
+    "real_lan": true,
+    "release_core": true,
+    "input_calls": 5,
+    "native_target": false,
+    "core_peak_working_set_bytes": 67493888,
+    "pause_probe": false,
+    "target_peak_working_set_bytes": 0,
+    "scope": "Native mode includes test-only RichEdit RTF acknowledgement latency; fake mode excludes native input",
+    "adb_reverse": false,
+    "sources": [
+      {
+        "sha256": "72b4e565ff7f7ec0758c9d1afc34b6b23d8ca554d1650e6edd0eca940b7a2638",
+        "name": "001_370.73KB_1.jpg",
+        "bytes": 379624
+      },
+      {
+        "sha256": "603067420c323d63be50400f6869a580bb5d827aec081fc79e1c4998377321e3",
+        "name": "002_509.31KB_2.jpg",
+        "bytes": 521534
+      },
+      {
+        "sha256": "2ec9d1589e918802496cff3c1f6204af312304fdd2914a7468af9098579f27c5",
+        "name": "003_823.82KB_3.jpg",
+        "bytes": 843588
+      },
+      {
+        "sha256": "2ee02486f2f05b2cfdb5a9bbe6f94c2cef5530ae6294b6302d40d06d3e8f0e76",
+        "name": "004_1.21MB_4.jpg",
+        "bytes": 1268552
+      },
+      {
+        "sha256": "561122be79226856734b04c2d53fb59af3ea33c39f9940e10213f8e661a87576",
+        "name": "005_2.04MB_5.jpg",
+        "bytes": 2136152
+      },
+      {
+        "sha256": "cc9149f1da494cb3599ae225d98a1679e9d583ae761098231e72931043fd7306",
+        "name": "006_10.08MB_6.jpg",
+        "bytes": 10567181
+      },
+      {
+        "sha256": "faf3f697674712532c06ce2949132e075d5786a47d2a36bec2ac02bd0ccce766",
+        "name": "007_25.17MB_7.jpg",
+        "bytes": 26392479
+      },
+      {
+        "sha256": "bd67a10fb216fb8df618351b5b5ad6b89c8dcc0a098f3a09c51711e3482f37aa",
+        "name": "008_55.94MB_8.jpg",
+        "bytes": 58658641
+      }
+    ],
+    "slow_link": true
+  },
+  "mobile": {
+    "scope": "isolated imageTest; production Repository/Keystore/Room/pinned dual WSS; see desktop adapter mode",
+    "controlled_slow_link": true,
+    "measurements": [
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 1,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 302.650782,
+        "send_to_receipt_ms": 5952.134997,
+        "total_ms": 6254.785779
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 1,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 360.252656,
+        "send_to_receipt_ms": 7206.373487,
+        "total_ms": 7566.6261429999995
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 1,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 582.520052,
+        "send_to_receipt_ms": 12349.877964,
+        "total_ms": 12932.398016
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 1,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 861.808385,
+        "send_to_receipt_ms": 18527.00291,
+        "total_ms": 19388.811295
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 1,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1334.218333,
+        "send_to_receipt_ms": 30223.934207,
+        "total_ms": 31558.15254
+      }
+    ],
+    "rejections": [
+      {
+        "file": "006_10.08MB_6.jpg",
+        "source_bytes": 10567181,
+        "bounded_reject_ms": 19.220208
+      },
+      {
+        "file": "007_25.17MB_7.jpg",
+        "source_bytes": 26392479,
+        "bounded_reject_ms": 17.173229
+      },
+      {
+        "file": "008_55.94MB_8.jpg",
+        "source_bytes": 58658641,
+        "bounded_reject_ms": 19.491459
+      }
+    ],
+    "sampled_max_pss_kib": 185701,
+    "pss_sample_count": 349
+  },
+  "relay": {
+    "scope": "LAN encrypted TCP pacing, independent per connection/direction; not actual poor Wi-Fi",
+    "rate_bytes_per_second": 131072,
+    "chunk_bytes": 4096,
+    "additional_delay_per_write_ms": 10,
+    "max_connections": 4,
+    "elapsed_seconds": 80.21899999998277,
+    "rejected_connections": 0,
+    "streams": [
+      {
+        "direction": "up",
+        "bytes": 443156,
+        "elapsed_seconds": 5.719000000040978
+      },
+      {
+        "direction": "down",
+        "bytes": 2439,
+        "elapsed_seconds": 5.719000000040978
+      },
+      {
+        "direction": "up",
+        "bytes": 548119,
+        "elapsed_seconds": 6.9060000000172295
+      },
+      {
+        "direction": "down",
+        "bytes": 2781,
+        "elapsed_seconds": 6.9060000000172295
+      },
+      {
+        "direction": "up",
+        "bytes": 1001050,
+        "elapsed_seconds": 11.889999999955762
+      },
+      {
+        "direction": "down",
+        "bytes": 3807,
+        "elapsed_seconds": 11.889999999955762
+      },
+      {
+        "direction": "up",
+        "bytes": 1511759,
+        "elapsed_seconds": 17.84399999998277
+      },
+      {
+        "direction": "down",
+        "bytes": 4958,
+        "elapsed_seconds": 17.84399999998277
+      },
+      {
+        "direction": "up",
+        "bytes": 2507512,
+        "elapsed_seconds": 29.15600000001723
+      },
+      {
+        "direction": "down",
+        "bytes": 7259,
+        "elapsed_seconds": 29.15600000001723
+      },
+      {
+        "direction": "up",
+        "bytes": 4265,
+        "elapsed_seconds": 78.10899999999674
+      },
+      {
+        "direction": "down",
+        "bytes": 4665,
+        "elapsed_seconds": 78.10899999999674
+      }
+    ]
+  }
+}

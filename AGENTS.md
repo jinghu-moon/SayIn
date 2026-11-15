@@ -278,6 +278,7 @@
 - Android 工程初始化时，将项目 Gradle JDK 明确设为上述 JDK，并用 Wrapper 的 `--version` 核对实际 Launcher/Daemon JVM；IDE与命令行配置保持一致。
 - 配套版本为 Kotlin **2.4.21**、AGP **9.3.1**、Gradle **9.7.0**；Java/Kotlin 字节码目标初始均为 **17**，与构建 JDK 分开配置。
 - Android 工程位于 `android/`；从仓库根目录使用 `scripts/gradle.ps1` 调用项目 Wrapper，明确使用已确认的 JDK。
+- 当前最低系统为 Android 10/API 29，与平台 TLS 1.3 必需条件一致；不得重新声明不具备该能力的旧系统受支持、降级 TLS 或为此引入兼容 provider。根因、修改前后验证与 API 37 真实系统授权测试见 [49](docs/49-android-platform-support-and-validation.md)。模拟器 ABI 仅允许显式 `sayin.emulatorTests=true` 的隔离 imageTest variant，日常包默认仍为 arm64-v8a。
 - 工程基础已完成首次 Debug 构建；后续状态以 `docs/04-android-foundation-implementation.md` 中的实际验证记录为准，不能将构建通过等同于业务链路或真机运行通过。
 
 详细依据见 [Android 技术选型](docs/03-android-technology-selection.md)。
@@ -316,7 +317,7 @@
 - 设备令牌和 payload 指纹使用带域分离的 HMAC；待执行载荷和密钥用当前 Windows 用户 DPAPI 保护。缺失数据库/密钥/账本结构时拒绝静默创建新去重身份。
 - 配额使用同事务触发器维护计数，不能在新接受路径上扫描整个历史表；持久收据不静默清除。实时通知只作有界合并信号，读取最新快照，不累积无限历史事件。
 - 配对批准后自动待命，普通重启在网络许可有效时自动恢复；显式暂停和 uncertain 不自动越过。向当前光标输入，不再手动锁定窗口或倒计时。每次操作独立捕获并核对前台窗口、进程创建时间、活动会话、输入桌面、权限和修饰键；不抢焦点、不自动追加 Enter。通用全局输入仍有不可原子消除的前台窗口竞态。
-- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。已支持 IPv4 有界 mDNS/NSD 恢复（见第 20 节）；仍无 IPv6/剪贴板输入通道/root 模块；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
+- 已接入 CPace 代码配对、二维码邀请、固定证书 TLS 1.3/WSS `/v2`、本地批准与授权设备管理；Android 已接入 Keystore 加密、Room Outbox 与回执恢复。桌面端已接入原生托盘、关闭行为设置、DPAPI 全文历史和执行目标归属，历史支持复制原文。已支持 IPv4 有界 mDNS/NSD 恢复（见第 20 节）；仍无 IPv6/root 模块；图片剪贴板生产链路与验收边界见第 21 节；Android 本地 X-ASR 流式识别及验收边界见 [31 本地识别实施](docs/31-x-asr-local-recognition.md)。不得把 loopback fake adapter 测试或 Debug 构建描述为真实手机到电脑落字通过或延迟目标已达到。
 - 修改后执行 `cargo test --workspace --all-targets --locked`、`cargo clippy --workspace --all-targets --locked -- -D warnings`、包限定格式检查、工作区构建和双端 i18n/依赖检查。含真实接收线程的 GPUI 测试启用 `allow_parking`；纯 UI/状态测试仍优先使用确定性调度。
 - 当前具体实现与验证见[09接收核心实施记录](docs/09-desktop-receiver-core-implementation.md)和[13当前光标交互](docs/13-desktop-current-cursor-and-ui-redesign.md)。
 - 最新四页原生界面、托盘生命周期、账本 schema 3 和验收边界见[16桌面端重构实施记录](docs/16-desktop-ui-refactor-implementation.md)。正文历史和执行时目标在协调线程保存；目标 metadata 先于输入执行持久化，不能在浏览历史时抓当前程序补填。旧配对/收据身份必须保留；缺失已安装的历史结构或设备名称列时先拒绝打开，不能先执行崩溃恢复写入。
@@ -331,7 +332,7 @@
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
 - 已支持代码协议和手工 IPv4/二维码；已支持有界 IPv4 mDNS/NSD，无空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。手机先连保存地址，失败后通过有界 NSD 找回同一身份，完整认证后才持久更新 IPv4/端口；连接帮助内手动维护仍保留，详见 40。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
-- 双端通信真机回归用 `scripts/verify_android_transport.ps1`，现包含四页 Compose 界面测试，运行前须手动解锁手机；默认普通安装，当前已授权的 Root 设备可加 `-UseExistingRootInstall` 沿用 06 安装方法。测试仅通过 `adb reverse` 连接本机 loopback 专用假输入服务，自动批准仅在该测试例程；绝不能挪到产品监听流程。测试必须使用独立 host/device 与命名空间，不覆盖用户的手机配对凭据或 Outbox。
+- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，包含 40 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
 ---
@@ -418,3 +419,21 @@
 - 必须使用原完整固定 DER、tls_name、host/device UUID/token；TLS Open 之前不发 token，完整 welcome 验证与认证成功后才加密保存新路由。旧请求先 query；不自动 submit/release、重配对、换证书或解除暂停/存储阻断/uncertain，不复用旧连接自动发送票据。
 - target37 检查 ACCESS_LOCAL_NETWORK；无许可不连接/发现，有连接需求期间监测撤销；退出需求、切网及取消关闭任务并使 generation 失效。API34+ 注销 ServiceInfoCallback；不支持 stopServiceResolution 的旧 Android 仅允许一个在途 OS 解析，等待其回调期间不叠加，迟到结果禁止使用。
 - `verify_android_discovery.ps1` 独立身份/数据/随机端口，LAN 模式没有 ADB reverse，输入为 fake；不能据此声称真实目标应用输入/换真实 IPv4/切换多网卡/Android37 授权界面或长期功耗均已验证。常规通信套件排除独立发现类及付费云测试。
+
+
+## 21. 双 WSS 图片输入
+
+- 用户选定双 WSS：`/v2` 控制、按需 `/v2/images` 顺序二进制块；复用同一完整固定证书、TLS 名称、端口、精确网卡与网络范围。图片连接只绑定当前已认证控制会话，不能建立配对或信任。
+- 图片资源先有界校验、DPAPI 加密同步落盘，再以 WAL/FULL 接受事务绑定 schema 6 的收据、资源与历史。每设备一张、主机两张、完整解码并发一；10MiB 编码、1600 万像素、单边 8192、块正文 48KiB。
+- 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
+- 生产 NativeInput 在最终目标捕获前完成资源读取和解码；持久 executing 后发布 PNG/DIBV5/历史与云排除标记，只发一次 Ctrl+V、不追加 Enter。部分提交进入 uncertain，只补释放本次仍按下的键。提交成功不证明目标应用已显示图片。
+- Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
+- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。15 次 LAN 临时 RichEdit 粘贴、受控慢速 25 张、取消/暂停、51 项 JVM、44 项常规设备、3 组发现和 137 项桌面回归通过；首版有限验收已完成，用户确认浏览器/Word、聊天草稿、透明 PNG、历史操作和渲染正常；最低系统改为 Android 10/API 29，API 29/33 各 44 项、API 37 系统权限及图片数据补验通过，见 [49](docs/49-android-platform-support-and-validation.md)。精确应用版本、真正差 Wi-Fi/长期负载、真实多网卡/LAN 换 IPv4 及 VRAM 仍有证据边界，见 [46](docs/46-image-input-production-validation.md)。30 张历史/60 次原图开关发现并修复显式 atlas 释放，见 [48](docs/48-desktop-image-render-resource-lifecycle.md)，不能只用工作集或 CPU 引用推断渲染资源已回收。不把有限 fake/合成负载、旧网络测速或构建通过冒充整链路验收。图片及发现设备测试使用独立 `seeyuer.sayin.imagetest`，文字和图片使用不同临时电脑身份，绝不替换日常应用。
+
+## 22. Android 本地中译英
+
+- 实施、三模型实测及主线整合记录见 [50 本地翻译](docs/50-android-local-translation-implementation.md)。默认仅 Hy-MT2-1.8B Q4_K_M；制品长度、摘要、模板与 llama.cpp revision 由 `android/translation-artifacts.json` 固定。执行 `python scripts/prepare_translation.py --source-archive <固定来源ZIP>` 准备被忽略的源码；构建会重新核验完整源码树，不随 worktree 自动复制。
+- 产品使用 Kotlin + NDK/CMake/C++ 最小 JNI，minSdk 29、字节码 17，后台串行所有者负责推理和释放。新请求不复用上一条上下文；取消置标志并等待安全停止后释放，不能在主线程等待析构。CPU 基线之外的加速需另有实测依据。
+- 翻译是统一草稿的后处理；三输入来源保持不变。任务绑定草稿 ID/修订，原文与完整译文分别保存；编辑、取消、清空、新录音使旧任务失效。翻译撤销自动发送票据，partial/取消/截断/错误不可当完整译文发送；手动发送仍走原 Outbox、接收范围与收据恢复，不静默回退云端或记录正文/提示词。
+- APK 不内嵌 GGUF。公开模型只在用户明确操作后下载；真实进度、完整长度/SHA-256、私有 pending 和同目录原子替换必需，失败保留原稿和旧模型。Debug 提供同摘要本地导入；正式模型分发的完整 HTTPS 验收由用户接手，不得记为已通过。
+- Debug 真 JNI 使用隔离 `imageTest`；构建统一选择项为 `sayin.instrumentationBuildType`。普通 Debug/JVM 构建与 imageTest 仪器化构建分别执行。Release 页面验证使用显式 `sayinVerification=true` 的独立包及外部 Kotlin 驱动，不扩大产品 R8 keep，不替换日常包；设备脚本共用命名互斥、真实测试串行执行。K40 证据不代表 K90 Pro Max 或真实麦克风→翻译→Wi-Fi 落字验收。

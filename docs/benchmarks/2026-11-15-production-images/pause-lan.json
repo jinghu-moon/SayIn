@@ -1,0 +1,51 @@
+{
+  "evidence_id": "image-performance-c5ea70aa-6eeb-481c-92d1-51bb671ddc3c",
+  "real_lan": true,
+  "adb_reverse": false,
+  "native_input_calls": 0,
+  "fake_input_calls": 0,
+  "mobile": {
+    "scope": "Real LAN production Repository/dual WSS; marker acceptance + fixture <=50ms polling + durable local pause + pushed state to Android. Fake adapter, no paste; not one-way latency.",
+    "measurements": [
+      {
+        "iteration": 1,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "control_marker_to_paused_ms": 97.7
+      },
+      {
+        "iteration": 2,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "control_marker_to_paused_ms": 106.368281
+      },
+      {
+        "iteration": 3,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "control_marker_to_paused_ms": 134.552761
+      },
+      {
+        "iteration": 4,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "control_marker_to_paused_ms": 108.614115
+      },
+      {
+        "iteration": 5,
+        "normalized_bytes": 2495171,
+        "bytes_acked_at_trigger": 49152,
+        "control_marker_to_paused_ms": 95.62375
+      }
+    ],
+    "image_inputs": 0
+  },
+  "desktop_local_pause_ms": [
+    3.0531,
+    3.0378,
+    3.0971,
+    3.4478999999999997,
+    2.0137
+  ],
+  "scope": "Zero-input fixture scenario, no remote pause/resume added to product; control marker to pushed paused state is a roundtrip including <=50ms fixture polling, not one-way latency."
+}

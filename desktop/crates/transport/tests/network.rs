@@ -166,6 +166,9 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
 }
 
 async fn socket(invitation: &Invitation) -> Socket {
+    socket_path(invitation, "/v2").await
+}
+async fn socket_path(invitation: &Invitation, path: &str) -> Socket {
     let mut roots = RootCertStore::empty();
     roots
         .add(CertificateDer::from(decode(&invitation.cert).unwrap()))
@@ -191,7 +194,7 @@ async fn socket(invitation: &Invitation) -> Socket {
         Some(rustls::ProtocolVersion::TLSv1_3)
     );
     client_async(
-        format!("wss://{}:{}/v2", invitation.tls_name, invitation.port),
+        format!("wss://{}:{}{}", invitation.tls_name, invitation.port, path),
         tls,
     )
     .await
@@ -534,4 +537,211 @@ async fn same_identity_moves_ipv4_and_port_then_queries_without_resuming_or_repl
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     moved.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
+}
+
+fn test_png() -> Vec<u8> {
+    vec![
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 6,
+        0, 0, 0, 31, 21, 196, 137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 224, 119, 252, 223,
+        0, 0, 3, 130, 1, 208, 59, 64, 140, 230, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ]
+}
+async fn image_service(
+    directory: &Directory,
+    calls: Arc<AtomicUsize>,
+) -> (Receiver, NetworkService) {
+    let mut ledger = open_ledger(&directory.0).unwrap();
+    let identity = HostIdentity::open(&directory.0, 0).unwrap();
+    let images = directory.0.join("images");
+    secure_directory(&images).unwrap();
+    ledger
+        .attach_images(
+            voicelink_receiver::images::storage::ImageStore::open(&images, identity.host_id())
+                .unwrap(),
+        )
+        .unwrap();
+    let receiver = Receiver::start(ledger, Adapter(calls)).unwrap();
+    let service =
+        NetworkService::start_loopback(receiver.clone(), identity, "127.0.0.1:0".parse().unwrap())
+            .unwrap();
+    (receiver, service)
+}
+async fn image_hello(images: &mut Socket, welcome: &Value, paired: &Value) {
+    send(images,json!({"v":2,"t":"image_hello","session_id":welcome["session_id"],"device_id":paired["device_id"],"binding":welcome["image_channel"]["binding"]})).await;
+}
+async fn image_begin(images: &mut Socket, welcome: &Value, id: &str, bytes: &[u8]) {
+    send(images,json!({"v":2,"t":"image_begin","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"state_rev":welcome["state_rev"],"metadata":{"bytes":bytes.len(),"width":1,"height":1,"mime":"image/png","sha256":voicelink_receiver::images::digest(bytes)}})).await;
+    assert_eq!(next(images, "image_begun").await["id"], id);
+}
+async fn connection_closed(socket: &mut Socket) {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            match socket.next().await {
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+                Some(Ok(Message::Text(value))) => panic!("unexpected message {value}"),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_control() {
+    use voicelink_receiver::images::wire::encode_chunk;
+    let directory = Directory::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (receiver, service) = image_service(&directory, calls.clone()).await;
+    let invitation = invitation(&service).await;
+    let paired = pair(&service, &invitation).await;
+    let state = receiver.state().await.unwrap();
+    receiver
+        .enable_foreground_input(state.state_rev, false)
+        .await
+        .unwrap();
+    let mut control = socket(&invitation).await;
+    send(&mut control,json!({"v":2,"t":"hello","name":"Image fixture","device_id":paired["device_id"],"token":paired["token"]})).await;
+    let welcome = next(&mut control, "welcome").await;
+    assert_eq!(welcome["image_channel"]["path"], "/v2/images");
+    let mut images = socket_path(&invitation, "/v2/images").await;
+    image_hello(&mut images, &welcome, &paired).await;
+    assert_eq!(
+        next(&mut images, "image_welcome").await["session_id"],
+        welcome["session_id"]
+    );
+    let bytes = test_png();
+    let upload = Uuid::new_v4().to_string();
+    image_begin(&mut images, &welcome, &upload, &bytes).await;
+    let started = std::time::Instant::now();
+    send(
+        &mut control,
+        json!({"v":2,"t":"ping","session_id":welcome["session_id"],"nonce":"during-image"}),
+    )
+    .await;
+    assert_eq!(next(&mut control, "pong").await["nonce"], "during-image");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    images
+        .send(Message::Binary(
+            encode_chunk(&upload, 0, &bytes).unwrap().into(),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        next(&mut images, "image_progress").await["received"],
+        bytes.len()
+    );
+    send(
+        &mut images,
+        json!({"v":2,"t":"image_finish","session_id":welcome["session_id"],"id":upload}),
+    )
+    .await;
+    let ready = next(&mut images, "image_ready").await;
+    assert_ne!(ready["image"]["resource_id"], upload);
+    let id = Uuid::new_v4().to_string();
+    let submit = json!({"v":2,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"image","image":ready["image"]}});
+    send(&mut control, submit.clone()).await;
+    loop {
+        let status = next(&mut control, "status").await;
+        if status["st"] == "injected" {
+            assert_eq!(status["method"], "test");
+            break;
+        }
+        assert!(status["st"] == "accepted" || status["st"] == "executing");
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    send(&mut control, submit).await;
+    assert_eq!(next(&mut control, "status").await["st"], "injected");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    images.close(None).await.unwrap();
+    connection_closed(&mut images).await;
+    // Successful image authentication must not accumulate failed-attempt debt.
+    for _ in 0..6 {
+        let mut images = socket_path(&invitation, "/v2/images").await;
+        image_hello(&mut images, &welcome, &paired).await;
+        next(&mut images, "image_welcome").await;
+        send(&mut images,json!({"v":2,"t":"image_cancel","session_id":welcome["session_id"],"id":Uuid::new_v4().to_string()})).await;
+        next(&mut images, "image_canceled").await;
+        connection_closed(&mut images).await;
+    }
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn image_channel_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
+    for fault in [
+        "binding",
+        "offset",
+        "cancel",
+        "pause",
+        "disconnect",
+        "replace",
+        "revoke",
+    ] {
+        let directory = Directory::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let (receiver, service) = image_service(&directory, calls.clone()).await;
+        let invitation = invitation(&service).await;
+        let paired = pair(&service, &invitation).await;
+        let state = receiver.state().await.unwrap();
+        receiver
+            .enable_foreground_input(state.state_rev, false)
+            .await
+            .unwrap();
+        let mut control = socket(&invitation).await;
+        let hello = json!({"v":2,"t":"hello","name":"Image fixture","device_id":paired["device_id"],"token":paired["token"]});
+        send(&mut control, hello.clone()).await;
+        let mut welcome = next(&mut control, "welcome").await;
+        let mut images = socket_path(&invitation, "/v2/images").await;
+        if fault == "binding" {
+            welcome["image_channel"]["binding"] =
+                json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        }
+        image_hello(&mut images, &welcome, &paired).await;
+        if fault != "binding" {
+            next(&mut images, "image_welcome").await;
+            let bytes = test_png();
+            let id = Uuid::new_v4().to_string();
+            image_begin(&mut images, &welcome, &id, &bytes).await;
+            match fault {
+                "offset" => {
+                    images
+                        .send(Message::Binary(
+                            voicelink_receiver::images::wire::encode_chunk(&id, 1, &bytes)
+                                .unwrap()
+                                .into(),
+                        ))
+                        .await
+                        .unwrap();
+                }
+                "cancel" => {
+                    send(&mut images,json!({"v":2,"t":"image_cancel","session_id":welcome["session_id"],"id":id})).await;
+                    next(&mut images, "image_canceled").await;
+                }
+                "pause" => {
+                    receiver.pause().await.unwrap();
+                }
+                "disconnect" => {
+                    control.close(None).await.unwrap();
+                }
+                "replace" => {
+                    let mut newer = socket(&invitation).await;
+                    send(&mut newer, hello).await;
+                    next(&mut newer, "welcome").await;
+                }
+                "revoke" => {
+                    receiver
+                        .revoke(paired["device_id"].as_str().unwrap().into())
+                        .await
+                        .unwrap();
+                }
+                _ => unreachable!(),
+            }
+        }
+        connection_closed(&mut images).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        service.shutdown().await.unwrap();
+        receiver.shutdown().await.unwrap();
+    }
 }

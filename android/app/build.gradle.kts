@@ -6,9 +6,14 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Opt-in emulator ABI is limited to the isolated instrumentation variant.
+val emulatorTests = providers.gradleProperty("sayin.emulatorTests").orNull == "true"
+if (emulatorTests) {
+    require(providers.gradleProperty("sayin.instrumentationBuildType").orNull == "imageTest")
+}
+
 android {
     namespace = "seeyuer.sayin"
-    testBuildType = providers.gradleProperty("sayinVerificationBuildType").getOrElse("debug")
     compileSdk {
         version = release(37) { minorApiLevel = 0 }
     }
@@ -16,12 +21,13 @@ android {
 
     defaultConfig {
         applicationId = "seeyuer.sayin"
-        minSdk = 26
+        // The pinned LAN transport requires platform TLS 1.3 (Android 10+).
+        minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += if (emulatorTests) "x86_64" else "arm64-v8a" }
     }
 
     buildFeatures { compose = true; buildConfig = true }
@@ -40,11 +46,14 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    testBuildType = providers.gradleProperty("sayin.instrumentationBuildType").getOrElse("debug")
     buildTypes {
-        debug {
-            isPseudoLocalesEnabled = true
-            // Explicit test-only install isolation; shipped/default applicationId remains seeyuer.sayin.
-            if (providers.gradleProperty("sayinVerification").orNull == "true") applicationIdSuffix = ".translationverification"
+        debug { isPseudoLocalesEnabled = true }
+        create("imageTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".imagetest"
+            versionNameSuffix = "-image-test"
+            matchingFallbacks += listOf("debug")
         }
         release {
             isMinifyEnabled = true
@@ -72,6 +81,7 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     debugImplementation(libs.compose.ui.test.manifest)
+    add("imageTestImplementation", libs.compose.ui.test.manifest)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.junit)
     androidTestCompileOnly("com.google.errorprone:error_prone_annotations:2.36.0")
@@ -83,6 +93,7 @@ dependencies {
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.runtime)
     implementation(libs.zxing.embedded)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
@@ -114,9 +125,14 @@ val buildPairingNative = tasks.register<BuildPairingNative>("buildPairingNative"
     inputs.file(projectRoot.resolve("desktop/crates/pairing/Cargo.toml"))
     inputs.file(projectRoot.resolve("desktop/Cargo.lock"))
     inputs.file(projectRoot.resolve("scripts/build_pairing_android.ps1"))
+    inputs.property("abi", if (emulatorTests) "x86_64" else "arm64-v8a")
     outputDirectory.set(layout.buildDirectory.dir("generated/pairingJni"))
     commandLine("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-        projectRoot.resolve("scripts/build_pairing_android.ps1").absolutePath)
+        projectRoot.resolve("scripts/build_pairing_android.ps1").absolutePath,
+        "-Abi", if (emulatorTests) "x86_64" else "arm64-v8a")
+}
+androidComponents.beforeVariants { variant ->
+    if (emulatorTests && variant.buildType != "imageTest") variant.enable = false
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addGeneratedSourceDirectory(buildPairingNative) { it.outputDirectory }

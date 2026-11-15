@@ -1,0 +1,111 @@
+{
+  "captured_at": "2026-11-14T22:25:56.289931+08:00",
+  "baseline_commit": "f9b52bec3513515d14be3ebd75fac1946120e7b3",
+  "branch": "codex/image-network-bench",
+  "client_source_language": "Kotlin 2.4.21",
+  "client_runtime": "Android ART via app_process, shell UID 2000; no APK installed",
+  "okhttp": "5.5.1",
+  "okio": "3.18.1",
+  "gradle": "9.7.0",
+  "jdk": "Temurin 25.0.5+8",
+  "jvm_target": 17,
+  "compile_android_api": 37,
+  "tested_android_api": 33,
+  "rust": "1.99.1 release",
+  "phone": {
+    "model": "Redmi K40 / M2012K11AC / alioth",
+    "android": "13",
+    "ipv4": "192.168.71.72/24",
+    "wifi_standard": 5,
+    "frequency_mhz": 5825,
+    "tx_link_mbps": 192,
+    "rx_link_mbps": 192,
+    "rssi_start_dbm": -53,
+    "usb_powered_during_test": true,
+    "battery_temperature_c_during_final_round": 29.7,
+    "rssi_end_dbm": -53
+  },
+  "pc": {
+    "os": "Windows",
+    "interface": "Ethernet",
+    "ipv4": "192.168.71.6/24",
+    "link_mbps": 1000,
+    "tcp_port": 59787,
+    "network_category": "Public",
+    "firewall_profiles_enabled_before": {
+      "Domain": false,
+      "Private": false,
+      "Public": false
+    },
+    "firewall_profiles_enabled_after": {
+      "Domain": false,
+      "Private": false,
+      "Public": false
+    }
+  },
+  "tls": {
+    "version": "1.3",
+    "http": "1.1",
+    "client": "Android SSLSocket/OkHttp",
+    "server": "rustls/ring",
+    "pin": "full DER + validity + default hostname verification",
+    "authorization": "temporary random token, sent after TLS validation",
+    "proxy": "disabled",
+    "redirects": false,
+    "automatic_retry": false
+  },
+  "rounds": 4,
+  "samples": 8,
+  "modes": [
+    "wss-split",
+    "https-stream",
+    "wss-split-60",
+    "https-stream-60"
+  ],
+  "chunk_bytes": 49152,
+  "wss_data_queue_budget_bytes": 98316,
+  "limit_bits_per_second": 60000000,
+  "echo_interval_ms": 20,
+  "memory_sample_interval_ms": 100,
+  "cancel_after_start_ms": 200,
+  "cancel_followup_ms": 300,
+  "adb_forward_before": [],
+  "adb_reverse_before": [],
+  "network_policy_changes": false,
+  "dex_sha256": "8a6b6ba71dfc89c0e7f528154a1c30b03f8f685927b4172359666111c90bfe30",
+  "server_exe_sha256": "1ef5feac71370f701e78d9f962731909004013d01e80e0fc736b5362391aa556",
+  "verification": {
+    "rust_tests_passed": 8,
+    "rust_clippy": "passed -D warnings",
+    "rust_package_fmt": "passed",
+    "rust_release_build": "passed",
+    "kotlin_clean_dex_build": "passed, compileJava NO-SOURCE",
+    "smoke_uploads": 4,
+    "smoke_cancels": 4,
+    "formal_uploads": 128,
+    "formal_cancels": 16,
+    "all_formal_sha256_verified": true,
+    "all_formal_socket_count": 2,
+    "server_error_lines": 0,
+    "analysis_negative_cases": [
+      "missing-upload",
+      "cancel-growth",
+      "socket-not-reused"
+    ]
+  },
+  "limits": [
+    "Network transfer + streaming SHA256 only; no durable encrypted image store, image decoding, clipboard or target input.",
+    "Shell process does not validate target37 permissions or application lifecycle.",
+    "Four repetitions in one Wi-Fi environment, not a universal throughput/latency guarantee.",
+    "100ms sampled absolute process memory includes ART/GC; not a strict peak or isolated protocol allocation measure.",
+    "60Mbps is application pacing, not link shaping or adaptive bandwidth selection."
+  ],
+  "adb_forward_after": [],
+  "adb_reverse_after": [],
+  "cleanup": {
+    "server_exited_normally": true,
+    "phone_temporary_directory_removed": true,
+    "temporary_token_config_removed": true,
+    "production_data_accessed": false
+  }
+}

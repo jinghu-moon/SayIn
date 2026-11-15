@@ -6720,6 +6720,7 @@ dependencies = [
  "win-icon-extractor",
  "windows 0.62.2",
  "yue-component",
+ "zeroize",
 ]
 
 [[package]]
@@ -6744,9 +6745,11 @@ dependencies = [
 name = "voicelink-receiver"
 version = "0.1.0"
 dependencies = [
+ "atomic-write-file",
  "futures-channel",
  "getrandom 0.4.3",
  "hmac 0.13.0",
+ "image",
  "rusqlite",
  "serde",
  "serde_json",

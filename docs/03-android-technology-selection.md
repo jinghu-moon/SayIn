@@ -33,7 +33,7 @@ Miuix采用用户指定的组件体系，Tabler采用最新上游图标源。直
 | JDK发行版 | **Temurin 25.0.5+8（25 LTS）** | 项目构建JDK选择；在Gradle9.7支持的17–26范围内，不采用JDK27 |
 | compileSdk | **37.0（API 37 / minor 0）** | AGP9.3明确支持API37；不将37.2的最新仓库状态等同于这套工具链已经验证支持 |
 | targetSdk | **37** | 面向Android17行为，必须处理对应局域网权限与后台规则 |
-| minSdk | **26，初始产品选择** | 表示支持范围，不是要使用旧依赖；实际用户机型确认后可调整 |
+| minSdk | **29（Android 10），2026-11-15 修正** | 原初选 26 与系统 TLS 1.3 要求不一致；旧系统实测和新最低版本回归见 [49](49-android-platform-support-and-validation.md) |
 | SDK Build-Tools | **37.0.0** | SDK稳定channel确认；需要显式设置以免AGP继续采用其默认36.0.0 |
 | Platform-Tools | **37.0.1** | 稳定channel；37.0.3位于预览channel，不作为本次稳定版选择 |
 | NDK | 首阶段不引入 | 使用预编译AAR无需本机编译ASR；若以后自行编译，当前稳定候选为30.0.16248370，届时重新核对 |

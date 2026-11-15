@@ -7,8 +7,8 @@ android {
     compileSdk = 37
     ndkVersion = "29.0.14206865"
     defaultConfig {
-        minSdk = 26
-        ndk { abiFilters += "arm64-v8a" }
+        minSdk = 29
+        ndk { abiFilters += if (providers.gradleProperty("sayin.emulatorTests").orNull == "true") "x86_64" else "arm64-v8a" }
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild.cmake {
             // Quantized CPU kernels need optimization in Debug too; retain symbols for JNI debugging.

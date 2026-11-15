@@ -13,7 +13,9 @@ $projectRoot = Split-Path $PSScriptRoot -Parent
 $sdk = Join-Path $env:LOCALAPPDATA 'Android/Sdk'
 $adb = Join-Path $sdk 'platform-tools/adb.exe'
 $aapt = Join-Path $sdk 'build-tools/37.0.0/aapt2.exe'
-$applicationId = 'seeyuer.sayin.translationverification'
+$applicationId = if ($BuildType -eq 'release') { 'seeyuer.sayin.translationverification' } else { 'seeyuer.sayin.imagetest' }
+$variant = if ($BuildType -eq 'release') { 'Release' } else { 'ImageTest' }
+$variantDirectory = if ($BuildType -eq 'release') { 'release' } else { 'imageTest' }
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $acquired = $false
 function Invoke-Checked([scriptblock]$Command) {
@@ -30,15 +32,14 @@ try {
         throw 'Cannot obtain an idle instrumentation device.'
     }
     if (!$SkipBuild) {
-        $variant = (Get-Culture).TextInfo.ToTitleCase($BuildType)
         $tasks = @(':app:assemble' + $variant)
         if ($BuildType -eq 'release') {
             $tasks += @(':translation-benchmark:assembleDebug', ':translation-benchmark:assembleDebugAndroidTest')
         } else { $tasks += ":app:assemble${variant}AndroidTest" }
-        Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-PsayinVerification=true' "-PsayinVerificationBuildType=$BuildType" @tasks }
+        Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-PsayinVerification=true' "-Psayin.instrumentationBuildType=$variantDirectory" @tasks }
     }
-    $app = Join-Path $projectRoot "android/app/build/outputs/apk/$BuildType/app-$BuildType.apk"
-    $test = Join-Path $projectRoot "android/app/build/outputs/apk/androidTest/$BuildType/app-$BuildType-androidTest.apk"
+    $app = Join-Path $projectRoot "android/app/build/outputs/apk/$variantDirectory/app-$variantDirectory.apk"
+    $test = Join-Path $projectRoot "android/app/build/outputs/apk/androidTest/$variantDirectory/app-$variantDirectory-androidTest.apk"
     $testPackage = "$applicationId.test"
     if ($BuildType -eq 'release') {
         $test = Join-Path $projectRoot 'android/translation-benchmark/build/outputs/apk/androidTest/debug/translation-benchmark-debug-androidTest.apk'
@@ -80,7 +81,8 @@ try {
     # Only generated silence and synthetic text. No microphone, cloud ASR or LAN fixture.
     if ($BuildType -eq 'release') {
         # Developer fixture only: no production import or root dependency. Both private paths belong to the isolated package.
-        $privateDirectory = "/data/user/0/$applicationId/no_backup/translation"
+        $privateRoot = "/data/user/0/$applicationId/no_backup"
+        $privateDirectory = "$privateRoot/translation"
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'mkdir -p $privateDirectory'" }
         $modelUid = (& $adb -s $DeviceSerial shell "su -c 'stat -c %u /data/user/0/$applicationId'").Trim()
         if ($modelUid -notmatch '^\d+$') { throw 'Cannot resolve isolated app UID.' }
@@ -88,9 +90,11 @@ try {
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'cp $remoteDirectory/models/$($model.file) $pending'" }
         $remoteHash = (& $adb -s $DeviceSerial shell "su -c 'sha256sum $pending'") -join ''
         if ($LASTEXITCODE -ne 0 -or $remoteHash -notmatch ('^' + $model.sha256 + '\s')) { throw 'Isolated private model integrity failed.' }
-        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'chown $($modelUid):$modelUid $privateDirectory $pending'" }
+        # A fresh install has not created no_backup yet. mkdir -p as root also
+        # creates that parent; leaving it root-owned blocks drafts/image storage.
+        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'chown $($modelUid):$modelUid $privateRoot $privateDirectory $pending'" }
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'mv $pending $privateDirectory/$($model.file)'" }
-        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'restorecon -RF $privateDirectory'" }
+        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'restorecon -RF $privateRoot'" }
         $remoteDirectory = '/sdcard/Android/data/seeyuer.sayin.translationbench/files'
         $output = & $adb -s $DeviceSerial shell am instrument -w -r -e class seeyuer.sayin.translationbench.TranslationReleaseSmoke seeyuer.sayin.translationbench.test/androidx.test.runner.AndroidJUnitRunner
     } else {

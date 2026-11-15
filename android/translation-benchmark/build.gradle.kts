@@ -6,12 +6,12 @@ android {
     testBuildType = providers.gradleProperty("translationBenchmarkBuildType").getOrElse("debug")
     defaultConfig {
         applicationId = "seeyuer.sayin.translationbench"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += if (providers.gradleProperty("sayin.emulatorTests").orNull == "true") "x86_64" else "arm64-v8a" }
     }
     buildTypes {
         release {

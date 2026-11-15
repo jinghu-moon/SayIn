@@ -1,8 +1,8 @@
 # 50 · Android 本地中译英实施与验证
 
-日期：2026-11-14。已完成独立模型比较和统一草稿产品集成；设备回归持续记录于下文。目标 REDMI K90 Pro Max 未连接，不能据此认定其验收通过。
+日期：2026-11-14；主线整合记录更新于 2026-11-15。已完成独立模型比较和统一草稿产品集成；设备回归持续记录于下文。目标 REDMI K90 Pro Max 未连接，不能据此认定其验收通过。
 
-## 隔离、基线及共同文件
+## 隔离、基线及共同文件（独立开发阶段）
 
 - 共同基线：`f9b52bec3513515d14be3ebd75fac1946120e7b3`，已包含已配对电脑自动发现；翻译分支 `codex/local-translation`。
 - 独立工作目录：`D:/100_Projects/110_Daily/.zcf/VoiceInput/local-translation`。不修改 `paired-host-discovery` worktree，不在主线覆盖文件。
@@ -23,7 +23,7 @@
 
 本机参考 ZIP 的 archive comment 是 GitHub commit `32bdc3a89e6528d3e419024c833c5dabf32c7541`，已用 GitHub commit API 确认。另下载该 commit 的 codeload ZIP，其完整 4170 个文件的相对路径、长度、内容摘要构成的排序清单与本机参考 ZIP 一致，树摘要为 `24628d6cb405e3ab145e2551b09968184f4f066f8958692f786e81f68de254a8`。构建前重新校验完整源码树，不把 Git 向父目录回溯得到的项目 HEAD 误当 llama.cpp commit。
 
-NDK 固定 `29.0.14206865`，CMake 固定本机已安装的 `3.22.1`；保留项目 minSdk 26、arm64-v8a 和根包 `seeyuer.sayin`。未照搬示例包名、minSdk 33、KleidiAI/OpenMP 开关、全局模型指针或主线程 `runBlocking` 释放方式。CPU 基线关闭 GPU、KleidiAI、OpenMP 及运行时后端下载，不创建 HTTP 服务。
+NDK 固定 `29.0.14206865`，CMake 固定本机已安装的 `3.22.1`；独立分支起步时为 minSdk 26，合入当前主线时统一为 **29**，保留 arm64-v8a 和根包 `seeyuer.sayin`。未照搬示例包名、minSdk 33、KleidiAI/OpenMP 开关、全局模型指针或主线程 `runBlocking` 释放方式。CPU 基线关闭 GPU、KleidiAI、OpenMP 及运行时后端下载，不创建 HTTP 服务。
 
 取得的官方许可全文见 `docs/licenses/translation/`：llama.cpp 为 MIT；该固定 Hy-MT2 GGUF 明确为 Apache-2.0；PLaMo 为独立 Community License，有商业条件，不能笼统将全部模型标为 MIT。选定模型、llama.cpp、CPU 贡献者及 NDK 运行时通知已随生成的 Android assets 保留；PLaMo 只评估不交付。完整应用既有依赖仍有各自许可，不能据此宣称整个分发物均为 MIT。
 
@@ -103,9 +103,9 @@ p95/p99 使用最近秩；n=4 太少，只作探索性统计，不是尾延迟 S
 
 这确定了可执行交付路径，不代表应用商店/AAB大资源渠道已验收。国内网络可达性、真实整包下载结果和分发许可审阅边界须以实际测试项为准；完整第三方通知在生成的 `assets/licenses/translation` 内，来源清单固定。
 
-## 回归与命令
+## 回归与命令（独立分支历史）
 
-修改前：应用45项JVM及Debug成功。修改后：应用48项、翻译UTF8测试1项（49总计），0失败/错误/跳过。首次42项设备回归有1项横屏键盘失败，日志保留在忽略的 `android/local-translation/results/product-first-regression-42.txt`；未删除或弱化测试。
+以下为整合图片输入主线前实际执行的历史命令；其中旧的 `IsolatedTranslation` / `sayinVerificationBuildType` 参数已被移除，当前入口见末尾的主线整合节。修改前：应用45项JVM及Debug成功。修改后：应用48项、翻译UTF8测试1项（49总计），0失败/错误/跳过。首次42项设备回归有1项横屏键盘失败，日志保留在忽略的 `android/local-translation/results/product-first-regression-42.txt`；未删除或弱化测试。
 
 ```powershell
 ./scripts/gradle.ps1 -PsayinVerification=true :app:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug :translation:testDebugUnitTest
@@ -157,3 +157,60 @@ Debug首轮真实JNI和5项session/UI测试6/6通过（203.387秒），但发现
 ## 剩余验收边界
 
 K90 Pro Max未连接，无法提供其16GB物理内存、首字/整句、峰值内存、温升、功耗或长期稳定性数据。K40数据不外推K90。没有本轮真实麦克风→翻译→真实Wi-Fi→普通目标应用落字证据；常规通信fixture是ADB reverse/loopback、fake输入，且必须恰好两次尝试（injected与uncertain），不能当真实落字。付费云ASR仍需明确opt-in，未调用。未启用硬件加速，未做连续功耗/热降频或多设备测量。
+
+## 2026-11-15 主线整合与重新验收
+
+独立翻译提交为 `620a5d2`；在同一翻译 worktree 中整合 `main@7c90899d5a743c0115a2b7830ea4415a6d6371b3`，该主线已经包含图片输入、图片历史与 Android 平台验收。整合前在主工作目录实跑 51 项 JVM 与 Debug 构建成功，主线保持干净后才进行合并。没有整文件覆盖其他 worktree；电脑接收/协议产品代码与主线一致。
+
+冲突按功能合并：保留主线 minSdk 29、OkHttp 5.5.1、图片资源与 imageTest；翻译库及独立验证应用也统一 minSdk 29。测试构建只保留 `sayin.instrumentationBuildType`，不再并存旧选择项；Debug/JVM 与 imageTest 分两次构建。真实 Debug JNI 复用隔离 `seeyuer.sayin.imagetest`，显式 Release 验证仍为 `seeyuer.sayin.translationverification`。翻译文档编号由 42 改为 50，保留主线已有文档 42。产品和新增测试均为 Kotlin，JNI 为 C++；`src/main/java` 是已有源码目录名，不表示使用 Java 实现。
+
+实际执行的当前命令如下。`-SkipBuild` 只在对应新 APK/fixture 已成功构建后使用；设备测试串行，安装脚本先核验隔离包。普通 Debug/Release APK 只构建和检查，没有安装到日常包。
+
+```powershell
+./scripts/gradle.ps1 :app:testDebugUnitTest :translation:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug :app:assembleRelease
+./scripts/gradle.ps1 '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest
+./scripts/gradle.ps1 '-Psayin.instrumentationBuildType=release' :app:assembleReleaseAndroidTest
+cargo test --workspace --all-targets --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo fmt -p voicelink-desktop -p voicelink-receiver -p voicelink-pairing -p voicelink-transport -- --check
+cargo build --workspace --locked
+cargo build -p voicelink-transport --example android_fixture --locked
+./scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -UseExistingRootInstall -FullSuite -SkipBuild
+./scripts/verify_android_translation_product.ps1 -DeviceSerial dc39c31d -ModelsDirectory D:/100_Projects/110_Daily/VoiceInput/assets/translation-model -BuildType debug -UseExistingRootInstall -IncludeSessionRegression -SkipBuild
+./scripts/gradle.ps1 '-PsayinVerification=true' '-Psayin.instrumentationBuildType=release' :app:assembleRelease :translation-benchmark:assembleDebug :translation-benchmark:assembleDebugAndroidTest
+./scripts/verify_android_translation_product.ps1 -DeviceSerial dc39c31d -ModelsDirectory D:/100_Projects/110_Daily/VoiceInput/assets/translation-model -BuildType release -UseExistingRootInstall -SkipBuild
+python scripts/check_i18n.py
+python scripts/check_desktop_dependencies.py
+python scripts/check_translation_package.py android/app/build/outputs/apk/debug/app-debug.apk
+python scripts/check_translation_package.py android/app/build/outputs/apk/release/app-release-unsigned.apk
+```
+
+Cargo 命令在 `desktop/` 执行，使用该目录固定的 Rust 1.99.1。Wrapper 再次确认 Launcher Temurin 25.0.5+8-LTS / Gradle 9.7.0，项目 Kotlin 2.4.21、字节码 17；Wrapper 输出的 Kotlin 2.4.0 是 Gradle 自带 Kotlin，并非项目编译插件版本。
+
+| 本轮检查 | 实际结果 |
+| --- | --- |
+| JVM | 应用 54 + 翻译 1 = **55**，0 失败/错误/跳过 |
+| Debug、DebugAndroidTest、imageTest/AndroidTest、Release/R8、ReleaseAndroidTest、Lint | 构建成功 |
+| 常规设备 | **50/50**；共同套件 46 项 / 111.383 秒、独立图片 4 项 / 1.518 秒；分别恰好 2/1 次 fake 输入，无重放 |
+| Debug 真 JNI + 会话/UI | **6/6**，18.177 秒；两次独立翻译、真实 ASR 权重同驻，无开麦/发送 |
+| 优化后 Release 实际页面 | **1/1**；外部 Kotlin 驱动，真实本地翻译、原文/译文切换与 ASR 就绪断言通过 |
+| Rust 全工作区/全目标 | **138** 项通过，0 失败/忽略；Clippy、四包限定格式、工作区/fixture 构建通过 |
+| i18n、Yue 依赖/来源 | 通过；使用主线已更新的来源记录，没有重录外部 Yue 指纹 |
+| Debug/Release 原生打包 | arm64、全部 DT_NEEDED 闭包、六个 JNI 导出、隐藏 llama 符号、16KB ELF/ZIP 对齐、NDK29 libc++ 来源与许可通过；无 GGUF |
+
+新增 UI 联动检查在实际“更多→选图”回调后等待后台释放，确认完整译文和中文仍在、推理任务仍只有一次、未触发文字发送。完整常规套件仍验证三种输入、草稿恢复、取消、手动发送、接收范围/收据恢复、图片数据与界面；常规套件不包含付费云、发现、平台权限和性能专用类，也排除显式 opt-in 的真 JNI 类。
+
+整合过程中发现并修正以下问题，原失败日志保留，未降低断言：
+
+| 问题 | 修正前实际行为 | 修正后实际行为 |
+| --- | --- | --- |
+| 小高度/大字布局 | 150% 字号编辑区仅 80px，小于原断言 140.25px；横屏高 IME 下仅 50px，小于一行 93.5px | 按实际高度/字号将翻译移入“更多”，极小高度收起提示并减少页脚留白；横屏实际 115px，大字与横屏原断言及截图复核通过 |
+| 图片历史测试造数 | 快速造 30 条历史耗尽四令牌突发，触发正常 RATE_LIMITED | 测试夹具按生产 20 次/秒间隔造数，原缓存/atlas 释放断言全部通过；未改生产限流 |
+| 首次 Release 验证目录 | root mkdir 同时创建 no_backup 父目录，父目录仍属 root，产品按设计报告存储不可用 | 只给隔离包修正父目录及模型目录 UID/GID/SELinux，应用可正常持久化；没有清除日常数据或放宽产品存储保护 |
+| 首次 Release 验证标签 | 新安装默认 Cloud 已选中，Compose 无障碍不提供重复点击，外部驱动等到超时 | 驱动识别已选标签，再切到本地并等待真实 ASR Ready；翻译/原文保留断言继续实际执行 |
+
+首个整合 Gradle 命令同时选择 imageTest 与 Debug JVM，因该选择下没有 `testDebugUnitTest` 而失败；改为上面的两次规范调用。曾在 fixture 运行期间重复构建同一个 Windows exe，出现 LNK1104 文件占用；待本轮 fixture 正常退出后串行重建成功。两者均保留失败证据，不算产品通过项。
+
+设备仍仅 Redmi K40 / M2012K11AC / API33。Debug 同一合成句首 token **1496ms**、完整 **2392ms**，私有模型导入准备 1467ms；含真实 ASR 的全进程峰 RSS 为 **2,324,984KiB**，不是单独模型内存。Release 页面点击到完成 **4130ms**，含校验/加载/调度，不与纯推理时间混算。新的原始报告为 `main-integration-debug-native.json`、`main-integration-release-native.json`，完整命令、日志 SHA-256、失败与修正证据索引见同目录 `main-integration.json`。
+
+本轮没有重新运行 API29/API37 或 x86_64 模拟器；文档 49 的主线平台记录不能充当新增翻译 JNI 在这些设备上的实跑证据。K90、完整 HTTPS 下载、真实麦克风→翻译→Wi-Fi 落字、热降频/功耗和硬件加速边界仍按前文如实保留；没有恢复用户已接手的 1.13GB 网络下载。

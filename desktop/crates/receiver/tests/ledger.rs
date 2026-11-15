@@ -605,16 +605,19 @@ fn missing_installed_history_fails_without_changing_receipts() {
 #[test]
 fn additive_history_upgrade_preserves_device_and_receipt_identity() {
     use voicelink_receiver::history::HistoryQuery;
-    for version in [1, 2, 3, 4] {
+    for version in [1, 2, 3, 4, 5] {
         let fixture = Fixture::new();
         let (mut ledger, session) = fixture.ready();
         let message = fixture.submit(&session, "existing pending original");
         let accepted = ledger.submit(&session, &message).unwrap();
         drop(ledger);
         let database = rusqlite::Connection::open(fixture.path()).unwrap();
-        database
-            .execute_batch("ALTER TABLE message_history DROP COLUMN source_name;")
-            .unwrap();
+        database.execute_batch("DROP TRIGGER image_history_retired; DROP TRIGGER image_receipt_retired; DROP INDEX image_pending; DROP TABLE image_resources; DROP TABLE image_garbage; ALTER TABLE receipts DROP COLUMN image_resource;").unwrap();
+        if version < 5 {
+            database
+                .execute_batch("ALTER TABLE message_history DROP COLUMN source_name;")
+                .unwrap();
+        }
         if version < 4 {
             database.execute_batch("DROP INDEX history_received; DROP INDEX history_deleted; ALTER TABLE message_history DROP COLUMN deleted_at; DROP TABLE history_policy;").unwrap();
         }
@@ -664,7 +667,7 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
         let installed: u32 = database
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(installed, 5);
+        assert_eq!(installed, 6);
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device",
@@ -1075,5 +1078,292 @@ fn retention_and_expired_undo_do_not_remove_delivery_identity() {
         db.query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get::<_, i64>(0))
             .unwrap(),
         1
+    );
+}
+
+fn prepared_image(
+    fixture: &Fixture,
+    ledger: &mut Ledger,
+    session: &Session,
+) -> (
+    voicelink_receiver::images::ImageReference,
+    std::sync::Arc<voicelink_receiver::images::ImageAuthorization>,
+) {
+    use voicelink_receiver::images::{
+        ImageAuthorization, ImageMetadata, ImageMime, digest, storage::ImageStore,
+        wire::UploadScope,
+    };
+    let store = ImageStore::open(&fixture.directory.join("images"), &fixture.target).unwrap();
+    ledger.attach_images(store.clone()).unwrap();
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgba8(3, 2)
+        .write_to(&mut bytes, image::ImageFormat::Png)
+        .unwrap();
+    let bytes = bytes.into_inner();
+    let resource = store
+        .prepare(
+            session.device(),
+            ImageMetadata {
+                bytes: bytes.len() as u32,
+                mime: ImageMime::Png,
+                width: 3,
+                height: 2,
+                sha256: digest(&bytes),
+            },
+            &bytes,
+            &TestProtector,
+        )
+        .unwrap();
+    let reference = resource.image().clone();
+    let auth = std::sync::Arc::new(ImageAuthorization::new(std::sync::Arc::new(
+        std::sync::atomic::AtomicBool::new(true),
+    )));
+    ledger
+        .register_image(
+            session,
+            UploadScope {
+                device: session.device().into(),
+                session: session.id().into(),
+                target: fixture.target.clone(),
+                revision: ledger.state().unwrap().state_rev,
+            },
+            resource,
+            auth.clone(),
+        )
+        .unwrap();
+    (reference, auth)
+}
+
+#[test]
+fn image_acceptance_is_durable_deduplicated_and_never_replays_after_restart() {
+    use voicelink_receiver::{history::HistoryQuery, images::storage::ImageStore};
+    for executing in [false, true] {
+        let fixture = Fixture::new();
+        let (mut ledger, session) = fixture.ready();
+        let (image, _) = prepared_image(&fixture, &mut ledger, &session);
+        let message = Submit::new(
+            session.id().into(),
+            Uuid::new_v4().to_string(),
+            fixture.target.clone(),
+            Operation::Image {
+                image: image.clone(),
+            },
+        );
+        let receipt = ledger.submit(&session, &message).unwrap();
+        assert_eq!(receipt.st, State::Accepted);
+        assert_eq!(
+            ledger.submit(&session, &message).unwrap().order,
+            receipt.order
+        );
+        let mut conflict = message.clone();
+        if let Operation::Image { image } = &mut conflict.op {
+            image.metadata.sha256 = "a".repeat(64);
+        }
+        code(ledger.submit(&session, &conflict), "ID_CONFLICT");
+        let job = ledger.prepare_next().unwrap().unwrap();
+        if executing {
+            assert!(ledger.mark_executing(&job).unwrap());
+        }
+        drop(job);
+        drop(ledger);
+        let mut ledger = fixture.open();
+        let store = ImageStore::open(&fixture.directory.join("images"), &fixture.target).unwrap();
+        ledger.attach_images(store.clone()).unwrap();
+        assert!(store.contains(&image.resource_id).unwrap());
+        let session = ledger
+            .authenticate(&fixture.device, &fixture.token)
+            .unwrap();
+        let receipt = ledger.query(&session, &message.id).unwrap().unwrap();
+        assert_eq!(
+            receipt.st,
+            if executing {
+                State::Uncertain
+            } else {
+                State::Held
+            }
+        );
+        assert!(ledger.prepare_next().unwrap().is_none());
+        let history = ledger.history(&HistoryQuery::default()).unwrap();
+        assert!(
+            matches!(&history.entries[0].operation,Some(Operation::Image{image:original}) if original==&image)
+        );
+        store.remove(&image.resource_id).unwrap();
+        drop(ledger);
+        let mut ledger = fixture.open();
+        code(ledger.attach_images(store), "IMAGE_RESOURCE_MISSING");
+    }
+}
+
+#[test]
+fn image_authorization_cannot_survive_pause_new_session_or_revoke() {
+    for event in ["pause", "session", "revoke"] {
+        let fixture = Fixture::new();
+        let (mut ledger, session) = fixture.ready();
+        let (image, auth) = prepared_image(&fixture, &mut ledger, &session);
+        let message = Submit::new(
+            session.id().into(),
+            Uuid::new_v4().to_string(),
+            fixture.target.clone(),
+            Operation::Image { image },
+        );
+        ledger.submit(&session, &message).unwrap();
+        let job = ledger.prepare_next().unwrap().unwrap();
+        assert!(job.image_authorized());
+        match event {
+            "pause" => {
+                let state = ledger.pause().unwrap();
+                ledger.resume(&state.state_rev, false).unwrap();
+            }
+            "session" => {
+                ledger
+                    .authenticate(&fixture.device, &fixture.token)
+                    .unwrap();
+            }
+            "revoke" => ledger.revoke(&fixture.device).unwrap(),
+            _ => {
+                drop(auth);
+                ledger.pause().unwrap();
+            }
+        }
+        assert!(!job.image_authorized());
+        assert!(!ledger.mark_executing(&job).unwrap());
+        assert!(ledger.prepare_next().unwrap().is_none());
+    }
+}
+
+#[test]
+fn unaccepted_image_is_discarded_but_accepted_resource_is_not() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let (image, _) = prepared_image(&fixture, &mut ledger, &session);
+    assert!(ledger.discard_image(&session, &image.resource_id).unwrap());
+    let path = fixture
+        .directory
+        .join("images")
+        .join(format!("{}.image", image.resource_id));
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    while path.exists() && std::time::Instant::now() < until {
+        std::thread::yield_now();
+    }
+    assert!(!path.exists());
+    let (image, _) = prepared_image(&fixture, &mut ledger, &session);
+    let message = Submit::new(
+        session.id().into(),
+        Uuid::new_v4().to_string(),
+        fixture.target.clone(),
+        Operation::Image {
+            image: image.clone(),
+        },
+    );
+    ledger.submit(&session, &message).unwrap();
+    assert!(!ledger.discard_image(&session, &image.resource_id).unwrap());
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    let result = ledger
+        .finish(
+            &job,
+            InputOutcome::Injected {
+                method: "clipboard_image",
+            },
+        )
+        .unwrap();
+    assert_eq!(result.method.as_deref(), Some("clipboard_image"));
+    assert_eq!(
+        ledger.submit(&session, &message).unwrap().st,
+        State::Injected
+    );
+    assert!(ledger.prepare_next().unwrap().is_none());
+    assert!(
+        fixture
+            .directory
+            .join("images")
+            .join(format!("{}.image", image.resource_id))
+            .exists()
+    );
+}
+
+#[test]
+fn image_history_cleanup_preserves_undo_pending_and_dedup_receipts() {
+    use voicelink_receiver::history::HistoryPolicy;
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let (image, _) = prepared_image(&fixture, &mut ledger, &session);
+    let message = Submit::new(
+        session.id().into(),
+        Uuid::new_v4().to_string(),
+        fixture.target.clone(),
+        Operation::Image {
+            image: image.clone(),
+        },
+    );
+    let receipt = ledger.submit(&session, &message).unwrap();
+    let order = receipt.order.parse().unwrap();
+    let path = fixture
+        .directory
+        .join("images")
+        .join(format!("{}.image", image.resource_id));
+    assert!(ledger.delete_history(order).unwrap());
+    ledger.set_history_policy(HistoryPolicy::default()).unwrap();
+    assert!(path.exists());
+    assert!(ledger.restore_history(order).unwrap());
+    assert!(path.exists());
+    assert!(ledger.delete_history(order).unwrap());
+    let database = rusqlite::Connection::open(fixture.path()).unwrap();
+    database
+        .execute(
+            "UPDATE message_history SET deleted_at=0 WHERE accept_order=?1",
+            [order],
+        )
+        .unwrap();
+    ledger.set_history_policy(HistoryPolicy::default()).unwrap();
+    assert!(path.exists(), "pending input retains its required resource");
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    ledger
+        .finish(
+            &job,
+            InputOutcome::Injected {
+                method: "clipboard_image",
+            },
+        )
+        .unwrap();
+    let until = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        ledger.set_history_policy(HistoryPolicy::default()).unwrap();
+        let remaining: i64 = database
+            .query_row("SELECT COUNT(*) FROM image_garbage", [], |r| r.get(0))
+            .unwrap();
+        if !path.exists() && remaining == 0 {
+            break;
+        }
+        assert!(std::time::Instant::now() < until);
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        ledger.query(&session, &message.id).unwrap().unwrap().st,
+        State::Injected
+    );
+    assert_eq!(
+        ledger.submit(&session, &message).unwrap().st,
+        State::Injected
+    );
+    assert!(ledger.prepare_next().unwrap().is_none());
+    drop(ledger);
+    let mut ledger = fixture.open();
+    ledger
+        .attach_images(
+            voicelink_receiver::images::storage::ImageStore::open(
+                &fixture.directory.join("images"),
+                &fixture.target,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let session = ledger
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    assert_eq!(
+        ledger.query(&session, &message.id).unwrap().unwrap().st,
+        State::Injected
     );
 }

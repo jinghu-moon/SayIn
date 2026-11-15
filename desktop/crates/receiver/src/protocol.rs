@@ -16,8 +16,16 @@ pub const MAX_TEXT_SCALARS: usize = 4000;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Operation {
-    Text { text: String, src: TextSource },
-    Key { name: KeyName },
+    Text {
+        text: String,
+        src: TextSource,
+    },
+    Key {
+        name: KeyName,
+    },
+    Image {
+        image: crate::images::ImageReference,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -40,9 +48,13 @@ impl Operation {
         match self {
             Self::Text { text, .. } => text.len(),
             Self::Key { .. } => 0,
+            Self::Image { .. } => 0, // separate resource quota, never text byte quota
         }
     }
     pub fn validate(&self) -> Result<()> {
+        if let Self::Image { image } = self {
+            return image.validate();
+        }
         if let Self::Text { text, .. } = self {
             if text.is_empty()
                 || text.len() > MAX_TEXT_BYTES

@@ -39,8 +39,8 @@ class TranslationReleaseSmoke {
 
             // Load and prewarm the real ASR weights, without opening the microphone.
             phase = "asr-source"
-            clickResource("speak_source_cloud")
-            clickResource("speak_source_local_short")
+            clickResource("speak_source_cloud", allowSelected = true)
+            clickResource("speak_source_local_short", allowSelected = true)
             phase = "asr-ready"
             waitResource("speak_local_ready", 180_000)
             val original = "SayIn 不会自动发送译文。😊"
@@ -89,7 +89,7 @@ class TranslationReleaseSmoke {
         context.getString(context.resources.getIdentifier(name, "string", product.packageName))
     }
 
-    private fun clickResource(name: String) {
+    private fun clickResource(name: String, allowSelected: Boolean = false) {
         val status = Bundle()
         status.putString("stage", name)
         instrumentation.sendStatus(0, status)
@@ -100,6 +100,9 @@ class TranslationReleaseSmoke {
             var node = values.firstNotNullOfOrNull { findText(root, it) }
             for (depth in 0 until 4) {
                 val current = node ?: break
+                // Compose omits ACTION_CLICK for an already selected tab.
+                // A fresh install defaults to Cloud; a reused fixture may not.
+                if (allowSelected && current.isEnabled && current.isSelected) return
                 if (current.isEnabled && current.isClickable && current.performAction(AccessibilityNodeInfo.ACTION_CLICK)) {
                     return
                 }

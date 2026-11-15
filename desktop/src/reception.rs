@@ -173,10 +173,17 @@ impl ReceptionState {
         let directory = self.directory.clone();
         let opening = cx.background_spawn(async move {
             secure_directory(&directory)?;
-            let ledger = open_ledger(&directory)?;
+            let mut ledger = open_ledger(&directory)?;
             let identity = HostIdentity::open(&directory, ledger.snapshot()?.paired_devices)?;
+            let image_directory = directory.join("images");
+            secure_directory(&image_directory)?;
+            let images = voicelink_receiver::images::storage::ImageStore::open(
+                &image_directory,
+                identity.host_id(),
+            )?;
+            ledger.attach_images(images.clone())?;
             Ok::<_, voicelink_transport::Error>((
-                Receiver::start(ledger, NativeInput::default())?,
+                Receiver::start(ledger, NativeInput::with_images(images))?,
                 identity,
                 std::fs::read_to_string(directory.join("network-interface.txt"))
                     .ok()
@@ -789,6 +796,9 @@ impl ReceptionState {
     }
     pub fn history(&self) -> &HistoryPage {
         &self.history
+    }
+    pub(crate) fn image_receiver(&self) -> Option<Receiver> {
+        self.receiver.clone()
     }
     pub fn latest(&self) -> &HistoryPage {
         &self.latest
