@@ -98,7 +98,7 @@ Hy-MT2-1.8B 为翻译专用模型，官方提供 GGUF/llama.cpp 路线及默认�
 
 | 项目 | 本机示例 | SayIn 当前/目标约束 |
 | --- | --- | --- |
-| Android SDK | compileSdk 36，minSdk 33 | 当前应用 compile/target 37、minSdk 26；不能无理由提高应用最低版本 |
+| Android SDK | compileSdk 36，minSdk 33 | 当前应用 compile/target 37、minSdk 29（系统 TLS 1.3，见 49）；翻译候选不能无理由进一步提高应用最低版本 |
 | NDK/CMake | NDK `29.0.13113456`，CMake `3.31.6` | 作为候选核对安装与构建；版本正式固定后保留可复现记录 |
 | 包名/JNI | `com.arm.aichat` 与对应导出 | 应用自有 Kotlin/JNI 使用 `seeyuer.sayin` 根包，第三方源码保留来源/许可 |
 | ABI | arm64-v8a、x86_64 | 当前产品 arm64-v8a，模拟器需要时单独配置 |

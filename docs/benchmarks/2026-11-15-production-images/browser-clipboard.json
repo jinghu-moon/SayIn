@@ -1,0 +1,12 @@
+{
+  "browser": "Chromium 157.0.8103.51",
+  "url": "about:blank with temporary local test DOM",
+  "source": "production history copy of synthetic app icon, 64x64 PNG",
+  "paste": {"types": ["Files"], "file_count": 1, "mime": "image/png", "bytes": 1075, "inserted_images": 1},
+  "rich_text": "existing|",
+  "plain_text_after_paste": "existing|",
+  "form_submissions": 0,
+  "enter_key_events": 0,
+  "network_submission": false,
+  "scope": "Chromium reads actual Windows clipboard via Playwright Control+V; this is not production NativeInput to browser and does not validate a third-party upload service"
+}

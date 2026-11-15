@@ -1,0 +1,245 @@
+{
+  "evidence_id": "da3305ad-dca0-48f4-afe5-3eb056fcff68",
+  "mobile": {
+    "scope": "isolated imageTest; production Repository/Keystore/Room/pinned dual WSS; see desktop adapter mode",
+    "measurements": [
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 1,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 298.168282,
+        "send_to_receipt_ms": 544.553541,
+        "total_ms": 842.721823
+      },
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 2,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 289.704219,
+        "send_to_receipt_ms": 503.012657,
+        "total_ms": 792.716876
+      },
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 3,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 300.0175,
+        "send_to_receipt_ms": 468.950729,
+        "total_ms": 768.9682290000001
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 1,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 371.2675,
+        "send_to_receipt_ms": 581.164375,
+        "total_ms": 952.431875
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 2,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 339.200104,
+        "send_to_receipt_ms": 616.424895,
+        "total_ms": 955.624999
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 3,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 359.513958,
+        "send_to_receipt_ms": 535.508645,
+        "total_ms": 895.022603
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 1,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 572.858646,
+        "send_to_receipt_ms": 950.961771,
+        "total_ms": 1523.820417
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 2,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 597.703542,
+        "send_to_receipt_ms": 970.087916,
+        "total_ms": 1567.791458
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 3,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 562.657656,
+        "send_to_receipt_ms": 848.290833,
+        "total_ms": 1410.9484889999999
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 1,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 870.403177,
+        "send_to_receipt_ms": 1242.927083,
+        "total_ms": 2113.33026
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 2,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 821.022551,
+        "send_to_receipt_ms": 1151.422812,
+        "total_ms": 1972.445363
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 3,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 855.537708,
+        "send_to_receipt_ms": 1103.076146,
+        "total_ms": 1958.6138540000002
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 1,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1288.390937,
+        "send_to_receipt_ms": 1524.525833,
+        "total_ms": 2812.91677
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 2,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1382.749166,
+        "send_to_receipt_ms": 1943.170311,
+        "total_ms": 3325.9194770000004
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 3,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1259.274635,
+        "send_to_receipt_ms": 1722.603124,
+        "total_ms": 2981.877759
+      }
+    ],
+    "rejections": [
+      {
+        "file": "006_10.08MB_6.jpg",
+        "source_bytes": 10567181,
+        "bounded_reject_ms": 19.547083
+      },
+      {
+        "file": "007_25.17MB_7.jpg",
+        "source_bytes": 26392479,
+        "bounded_reject_ms": 20.666875
+      },
+      {
+        "file": "008_55.94MB_8.jpg",
+        "source_bytes": 58658641,
+        "bounded_reject_ms": 15.923177
+      }
+    ],
+    "sampled_max_pss_kib": 226556,
+    "pss_sample_count": 112
+  },
+  "desktop": {
+    "core_peak_working_set_bytes": 68804608,
+    "native_target": false,
+    "sources": [
+      {
+        "bytes": 379624,
+        "name": "001_370.73KB_1.jpg",
+        "sha256": "72b4e565ff7f7ec0758c9d1afc34b6b23d8ca554d1650e6edd0eca940b7a2638"
+      },
+      {
+        "bytes": 521534,
+        "name": "002_509.31KB_2.jpg",
+        "sha256": "603067420c323d63be50400f6869a580bb5d827aec081fc79e1c4998377321e3"
+      },
+      {
+        "bytes": 843588,
+        "name": "003_823.82KB_3.jpg",
+        "sha256": "2ec9d1589e918802496cff3c1f6204af312304fdd2914a7468af9098579f27c5"
+      },
+      {
+        "bytes": 1268552,
+        "name": "004_1.21MB_4.jpg",
+        "sha256": "2ee02486f2f05b2cfdb5a9bbe6f94c2cef5530ae6294b6302d40d06d3e8f0e76"
+      },
+      {
+        "bytes": 2136152,
+        "name": "005_2.04MB_5.jpg",
+        "sha256": "561122be79226856734b04c2d53fb59af3ea33c39f9940e10213f8e661a87576"
+      },
+      {
+        "bytes": 10567181,
+        "name": "006_10.08MB_6.jpg",
+        "sha256": "cc9149f1da494cb3599ae225d98a1679e9d583ae761098231e72931043fd7306"
+      },
+      {
+        "bytes": 26392479,
+        "name": "007_25.17MB_7.jpg",
+        "sha256": "faf3f697674712532c06ce2949132e075d5786a47d2a36bec2ac02bd0ccce766"
+      },
+      {
+        "bytes": 58658641,
+        "name": "008_55.94MB_8.jpg",
+        "sha256": "bd67a10fb216fb8df618351b5b5ad6b89c8dcc0a098f3a09c51711e3482f37aa"
+      }
+    ],
+    "target_peak_working_set_bytes": 0,
+    "real_lan": true,
+    "input_calls": 15,
+    "release_core": true,
+    "scope": "Native mode includes test-only RichEdit RTF acknowledgement latency; fake mode excludes native input",
+    "mobile": "imageTest Debug",
+    "adb_reverse": false
+  }
+}

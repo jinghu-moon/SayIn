@@ -1,1 +1,4 @@
-<paths><files-path name="images" path="test-images/" /></paths>
+<paths>
+    <files-path name="images" path="test-images/" />
+    <external-files-path name="performance" path="image-performance/" />
+</paths>

@@ -278,6 +278,7 @@
 - Android 工程初始化时，将项目 Gradle JDK 明确设为上述 JDK，并用 Wrapper 的 `--version` 核对实际 Launcher/Daemon JVM；IDE与命令行配置保持一致。
 - 配套版本为 Kotlin **2.4.21**、AGP **9.3.1**、Gradle **9.7.0**；Java/Kotlin 字节码目标初始均为 **17**，与构建 JDK 分开配置。
 - Android 工程位于 `android/`；从仓库根目录使用 `scripts/gradle.ps1` 调用项目 Wrapper，明确使用已确认的 JDK。
+- 当前最低系统为 Android 10/API 29，与平台 TLS 1.3 必需条件一致；不得重新声明不具备该能力的旧系统受支持、降级 TLS 或为此引入兼容 provider。根因、修改前后验证与 API 37 真实系统授权测试见 [49](docs/49-android-platform-support-and-validation.md)。模拟器 ABI 仅允许显式 `sayin.emulatorTests=true` 的隔离 imageTest variant，日常包默认仍为 arm64-v8a。
 - 工程基础已完成首次 Debug 构建；后续状态以 `docs/04-android-foundation-implementation.md` 中的实际验证记录为准，不能将构建通过等同于业务链路或真机运行通过。
 
 详细依据见 [Android 技术选型](docs/03-android-technology-selection.md)。
@@ -331,7 +332,7 @@
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
 - 已支持代码协议和手工 IPv4/二维码；已支持有界 IPv4 mDNS/NSD，无空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。手机先连保存地址，失败后通过有界 NSD 找回同一身份，完整认证后才持久更新 IPv4/端口；连接帮助内手动维护仍保留，详见 40。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
-- 双端通信真机回归用 `scripts/verify_android_transport.ps1`，现包含四页 Compose 界面测试，运行前须手动解锁手机；默认普通安装，当前已授权的 Root 设备可加 `-UseExistingRootInstall` 沿用 06 安装方法。测试仅通过 `adb reverse` 连接本机 loopback 专用假输入服务，自动批准仅在该测试例程；绝不能挪到产品监听流程。测试必须使用独立 host/device 与命名空间，不覆盖用户的手机配对凭据或 Outbox。
+- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，包含 40 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
 ---
@@ -427,4 +428,4 @@
 - 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
 - 生产 NativeInput 在最终目标捕获前完成资源读取和解码；持久 executing 后发布 PNG/DIBV5/历史与云排除标记，只发一次 Ctrl+V、不追加 Enter。部分提交进入 uncertain，只补释放本次仍按下的键。提交成功不证明目标应用已显示图片。
 - Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
-- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。生产临时 RichEdit/EDIT、51 项 JVM、44 项常规设备和 136 项桌面自动回归已通过；完整真实应用矩阵及生产大图性能仍需单独验收，不把回环/fake 输入、旧网络测速或构建通过冒充整链路验收。图片设备测试使用独立 `seeyuer.sayin.imagetest`，`verify_image_transport.ps1 -FullSuite` 将文字和图片套件放在不同临时电脑身份，绝不替换日常应用。
+- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。15 次 LAN 临时 RichEdit 粘贴、受控慢速 25 张、取消/暂停、51 项 JVM、44 项常规设备、3 组发现和 137 项桌面回归通过；首版有限验收已完成，用户确认浏览器/Word、聊天草稿、透明 PNG、历史操作和渲染正常；最低系统改为 Android 10/API 29，API 29/33 各 44 项、API 37 系统权限及图片数据补验通过，见 [49](docs/49-android-platform-support-and-validation.md)。精确应用版本、真正差 Wi-Fi/长期负载、真实多网卡/LAN 换 IPv4 及 VRAM 仍有证据边界，见 [46](docs/46-image-input-production-validation.md)。30 张历史/60 次原图开关发现并修复显式 atlas 释放，见 [48](docs/48-desktop-image-render-resource-lifecycle.md)，不能只用工作集或 CPU 引用推断渲染资源已回收。不把有限 fake/合成负载、旧网络测速或构建通过冒充整链路验收。图片及发现设备测试使用独立 `seeyuer.sayin.imagetest`，文字和图片使用不同临时电脑身份，绝不替换日常应用。

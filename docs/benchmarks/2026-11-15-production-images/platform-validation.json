@@ -1,0 +1,159 @@
+{
+  "date": "2026-11-15",
+  "isolated_package": "seeyuer.sayin.imagetest",
+  "minimum_supported_api": 29,
+  "minimum_supported_android": "10",
+  "api26_before_change": {
+    "image_data_tests": 3,
+    "tls_capability_tests": 1,
+    "platform_tls13": false,
+    "new_apk_install_result": "INSTALL_FAILED_OLDER_SDK",
+    "counts_as_supported_platform": false
+  },
+  "jvm": {
+    "tests": 51,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "desktop": {
+    "tests": 137,
+    "failures": 0,
+    "ignored": 0,
+    "clippy_warnings_denied": true,
+    "four_package_format_check": true,
+    "workspace_build": true
+  },
+  "android_debug_build": true,
+  "android_lint": true,
+  "daily_apk_abis": [
+    "arm64-v8a"
+  ],
+  "platform_probes": [
+    {
+      "real_lan": false,
+      "fake_input_calls": 0,
+      "isolated_package": "seeyuer.sayin.imagetest",
+      "scope": "Minimum supported OS native TLS1.3 capability",
+      "api": 29,
+      "platform_tests": 1,
+      "evidence_id": "android-platform-api29-1938b983-67de-4d16-b396-91ecb33663b1"
+    },
+    {
+      "api": 37,
+      "isolated_package": "seeyuer.sayin.imagetest",
+      "fake_input_calls": 0,
+      "real_lan": false,
+      "scope": "System permission deny/allow/revoke, bounded NSD/cancel, pinned pairing via ADB reverse, full identity preserved after process restart",
+      "platform_tests": 2,
+      "evidence_id": "android-platform-api37-6a0586af-1aae-40bc-b726-97b498f567e8"
+    }
+  ],
+  "regular_regressions": [
+    {
+      "api": 29,
+      "regular_tests": 40,
+      "image_data_tests": 4,
+      "fake_input_calls": [
+        2,
+        1
+      ],
+      "replay": false,
+      "real_lan": false,
+      "adb_reverse": true,
+      "independent_host_identities": true,
+      "evidence_ids": [
+        "image-android-fixture-6435e1f6-9a27-4672-ace3-7f1e88c45e2a",
+        "image-android-fixture-26be198d-3c4f-4136-9763-17268b8b643d"
+      ]
+    },
+    {
+      "api": 33,
+      "regular_tests": 40,
+      "image_data_tests": 4,
+      "fake_input_calls": [
+        2,
+        1
+      ],
+      "replay": false,
+      "real_lan": false,
+      "adb_reverse": true,
+      "independent_host_identities": true,
+      "evidence_ids": [
+        "image-android-fixture-594a2915-e148-4975-a453-68561f6ee8e4",
+        "image-android-fixture-d465ff0f-8e94-4db5-ac0d-0a72266206e2"
+      ]
+    }
+  ],
+  "api37_image_data": {
+    "tests": 4,
+    "fake_input_calls": 1,
+    "real_lan": false,
+    "evidence_id": "image-android-fixture-5d3a1566-2ca9-438f-a67a-54dfbc5ec274"
+  },
+  "discovery_regressions": [
+    {
+      "migrated": true,
+      "instrumented_tests": 1,
+      "real_lan": false,
+      "fake_input_calls": 1,
+      "mode": "loopback",
+      "paused": true,
+      "revoked": false,
+      "evidence_id": "discovery-fixture-03c9e4cf-683d-45e3-9bc6-8bde47d79b29"
+    },
+    {
+      "migrated": true,
+      "instrumented_tests": 1,
+      "real_lan": false,
+      "fake_input_calls": 1,
+      "mode": "loopback",
+      "paused": true,
+      "revoked": true,
+      "evidence_id": "discovery-fixture-26fc9cca-193d-4834-82d1-427f1f4260d6"
+    },
+    {
+      "migrated": true,
+      "instrumented_tests": 1,
+      "real_lan": true,
+      "fake_input_calls": 1,
+      "mode": "lan",
+      "paused": true,
+      "revoked": false,
+      "evidence_id": "discovery-fixture-3629f039-2eed-43e9-8544-c006ab6ab905"
+    }
+  ],
+  "daily_identity_untouched": true,
+  "limitations": [
+    "API37 permission revocation kills process; verified identity preservation and denial after restart, not live-process revocation timing",
+    "API37 system tests use emulator, not OEM phone",
+    "Regular/API37 data regressions use ADB reverse; separate API33 LAN recovery above uses real NSD",
+    "No real LAN IPv4 change or multiple physical interface switch",
+    "No hours-long/real poor-Wi-Fi/shared-bottleneck/VRAM guarantee",
+    "Manual application names and exact versions were not supplied"
+  ],
+  "unified_regression_entrypoint": {
+    "script": "scripts/verify_android_transport.ps1",
+    "arguments": [
+      "-DeviceSerial",
+      "dc39c31d",
+      "-SkipBuild",
+      "-SkipInstall",
+      "-FullSuite"
+    ],
+    "api": 33,
+    "regular_tests": 40,
+    "image_data_tests": 4,
+    "fake_input_calls": [
+      2,
+      1
+    ],
+    "replay": false,
+    "daily_package_installed": false,
+    "evidence_ids": [
+      "image-android-fixture-10711a12-0f55-4f50-bcaa-c8cccc37da98",
+      "image-android-fixture-f8987526-30ac-4978-b4f7-9261106005fc"
+    ],
+    "removed_duplicate": "scripts/verify_image_transport.ps1"
+  }
+}

@@ -1,0 +1,245 @@
+{
+  "evidence_id": "9f256046-1986-492c-a3aa-8f55c1c017ba",
+  "mobile": {
+    "scope": "isolated imageTest; production Repository/Keystore/Room/pinned dual WSS; see desktop adapter mode",
+    "measurements": [
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 1,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 322.186406,
+        "send_to_receipt_ms": 952.871094,
+        "total_ms": 1275.0575
+      },
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 2,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 278.256771,
+        "send_to_receipt_ms": 815.520625,
+        "total_ms": 1093.777396
+      },
+      {
+        "file": "001_370.73KB_1.jpg",
+        "iteration": 3,
+        "source_bytes": 379624,
+        "normalized_bytes": 439866,
+        "width": 1540,
+        "height": 1525,
+        "prepare_ms": 298.415937,
+        "send_to_receipt_ms": 805.649323,
+        "total_ms": 1104.0652599999999
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 1,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 355.481458,
+        "send_to_receipt_ms": 1200.821249,
+        "total_ms": 1556.302707
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 2,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 338.548854,
+        "send_to_receipt_ms": 1284.155312,
+        "total_ms": 1622.704166
+      },
+      {
+        "file": "002_509.31KB_2.jpg",
+        "iteration": 3,
+        "source_bytes": 521534,
+        "normalized_bytes": 544313,
+        "width": 2576,
+        "height": 1717,
+        "prepare_ms": 348.675625,
+        "send_to_receipt_ms": 1142.163229,
+        "total_ms": 1490.838854
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 1,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 588.186459,
+        "send_to_receipt_ms": 1992.870625,
+        "total_ms": 2581.057084
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 2,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 573.675781,
+        "send_to_receipt_ms": 2075.074739,
+        "total_ms": 2648.75052
+      },
+      {
+        "file": "003_823.82KB_3.jpg",
+        "iteration": 3,
+        "source_bytes": 843588,
+        "normalized_bytes": 995256,
+        "width": 2448,
+        "height": 3264,
+        "prepare_ms": 573.49802,
+        "send_to_receipt_ms": 1968.683645,
+        "total_ms": 2542.181665
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 1,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 884.867031,
+        "send_to_receipt_ms": 2282.298124,
+        "total_ms": 3167.1651549999997
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 2,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 828.122968,
+        "send_to_receipt_ms": 2436.931145,
+        "total_ms": 3265.054113
+      },
+      {
+        "file": "004_1.21MB_4.jpg",
+        "iteration": 3,
+        "source_bytes": 1268552,
+        "normalized_bytes": 1503760,
+        "width": 3024,
+        "height": 4032,
+        "prepare_ms": 819.098073,
+        "send_to_receipt_ms": 2446.895051,
+        "total_ms": 3265.993124
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 1,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1297.869895,
+        "send_to_receipt_ms": 3300.457967,
+        "total_ms": 4598.327862
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 2,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1179.703698,
+        "send_to_receipt_ms": 3314.031509,
+        "total_ms": 4493.735207
+      },
+      {
+        "file": "005_2.04MB_5.jpg",
+        "iteration": 3,
+        "source_bytes": 2136152,
+        "normalized_bytes": 2495171,
+        "width": 3371,
+        "height": 4000,
+        "prepare_ms": 1276.605729,
+        "send_to_receipt_ms": 3417.928905,
+        "total_ms": 4694.534634000001
+      }
+    ],
+    "rejections": [
+      {
+        "file": "006_10.08MB_6.jpg",
+        "source_bytes": 10567181,
+        "bounded_reject_ms": 31.265365
+      },
+      {
+        "file": "007_25.17MB_7.jpg",
+        "source_bytes": 26392479,
+        "bounded_reject_ms": 19.711979
+      },
+      {
+        "file": "008_55.94MB_8.jpg",
+        "source_bytes": 58658641,
+        "bounded_reject_ms": 16.557396
+      }
+    ],
+    "sampled_max_pss_kib": 210756,
+    "pss_sample_count": 176
+  },
+  "desktop": {
+    "input_calls": 15,
+    "real_lan": true,
+    "native_target": true,
+    "mobile": "imageTest Debug",
+    "release_core": true,
+    "scope": "Native mode includes test-only RichEdit RTF acknowledgement latency; fake mode excludes native input",
+    "adb_reverse": false,
+    "sources": [
+      {
+        "sha256": "72b4e565ff7f7ec0758c9d1afc34b6b23d8ca554d1650e6edd0eca940b7a2638",
+        "name": "001_370.73KB_1.jpg",
+        "bytes": 379624
+      },
+      {
+        "sha256": "603067420c323d63be50400f6869a580bb5d827aec081fc79e1c4998377321e3",
+        "name": "002_509.31KB_2.jpg",
+        "bytes": 521534
+      },
+      {
+        "sha256": "2ec9d1589e918802496cff3c1f6204af312304fdd2914a7468af9098579f27c5",
+        "name": "003_823.82KB_3.jpg",
+        "bytes": 843588
+      },
+      {
+        "sha256": "2ee02486f2f05b2cfdb5a9bbe6f94c2cef5530ae6294b6302d40d06d3e8f0e76",
+        "name": "004_1.21MB_4.jpg",
+        "bytes": 1268552
+      },
+      {
+        "sha256": "561122be79226856734b04c2d53fb59af3ea33c39f9940e10213f8e661a87576",
+        "name": "005_2.04MB_5.jpg",
+        "bytes": 2136152
+      },
+      {
+        "sha256": "cc9149f1da494cb3599ae225d98a1679e9d583ae761098231e72931043fd7306",
+        "name": "006_10.08MB_6.jpg",
+        "bytes": 10567181
+      },
+      {
+        "sha256": "faf3f697674712532c06ce2949132e075d5786a47d2a36bec2ac02bd0ccce766",
+        "name": "007_25.17MB_7.jpg",
+        "bytes": 26392479
+      },
+      {
+        "sha256": "bd67a10fb216fb8df618351b5b5ad6b89c8dcc0a098f3a09c51711e3482f37aa",
+        "name": "008_55.94MB_8.jpg",
+        "bytes": 58658641
+      }
+    ],
+    "target_peak_working_set_bytes": 254836736,
+    "core_peak_working_set_bytes": 254201856
+  }
+}

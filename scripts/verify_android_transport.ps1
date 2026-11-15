@@ -1,80 +1,90 @@
-param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild, [switch]$TransportOnly)
+param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
+    [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite)
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$adbPath = Join-Path $env:LOCALAPPDATA 'Android\Sdk\platform-tools\adb.exe'
-function Invoke-Checked([scriptblock]$Command) {
-    & $Command
+$adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
+function Invoke-Checked([scriptblock]$Action) {
+    & $Action
     if ($LASTEXITCODE -ne 0) { throw "Command failed with exit code $LASTEXITCODE" }
 }
 if (!$DeviceSerial) {
-    $devices = @(& $adbPath devices | ForEach-Object { if ($_ -match '^(\S+)\s+device$') { $Matches[1] } })
-    if ($devices.Count -ne 1) { throw 'Specify -DeviceSerial when exactly one authorized device is not connected.' }
+    $devices = @(& $adb devices | ForEach-Object { if ($_ -match '^(\S+)\s+device$') { $Matches[1] } })
+    if ($devices.Count -ne 1) { throw 'Specify one authorized device.' }
     $DeviceSerial = $devices[0]
 }
 if (!$SkipBuild) {
-    Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') :app:assembleDebug :app:assembleDebugAndroidTest }
+    Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest }
     Push-Location (Join-Path $projectRoot 'desktop')
     try { Invoke-Checked { cargo build -p voicelink-transport --example android_fixture --locked } } finally { Pop-Location }
 }
-# The suite now includes foreground Compose tests. Fail clearly instead of
-# waiting indefinitely when a secure lockscreen rejects the test Activity.
-$deviceWindowPolicy = (& $adbPath -s $DeviceSerial shell dumpsys window policy) -join "`n"
-if ($LASTEXITCODE -ne 0) { throw 'Could not read device lock state.' }
-if ($deviceWindowPolicy -match '(?m)^\s*showing=true\r?$' -and $deviceWindowPolicy -match '(?m)^\s*secure=true\r?$') {
-    throw 'Unlock the connected phone and keep its screen on before running foreground UI tests.'
-}
-$desktopTarget = Join-Path $projectRoot 'desktop\target'
-$fixtureDirectory = Join-Path $desktopTarget ("android-fixture-" + [guid]::NewGuid().ToString())
-$fixtureExe = Join-Path $desktopTarget 'debug\examples\android_fixture.exe'
-$logPath = Join-Path $projectRoot 'android\instrumented-manual-test.log'
+$metadata = Get-Content (Join-Path $projectRoot 'android/app/build/outputs/apk/imageTest/output-metadata.json') -Raw | ConvertFrom-Json
+if ($metadata.applicationId -ne 'seeyuer.sayin.imagetest') { throw 'Refusing to replace the daily application.' }
+$targetDirectory = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $projectRoot 'desktop/target' }
+$testTag = [guid]::NewGuid().ToString()
+$fixtureDirectory = Join-Path $targetDirectory "image-android-fixture-$testTag"
+$log = Join-Path $targetDirectory "image-android-$testTag.log"
+$remoteApks = @()
 $process = $null
+$port = $null
+if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSuite)) { throw 'FullSuite/TransportOnly are mutually exclusive loopback regressions; use the image suite for LAN.' }
+$testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
+$expectedTests = if ($FullSuite) { 40 } elseif ($TransportOnly) { 1 } else { 4 }
+$expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     if ($UseExistingRootInstall) {
-        $rootIdentity = & $adbPath -s $DeviceSerial shell su -c id
-        if ($LASTEXITCODE -ne 0 -or $rootIdentity -notmatch 'uid=0\(root\)') { throw 'Existing Root authorization is required; this script does not change security settings.' }
-        foreach ($apk in @(
-            @('android\app\build\outputs\apk\debug\app-debug.apk', '/data/local/tmp/voicelink-debug.apk'),
-            @('android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk', '/data/local/tmp/voicelink-test.apk')
-        )) {
-            Invoke-Checked { & $adbPath -s $DeviceSerial push (Join-Path $projectRoot $apk[0]) $apk[1] }
-            $result = & $adbPath -s $DeviceSerial shell "su -c 'pm install -r -t $($apk[1])'"
-            if ($LASTEXITCODE -ne 0 -or $result -notcontains 'Success') { throw 'APK install failed.' }
-        }
-    } else {
-        Invoke-Checked { & $adbPath -s $DeviceSerial install -r (Join-Path $projectRoot 'android\app\build\outputs\apk\debug\app-debug.apk') }
-        Invoke-Checked { & $adbPath -s $DeviceSerial install -r -t (Join-Path $projectRoot 'android\app\build\outputs\apk\androidTest\debug\app-debug-androidTest.apk') }
+        $rootIdentity = & $adb -s $DeviceSerial shell su -c id
+        if ($LASTEXITCODE -ne 0 -or $rootIdentity -notmatch 'uid=0\(root\)') { throw 'Existing Root authorization is required; no settings are changed.' }
     }
-    Invoke-Checked { & $adbPath -s $DeviceSerial reverse tcp:17888 tcp:17888 }
-    $process = Start-Process -FilePath $fixtureExe -ArgumentList @("`"$fixtureDirectory`"") -PassThru -WindowStyle Hidden
+    $apks = if ($SkipInstall) { @() } else { @('android/app/build/outputs/apk/imageTest/app-imageTest.apk','android/app/build/outputs/apk/androidTest/imageTest/app-imageTest-androidTest.apk') }
+    foreach ($relative in $apks) {
+        $apk = Join-Path $projectRoot $relative
+        if ($UseExistingRootInstall) {
+            $remote = "/data/local/tmp/sayin-image-$testTag-$($remoteApks.Count).apk"
+            $remoteApks += $remote
+            Invoke-Checked { & $adb -s $DeviceSerial push $apk $remote }
+            $result = & $adb -s $DeviceSerial shell "su -c 'pm install -r -t $remote'"
+            if ($LASTEXITCODE -ne 0 -or $result -notcontains 'Success') { throw 'Isolated test APK installation failed.' }
+        } else { Invoke-Checked { & $adb -s $DeviceSerial install -r -t $apk } }
+    }
+    $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0')
+    if ($Lan) { $fixtureArguments += '--lan' }
+    $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     $fixturePath = Join-Path $fixtureDirectory 'fixture.json'
     while (!(Test-Path -LiteralPath $fixturePath)) {
-        if ($process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Loopback fixture did not start.' }
-        Start-Sleep -Milliseconds 100
+        if ($process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Image fixture did not start.' }
+        Start-Sleep -Milliseconds 50
     }
     $fixture = Get-Content -LiteralPath $fixturePath -Raw | ConvertFrom-Json
-    if ($fixture.port -ne 17888 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
-    $instrumentationArguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '60000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $fixture.port)
-    if ($TransportOnly) { $instrumentationArguments += @('-e', 'class', 'seeyuer.sayin.data.TransportInstrumentedTest') }
-    else { $instrumentationArguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest') }
-    $instrumentationArguments += 'seeyuer.sayin.test/androidx.test.runner.AndroidJUnitRunner'
-    & $adbPath @instrumentationArguments > $logPath 2>&1
-    $testOutput = Get-Content -LiteralPath $logPath -Raw
-    $expectedTests = if ($TransportOnly) { 1 } else { 37 }
-    $successPattern = if ($TransportOnly) { 'OK \(1 test\)' } else { 'OK \(37 tests\)' }
-    if ($LASTEXITCODE -ne 0 -or $testOutput -notmatch $successPattern -or $testOutput -match 'FAILURES!!!|INSTRUMENTATION_FAILED') { throw "Instrumentation failed; see $logPath" }
-    Start-Sleep -Milliseconds 150
+    $port = [int]$fixture.port
+    if ($port -le 1024 -or $port -gt 65535 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
+    if (!$Lan) { Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$port" "tcp:$port" } }
+    $arguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '60000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $port, '-e', 'fixtureAddress', $fixture.address)
+    # Pairing invitations and active-device gates are single-use state. The
+    # image data suite gets its own fresh desktop identity, not a reset gate.
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest') }
+    else { $arguments += @('-e', 'class', $testClass) }
+    $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
+    & $adb @arguments > $log 2>&1
+    $instrumentExit = $LASTEXITCODE
+    $output = Get-Content -LiteralPath $log -Raw
+    if ($instrumentExit -ne 0 -or $output -notmatch "OK \($expectedTests tests?\)" -or $output -match 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed') { throw "Instrumentation failed; see $log" }
+    Start-Sleep -Milliseconds 200
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
-    if ($calls.fake_input_calls -ne 2) { throw 'Expected one injected input and one uncertain attempt; reconnect must not repeat either.' }
-    $evidence = @{ fixture = 'USB reverse -> loopback; fake input only'; instrumentation_tests = $expectedTests; fake_input_calls = $calls.fake_input_calls; transport_only = [bool]$TransportOnly }
-    $evidence | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $projectRoot 'android\transport-test-result.json') -Encoding utf8
-    Write-Output "Android verification: $expectedTests test(s) passed; transport_only=$TransportOnly; exactly two fake attempts (one injected, one uncertain), with no replay across reconnect/reconstruction."
+    if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
+    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $testClass; real_lan = [bool]$Lan; tests = $expectedTests; fake_input_calls = $calls.fake_input_calls } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    Write-Output "PASS: $expectedTests instrumentation tests; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
+    if ($FullSuite) {
+        & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
+        if (!$?) { throw 'Image data suite failed in its separate identity.' }
+        Write-Output 'PASS: all 44 regular device tests across independent text/image desktop identities; live paid cloud and discovery fixtures remain separate.'
+    }
 } finally {
     if ($process -and !$process.HasExited) {
         Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline
         if (!$process.WaitForExit(5000)) { Stop-Process -Id $process.Id }
     }
-    & $adbPath -s $DeviceSerial reverse --remove tcp:17888 2>$null | Out-Null
-    if ($UseExistingRootInstall) { & $adbPath -s $DeviceSerial shell rm -f /data/local/tmp/voicelink-debug.apk /data/local/tmp/voicelink-test.apk | Out-Null }
+    if ($port -and !$Lan) { & $adb -s $DeviceSerial reverse --remove "tcp:$port" 2>$null | Out-Null }
+    foreach ($remote in $remoteApks) { & $adb -s $DeviceSerial shell rm -f $remote | Out-Null }
     if (Test-Path -LiteralPath (Join-Path $fixtureDirectory 'fixture.json')) { Remove-Item -LiteralPath (Join-Path $fixtureDirectory 'fixture.json') }
 }
