@@ -6720,6 +6720,7 @@ dependencies = [
  "win-icon-extractor",
  "windows 0.62.2",
  "yue-component",
+ "zeroize",
 ]
 
 [[package]]

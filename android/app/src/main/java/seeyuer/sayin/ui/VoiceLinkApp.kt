@@ -102,6 +102,10 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         quick = quick, onExpand = onExpand, onDismiss = onDismiss, openSettings = openSettings, entryVersion = entryVersion,
         onReconnect = { withNetwork(repository::connect) },
         onHistoryAction = repository::action,
+        onSelectImage = repository::selectImage,
+        onSendImage = { repository.sendImage(it, state.receptionScope) },
+        onCancelImage = repository::cancelImage,
+        onClearImage = repository::clearImage,
         connectionActions = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ConnectionActions(state,

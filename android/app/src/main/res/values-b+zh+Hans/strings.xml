@@ -283,4 +283,27 @@
     <string name="error_discovery">未找到已配对电脑。请确认手机与电脑在同一局域网，也可在连接帮助中更新地址。</string>
     <string name="error_candidate_connection">已发现候选电脑，但未能完成连接认证。配对信息已保留，请检查电脑或更新地址。</string>
     <string name="discovering_computer">正在查找电脑…</string>
+    <string name="image_title">发送图片</string>
+    <string name="image_choose">选择图片…</string>
+    <string name="image_preview">图片预览</string>
+    <string name="image_metadata">%1$d × %2$d · %3$d KiB</string>
+    <string name="image_normalization">支持静态 PNG/JPEG，最大 10 MiB、1600 万像素。自动校正方向并清除元数据，JPEG 以质量 92 重新编码。</string>
+    <string name="image_clipboard_notice">粘贴会替换电脑剪贴板，不会按下回车。请在目标应用确认结果。</string>
+    <string name="image_preparing">正在准备图片</string>
+    <string name="image_awaiting_receipt">正在等待电脑回执</string>
+    <string name="image_progress">正在传送 · %1$d%%</string>
+    <string name="image_cancel_upload">取消传送</string>
+    <string name="image_paste_submitted">已提交粘贴指令，请查看目标应用。</string>
+    <string name="image_invalid">图片格式不支持、内容损坏或超出上限，请选择静态 PNG/JPEG。</string>
+    <string name="image_not_ready">电脑暂时无法粘贴。图片已保留，请查看连接或电脑接收状态。</string>
+    <string name="image_unsupported">此电脑尚不支持图片输入，请更新电脑端 SayIn。</string>
+    <string name="image_connection_error">图片传送已中断，图片已保留。再次发送前请查看历史回执。</string>
+    <string name="image_quota">还有图片等待处理，或已达到存储上限，请先查看历史记录。</string>
+    <string name="image_cancelled">已取消传送，图片已保留。</string>
+    <string name="image_send">发送图片</string>
+    <string name="image_remove">移除图片</string>
+    <string name="image_close">关闭</string>
+    <string name="image_history">图片</string>
+    <string name="image_uploading">正在传送图片</string>
+    <string name="image_held">图片尚未粘贴。可取消或等待过期，再明确发送一次。</string>
 </resources>

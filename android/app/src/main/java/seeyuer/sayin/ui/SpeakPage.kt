@@ -59,6 +59,7 @@ internal fun SpeakPage(
     onExpand: () -> Unit = {},
     onDismiss: () -> Unit = {},
     onRequestAction: (String, String) -> Unit = { _, _ -> },
+    onImage: () -> Unit = {},
 ) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -238,6 +239,8 @@ internal fun SpeakPage(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         val menu = buildList {
+                            add(DropdownItem(stringResource(R.string.image_choose), enabled = state.paired && state.storageHealthy && !session.busy && !session.requestLocked,
+                                onClick = { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); onImage() }))
                             if (session.busy) add(DropdownItem(stringResource(R.string.speak_abort), onClick = { session.cancelRecording() }))
                             else add(DropdownItem(stringResource(R.string.speak_clear_draft), enabled = draft.text.isNotEmpty() && !session.requestLocked && !session.draftRestoring,
                                 onClick = { session.clearDraft() }))

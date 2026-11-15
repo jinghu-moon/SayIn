@@ -18,19 +18,19 @@ Kotlin 客户端补测：[43 Kotlin / OkHttp 真机对照](43-kotlin-okhttp-imag
 
 用户确认的是增加手机发图的需求；下文的格式、配额、协议结构和实施顺序是建议设计，须经原型与验收后定案。
 
-## 2. 当前实现与根因
+## 2. 实施后的现状与原问题
 
 | 模块 | 当前事实 | 需要改变的设计 |
 | --- | --- | --- |
-| 操作协议 | `Operation` 只有 `Text` 和 `Key(Enter)` | 新增明确的图片操作与资源引用 |
-| 消息和队列 | 消息上限 65536 字节、submit 上限 32768 字节；welcome 待执行预算为 16 项/65536 字节 | 图片采用单独有界传输及配额，不提高全部文本上限来塞 Base64 |
-| Windows 输入 | `NativeInput` 使用 Unicode `SendInput` | 图片需新增剪贴板格式准备与一次粘贴执行 |
-| 持久化 | Room Outbox、Windows 收据/历史主要承载文字 | 引入受保护的图片资源与原子引用管理 |
-| 成功语义 | 持久接受与输入事件提交已经区分 | 保持区分，额外表达图片已接收、剪贴板已准备及粘贴尝试结果 |
+| 操作协议 | `Text`、`Key(Enter)`、`Image` 不可变资源引用已实现 | 原先只有文字/按键；不能把图片编码成超大 JSON 文字 |
+| 消息和队列 | 原文字限额保留；按需图片 WSS 使用 48KiB 顺序块、四块确认窗口和独立配额 | 原队列只适合小文字；控制和图片须分开 TCP 流 |
+| Windows 输入 | 图片生产 NativeInput 已接入 PNG/DIBV5 和一次 Ctrl+V | Unicode SendInput 本身不能传像素；粘贴不能追加 Enter |
+| 持久化 | Room schema 3、Windows schema 6，图片使用 Keystore/DPAPI 保护文件及事务引用 | 文件先同步、引用后提交；不能假称文件系统与 SQLite 跨介质原子提交 |
+| 成功语义 | 双端区分上传、持久接受与粘贴指令已提交 | 仍不证明目标应用实际显示或已发给联系人 |
 
 代码依据：[操作协议](../desktop/crates/receiver/src/protocol.rs)、[传输服务](../desktop/crates/transport/src/server.rs)、[Windows 输入](../desktop/crates/receiver/src/windows_input.rs)、[手机 Outbox](../android/app/src/main/java/seeyuer/sayin/data/Outbox.kt)。现有输入设计见 [13 当前光标](13-desktop-current-cursor-and-ui-redesign.md)。
 
-这是跨手机、协议、资源存储、账本与原生输入的变更，不能仅新增图片按钮或扩展 JSON 字段。
+双端链路和界面按阶段落地，最新测试和未验收边界见 [45](45-image-input-implementation.md)。下文保留设计推导与验收要求；构建、fake 输入、临时 RichEdit 和第三方应用分别记证，不互相替代。
 
 ## 3. 用户交互
 

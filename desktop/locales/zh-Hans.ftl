@@ -219,3 +219,14 @@ received-time = 收到：{ $time }
 discovery-publishing = 正在启动局域网发现…
 discovery-published = 已配对手机可在当前网络自动找到此电脑。
 discovery-unavailable = 局域网发现暂不可用。保存地址仍可连接；必要时可在手机中更新地址。
+
+image-label = 图片
+image-copy = 复制图片
+image-save = 图片另存为…
+image-copied = 已复制图片并替换剪贴板，未尝试粘贴。
+image-saved = 图片已保存
+image-action-failed = 图片读取、复制或保存失败，原始回执未改变。
+image-clipboard-changed = 系统剪贴板已替换，但未提交粘贴指令。
+image-preview-failed = 图片预览不可用
+image-paste-submitted = 已提交粘贴指令，请查看目标应用。
+image-view = 查看图片…

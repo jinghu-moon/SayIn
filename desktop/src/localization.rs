@@ -164,6 +164,16 @@ messages! {
     LatestMessage => "latest-message",
     LatestEmpty => "latest-empty",
     KeyOperation => "key-operation",
+    ImageLabel => "image-label",
+    ImageCopy => "image-copy",
+    ImageView => "image-view",
+    ImageSave => "image-save",
+    ImageCopied => "image-copied",
+    ImageSaved => "image-saved",
+    ImageActionFailed => "image-action-failed",
+    ImageClipboardChanged => "image-clipboard-changed",
+    ImagePreviewFailed => "image-preview-failed",
+    ImagePasteSubmitted => "image-paste-submitted",
     BodyUnavailable => "body-unavailable",
     TargetUnavailable => "target-unavailable",
     TimeUnavailable => "time-unavailable",
@@ -325,6 +335,12 @@ impl Catalogs {
         receipt: &voicelink_receiver::protocol::Receipt,
     ) -> String {
         use voicelink_receiver::protocol::State;
+        if receipt.method.as_deref() == Some("clipboard_image") && receipt.st == State::Injected {
+            return self.text(locale, Message::ImagePasteSubmitted);
+        }
+        if receipt.reason.as_deref() == Some("clipboard_changed_not_pasted") {
+            return self.text(locale, Message::ImageClipboardChanged);
+        }
         if matches!(receipt.st, State::Held | State::Expired) {
             let cause = match receipt.reason.as_deref() {
                 Some("receiver_focused") => Some(Message::ReceiptReceiverFocused),

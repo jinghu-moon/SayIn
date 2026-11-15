@@ -48,6 +48,16 @@ pub struct HistoryView {
     icons: BTreeMap<String, ApplicationIcon>,
     icon_task: Option<Task<()>>,
     icons_dirty: bool,
+    image_orders: BTreeSet<String>,
+    images: BTreeMap<String, Option<yue_component::ImagePreviewImage>>,
+    image_task: Option<Task<()>>,
+    image_action: Option<Task<()>>,
+    image_feedback: Option<(i64, M)>,
+    clipboard_owner: Option<std::sync::Arc<voicelink_receiver::windows_clipboard::ClipboardOwner>>,
+    preview: Option<yue_component::ImagePreviewImage>,
+    preview_dialog: Entity<YueDialogState>,
+    preview_task: Option<Task<()>>,
+    preview_order: Option<i64>,
     undo_focus: gpui_kit::FocusHandle,
     last_undo: Option<i64>,
     _subscriptions: Vec<Subscription>,
@@ -121,11 +131,19 @@ impl HistoryView {
             }
             this.synchronize_policy(window, cx);
             this.refresh_icons(cx);
+            this.refresh_images(cx);
             cx.notify();
         });
         let localizing = cx.observe_in(&preferences, window, |this, _, window, cx| {
             this.synchronize_policy(window, cx);
             cx.notify();
+        });
+        let preview_dialog = cx.new(YueDialogState::new);
+        let preview_closing = cx.subscribe_in(&preview_dialog, window, |this, dialog, _, _, cx| {
+            if !dialog.read(cx).is_open() {
+                this.preview_order = None;
+                this.preview = None;
+            }
         });
         let mut this = Self {
             recent_only,
@@ -139,12 +157,23 @@ impl HistoryView {
             icons: BTreeMap::new(),
             icon_task: None,
             icons_dirty: false,
+            image_orders: BTreeSet::new(),
+            images: BTreeMap::new(),
+            image_task: None,
+            image_action: None,
+            image_feedback: None,
+            clipboard_owner: None,
+            preview: None,
+            preview_dialog,
+            preview_task: None,
+            preview_order: None,
             undo_focus: cx.focus_handle().tab_stop(true),
             last_undo: None,
-            _subscriptions: vec![searching, retaining, receiving, localizing],
+            _subscriptions: vec![searching, retaining, receiving, localizing, preview_closing],
         };
         this.synchronize_policy(window, cx);
         this.refresh_icons(cx);
+        this.refresh_images(cx);
         this
     }
     fn synchronize_policy(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -229,6 +258,173 @@ impl HistoryView {
             state.filter_history(None, cx);
         });
     }
+    fn refresh_images(&mut self, cx: &mut Context<Self>) {
+        let service = self.reception.read(cx);
+        let page = if self.recent_only {
+            service.latest()
+        } else {
+            service.history()
+        };
+        self.image_orders = page
+            .entries
+            .iter()
+            .filter(|entry| matches!(entry.operation, Some(Operation::Image { .. })))
+            .map(|entry| entry.receipt.order.clone())
+            .take(30)
+            .collect();
+        self.images
+            .retain(|order, _| self.image_orders.contains(order));
+        if self.image_task.is_some() {
+            return;
+        }
+        let Some(receiver) = service.image_receiver() else {
+            return;
+        };
+        let missing = self
+            .image_orders
+            .iter()
+            .filter(|order| !self.images.contains_key(*order))
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            return;
+        }
+        let loading = cx.background_spawn(async move {
+            let mut results = Vec::new();
+            for order in missing {
+                let image = match order.parse() {
+                    Ok(value) => crate::image_history::preview(&receiver, value, 256)
+                        .await
+                        .ok(),
+                    Err(_) => None,
+                };
+                results.push((order, image));
+            }
+            results
+        });
+        self.image_task = Some(cx.spawn(async move |owner, cx| {
+            let results = loading.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.image_task = None;
+                for (order, image) in results {
+                    if this.image_orders.contains(&order) {
+                        this.images.insert(order, image);
+                    }
+                }
+                this.refresh_images(cx);
+                cx.notify();
+            });
+        }));
+    }
+    fn image_command(
+        &mut self,
+        order: i64,
+        path: Option<std::path::PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.image_action.is_some() {
+            return;
+        }
+        let Some(receiver) = self.reception.read(cx).image_receiver() else {
+            return;
+        };
+        self.image_feedback = None;
+        let clipboard = self.clipboard_owner.clone();
+        let saving = path.is_some();
+        let work = cx.background_spawn(async move {
+            if let Some(path) = path {
+                return (
+                    crate::image_history::save(&receiver, order, &path).await,
+                    clipboard,
+                );
+            }
+            let clipboard = match clipboard {
+                Some(owner) => owner,
+                None => match voicelink_receiver::windows_clipboard::ClipboardOwner::new() {
+                    Ok(owner) => std::sync::Arc::new(owner),
+                    Err(error) => return (Err(error), None),
+                },
+            };
+            (
+                crate::image_history::copy(&receiver, order, &clipboard).await,
+                Some(clipboard),
+            )
+        });
+        self.image_action = Some(cx.spawn(async move |owner, cx| {
+            let (result, clipboard) = work.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.image_action = None;
+                this.clipboard_owner = clipboard;
+                this.image_feedback = Some((
+                    order,
+                    match result {
+                        Ok(()) => {
+                            if saving {
+                                M::ImageSaved
+                            } else {
+                                M::ImageCopied
+                            }
+                        }
+                        Err(voicelink_receiver::Error::Protocol(
+                            "CLIPBOARD_CHANGED_NOT_COPIED",
+                        )) => M::ImageClipboardChanged,
+                        Err(_) => M::ImageActionFailed,
+                    },
+                ));
+                cx.notify();
+            });
+        }));
+        cx.notify();
+    }
+    fn view_image(&mut self, order: i64, window: &mut Window, cx: &mut Context<Self>) {
+        if self.preview_task.is_some() {
+            return;
+        }
+        let Some(receiver) = self.reception.read(cx).image_receiver() else {
+            return;
+        };
+        self.preview_order = Some(order);
+        self.preview = None;
+        let _ = self
+            .preview_dialog
+            .update(cx, |state, cx| state.open(window, cx));
+        let loading = cx.background_spawn(async move {
+            crate::image_history::preview(&receiver, order, 8192).await
+        });
+        self.preview_task = Some(cx.spawn(async move |owner, cx| {
+            let result = loading.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.preview_task = None;
+                if this.preview_order == Some(order) && this.preview_dialog.read(cx).is_open() {
+                    this.preview = result.ok();
+                }
+                cx.notify();
+            });
+        }));
+    }
+
+    fn save_image(&mut self, order: i64, extension: &str, cx: &mut Context<Self>) {
+        if self.image_action.is_some() {
+            return;
+        }
+        let directory = directories::UserDirs::new()
+            .and_then(|dirs| dirs.picture_dir().map(std::path::Path::to_path_buf))
+            .unwrap_or_else(std::env::temp_dir);
+        let selecting =
+            cx.prompt_for_new_path(&directory, Some(&format!("SayIn-{order}.{extension}")));
+        self.image_action = Some(cx.spawn(async move |owner, cx| {
+            let result = selecting.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.image_action = None;
+                match result {
+                    Ok(Ok(Some(path))) => this.image_command(order, Some(path), cx),
+                    Ok(Ok(None)) => {}
+                    _ => this.image_feedback = Some((order, M::ImageActionFailed)),
+                }
+                cx.notify();
+            });
+        }));
+    }
     fn toggle_details(&mut self, order: &str, cx: &mut Context<Self>) {
         if !self.details.remove(order) {
             self.details.insert(order.into());
@@ -253,6 +449,13 @@ impl HistoryView {
         let order = &entry.receipt.order;
         let body = match &entry.operation {
             Some(Operation::Text { text, .. }) => text.clone(),
+            Some(Operation::Image { image }) => format!(
+                "{} · {} × {} · {} KiB",
+                settings.text(M::ImageLabel),
+                image.metadata.width,
+                image.metadata.height,
+                image.metadata.bytes.div_ceil(1024)
+            ),
             Some(_) => settings.text(M::KeyOperation),
             None => settings.text(M::BodyUnavailable),
         };
@@ -321,6 +524,19 @@ impl HistoryView {
                     cx.listener(move |this, _, _, cx| this.toggle_details(&detail_order, cx)),
                 ),
             ];
+            if matches!(entry.operation, Some(Operation::Image { .. })) {
+                let viewing = order.parse::<i64>().ok();
+                items.push(
+                    YueMenuItem::new(settings.text(M::ImageView))
+                        .icon(outline::Photo)
+                        .disabled(self.preview_task.is_some() || viewing.is_none())
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            if let Some(order) = viewing {
+                                this.view_image(order, window, cx);
+                            }
+                        })),
+                );
+            }
             if !self.recent_only {
                 items.extend([
                     YueMenuItem::separator(),
@@ -379,6 +595,30 @@ impl HistoryView {
                     .when(long && !expanded && query.is_empty(), |d| d.line_clamp(3))
                     .child(text),
             );
+        if let Some(Operation::Image { .. }) = &entry.operation {
+            content = content.child(match self.images.get(order) {
+                Some(Some(image)) => div()
+                    .id(SharedString::from(format!("history-image-preview-{order}")))
+                    .test_support()
+                    .role(gpui_kit::Role::Image)
+                    .aria_label(format!("{} · {order}", settings.text(M::ImageView)))
+                    .w_full()
+                    .h_40()
+                    .child(
+                        gpui_kit::img(image.image().clone())
+                            .size_full()
+                            .object_fit(gpui_kit::ObjectFit::Contain),
+                    )
+                    .into_any_element(),
+                Some(None) => {
+                    support(settings.text(M::ImagePreviewFailed), theme).into_any_element()
+                }
+                None => support(settings.text(M::HistoryLoading), theme).into_any_element(),
+            });
+            if entry.receipt.st == State::Injected {
+                content = content.child(support(settings.text(M::ImagePasteSubmitted), theme));
+            }
+        }
         if long && query.is_empty() {
             let order = order.clone();
             content = content.child(
@@ -541,6 +781,60 @@ impl HistoryView {
                     cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(body.clone()))
                 }),
             );
+        }
+        if let Some(Operation::Image { image }) = &entry.operation {
+            let copy_order = order.parse::<i64>().ok();
+            let save_order = copy_order;
+            let extension = if image.metadata.mime == voicelink_receiver::images::ImageMime::Png {
+                "png"
+            } else {
+                "jpg"
+            };
+            footer = footer.flex_col().items_stretch().child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        YueButton::icon_text(
+                            SharedString::from(format!("history-image-copy-{order}")),
+                            theme,
+                            outline::Copy,
+                            settings.text(M::ImageCopy),
+                        )
+                        .size(ButtonSize::Small)
+                        .variant(ButtonVariant::Ghost)
+                        .disabled(self.image_action.is_some() || copy_order.is_none())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(order) = copy_order {
+                                this.image_command(order, None, cx);
+                            }
+                        })),
+                    )
+                    .child(
+                        YueButton::icon(
+                            SharedString::from(format!("history-image-save-{order}")),
+                            theme,
+                            outline::Download,
+                            settings.text(M::ImageSave),
+                        )
+                        .size(ButtonSize::Small)
+                        .variant(ButtonVariant::Ghost)
+                        .tooltip(settings.text(M::ImageSave))
+                        .disabled(self.image_action.is_some() || save_order.is_none())
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            if let Some(order) = save_order {
+                                this.save_image(order, extension, cx);
+                            }
+                        })),
+                    ),
+            );
+            if let Some((_, message)) = self
+                .image_feedback
+                .filter(|(value, _)| Some(*value) == copy_order)
+            {
+                content = content.child(support(settings.text(message), theme));
+            }
         }
         content = content.child(footer);
         if detailed {
@@ -1028,9 +1322,44 @@ impl Render for HistoryView {
                     .child(support(settings.text(M::HistoryCommandFailed), theme)),
             );
         }
-        root.child(self.privacy_dialog(cx)).into_any_element()
+        root.child(self.privacy_dialog(cx))
+            .child(
+                YueDialog::new("history-image-dialog", theme, &self.preview_dialog)
+                    .title(settings.text(M::ImageLabel))
+                    .close_label(settings.text(M::HistoryClose))
+                    .footer(DialogFooter::None)
+                    .width(gpui_kit::rems(48.))
+                    .child(
+                        div()
+                            .id("history-image-preview")
+                            .test_support()
+                            .role(gpui_kit::Role::Image)
+                            .aria_label(settings.text(M::ImageView))
+                            .h_80()
+                            .w_full()
+                            .child(match &self.preview {
+                                Some(image) => gpui_kit::img(image.image().clone())
+                                    .size_full()
+                                    .object_fit(gpui_kit::ObjectFit::Contain)
+                                    .into_any_element(),
+                                None => support(
+                                    settings.text(if self.preview_task.is_some() {
+                                        M::HistoryLoading
+                                    } else {
+                                        M::ImagePreviewFailed
+                                    }),
+                                    theme,
+                                )
+                                .into_any_element(),
+                            }),
+                    ),
+            )
+            .into_any_element()
     }
 }
+#[cfg(test)]
+#[path = "history_view/image_tests.rs"]
+mod image_tests;
 fn filter_options() -> [(Option<State>, M); 9] {
     [
         (None, M::AllMessages),

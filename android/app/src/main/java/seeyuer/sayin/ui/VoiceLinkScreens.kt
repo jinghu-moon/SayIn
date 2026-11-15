@@ -63,10 +63,15 @@ internal fun VoiceLinkContent(
     onDismiss: () -> Unit = {},
     openSettings: Boolean = false,
     entryVersion: Int = 0,
+    onSelectImage: (android.net.Uri) -> Unit = {},
+    onSendImage: (String) -> Unit = {},
+    onCancelImage: () -> Unit = {},
+    onClearImage: () -> Unit = {},
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
     val page = MobilePage.valueOf(pageName)
     var showConnection by remember { mutableStateOf(false) }
+    var showImage by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val preferences = remember(context) { context.getSharedPreferences("presentation", 0) }
     val cloudState by cloudSettings.state.collectAsStateWithLifecycle()
@@ -131,7 +136,8 @@ internal fun VoiceLinkContent(
                     cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                     onConfigureCloud = { if (quick) onExpand(true) else pageName = MobilePage.Settings.name },
                     onConnect = { showConnection = true },
-                    connectionOpen = showConnection,
+                    connectionOpen = showConnection || showImage,
+                    onImage = { session.cancelAutoSend(); showImage = true },
                     quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
                     onRequestAction = onHistoryAction)
             } else Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(requireNotNull(scroll))
@@ -152,6 +158,8 @@ internal fun VoiceLinkContent(
                 Spacer(Modifier.height(4.dp))
             }
         }
+        ImageInputSheet(showImage, state, !session.busy && !session.requestLocked,
+            onDismiss = { onCancelImage(); showImage = false }, onSelectImage, onSendImage, onCancelImage, onClearImage)
         OverlayBottomSheet(show = showConnection, onDismissRequest = { showConnection = false }) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("connection-sheet")) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,

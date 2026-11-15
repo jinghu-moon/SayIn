@@ -426,4 +426,5 @@
 - 图片资源先有界校验、DPAPI 加密同步落盘，再以 WAL/FULL 接受事务绑定 schema 6 的收据、资源与历史。每设备一张、主机两张、完整解码并发一；10MiB 编码、1600 万像素、单边 8192、块正文 48KiB。
 - 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
 - 生产 NativeInput 在最终目标捕获前完成资源读取和解码；持久 executing 后发布 PNG/DIBV5/历史与云排除标记，只发一次 Ctrl+V、不追加 Enter。部分提交进入 uncertain，只补释放本次仍按下的键。提交成功不证明目标应用已显示图片。
-- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。生产临时 RichEdit/EDIT 与自动回归已通过；手机实现、界面及完整真实应用矩阵以逐阶段记录为准，不把回环/fake 输入、旧网络测速或构建通过冒充整链路验收。
+- Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
+- 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。生产临时 RichEdit/EDIT、51 项 JVM、44 项常规设备和 136 项桌面自动回归已通过；完整真实应用矩阵及生产大图性能仍需单独验收，不把回环/fake 输入、旧网络测速或构建通过冒充整链路验收。图片设备测试使用独立 `seeyuer.sayin.imagetest`，`verify_image_transport.ps1 -FullSuite` 将文字和图片套件放在不同临时电脑身份，绝不替换日常应用。

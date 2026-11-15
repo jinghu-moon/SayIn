@@ -222,3 +222,14 @@ received-time = Received: { $time }
 discovery-publishing = Starting local discovery…
 discovery-published = Paired phones can find this computer on this network.
 discovery-unavailable = Local discovery is unavailable. Saved-address connections still work; update the address on your phone if needed.
+
+image-label = Image
+image-copy = Copy image
+image-save = Save image as…
+image-copied = Image copied. This replaces the clipboard; no paste was attempted.
+image-saved = Image saved
+image-action-failed = Could not read, copy or save the image. The original receipt is unchanged.
+image-clipboard-changed = The clipboard was replaced, but no paste instruction was submitted.
+image-preview-failed = Image preview unavailable
+image-paste-submitted = Paste instruction submitted. Check the target app.
+image-view = View image…

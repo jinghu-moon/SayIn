@@ -1,5 +1,5 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
-    [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly)
+    [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite)
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
@@ -26,10 +26,10 @@ $log = Join-Path $targetDirectory "image-android-$testTag.log"
 $remoteApks = @()
 $process = $null
 $port = $null
-if ($Lan -and $TransportOnly) { throw 'The original transport regression uses loopback; use the image suite for LAN.' }
+if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSuite)) { throw 'FullSuite/TransportOnly are mutually exclusive loopback regressions; use the image suite for LAN.' }
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
-$expectedTests = if ($TransportOnly) { 1 } else { 4 }
-$expectedCalls = if ($TransportOnly) { 2 } else { 1 }
+$expectedTests = if ($FullSuite) { 40 } elseif ($TransportOnly) { 1 } else { 4 }
+$expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     if ($UseExistingRootInstall) {
         $rootIdentity = & $adb -s $DeviceSerial shell su -c id
@@ -59,7 +59,13 @@ try {
     $port = [int]$fixture.port
     if ($port -le 1024 -or $port -gt 65535 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
     if (!$Lan) { Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$port" "tcp:$port" } }
-    & $adb -s $DeviceSerial shell am instrument -w -r -e timeout_msec 60000 -e fixtureCode $fixture.code -e fixturePort $port -e fixtureAddress $fixture.address -e class $testClass seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner > $log 2>&1
+    $arguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '60000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $port, '-e', 'fixtureAddress', $fixture.address)
+    # Pairing invitations and active-device gates are single-use state. The
+    # image data suite gets its own fresh desktop identity, not a reset gate.
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest') }
+    else { $arguments += @('-e', 'class', $testClass) }
+    $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
+    & $adb @arguments > $log 2>&1
     $instrumentExit = $LASTEXITCODE
     $output = Get-Content -LiteralPath $log -Raw
     if ($instrumentExit -ne 0 -or $output -notmatch "OK \($expectedTests tests?\)" -or $output -match 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed') { throw "Instrumentation failed; see $log" }
@@ -68,6 +74,11 @@ try {
     if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
     @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $testClass; real_lan = [bool]$Lan; tests = $expectedTests; fake_input_calls = $calls.fake_input_calls } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $expectedTests instrumentation tests; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
+    if ($FullSuite) {
+        & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
+        if (!$?) { throw 'Image data suite failed in its separate identity.' }
+        Write-Output 'PASS: all 44 regular device tests across independent text/image desktop identities; live paid cloud and discovery fixtures remain separate.'
+    }
 } finally {
     if ($process -and !$process.HasExited) {
         Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline
