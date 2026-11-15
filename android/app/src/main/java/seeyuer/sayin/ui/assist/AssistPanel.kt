@@ -1182,6 +1182,7 @@ private fun AssistRowBody(
         modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
             .clickable(interactionSource = interaction, indication = null, onClickLabel = insertLabel, role = Role.Button, onClick = onInsert)
             .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.Center,
     ) {
         Text(text, fontSize = 16.sp, lineHeight = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (multiple) Text(
@@ -1282,7 +1283,7 @@ private fun AssistFooter(
     onUndo: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 11.dp, bottom = 16.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 11.dp, bottom = 32.dp)) {
         undo?.let {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
