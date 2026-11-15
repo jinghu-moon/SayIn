@@ -33,6 +33,13 @@ ICONS = {
     "Cloud": "cloud",
     "Phone": "device-mobile",
     "More": "dots-vertical",
+    "Undo": "arrow-back-up",
+    "Redo": "arrow-forward-up",
+    "Translate": "language",
+    "Copy": "copy",
+    "Automatic": "bolt",
+    "ArrowUp": "arrow-up",
+    "Retry": "refresh",
 }
 
 

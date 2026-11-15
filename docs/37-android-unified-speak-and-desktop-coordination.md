@@ -1,5 +1,7 @@
 # 37 · 手机统一说话界面与桌面联动
 
+> 当前说话页视觉与操作入口已由 [51 · 三区语音栏](51-android-three-zone-voice-bar.md) 更新。本记录的共享会话、前台录音服务、接收范围与收据规则继续适用；以下来源分段、三个圆形按钮及常驻文字工具描述为本阶段历史。
+
 日期：2026-11-14。参考 `refer/sayin-mobile-ui.html`、`refer/sayin-quick-entry.html` 及 [36 统一交互](36-mobile-demo-unified-interactions.md)。本轮修改实际 Android 和 Windows 软件，不仅是 HTML。
 
 ## 产品目标与边界

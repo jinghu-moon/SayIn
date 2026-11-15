@@ -31,6 +31,7 @@ internal data class RecognitionState(
     val transcript: String = "",
     val issue: RecognitionIssue? = null,
     val finished: Boolean = false,
+    val audioLevel: Float = 0f,
 ) {
     val busy get() = phase != RecognitionPhase.Idle
 }
@@ -98,7 +99,9 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         if (ContextCompat.checkSelfPermission(application, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                             throw SecurityException("Microphone permission is required")
                         }
-                        return AndroidMicrophone(application).also { source ->
+                        return AndroidMicrophone(application) { level ->
+                            mutableState.update { if (it.session == session && it.phase == RecognitionPhase.Listening) it.copy(audioLevel = level) else it }
+                        }.also { source ->
                             synchronized(microphoneLock) { microphone = source }
                         }
                     }

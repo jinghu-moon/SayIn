@@ -161,6 +161,59 @@ internal object TablerVectors {
         )
     }
 
+    val Undo: ImageVector by lazy {
+        outline("Tabler.arrow-back-up",
+            "M9 14l-4 -4l4 -4",
+            "M5 10h11a4 4 0 1 1 0 8h-1"
+        )
+    }
+
+    val Redo: ImageVector by lazy {
+        outline("Tabler.arrow-forward-up",
+            "M15 14l4 -4l-4 -4",
+            "M19 10h-11a4 4 0 1 0 0 8h1"
+        )
+    }
+
+    val Translate: ImageVector by lazy {
+        outline("Tabler.language",
+            "M9 6.371c0 4.418 -2.239 6.629 -5 6.629",
+            "M4 6.371h7",
+            "M5 9c0 2.144 2.252 3.908 6 4",
+            "M12 20l4 -9l4 9",
+            "M19.1 18h-6.2",
+            "M6.694 3l.793 .582"
+        )
+    }
+
+    val Copy: ImageVector by lazy {
+        outline("Tabler.copy",
+            "M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666",
+            "M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"
+        )
+    }
+
+    val Automatic: ImageVector by lazy {
+        outline("Tabler.bolt",
+            "M13 3l0 7l6 0l-8 11l0 -7l-6 0l8 -11"
+        )
+    }
+
+    val ArrowUp: ImageVector by lazy {
+        outline("Tabler.arrow-up",
+            "M12 5l0 14",
+            "M18 11l-6 -6",
+            "M6 11l6 -6"
+        )
+    }
+
+    val Retry: ImageVector by lazy {
+        outline("Tabler.refresh",
+            "M20 11a8.1 8.1 0 0 0 -15.5 -2m-.5 -4v4h4",
+            "M4 13a8.1 8.1 0 0 0 15.5 2m.5 4v-4h-4"
+        )
+    }
+
     private fun outline(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { path ->

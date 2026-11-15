@@ -1,5 +1,6 @@
 package seeyuer.sayin.ui
 
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
@@ -11,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import seeyuer.sayin.designsystem.YuePalette
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -93,7 +96,8 @@ internal fun VoiceLinkContent(
         modifier = Modifier.imePadding(),
         containerColor = if (page == MobilePage.Speak) MiuixTheme.colorScheme.background else MiuixTheme.colorScheme.surface,
         topBar = {
-            if (!quick && !editing) Row(Modifier.fillMaxWidth().background(if (page == MobilePage.Speak) MiuixTheme.colorScheme.background else MiuixTheme.colorScheme.surface)
+            if (!quick && !editing && page == MobilePage.Speak) Spacer(Modifier.statusBarsPadding())
+            if (!quick && !editing && page != MobilePage.Speak) Row(Modifier.fillMaxWidth().background(if (page == MobilePage.Speak) MiuixTheme.colorScheme.background else MiuixTheme.colorScheme.surface)
                 .statusBarsPadding().padding(horizontal = 20.dp, vertical = if (page == MobilePage.Speak) 4.dp else 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -111,12 +115,19 @@ internal fun VoiceLinkContent(
             }
         },
         bottomBar = {
-            if (!quick && !editing) NavigationBar {
+            val navigationLine = if (MiuixTheme.colorScheme.background == YuePalette.Neutral100) YuePalette.Neutral200 else YuePalette.Neutral850
+            if (!quick && !editing) Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
+                .drawBehind { drawLine(navigationLine, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
+                .navigationBarsPadding().padding(top = 6.dp, bottom = 8.dp)) {
                 MobilePage.entries.forEach { item ->
-                    NavigationBarItem(selected = page == item, onClick = { session.cancelAutoSend(); pageName = item.name },
-                        icon = item.icon.vector, label = stringResource(item.label),
-                        colors = NavigationBarDefaults.navigationBarItemColors(selectedContentColor = MiuixTheme.colorScheme.primary),
-                        modifier = Modifier.testTag("nav-${item.name}"))
+                    val selected = page == item
+                    Column(Modifier.weight(1f).heightIn(min = 52.dp).selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab,
+                        onClick = { session.cancelAutoSend(); pageName = item.name }).testTag("nav-${item.name}"),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        val tint = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
+                        Icon(item.icon.vector, null, Modifier.size(23.dp), tint = tint)
+                        Text(stringResource(item.label), fontSize = 11.sp, color = tint, maxLines = 1)
+                    }
                 }
             }
         },

@@ -329,4 +329,18 @@
     <string name="translation_preparing">正在准备翻译模型：%1$d%%</string>
     <string name="translation_preparing_verify">正在校验下载的模型：%1$d%%</string>
     <string name="translation_prepare_failed">模型准备失败，请检查存储空间和连接后重试，原文已保留。</string>
+    <string name="speak_redo">重做</string>
+    <string name="speak_translation_short">译文</string>
+    <string name="speak_copy_draft">复制文本</string>
+    <string name="speak_count_short">%1$d 字</string>
+    <string name="speak_start_short">说话</string>
+    <string name="speak_release_cancel">松开取消</string>
+    <string name="speak_review_short">到电脑核对</string>
+    <string name="speak_finish_send">结束并发送</string>
+    <string name="speak_recognition_settings">识别设置</string>
+    <string name="speak_offline_recognition">离线识别</string>
+    <string name="speak_cloud_recognition">云端识别</string>
+    <string name="speak_offline_description">在手机上处理</string>
+    <string name="speak_cloud_description">使用已配置的云服务</string>
+    <string name="speak_original_short">原文</string>
 </resources>

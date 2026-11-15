@@ -1,0 +1,126 @@
+{
+  "updatedAt": "2026-11-15T16:55:16.774239+08:00",
+  "baseline": "b0321dc5e9027c28077dd6b8dfd4812e267b5863",
+  "scope": "Complete Android speaking screen using the three-zone prototype; shared full page/quick card. Desktop and protocol unchanged.",
+  "reference": {
+    "path": "D:/000_Inbox/020_Browser/021_Edge/SayIn 底部控制区对比.html",
+    "sha256": "77ff2f846d46117edfecea49a76ea573237c516b25e8a3f767e9d12f366ff7bc"
+  },
+  "android": {
+    "device": "Redmi K40 / API 33",
+    "isolatedApplicationId": "seeyuer.sayin.imagetest",
+    "jvm": {
+      "app": {
+        "tests": 58,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "translation": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "deviceTests": 57,
+    "fixtures": [
+      {
+        "result": {
+          "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+          "fake_input_calls": 2,
+          "tests": 53,
+          "scope": "isolated imageTest UID/identity/data; fake input only",
+          "real_lan": false
+        },
+        "evidence": {
+          "path": "desktop/target/image-android-fixture-47cd2411-3bda-47c3-9068-67cddaa90177/result.json",
+          "bytes": 199,
+          "sha256": "b2b2b39f81933ba6ce61795222465b30c2e590d06552a9f083e10d8a670cace6"
+        }
+      },
+      {
+        "result": {
+          "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+          "fake_input_calls": 1,
+          "tests": 4,
+          "scope": "isolated imageTest UID/identity/data; fake input only",
+          "real_lan": false
+        },
+        "evidence": {
+          "path": "desktop/target/image-android-fixture-3f27f2e1-79a4-4da3-a91b-c54442ec109b/result.json",
+          "bytes": 198,
+          "sha256": "2f7a0352a8a36660f04496d1d3d5fb56e23cbaad020816403d789c458db4eb88"
+        }
+      }
+    ],
+    "debugBuild": "passed",
+    "lintDebug": "passed",
+    "i18n": "passed: complete en + zh-Hans and matching placeholders",
+    "nativePackage": "passed: JNI exports, ELF and ZIP 16KB alignment, arm64 closure, no GGUF",
+    "tabler": "26 SVG and MIT license digests match pinned v3.51.0 provenance"
+  },
+  "desktop": {
+    "tests": 138,
+    "clippy": "passed with -D warnings",
+    "format": "passed for four product packages only",
+    "build": "passed: workspace all-targets locked",
+    "dependencyCheck": "passed: Yue, Kit 0.8.0, three local patches and source fingerprint"
+  },
+  "artifacts": [
+    {
+      "path": "android/build/three-zone-final-device-build.log",
+      "bytes": 8025,
+      "sha256": "c14b01a540f515b5fc6d33628c8500de62e337ab29e55765eb76d96ef99c090e"
+    },
+    {
+      "path": "android/build/three-zone-final-debug.log",
+      "bytes": 6425,
+      "sha256": "97942a85ff66ad630b930fe501c5bec3884f160cfed8d268beac3313ca4eba12"
+    },
+    {
+      "path": "android/build/three-zone-final-fullsuite.log",
+      "bytes": 869,
+      "sha256": "c5f780757cc98f75dedc4beb3d3a145a323fb279cfd3eb42823f97bab0823448"
+    },
+    {
+      "path": "android/build/three-zone-rust-tests.log",
+      "bytes": 17399,
+      "sha256": "b42048641e08e0b078e04919b4fe11b358754f3fd934342aa85d3c9d3a57ae80"
+    },
+    {
+      "path": "android/build/three-zone-clippy.log",
+      "bytes": 940,
+      "sha256": "9c276c04765979feb337ff06d4028969985b38b5fb31b620b18f3decd91c002f"
+    },
+    {
+      "path": "android/build/three-zone-format.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "android/build/three-zone-desktop-build.log",
+      "bytes": 355,
+      "sha256": "7fd6680876d331da27d33e71d33949172fb08c12c02697936c5484c304c9aac2"
+    },
+    {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 695942043,
+      "sha256": "daa0123985ccc88dcfe9f5a7b7c5b8cf75f06e084be651218f82e2ee1c91524d"
+    }
+  ],
+  "limitations": [
+    "No screenshot was viewed; visual acceptance belongs to the user. Existing instrumentation captured its usual artifacts.",
+    "UI ASR and translation engines in this suite are fakes; no fresh real microphone/cloud/JNI translation end-to-end acceptance.",
+    "Loopback fixtures use adb reverse and fake desktop input; not fresh LAN discovery, actual cursor input, latency or throughput evidence.",
+    "API 29 and API 37, long-term power and performance were not rerun in this UI phase."
+  ],
+  "dailyInstallation": {
+    "at": "2026-11-15T16:56:31.992368+08:00",
+    "applicationId": "seeyuer.sayin",
+    "result": "Success",
+    "mode": "pm install -r -t using existing Root authorization; no data clear",
+    "launch": "Status: ok; topResumedActivity=seeyuer.sayin/.MainActivity",
+    "precheck": "No active daily microphone service"
+  }
+}

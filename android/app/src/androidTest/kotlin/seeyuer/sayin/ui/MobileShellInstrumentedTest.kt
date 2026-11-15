@@ -90,7 +90,7 @@ class MobileShellInstrumentedTest {
                     cloudConfig = null, onConfigureCloud = { setups++ })
             }
         }
-        compose.onNodeWithTag("input-source-Cloud").assertIsSelected()
+        compose.onNodeWithTag("input-source-Cloud").assertDoesNotExist()
         compose.onNodeWithTag("start-cloud-asr").performClick()
         compose.onNodeWithTag("draft").assertTextContains("保留草稿")
         assertEquals(1, setups)
@@ -196,17 +196,30 @@ class MobileShellInstrumentedTest {
             val bitmap = compose.onRoot().captureToImage().asAndroidBitmap()
             File(output, "en-dark-large-$page.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             if (page == "Speak") {
-                for (source in SpeakInputSource.entries) {
+                openRecognitionSettings()
+                for (source in listOf(SpeakInputSource.Local, SpeakInputSource.Cloud)) {
                     val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
                     compose.onNodeWithTag("input-source-label-${source.name}", useUnmergedTree = true)
                         .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                    assertEquals("Large-text source labels must not split words", 1, layouts.single().lineCount)
+                    assertTrue("Vertical engine rows may wrap to two complete lines at large text", layouts.single().lineCount in 1..2)
+                    val label = layouts.single().layoutInput.text.text
+                    for (line in 0 until layouts.single().lineCount - 1) {
+                        val end = layouts.single().getLineEnd(line, visibleEnd = true)
+                        assertTrue("Wrap only between words", end == label.length || label[end].isWhitespace() || label[end - 1].isWhitespace())
+                    }
                     val layout = layouts.single()
-                    File(output, "source-layout-${source.name}.txt").writeText(
-                        "size=${layout.size}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; " +
-                            "overflowWidth=${layout.didOverflowWidth}; overflowHeight=${layout.didOverflowHeight}")
-                    assertTrue("Source labels must remain fully readable", !layout.hasVisualOverflow)
+                    // Compose may retain a wider paragraph constraint than the final glyph-size box.
+                    // Check the actual line ink and ellipsis instead of that spare paragraph width.
+                    for (line in 0 until layout.lineCount) {
+                        assertTrue("Source label glyphs must stay inside their rendered width",
+                            layout.getLineLeft(line) >= -1f && layout.getLineRight(line) <= layout.size.width + 1f)
+                        assertTrue("Source label lines must not be clipped or ellipsized",
+                            layout.getLineBottom(line) <= layout.size.height + 1f && !layout.isLineEllipsized(line))
+                    }
+                    assertTrue("Source labels must fit vertically", !layout.didOverflowHeight)
                 }
+                compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+                compose.waitForIdle()
             }
         }
     }
@@ -336,7 +349,7 @@ class MobileShellInstrumentedTest {
             VoiceLinkTheme { TestVoiceLinkContent(ready(), draft, { draft = it }, {}, { _, _ -> }, {}) }
         }
         compose.onNodeWithTag("draft").assertIsDisplayed()
-        compose.onNodeWithTag("send-draft").assertIsNotEnabled()
+        compose.onNodeWithTag("send-draft").assertDoesNotExist()
         compose.runOnIdle { draft = TextFieldValue("a".repeat(4001)) }
         compose.onNodeWithTag("send-draft").assertIsNotEnabled()
         compose.runOnIdle { draft = TextFieldValue("a".repeat(4000)) }
@@ -350,14 +363,18 @@ class MobileShellInstrumentedTest {
         setTestContent {
             VoiceLinkTheme { TestVoiceLinkContent(ready(), draft, { draft = it }, { sends++ }, { _, _ -> }, {}) }
         }
-        compose.onNodeWithTag("input-source-Keyboard").assertIsSelected()
-        compose.onNodeWithTag("input-source-Local").performClick().assertIsSelected()
+        compose.onNodeWithTag("input-source-Keyboard").assertDoesNotExist()
+        openRecognitionSettings()
+        compose.onNodeWithTag("input-source-Local").performClick()
         compose.onNodeWithTag("start-local-asr").assertIsDisplayed()
         compose.onNodeWithTag("draft").assertTextContains(original.text)
         compose.onNodeWithTag("nav-Settings").performClick()
         compose.onNodeWithTag("nav-Speak").performClick()
+        openRecognitionSettings()
         compose.onNodeWithTag("input-source-Local").assertIsSelected()
-        compose.onNodeWithTag("input-source-Keyboard").performClick().assertIsSelected()
+        compose.runOnIdle { currentTestSession.selectSource(SpeakInputSource.Keyboard) }
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
         compose.runOnIdle { assertEquals(original, draft); assertEquals(0, sends) }
         compose.onNodeWithTag("send-draft").performClick()
         assertEquals(1, sends)
@@ -370,7 +387,8 @@ class MobileShellInstrumentedTest {
             var draft by remember { mutableStateOf(TextFieldValue("运行测试")) }
             VoiceLinkTheme { TestVoiceLinkContent(state, draft, { draft = it }, { sends++ }, { _, _ -> }, {}) }
         }
-        compose.onNodeWithTag("send-mode").performClick()
+        compose.onNodeWithTag("speak-more").performClick()
+        compose.onNodeWithText(context.getString(R.string.speak_auto_send)).performClick()
         compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
         compose.runOnIdle { currentTestSession.completeInput() }
         compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
@@ -436,13 +454,19 @@ class MobileShellInstrumentedTest {
         setTestContent {
             VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue("运行测试"), {}, { sends++ }, { _, _ -> }, {}) }
         }
-        compose.onNodeWithTag("send-mode").performClick()
+        compose.onNodeWithTag("speak-more").performClick()
+        compose.onNodeWithText(context.getString(R.string.speak_auto_send)).performClick()
         compose.runOnIdle { currentTestSession.completeInput() }
         compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
         compose.onNodeWithTag("speak-connect-action").performClick()
         compose.onNodeWithTag("close-connection").performClick()
         compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
         assertEquals(0, sends)
+    }
+
+    private fun openRecognitionSettings() {
+        compose.onNodeWithTag("speak-more").performClick()
+        compose.onNode(hasText("识别设置") or hasText("Recognition settings")).performClick()
     }
 
     private lateinit var currentTestSession: SpeakSession
@@ -458,7 +482,7 @@ class MobileShellInstrumentedTest {
         currentTestSession = session
         val externalDraft by rememberUpdatedState(draft)
         LaunchedEffect(draft) { session.changeDraft(externalDraft) }
-        SideEffect { session.onAutoSend = onSend }
+        SideEffect { session.onSendReady = onSend }
         DisposableEffect(session) { onDispose { session.close() } }
         VoiceLinkContent(state, session, onSend, onHistoryAction, connectionActions, onReconnect)
     }
@@ -470,7 +494,7 @@ class MobileShellInstrumentedTest {
         cloudConfig: seeyuer.sayin.asr.CloudConfiguration? = null, onConfigureCloud: () -> Unit = {}) {
         val context = LocalContext.current
         val session = remember { SpeakSession(context, draft, onDraftChange).also { it.selectSource(source); it.changeSendMode(sendMode) } }
-        SideEffect { session.updateReceiver(state); session.onAutoSend = onSend }
+        SideEffect { session.updateReceiver(state); session.onSendReady = onSend }
         DisposableEffect(session) { onDispose { session.close() } }
         SpeakPage(state, session, onSend, onConnect, cloudConfig, onConfigureCloud)
     }

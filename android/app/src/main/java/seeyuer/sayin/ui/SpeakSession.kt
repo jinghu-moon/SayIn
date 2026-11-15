@@ -3,6 +3,7 @@ package seeyuer.sayin.ui
 import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.TextRange
@@ -37,11 +38,26 @@ internal class SpeakSession(
     var draft by mutableStateOf(initialDraft); private set
     var draftId by mutableStateOf(UUID.randomUUID().toString()); private set
     var source by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("input_source", "Cloud")!!) }.getOrDefault(SpeakInputSource.Cloud)); private set
+    var lastVoiceSource by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("voice_source", "Cloud")!!) }
+        .getOrDefault(SpeakInputSource.Cloud).takeIf { it.isRecognition } ?: SpeakInputSource.Cloud); private set
     var sendMode by mutableStateOf(if (preferences.getBoolean("auto_send", false)) SpeakSendMode.Automatic else SpeakSendMode.Manual); private set
     var interaction by mutableStateOf(SpeakInteraction()); private set
     var asr by mutableStateOf(RecognitionState()); private set
     var model by mutableStateOf(LocalModelPhase.Unloaded); private set
     var recordingStartedAtMillis by mutableStateOf(0L); private set
+    var recordingDurationMillis by mutableStateOf(0L); private set
+    private val history = DraftHistory<SpeakingSnapshot>()
+    private var historyRevision by mutableIntStateOf(0)
+    private var recordingSnapshot: SpeakingSnapshot? = null
+    private var recordingDurationBefore = 0L
+    private var preparationGeneration = 0L
+    private var sendAfterFinal = false
+    private var expectedRecognitionSession = 0L
+    private val historyEnabled get() = !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
+        !translation.running && !translationStopping && !translationPreparing && displayedDraft.composition == null
+    val canUndo get() = historyRevision.let { historyEnabled && history.canUndo }
+    val canRedo get() = historyRevision.let { historyEnabled && history.canRedo }
+    val recordingHasText get() = recognitionHadText && asr.transcript.isNotBlank()
     var receiver by mutableStateOf(ClientState()); private set
     var secondsRemaining by mutableStateOf(3); private set
     var preparingToRecord by mutableStateOf(false); private set
@@ -73,7 +89,7 @@ internal class SpeakSession(
             translation.takeIf { it.complete }?.ticket?.templateRevision,
             translationShown && translation.complete, request?.translated ?: false)
     }
-    var onAutoSend: () -> Unit = {}
+    var onSendReady: () -> Unit = {}
     var requestMicrophoneService: (() -> Unit)? = null
     private var insertion: RecognitionInsertion? = null
     private var originalDraft: TextFieldValue? = null
@@ -97,9 +113,11 @@ internal class SpeakSession(
     init {
         scope.launch { recognition.state.collect { result ->
             if (result.phase == RecognitionPhase.Listening && asr.phase != RecognitionPhase.Listening) recordingStartedAtMillis = SystemClock.elapsedRealtime()
+            if (acceptRecognition && asr.phase == RecognitionPhase.Listening && result.phase != RecognitionPhase.Listening)
+                recordingDurationMillis = recordingDurationBefore + (SystemClock.elapsedRealtime() - recordingStartedAtMillis).coerceAtLeast(0)
             asr = result
             val range = insertion
-            if (acceptRecognition && range != null && result.session != 0L) {
+            if (acceptRecognition && range != null && result.session == expectedRecognitionSession && result.session != 0L) {
                 if (result.transcript.isNotEmpty() || recognitionHadText) {
                     recognitionHadText = result.transcript.isNotEmpty()
                     val value = if (result.transcript.isEmpty()) originalDraft ?: TextFieldValue(range.original, TextRange(range.start, range.end))
@@ -108,9 +126,16 @@ internal class SpeakSession(
                 }
                 if (!result.busy) {
                     acceptRecognition = false
+                    recordingSnapshot?.takeIf { it.draft.text != draft.text }?.let { record(it) }
+                    recordingSnapshot = null
+                    val direct = sendAfterFinal && recordingScope != null && recordingScope == receiver.receptionScope
+                    sendAfterFinal = false
                     if (result.finished && explicitFinish && result.transcript.isNotBlank() && visible) {
-                        val mode = if (recordingMayAutoSend && recordingScope == receiver.receptionScope) sendMode else SpeakSendMode.Manual
-                        completeInput(mode)
+                        if (direct) onSendReady()
+                        else {
+                            val mode = if (recordingMayAutoSend && recordingScope == receiver.receptionScope) sendMode else SpeakSendMode.Manual
+                            completeInput(mode)
+                        }
                     }
                     explicitFinish = false
                 }
@@ -149,18 +174,20 @@ internal class SpeakSession(
         if (value.rejectedDraft == request.id) { submitted = request.copy(state = "failed"); return }
         val item = value.history.firstOrNull { it.id == request.id } ?: return
         submitted = request.copy(state = item.state)
+        if (item.state == "injected" && request.state != "injected") { history.clear(); historyRevision++; undoDraft = null }
         if (item.state == "injected" && request.translated && draftId == request.id) {
             // Retaining the original must not retain an already consumed request identity after restart.
             draftId = UUID.randomUUID().toString()
             translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
         }
         if (item.state == "injected" && !request.translated && draftId == request.id && draft.text == request.value.text) {
-            changeDraft(TextFieldValue())
+            changeDraft(TextFieldValue(), fromRecognition = true)
+            recordingDurationMillis = 0L
         }
     }
 
     fun restore(saved: SavedSpeakingDraft) {
-        invalidateTranslation(); cancelAutoSend(); draftId = saved.id
+        invalidateTranslation(); cancelAutoSend(); history.clear(); historyRevision++; draftId = saved.id
         draft = TextFieldValue(saved.text, TextRange(saved.start, saved.end))
         if (saved.translationText != null) {
             translation = DraftTranslation(TranslationTicket(UUID.randomUUID().toString(), draftId, interaction.version, draft.text,
@@ -173,14 +200,22 @@ internal class SpeakSession(
     }
 
     fun changeDraft(value: TextFieldValue, fromRecognition: Boolean = false) {
-        if (draft == value) return
-        invalidateTranslation()
+        if (draft == value || !fromRecognition && (requestLocked || draftRestoring)) return
+        if (!fromRecognition && value.text != draft.text) {
+            if (!requestLocked) submitted = null
+            val composing = draft.composition != null || value.composition != null
+            record(snapshot(), if (composing) "composition" else if (value.text.length < draft.text.length) "delete" else "edit",
+                composing = draft.composition != null)
+        }
+        if (value.text != draft.text) invalidateTranslation()
         if (!fromRecognition) { cancelAutoSend(); if (asr.busy) cancelRecording(restore = false) }
         if (value.text != draft.text) {
             interaction = interaction.inputChanged()
             draftId = UUID.randomUUID().toString()
         } else if (value.selection != draft.selection || value.composition != draft.composition) cancelAutoSend()
+        val compositionEnded = draft.composition != null && value.composition == null
         draft = value
+        if (compositionEnded) history.breakGroup()
         if (!fromRecognition) undoDraft = null
         onDraftChanged(value)
     }
@@ -188,7 +223,8 @@ internal class SpeakSession(
     fun selectSource(value: SpeakInputSource) {
         if (busy || requestLocked || value == source) return
         stopTranslation(); cancelAutoSend(); source = value; recognition.clearResult()
-        preferences.edit().putString("input_source", value.name).apply()
+        if (value.isRecognition) lastVoiceSource = value
+        preferences.edit().putString("input_source", value.name).putString("voice_source", lastVoiceSource.name).apply()
         if (value == SpeakInputSource.Local) scope.launch { translator.release(); if (source == value) recognition.prepareLocal() }
     }
 
@@ -200,7 +236,10 @@ internal class SpeakSession(
 
     fun start(cloud: CloudConfiguration?) {
         if (!visible || busy || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
+        recordingSnapshot = snapshot()
         invalidateTranslation(); cancelAutoSend(); undoDraft = null; submitted = null; explicitFinish = false
+        history.breakGroup(); recordingDurationBefore = recordingDurationMillis
+        val generation = ++preparationGeneration
         val selection = draft.selection
         originalDraft = draft.copy(composition = null)
         insertion = RecognitionInsertion(draft.text, selection.min, selection.max)
@@ -210,6 +249,7 @@ internal class SpeakSession(
         waitingForTranslationStop = true
         scope.launch {
             translator.release()
+            if (generation != preparationGeneration) return@launch
             waitingForTranslationStop = false
             if (preparingToRecord && visible) {
                 if (source == SpeakInputSource.Local && model != LocalModelPhase.Ready) recognition.prepareLocal() else requestRecording()
@@ -228,27 +268,52 @@ internal class SpeakSession(
         if (!preparingToRecord || !visible) { preparingToRecord = false; return }
         preparingToRecord = false; recognitionHadText = false; acceptRecognition = true
         recognition.start(pendingCloud)
+        expectedRecognitionSession = recognition.state.value.session
         pendingCloud = null
     }
 
     fun microphoneServiceFailed() { preparingToRecord = false; acceptRecognition = false; asr = asr.copy(issue = RecognitionIssue.Microphone) }
-    fun finishRecording() { if (asr.phase == RecognitionPhase.Listening) { explicitFinish = true; recordingMayAutoSend = recordingMayAutoSend && visible; recognition.finish() } }
+    fun finishRecording(andSend: Boolean = false) {
+        if (asr.phase != RecognitionPhase.Listening) return
+        sendAfterFinal = andSend && recordingHasText && visible && recordingScope != null && recordingScope == receiver.receptionScope
+        explicitFinish = true; recordingMayAutoSend = recordingMayAutoSend && visible && !andSend
+        recognition.finish()
+    }
 
     fun cancelRecording(restore: Boolean = true) {
         acceptRecognition = false; explicitFinish = false; preparingToRecord = false; pendingCloud = null
+        preparationGeneration++; waitingForTranslationStop = false
         cancelAutoSend(); recognition.cancel()
-        if (restore) originalDraft?.let { draft = it; draftId = UUID.randomUUID().toString(); onDraftChanged(draft) }
-        insertion = null; originalDraft = null
+        if (restore) recordingSnapshot?.let { restoreSnapshot(it) }
+        recordingSnapshot = null; insertion = null; originalDraft = null
     }
 
     fun clearDraft() {
         if (busy || requestLocked || draftRestoring) return
         val old = draft
-        changeDraft(TextFieldValue()); undoDraft = old.takeIf { it.text.isNotEmpty() }; submitted = null
+        history.breakGroup()
+        changeDraft(TextFieldValue()); recordingDurationMillis = 0L
+        history.breakGroup(); undoDraft = old.takeIf { it.text.isNotEmpty() }; submitted = null
     }
-    fun undoClear() { val old = undoDraft ?: return; changeDraft(old); undoDraft = null }
+    fun undoClear() { if (undoDraft != null) undo() }
+    fun undo() { if (canUndo) history.undo(snapshot())?.let { restoreSnapshot(it); historyRevision++ } }
+    fun redo() { if (canRedo) history.redo(snapshot())?.let { restoreSnapshot(it); historyRevision++ } }
+    private fun snapshot() = SpeakingSnapshot(draft.copy(composition = null),
+        translation.takeIf { it.complete }?.let { it.copy(value = it.value.copy(composition = null)) } ?: DraftTranslation(), translationShown && translation.complete, recordingDurationMillis)
+    private fun record(value: SpeakingSnapshot, kind: String? = null, composing: Boolean = false) {
+        history.record(value, kind, SystemClock.elapsedRealtime(), composing); historyRevision++
+    }
+    private fun restoreSnapshot(value: SpeakingSnapshot) {
+        cancelAutoSend(); invalidateTranslation(); undoDraft = null
+        interaction = interaction.inputChanged(); draftId = UUID.randomUUID().toString()
+        draft = value.draft; recordingDurationMillis = value.duration
+        translation = value.translation.let { old -> old.copy(ticket = old.ticket?.copy(
+            id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version)) }
+        translationShown = value.translationShown
+        onDraftChanged(draft)
+    }
     fun edit() { cancelAutoSend(); interaction = interaction.edit() }
-    fun cancelAutoSend() { countdownJob?.cancel(); countdownJob = null; interaction = interaction.cancelCountdown() }
+    fun cancelAutoSend() { sendAfterFinal = false; countdownJob?.cancel(); countdownJob = null; interaction = interaction.cancelCountdown() }
 
     fun completeInput(mode: SpeakSendMode = sendMode) {
         cancelAutoSend()
@@ -262,7 +327,7 @@ internal class SpeakSession(
                 if (!ticket.matches(draft.text, interaction.version, draft.composition != null, receiver.receptionScope)) { cancelAutoSend(); return@launch }
                 secondsRemaining = ticket.secondsRemaining(now)
                 val consumed = interaction.consumeDue(draft.text, draft.composition != null, receiver.receptionScope, now)
-                if (consumed != null) { interaction = consumed; onAutoSend(); return@launch }
+                if (consumed != null) { interaction = consumed; onSendReady(); return@launch }
                 delay(100)
             }
         }
@@ -284,12 +349,18 @@ internal class SpeakSession(
     fun changeDisplayedDraft(value: TextFieldValue) {
         if (!translationShown) { changeDraft(value); return }
         if (!translation.complete || requestLocked || draftRestoring) return
+        if (value.text != translation.value.text) record(snapshot(),
+            if (value.composition != null || translation.value.composition != null) "translated-composition" else "translated-edit",
+            composing = translation.value.composition != null)
+        val compositionEnded = translation.value.composition != null && value.composition == null
         cancelAutoSend(); translation = translation.copy(value = value)
+        if (compositionEnded) history.breakGroup()
     }
 
     fun translateDraft() {
         if (!canTranslateDraft) return
         cancelAutoSend(); recordingMayAutoSend = false
+        val before = snapshot()
         val ticket = TranslationTicket(UUID.randomUUID().toString(), draftId, interaction.version, draft.text,
             translationModel.sha256, translationModel.templateRevision)
         translation = DraftTranslation(ticket = ticket, running = true)
@@ -310,6 +381,7 @@ internal class SpeakSession(
                     onPartial = { text -> updates.value = updates.value.copy(partial = text) })
                 if (translation.accepts(ticket.id, draftId, interaction.version)) {
                     translation = translation.copy(running = false, end = result.end, value = TextFieldValue(result.text))
+                    if (translation.complete) record(before)
                     if (result.end == TranslationEnd.ModelMissing || result.end == TranslationEnd.Integrity) translationModelReady = false
                 }
             } finally { observer.cancel(); if (translation.ticket?.id == ticket.id) translation = translation.copy(running = false) }
@@ -358,7 +430,9 @@ internal class SpeakSession(
     /** The uncertain request stays immutable in the ledger; this does not retry it or release the desktop gate. */
     fun newDraft() {
         if (busy || submitted?.state != "uncertain" || !receiver.ready) return
-        submitted = null; changeDraft(TextFieldValue())
+        submitted = null; changeDraft(TextFieldValue(), fromRecognition = true)
+        recordingDurationMillis = 0L
+        history.clear(); historyRevision++; undoDraft = null
     }
 
     override fun close() { cancelAutoSend(); translator.close(); recognition.close(); scope.cancel() }
@@ -366,3 +440,5 @@ internal class SpeakSession(
 
 internal data class SubmittedDraft(val id: String, val value: TextFieldValue, val state: String = "saved", val translated: Boolean = false)
 private data class TranslationStream(val progress: TranslationProgress? = null, val partial: String? = null)
+
+private data class SpeakingSnapshot(val draft: TextFieldValue, val translation: DraftTranslation, val translationShown: Boolean, val duration: Long)

@@ -333,4 +333,18 @@
     <string name="translation_preparing">Preparing translation model: %1$d%%</string>
     <string name="translation_preparing_verify">Verifying downloaded model: %1$d%%</string>
     <string name="translation_prepare_failed">Model preparation failed. Check storage and connection, then try again. Your original is retained.</string>
+    <string name="speak_redo">Redo</string>
+    <string name="speak_translation_short">EN</string>
+    <string name="speak_copy_draft">Copy text</string>
+    <string name="speak_count_short">%1$d chars</string>
+    <string name="speak_start_short">Speak</string>
+    <string name="speak_release_cancel">Release to cancel</string>
+    <string name="speak_review_short">Check on computer</string>
+    <string name="speak_finish_send">Finish and send</string>
+    <string name="speak_recognition_settings">Recognition settings</string>
+    <string name="speak_offline_recognition">Offline recognition</string>
+    <string name="speak_cloud_recognition">Cloud recognition</string>
+    <string name="speak_offline_description">Processed on your phone</string>
+    <string name="speak_cloud_description">Use your configured cloud service</string>
+    <string name="speak_original_short">Text</string>
 </resources>

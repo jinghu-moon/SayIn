@@ -143,6 +143,56 @@ class TranslationSessionInstrumentedTest {
         } finally { main { session.close() } }
     }
 
+    @Test fun translationUndoRedoAndCancelledRecordingRestoreBothRepresentations() {
+        val engine = Engine(); val recognition = Recognition(); lateinit var session: SpeakSession
+        main { session = session(engine, recognition); session.translateDraft() }
+        try {
+            waitFor { engine.calls == 1 }
+            engine.result.complete(TranslationResult(TranslationEnd.Complete, "Original English"))
+            waitFor { session.translation.complete }
+            main {
+                assertTrue(session.canUndo)
+                session.undo(); assertEquals("原文", session.displayedDraft.text); assertNull(session.translation.ticket)
+                session.redo(); assertEquals("Original English", session.displayedDraft.text); assertTrue(session.canSendRepresentation)
+                session.selectSource(SpeakInputSource.Local); session.start(null)
+            }
+            waitFor { recognition.starts == 1 }
+            main {
+                recognition.state.value = RecognitionState(session = 1, phase = RecognitionPhase.Listening, transcript = "discard")
+            }
+            waitFor { session.draft.text.contains("discard") }
+            main { session.cancelRecording() }
+            waitFor { !session.translationStopping }
+            main {
+                assertEquals("原文", session.draft.text); assertEquals("Original English", session.displayedDraft.text)
+                assertTrue(session.canSendRepresentation); assertNull(session.interaction.countdown)
+                session.undo(); assertNull(session.translation.ticket); assertEquals("原文", session.draft.text)
+            }
+        } finally { main { session.close() } }
+    }
+
+    @Test fun imeTransactionClearAndImmutableRequestDoNotResurrectSubmittedText() {
+        val engine = Engine(); lateinit var session: SpeakSession
+        main { session = session(engine) }
+        try {
+            main {
+                session.changeDraft(TextFieldValue("原文n", composition = androidx.compose.ui.text.TextRange(2,3)))
+                session.changeDraft(TextFieldValue("原文ni", composition = androidx.compose.ui.text.TextRange(2,4)))
+                assertFalse(session.canUndo)
+                session.changeDraft(TextFieldValue("原文你"))
+                session.undo(); assertEquals("原文", session.draft.text)
+                session.redo(); assertEquals("原文你", session.draft.text)
+                session.clearDraft(); session.undo(); assertEquals("原文你", session.draft.text)
+                assertTrue(session.markSubmitted()); assertFalse(session.canUndo)
+                session.changeDraft(TextFieldValue("must not mutate frozen request")); assertEquals("原文你", session.draft.text)
+                val item = OutboxItem(session.draftId, "host", "device", "target", null, 0, "injected", "1", null, 1L)
+                session.updateReceiver(session.receiver.copy(history = listOf(item)))
+                assertEquals("", session.draft.text); assertFalse(session.canUndo)
+                session.undo(); assertEquals("", session.draft.text)
+            }
+        } finally { main { session.close() } }
+    }
+
     @Test fun quickHandoverSharesTaskAndTruncationErrorsAndRangeChangesCannotSend() {
         for (end in listOf(TranslationEnd.Truncated, TranslationEnd.Error, TranslationEnd.Cancelled, TranslationEnd.Timeout)) {
             val engine = Engine(); lateinit var session: SpeakSession

@@ -7,10 +7,23 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.*
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import seeyuer.sayin.designsystem.YuePalette
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,10 +39,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +88,7 @@ internal fun SpeakPage(
     var resumed by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     val draft = session.displayedDraft
     val asr = session.asr
+    val currentCloud by rememberUpdatedState(cloudConfig)
     val source = session.source
     val normalized = remember(draft.text) { runCatching { normalizedText(draft.text) }.getOrNull() }
     val sendable = normalized != null && draft.text.isNotBlank() && draft.composition == null && !session.requestLocked && !session.draftRestoring &&
@@ -84,10 +96,13 @@ internal fun SpeakPage(
     val preparing = session.preparingToRecord || source == SpeakInputSource.Local && session.model in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
     val activeCountdown = session.interaction.countdown
     val autoLabel = stringResource(R.string.speak_auto_send)
+    val draftLabel = stringResource(R.string.mobile_draft)
     var recordingSeconds by remember { mutableIntStateOf(0) }
-    LaunchedEffect(asr.phase, session.recordingStartedAtMillis) {
+    var cancelArmed by remember { mutableStateOf(false) }
+    LaunchedEffect(asr.phase, session.recordingStartedAtMillis, session.recordingDurationMillis) {
+        if (asr.phase != RecognitionPhase.Listening) recordingSeconds = (session.recordingDurationMillis / 1000).toInt()
         while (asr.phase == RecognitionPhase.Listening) {
-            recordingSeconds = ((android.os.SystemClock.elapsedRealtime() - session.recordingStartedAtMillis) / 1000).toInt()
+            recordingSeconds = ((session.recordingDurationMillis + android.os.SystemClock.elapsedRealtime() - session.recordingStartedAtMillis) / 1000).toInt()
             kotlinx.coroutines.delay(250)
         }
     }
@@ -99,8 +114,8 @@ internal fun SpeakPage(
     }
     fun start() {
         focusManager.clearFocus(); keyboard?.hide(); showPreview = false
-        if (source == SpeakInputSource.Cloud && cloudConfig == null) onConfigureCloud()
-        else session.start(cloudConfig)
+        if (session.source == SpeakInputSource.Cloud && currentCloud == null) onConfigureCloud()
+        else session.start(currentCloud)
     }
     val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         session.microphoneDenied = !granted
@@ -150,242 +165,393 @@ internal fun SpeakPage(
         asr.issue != null && source.isRecognition -> stringResource(recognitionIssueText(checkNotNull(asr.issue)))
         asr.finished && asr.transcript.isEmpty() && source.isRecognition -> stringResource(R.string.asr_no_speech)
         draft.text.isNotEmpty() && normalized == null -> stringResource(R.string.mobile_invalid_draft)
-        session.interaction.review != null -> stringResource(reviewText(checkNotNull(session.interaction.review)))
         source == SpeakInputSource.Cloud && cloudConfig == null -> stringResource(R.string.cloud_setup_hint)
         source == SpeakInputSource.Cloud -> stringResource(R.string.speak_cloud_idle)
         source == SpeakInputSource.Local && session.model == LocalModelPhase.Ready -> stringResource(R.string.speak_local_ready)
         source == SpeakInputSource.Local -> stringResource(R.string.speak_local_cold)
         else -> stringResource(R.string.speak_keyboard_idle)
     }
+    val haptics = LocalHapticFeedback.current
+    var previousRecordingPhase by remember { mutableStateOf(asr.phase) }
+    LaunchedEffect(asr.phase) {
+        if (asr.phase == RecognitionPhase.Listening || previousRecordingPhase == RecognitionPhase.Listening)
+            haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+        previousRecordingPhase = asr.phase
+    }
+    val clipboard = LocalClipboard.current
+    val uiScope = rememberCoroutineScope()
+    var injectedFeedback by remember { mutableStateOf(false) }
+    LaunchedEffect(session.submitted?.id, session.submitted?.state) {
+        injectedFeedback = session.submitted?.state == "injected"
+        if (injectedFeedback) { kotlinx.coroutines.delay(900); injectedFeedback = false }
+    }
+    var clearNotice by remember { mutableStateOf(false) }
+    LaunchedEffect(session.undoDraft) {
+        clearNotice = session.undoDraft != null
+        if (clearNotice) { kotlinx.coroutines.delay(6000); clearNotice = false }
+    }
+    var readyNotice by remember { mutableStateOf(false) }
+    var lastModel by remember { mutableStateOf(session.model) }
+    LaunchedEffect(session.model) {
+        val becameReady = session.model == LocalModelPhase.Ready && lastModel in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
+        lastModel = session.model
+        if (becameReady) { readyNotice = true; kotlinx.coroutines.delay(2000); readyNotice = false }
+    }
+    val voiceSource = if (source.isRecognition) source else session.lastVoiceSource
+    fun microphone() {
+        when {
+            session.asr.phase == RecognitionPhase.Listening -> session.finishRecording()
+            session.busy -> Unit
+            else -> {
+                val engine = if (session.source.isRecognition) session.source else session.lastVoiceSource
+                if (!session.source.isRecognition) session.selectSource(engine)
+                if (engine == SpeakInputSource.Cloud && currentCloud == null) onConfigureCloud()
+                else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                    session.microphoneDenied = false; start()
+                } else { permissionPending = true; microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
+            }
+        }
+    }
     BoxWithConstraints(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("page-Speak")) {
-        val tight = maxHeight < 430.dp
-        val smallControls = tight || quick
-        val collapsedSources = tight && (WindowInsets.ime.getBottom(LocalDensity.current) > 0 || maxHeight < 220.dp)
-        // Font scaling and a tall landscape IME consume real editor space.
-        // Fold secondary actions before they can displace a complete text line.
+        val availableWidth = maxWidth
+        val availableHeight = maxHeight
         val fontScale = LocalDensity.current.fontScale
-        val collapsedTranslation = collapsedSources || maxHeight < 300.dp * fontScale
-        val minimalDetails = maxHeight < 120.dp * fontScale
-        Column(Modifier.fillMaxSize().padding(horizontal = if (quick) 12.dp else 16.dp, vertical = if (tight) 0.dp else 8.dp)
-            .background(MiuixTheme.colorScheme.surfaceContainer, RoundedCornerShape(28.dp))) {
-            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = if (tight) 12.dp else 18.dp)) {
-                if (quick && !focused) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    ConnectionChip(state, ::connect, Modifier.weight(1f))
-                    IconButton({ session.cancelAutoSend(); onDismiss() }, Modifier.size(48.dp).testTag("collapse-quick")) {
-                        Icon(VoiceLinkIcon.ChevronDown.vector, stringResource(R.string.quick_collapse))
-                    }
+        val compact = maxHeight < 300.dp * fontScale
+        val minimal = maxHeight < 170.dp * fontScale
+        val controlSize = if (minimal) 48.dp else 56.dp
+        val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+        val showHeader = !imeOpen && maxHeight >= 260.dp * fontScale
+        val showTools = maxHeight >= 240.dp * fontScale
+        val busy = session.busy
+        val locked = session.requestLocked || session.draftRestoring
+        val toolsEnabled = !busy && !locked && !session.translation.running && !session.translationStopping && draft.composition == null
+        val color = MiuixTheme.colorScheme
+        val menu = buildList {
+            add(DropdownItem(stringResource(R.string.image_choose), enabled = state.paired && state.storageHealthy && !busy && !locked,
+                onClick = { session.cancelAutoSend(); onImage() }))
+            add(DropdownItem(stringResource(R.string.speak_recognition_settings), enabled = !busy && !locked,
+                icon = { Icon(VoiceLinkIcon.Settings.vector, null, it.size(20.dp)) }, onClick = { showSources = true }))
+            add(DropdownItem(autoLabel, icon = { Icon(VoiceLinkIcon.Automatic.vector, null, it.size(20.dp)) }, selected = session.sendMode == SpeakSendMode.Automatic, enabled = !busy && !locked,
+                onClick = { session.changeSendMode(if (session.sendMode == SpeakSendMode.Automatic) SpeakSendMode.Manual else SpeakSendMode.Automatic) }))
+            if (!showTools) {
+                add(DropdownItem(stringResource(R.string.speak_undo), enabled = session.canUndo, onClick = session::undo))
+                add(DropdownItem(stringResource(R.string.speak_redo), enabled = session.canRedo, onClick = session::redo))
+            }
+            if (normalized != null && normalized != draft.text && !busy) add(DropdownItem(
+                stringResource(if (showPreview) R.string.speak_edit else R.string.speak_preview), onClick = {
+                    session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
+                }))
+            if (quick) add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
+        }
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
+            if (showHeader) Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.sayin_brand), null, Modifier.size(28.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.app_name), Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more"),
+                    onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
+                    minHeight = 48.dp, minWidth = 48.dp) {
+                    Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
                 }
-                if (!tight) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!tight) Text(if (asr.phase == RecognitionPhase.Listening) stringResource(R.string.speak_listening_time, recordingSeconds / 60, recordingSeconds % 60)
-                        else stringResource(if (session.translationShown) R.string.translation_english else if (session.busy) R.string.speak_recording else R.string.mobile_draft),
-                        Modifier.weight(1f), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                ConnectionChip(state, ::connect, Modifier.widthIn(max = 160.dp), compact = true)
+                if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
+            }
+            Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(color.surface)
+                .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
+                if (showTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (session.sendMode == SpeakSendMode.Automatic) Icon(VoiceLinkIcon.Automatic.vector, autoLabel,
+                        Modifier.size(18.dp).testTag("auto-send-indicator"), tint = color.primary)
+                    if (preparing) Text(hint, Modifier.weight(1f).testTag("model-preparation-notice").semantics { liveRegion = LiveRegionMode.Polite },
+                        color = color.onSurfaceSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    else if (readyNotice) Text(stringResource(R.string.speak_local_ready), Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
+                        color = color.onSurfaceSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     else Spacer(Modifier.weight(1f))
-                    Text(autoLabel, Modifier.weight(if (tight) 4f else 2f), fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary, maxLines = 2)
-                    Switch(session.sendMode == SpeakSendMode.Automatic,
-                        { session.changeSendMode(if (it) SpeakSendMode.Automatic else SpeakSendMode.Manual) },
-                        Modifier.testTag("send-mode").semantics { contentDescription = autoLabel }, enabled = !session.busy && !session.requestLocked)
+                    DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
+                    DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (showPreview && normalized != null) Text(normalized,
-                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("draft-preview"), fontSize = 22.sp, lineHeight = 34.sp)
-                    else BasicTextField(draft, { session.changeDisplayedDraft(it) },
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("draft-preview"), fontSize = 22.sp, lineHeight = 35.sp)
+                    else BasicTextField(draft, session::changeDisplayedDraft,
                         Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
                             focused = it.isFocused; if (it.isFocused) session.edit()
-                        }.testTag("draft"), readOnly = session.busy || session.requestLocked || session.draftRestoring || session.translationShown && !session.translation.complete,
-                        cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
+                        }.onPreviewKeyEvent { event ->
+                            if (event.type == KeyEventType.KeyDown && (event.isCtrlPressed || event.isMetaPressed) && event.key == Key.Z) {
+                                if (event.isShiftPressed) session.redo() else session.undo(); true
+                            } else false
+                        }.testTag("draft").semantics { contentDescription = draftLabel },
+                        readOnly = busy || locked || session.translationShown && !session.translation.complete,
+                        cursorBrush = SolidColor(color.primary),
                         textStyle = MiuixTheme.textStyles.main.copy(fontSize = if (quick) 18.sp else 22.sp,
-                            lineHeight = if (quick) 28.sp else 34.sp, color = MiuixTheme.colorScheme.onSurface),
+                            lineHeight = if (quick) 28.sp else 35.sp, color = color.onSurface),
                         decorationBox = { inner ->
                             Box(Modifier.fillMaxSize()) {
-                                if (draft.text.isEmpty()) Text(stringResource(R.string.speak_draft_placeholder),
-                                    fontSize = if (quick) 17.sp else 19.sp, lineHeight = 30.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                                if (draft.text.isEmpty() && !focused) Canvas(Modifier.fillMaxWidth().height(32.dp).align(Alignment.Center).alpha(.26f)) {
+                                    val points = listOf(10f to 16f, 90f to 16f, 96f to 11f, 102f to 21f, 108f to 7f,
+                                        114f to 27f, 120f to 11f, 126f to 21f, 132f to 16f, 218f to 16f)
+                                    val path = Path()
+                                    points.forEachIndexed { index, (x, y) ->
+                                        if (index == 0) path.moveTo(x / 300f * size.width, y / 32f * size.height)
+                                        else path.lineTo(x / 300f * size.width, y / 32f * size.height)
+                                    }
+                                    drawPath(path, color.onSurfaceSecondary, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+                                }
                                 inner()
                             }
                         })
                 }
-                if (!collapsedTranslation) TranslationControls(session, smallControls, ::translate)
                 if (activeCountdown != null) Row(Modifier.fillMaxWidth().testTag("auto-countdown"), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.speak_countdown, session.secondsRemaining), Modifier.weight(1f), fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.primary)
-                    TextButton(stringResource(R.string.speak_cancel_send), { session.cancelAutoSend() },
-                        Modifier.testTag("cancel-auto-send"), minHeight = 48.dp, colors = plainTextButtonColors())
+                    Text(stringResource(R.string.speak_countdown, session.secondsRemaining), Modifier.weight(1f), fontSize = 12.sp, color = color.primary)
+                    DraftIcon(VoiceLinkIcon.Close, R.string.speak_cancel_send, "cancel-auto-send") { session.cancelAutoSend() }
                 }
-                if (!tight) HorizontalDivider(color = MiuixTheme.colorScheme.dividerLine)
-                if (!minimalDetails) Row(Modifier.fillMaxWidth().padding(vertical = if (tight) 0.dp else 6.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (preparing) CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp)
-                    else if (source == SpeakInputSource.Local && session.model == LocalModelPhase.Ready && !asr.busy && asr.issue == null)
-                        Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(14.dp))
-                    Text(hint, Modifier.weight(1f).testTag("draft-hint").semantics { liveRegion = LiveRegionMode.Polite },
-                        maxLines = if (tight) 1 else 3, overflow = TextOverflow.Ellipsis, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                    if (!session.busy && normalized != null && normalized != draft.text) TextButton(
-                        stringResource(if (showPreview) R.string.speak_edit else R.string.speak_preview), {
-                            session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
-                        }, Modifier.testTag("normalization-toggle"), minHeight = 48.dp, minWidth = 0.dp,
-                        insideMargin = PaddingValues(horizontal = 4.dp), colors = plainTextButtonColors())
-                    else Text(pluralStringResource(R.plurals.speak_character_count,
-                        draft.text.codePointCount(0, draft.text.length), draft.text.codePointCount(0, draft.text.length)),
-                        fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                }
-                if (session.microphoneDenied && source.isRecognition) TextButton(stringResource(R.string.asr_open_settings), {
+                val exceptional = session.draftRestoring || session.draftStorageIssue || session.microphoneDenied || asr.issue != null ||
+                    session.model == LocalModelPhase.Failed || session.translation.running || session.translationStopping || session.translationPreparing ||
+                    session.modelPreparationFailed || session.translationShown && !session.translation.complete || draft.text.isNotEmpty() && normalized == null
+                if (exceptional && !compact) Text(if (session.draftStorageIssue) stringResource(R.string.speak_draft_storage_issue) else hint,
+                    Modifier.fillMaxWidth().testTag("draft-hint").semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 12.sp,
+                    color = color.onSurfaceSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                if (session.microphoneDenied && !compact) TextButton(stringResource(R.string.asr_open_settings), {
                     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                 }, minHeight = 48.dp, colors = plainTextButtonColors())
-                session.submitted?.let { request ->
+                session.submitted?.takeIf { it.state != "injected" }?.let { request ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(receiptText(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 13.sp)
+                        Text(stringResource(receiptText(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp,
+                            maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
                         if (request.state in setOf("saved", "accepted", "held", "executing", "review")) TextButton(
                             stringResource(R.string.speak_query), { onRequestAction(request.id, "query") }, minHeight = 48.dp, colors = plainTextButtonColors())
+                        if (request.state == "held" && state.ready) TextButton(stringResource(R.string.release_request),
+                            { onRequestAction(request.id, "release") }, minHeight = 48.dp, colors = plainTextButtonColors())
+                        if (request.state == "uncertain" && state.ready) TextButton(stringResource(R.string.speak_new_draft),
+                            session::newDraft, minHeight = 48.dp, colors = plainTextButtonColors())
                     }
-                    if (request.state == "held" && state.ready) TextButton(stringResource(R.string.release_request),
-                        { onRequestAction(request.id, "release") }, minHeight = 48.dp, colors = plainTextButtonColors())
-                    if (request.state == "uncertain" && state.ready) TextButton(stringResource(R.string.speak_new_draft),
-                        { session.newDraft() }, minHeight = 48.dp, colors = plainTextButtonColors())
-                    if (request.state == "uncertain") Text(stringResource(R.string.uncertain_warning), fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    if (request.state == "uncertain" && !compact) Text(stringResource(R.string.uncertain_warning), fontSize = 12.sp, color = color.onSurfaceSecondary)
                 }
-                if (!state.ready && !tight) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.speak_offline_saved, stringResource(connectionChipText(state.connectionPresentation))),
-                        Modifier.weight(1f), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary, maxLines = 2)
-                    TextButton(stringResource(R.string.speak_view_connection), ::connect, minHeight = 48.dp,
-                        insideMargin = PaddingValues(horizontal = 6.dp), colors = plainTextButtonColors())
-                }
-                if (session.undoDraft != null) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.speak_cleared), Modifier.weight(1f), fontSize = 12.sp)
-                    TextButton(stringResource(R.string.speak_undo), { session.undoClear() }, Modifier.testTag("undo-clear"), minHeight = 48.dp, colors = plainTextButtonColors())
-                }
-                if (session.draftStorageIssue) Text(stringResource(R.string.speak_draft_storage_issue), fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.error)
-            }
-            Column(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                .padding(horizontal = 12.dp, vertical = if (minimalDetails) 0.dp else if (tight) 4.dp else 10.dp), verticalArrangement = Arrangement.spacedBy(if (tight) 4.dp else 10.dp)) {
-                if (!quick && !collapsedSources) InputSourcePicker(source, !session.busy && !session.requestLocked, tight) {
-                    session.selectSource(it); focusManager.clearFocus(); keyboard?.hide(); showPreview = false
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        val menu = buildList {
-                            add(DropdownItem(stringResource(R.string.image_choose), enabled = state.paired && state.storageHealthy && !session.busy && !session.requestLocked,
-                                onClick = { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); onImage() }))
-                            if (session.busy) add(DropdownItem(stringResource(R.string.speak_abort), onClick = { session.cancelRecording() }))
-                            else add(DropdownItem(stringResource(R.string.speak_clear_draft), enabled = draft.text.isNotEmpty() && !session.requestLocked && !session.draftRestoring,
-                                onClick = { session.clearDraft() }))
-                            if (session.submitted?.state == "uncertain" && state.ready) add(DropdownItem(
-                                stringResource(R.string.speak_new_draft), onClick = { session.newDraft() }))
-                            if (tight) add(DropdownItem(stringResource(R.string.speak_auto_send), selected = session.sendMode == SpeakSendMode.Automatic,
-                                enabled = !session.busy && !session.requestLocked, onClick = {
-                                    session.changeSendMode(if (session.sendMode == SpeakSendMode.Automatic) SpeakSendMode.Manual else SpeakSendMode.Automatic)
-                                }))
-                            if (quick || collapsedSources) {
-                                add(DropdownItem(stringResource(R.string.speak_source_title), enabled = !session.busy && !session.requestLocked, onClick = { showSources = true }))
-                            }
-                            if (collapsedTranslation) {
-                                if (session.translation.ticket != null) {
-                                    add(DropdownItem(stringResource(R.string.translation_original), selected = !session.translationShown, onClick = { session.showTranslation(false) }))
-                                    add(DropdownItem(stringResource(R.string.translation_english), selected = session.translationShown, onClick = { session.showTranslation(true) }))
+                if (!minimal) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (draft.text.isEmpty() || session.translation.ticket != null && availableWidth < 350.dp) "" else draft.text.codePointCount(0, draft.text.length).toString(), Modifier.weight(1f), fontSize = 13.sp, color = color.onSurfaceSecondary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (session.translation.ticket != null) Row(Modifier.background(color.background, RoundedCornerShape(16.dp))) {
+                        listOf(false, true).forEach { translated ->
+                            val selected = session.translationShown == translated
+                            Box(Modifier.size(48.dp).selectable(selected, role = Role.Tab, onClick = { session.showTranslation(translated) })
+                                .testTag(if (translated) "translation-english" else "translation-original"), contentAlignment = Alignment.Center) {
+                                Box(Modifier.height(28.dp).fillMaxWidth().background(if (selected) color.surface else Color.Transparent, RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center) {
+                                    Text(stringResource(if (translated) R.string.speak_translation_short else R.string.speak_original_short),
+                                        fontSize = 12.sp, color = if (selected) color.primary else color.onSurfaceSecondary, maxLines = 1)
                                 }
-                                if (session.translation.running || session.translationStopping) add(DropdownItem(stringResource(R.string.asr_cancel),
-                                    enabled = !session.translationStopping, onClick = { session.stopTranslation() }))
-                                else if (session.translationPreparing) add(DropdownItem(stringResource(R.string.asr_cancel), onClick = { session.cancelModelPreparation() }))
-                                else add(DropdownItem(stringResource(R.string.translation_action), enabled = session.canTranslateDraft, onClick = ::translate))
-                            }
-                            if (quick) {
-                                add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
                             }
                         }
-                        WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more"),
-                            onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
-                            backgroundColor = MiuixTheme.colorScheme.surfaceContainer, cornerRadius = 24.dp, minHeight = 48.dp, minWidth = 48.dp) {
-                            Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(23.dp))
-                        }
-                        if (!tight && !focused) ActionCaption(R.string.speak_more)
                     }
-                    val inputLabel = when {
-                        preparing -> R.string.speak_preparing
-                        asr.phase == RecognitionPhase.Loading -> R.string.asr_cancel
-                        asr.phase == RecognitionPhase.Listening -> R.string.asr_finish
-                        asr.busy -> R.string.asr_finishing
-                        source == SpeakInputSource.Keyboard && focused -> R.string.speak_finish_input
-                        source == SpeakInputSource.Keyboard -> R.string.mobile_open_keyboard
-                        source == SpeakInputSource.Cloud && cloudConfig == null -> R.string.cloud_configure
-                        draft.text.isNotEmpty() -> R.string.speak_continue
-                        else -> R.string.speak_start_local
+                    if (normalized != null && normalized != draft.text && !busy && session.translation.ticket == null) DraftIcon(VoiceLinkIcon.Input,
+                        if (showPreview) R.string.speak_edit else R.string.speak_preview, "normalization-toggle") {
+                        session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
                     }
-                    SpeakRoundAction(if (asr.busy) VoiceLinkIcon.Stop else if (source.isRecognition) VoiceLinkIcon.Microphone else VoiceLinkIcon.Input,
-                        inputLabel, if (source.isRecognition) if (source == SpeakInputSource.Cloud) "start-cloud-asr" else "start-local-asr" else "open-keyboard",
-                        Modifier.weight(1.3f), enabled = !session.requestLocked && !session.draftRestoring && !permissionPending && !preparing && asr.phase !in setOf(RecognitionPhase.Finishing, RecognitionPhase.Cancelling),
-                        primary = true, hero = !tight, compact = smallControls, showLabel = !tight && !focused) {
-                        when {
-                            asr.phase == RecognitionPhase.Loading -> session.cancelRecording()
-                            asr.phase == RecognitionPhase.Listening -> session.finishRecording()
-                            source == SpeakInputSource.Keyboard && focused -> { focusManager.clearFocus(); keyboard?.hide() }
-                            source == SpeakInputSource.Keyboard -> edit()
-                            source == SpeakInputSource.Cloud && cloudConfig == null -> onConfigureCloud()
-                            ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> { session.microphoneDenied = false; start() }
-                            else -> { permissionPending = true; microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
-                        }
+                    DraftIcon(VoiceLinkIcon.Translate,
+                        if (session.translation.running || session.translationPreparing) R.string.asr_cancel else R.string.translation_action, "translate-draft",
+                        session.canTranslateDraft || session.translation.running || session.translationPreparing,
+                        progress = session.translation.running || session.translationPreparing) {
+                        when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
                     }
-                    SpeakRoundAction(VoiceLinkIcon.Send, if (session.translationShown) R.string.translation_send else R.string.speak_send_to_computer, "send-draft", Modifier.weight(1f),
-                        enabled = sendable && !session.busy, primary = true, compact = true, showLabel = !tight && !focused) {
-                        session.cancelAutoSend(); if (state.ready) onSend() else connect()
+                    DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
+                        session.cancelAutoSend(); uiScope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("", draft.text))) }
                     }
+                    DraftIcon(VoiceLinkIcon.Clear, R.string.speak_clear_draft, "clear-draft", toolsEnabled && draft.text.isNotEmpty()) { session.clearDraft() }
                 }
             }
+            Row(Modifier.fillMaxWidth().padding(top = if (minimal) 0.dp else 8.dp, bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button({
+                    if (busy) session.cancelRecording() else if (focused) { focusManager.clearFocus(); keyboard?.hide() } else edit()
+                }, Modifier.size(controlSize).testTag(if (busy) "cancel-recording" else "open-keyboard"), enabled = !locked &&
+                        (busy || !session.translation.running && !session.translationStopping && !session.translationPreparing),
+                    cornerRadius = 28.dp, insideMargin = PaddingValues(0.dp),
+                    colors = ButtonDefaults.buttonColors(color = if (color.background == YuePalette.Neutral100) YuePalette.Neutral200 else YuePalette.Neutral850,
+                        contentColor = color.onSurfaceSecondary)) {
+                    Icon((if (busy) VoiceLinkIcon.Close else if (focused) VoiceLinkIcon.Microphone else VoiceLinkIcon.Input).vector,
+                        stringResource(if (busy) R.string.speak_abort else if (focused) R.string.speak_finish_input else R.string.mobile_open_keyboard), Modifier.size(22.dp))
+                }
+                val empty = draft.text.isEmpty() && !busy && !session.requestLocked && !injectedFeedback
+                val listening = asr.phase == RecognitionPhase.Listening
+                val pending = session.submitted?.state in setOf("saved", "accepted", "held", "executing", "review")
+                val uncertain = session.submitted?.state == "uncertain"
+                var slowFinal by remember { mutableStateOf(false) }
+                LaunchedEffect(asr.phase) {
+                    slowFinal = false
+                    if (asr.phase == RecognitionPhase.Finishing) { kotlinx.coroutines.delay(450); slowFinal = true }
+                }
+                Row(Modifier.weight(1f).height(controlSize).clip(RoundedCornerShape(28.dp))
+                    .background(if (cancelArmed) YuePalette.Neutral700 else color.primary).padding(if (minimal) 0.dp else 4.dp).testTag("voice-bar"),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    val micLabel = when { preparing || asr.phase == RecognitionPhase.Loading -> R.string.speak_preparing
+                        listening -> R.string.asr_finish; else -> R.string.speak_start_short }
+                    val micDescription = stringResource(micLabel)
+                    val tag = if (voiceSource == SpeakInputSource.Cloud) "start-cloud-asr" else "start-local-asr"
+                    val micEnabled = !locked && !permissionPending && !session.translation.running && !session.translationStopping &&
+                        (!busy || listening)
+                    val callbacks = rememberUpdatedState(Triple<() -> Unit, () -> Unit, () -> Unit>(::microphone,
+                        { session.finishRecording() }, { session.cancelRecording() }))
+                    val armedCallback = rememberUpdatedState<(Boolean) -> Unit>({ cancelArmed = it })
+                    val enabledCallback = rememberUpdatedState(micEnabled)
+                    val gesture = Modifier.pointerInput(Unit) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            if (!enabledCallback.value) return@awaitEachGesture
+                            down.consume()
+                            var held = false
+                            var armed = false
+                            try {
+                                val released = withTimeoutOrNull(300) { waitForUpOrCancellation() != null }
+                                if (released == true) callbacks.value.first()
+                                else if (released == null && currentEvent.changes.any { it.id == down.id && it.pressed }) {
+                                    held = true
+                                    if (!session.busy) callbacks.value.first()
+                                    while (true) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                        armed = change.position.y - down.position.y < -56.dp.toPx()
+                                        armedCallback.value(armed)
+                                        if (change.isConsumed) { callbacks.value.third(); held = false; break }
+                                        change.consume()
+                                        if (!change.pressed) {
+                                            if (armed || session.asr.phase != RecognitionPhase.Listening) callbacks.value.third() else callbacks.value.second()
+                                            held = false; break
+                                        }
+                                    }
+                                }
+                            } finally {
+                                if (held) callbacks.value.third()
+                                armedCallback.value(false)
+                            }
+                        }
+                    }
+                    Box(Modifier.then(if (empty) Modifier.weight(1f) else Modifier.width(48.dp)).height(48.dp).clip(RoundedCornerShape(24.dp))
+                        .then(gesture).testTag(tag).semantics {
+                            role = Role.Button; contentDescription = micDescription
+                            if (!micEnabled) disabled() else onClick { microphone(); true }
+                        }, contentAlignment = Alignment.Center) {
+                        if (preparing || asr.phase == RecognitionPhase.Loading) CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = color.onPrimary, backgroundColor = Color.Transparent))
+                        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Crossfade(if (listening) VoiceLinkIcon.Stop else VoiceLinkIcon.Microphone, animationSpec = tween(160)) { icon ->
+                                Icon(icon.vector, null, Modifier.size(24.dp), tint = color.onPrimary.copy(alpha = if (micEnabled) 1f else .4f))
+                            }
+                            if (empty) Text(stringResource(R.string.speak_start_short), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = color.onPrimary)
+                        }
+                    }
+                    if (!empty) Column(Modifier.weight(1f).height(44.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center) {
+                        when {
+                            cancelArmed -> Text(stringResource(R.string.speak_release_cancel), color = color.onPrimary, fontSize = 14.sp, maxLines = 1)
+                            preparing || asr.phase == RecognitionPhase.Loading -> Text(stringResource(R.string.speak_preparing), color = color.onPrimary, fontSize = 14.sp, maxLines = 1)
+                            else -> {
+                                VoiceWaveform(asr.audioLevel, listening, color.onPrimary)
+                                Text(if (uncertain) stringResource(R.string.speak_review_short) else buildString {
+                                    if (recordingSeconds > 0 || listening) append("%02d:%02d".format(recordingSeconds / 60, recordingSeconds % 60))
+                                    if (!listening) {
+                                        if (isNotEmpty()) append(" · ")
+                                        append(stringResource(R.string.speak_count_short, draft.text.codePointCount(0, draft.text.length)))
+                                    }
+                                }, fontSize = if (listening) 12.sp else 14.sp, color = color.onPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                    if (!empty) {
+                        val allowSend = if (listening) session.recordingHasText && state.ready else sendable && !busy
+                        val sendLabel = when { uncertain -> R.string.speak_review_short; listening -> R.string.speak_finish_send; else -> R.string.speak_send_to_computer }
+                        val sendDescription = stringResource(when { pending -> receiptText(checkNotNull(session.submitted).state)
+                            slowFinal -> R.string.asr_finishing; injectedFeedback -> R.string.receipt_injected; else -> sendLabel })
+                        IconButton({
+                            session.cancelAutoSend()
+                            if (uncertain) connect()
+                            else if (listening) session.finishRecording(andSend = true)
+                            else if (state.ready) onSend() else connect()
+                        }, Modifier.size(48.dp).clip(RoundedCornerShape(24.dp))
+                            .background(if (allowSend || pending) color.onPrimary.copy(alpha = .12f) else Color.Transparent)
+                            .testTag("send-draft").alpha(if (preparing || asr.phase == RecognitionPhase.Loading || listening && !session.recordingHasText) 0f else 1f).semantics {
+                                role = Role.Button; contentDescription = sendDescription
+                                if (cancelArmed || !(allowSend || uncertain)) disabled()
+                            }, enabled = !cancelArmed && (allowSend || uncertain)) {
+                            if (pending || slowFinal) CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp, colors = ProgressIndicatorDefaults.progressIndicatorColors(foregroundColor = color.onPrimary, backgroundColor = Color.Transparent))
+                            else Crossfade(when { uncertain -> VoiceLinkIcon.Alert; injectedFeedback -> VoiceLinkIcon.Check
+                                session.submitted?.state == "failed" -> VoiceLinkIcon.Retry; else -> VoiceLinkIcon.ArrowUp }, animationSpec = tween(160)) { icon ->
+                                Icon(icon.vector, null, Modifier.size(24.dp),
+                                    tint = color.onPrimary.copy(alpha = if (allowSend || uncertain || injectedFeedback) 1f else .3f))
+                            }
+                        }
+                    }
+                }
+                if (!showHeader && !imeOpen && availableHeight >= 180.dp) WindowIconDropdownMenu(DropdownEntry(menu),
+                    Modifier.size(48.dp).testTag("speak-more"), onExpandedChange = { if (it) session.cancelAutoSend() }) {
+                    Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more))
+                }
+            }
+        }
+        if (clearNotice) Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 84.dp)
+            .background(color.onSurface, RoundedCornerShape(28.dp)).padding(start = 16.dp, end = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.speak_cleared), fontSize = 13.sp, color = color.surface)
+            TextButton(stringResource(R.string.speak_undo), { session.undoClear() }, Modifier.testTag("undo-clear"),
+                minHeight = 48.dp, colors = plainTextButtonColors())
         }
     }
     TranslationPreparationSheet(session, showTranslationPreparation) { showTranslationPreparation = false }
     OverlayBottomSheet(show = showSources, onDismissRequest = { showSources = false }) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
-            Text(stringResource(R.string.speak_source_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.speak_recognition_settings), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(16.dp))
-            InputSourcePicker(source) { session.selectSource(it); showSources = false }
+            RecognitionChoices(voiceSource, cloudConfig != null) {
+                session.selectSource(it); showSources = false
+                if (it == SpeakInputSource.Cloud && cloudConfig == null) onConfigureCloud()
+            }
         }
     }
 }
 
 @Composable
-private fun ActionCaption(label: Int) = Text(stringResource(label), fontSize = 11.sp,
-    modifier = Modifier.padding(top = 6.dp), maxLines = 2, color = MiuixTheme.colorScheme.onSurfaceSecondary,
-    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-
-@Composable
-private fun SpeakRoundAction(icon: VoiceLinkIcon, label: Int, tag: String, modifier: Modifier,
-    enabled: Boolean, primary: Boolean, hero: Boolean = false, compact: Boolean = false, showLabel: Boolean = true, onClick: () -> Unit) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Button(onClick, Modifier.size(if (hero && !compact) 84.dp else if (hero) 56.dp else 48.dp).testTag(tag),
-            enabled = enabled, minHeight = 48.dp, cornerRadius = 48.dp, insideMargin = PaddingValues(0.dp),
-            colors = if (primary) ButtonDefaults.buttonColorsPrimary() else ButtonDefaults.buttonColors()) {
-            Icon(icon.vector, stringResource(label), Modifier.size(if (hero && !compact) 34.dp else 24.dp))
-        }
-        if (showLabel) ActionCaption(label)
+private fun DraftIcon(icon: VoiceLinkIcon, label: Int, tag: String, enabled: Boolean = true, progress: Boolean = false, onClick: () -> Unit) {
+    val description = stringResource(label)
+    IconButton(onClick, Modifier.size(48.dp).testTag(tag).semantics { contentDescription = description; role = Role.Button; if (!enabled) disabled() }, enabled = enabled) {
+        if (progress) CircularProgressIndicator(size = 19.dp, strokeWidth = 2.dp)
+        else Icon(icon.vector, null, Modifier.size(21.dp),
+            tint = MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = if (enabled) 1f else .25f))
     }
 }
 
 @Composable
-private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true, compact: Boolean = false, onSelect: (SpeakInputSource) -> Unit) {
-    val fontScale = LocalDensity.current.fontScale
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val showIcons = !compact && maxWidth >= 320.dp * fontScale
-        Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-            .padding(4.dp).horizontalScroll(rememberScrollState()).selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
-            SpeakInputSource.entries.forEach { item ->
-                val selected = source == item
-                Row(Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp)
-                    .background(if (selected) MiuixTheme.colorScheme.surfaceContainer else Color.Transparent, RoundedCornerShape(12.dp))
-                    .selectable(selected, enabled = enabled, role = Role.Tab, onClick = { onSelect(item) })
-                    .testTag("input-source-${item.name}").padding(horizontal = if (showIcons) 8.dp else 2.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-                    val color = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
-                    if (showIcons) Icon((when (item) { SpeakInputSource.Local -> VoiceLinkIcon.Phone; SpeakInputSource.Cloud -> VoiceLinkIcon.Cloud; SpeakInputSource.Keyboard -> VoiceLinkIcon.Input }).vector,
-                        null, Modifier.size(18.dp), tint = color)
-                    if (showIcons) Spacer(Modifier.width(8.dp))
-                    Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_source_local_short else sourceLabel(item)),
-                        modifier = Modifier.width(IntrinsicSize.Max).testTag("input-source-label-${item.name}"),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        fontSize = if (compact) 12.sp else 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = color)
+private fun VoiceWaveform(level: Float, listening: Boolean, color: Color) {
+    val height by animateFloatAsState(if (listening) 1f else 0f, tween(180))
+    var levels by remember { mutableStateOf(List(23) { 0f }) }
+    LaunchedEffect(level, listening) {
+        if (listening) levels = levels.drop(1) + level.coerceIn(0f, 1f)
+    }
+    if (height > 0f) Canvas(Modifier.fillMaxWidth().height((22 * height).dp).alpha(height)) {
+        val step = minOf(5.dp.toPx(), size.width / levels.size)
+        val left = (size.width - step * (levels.size - 1)) / 2
+        levels.forEachIndexed { index, sample ->
+            val bar = (3.dp.toPx() + sample * 17.dp.toPx()).coerceAtMost(size.height)
+            drawLine(color, androidx.compose.ui.geometry.Offset(left + index * step, (size.height - bar) / 2),
+                androidx.compose.ui.geometry.Offset(left + index * step, (size.height + bar) / 2), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+        }
+    }
+}
+
+@Composable
+private fun RecognitionChoices(source: SpeakInputSource, cloudConfigured: Boolean, onSelect: (SpeakInputSource) -> Unit) {
+    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        listOf(SpeakInputSource.Local, SpeakInputSource.Cloud).forEach { item ->
+            val selected = source == item
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
+                .background(if (selected) MiuixTheme.colorScheme.background else Color.Transparent)
+                .selectable(selected, role = Role.RadioButton, onClick = { onSelect(item) })
+                .testTag("input-source-${item.name}").padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                Icon((if (item == SpeakInputSource.Local) VoiceLinkIcon.Phone else VoiceLinkIcon.Cloud).vector, null, Modifier.size(22.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_offline_recognition else R.string.speak_cloud_recognition),
+                        Modifier.testTag("input-source-label-${item.name}"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp, softWrap = true, maxLines = 2)
+                    Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_offline_description
+                        else if (cloudConfigured) R.string.speak_cloud_description else R.string.cloud_setup_hint), fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
                 }
+                if (selected) Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
             }
         }
     }
@@ -394,15 +560,6 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
 @Composable
 internal fun plainTextButtonColors() = ButtonDefaults.textButtonColors(color = Color.Transparent,
     textColor = MiuixTheme.colorScheme.primary)
-
-private fun reviewText(review: DraftReview): Int = when (review) {
-    DraftReview.Manual, DraftReview.Automatic -> R.string.speak_review_ready
-    DraftReview.Empty -> R.string.speak_draft_placeholder
-    DraftReview.Invalid -> R.string.mobile_invalid_draft
-    DraftReview.Composing -> R.string.speak_composing
-    DraftReview.Edited -> R.string.speak_review_edited
-    DraftReview.Offline -> R.string.speak_review_offline
-}
 
 private fun recognitionIssueText(issue: RecognitionIssue): Int = when (issue) {
     RecognitionIssue.Permission -> R.string.asr_permission_denied

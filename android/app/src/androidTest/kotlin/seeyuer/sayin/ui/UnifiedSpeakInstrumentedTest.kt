@@ -48,7 +48,7 @@ class UnifiedSpeakInstrumentedTest {
             }.also { it.getSharedPreferences("presentation", 0).edit().clear().commit() } }
             val retained = remember {
                 engine = FakeRecognition()
-                SpeakSession(context, initial, recognition = engine).also { it.selectSource(SpeakInputSource.Local); session = it; it.onAutoSend = { sends++ } }
+                SpeakSession(context, initial, recognition = engine).also { it.selectSource(SpeakInputSource.Local); session = it; it.onSendReady = { sends++ } }
             }
             DisposableEffect(retained) { onDispose { retained.close() } }
             CompositionLocalProvider(LocalContext provides context) {
@@ -85,8 +85,7 @@ class UnifiedSpeakInstrumentedTest {
     @Test fun clearUndoPreservesDraftAndSelection() {
         val original = TextFieldValue("do not lose this draft", TextRange(3, 8))
         mount(original)
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(compose.activity.getString(seeyuer.sayin.R.string.speak_clear_draft)).performClick()
+        compose.onNodeWithTag("clear-draft").performClick()
         compose.onNodeWithTag("draft").assert(SemanticsMatcher.expectValue(
             androidx.compose.ui.semantics.SemanticsProperties.EditableText, androidx.compose.ui.text.AnnotatedString("")))
         compose.runOnIdle { assertEquals("", session.draft.text) }
@@ -170,6 +169,103 @@ class UnifiedSpeakInstrumentedTest {
             assertEquals("not accepted", session.draft.text)
             assertTrue(session.markSubmitted()); assertNotEquals(first, session.draftId); assertEquals(0, sends)
         }
+    }
+
+    @Test fun entireUtteranceUndoRedoAndCancellationIgnoreLateFinal() {
+        val original = TextFieldValue("Keep: ", TextRange(6))
+        mount(original); listen("partial")
+        android.os.SystemClock.sleep(30)
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "new whole sentence") }
+        finish("new whole sentence")
+        var duration = 0L
+        compose.runOnIdle { duration = session.recordingDurationMillis; assertTrue(duration > 0L) }
+        compose.onNodeWithTag("undo-draft").performClick()
+        compose.runOnIdle { assertEquals(original, session.draft); assertEquals(0L, session.recordingDurationMillis) }
+        compose.onNodeWithTag("redo-draft").performClick()
+        compose.runOnIdle { assertEquals("Keep: new whole sentence", session.draft.text); assertEquals(duration, session.recordingDurationMillis) }
+        listen("discarded")
+        compose.onNodeWithTag("cancel-recording").performClick()
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "late final", finished = true) }
+        compose.runOnIdle {
+            assertEquals("Keep: new whole sentence", session.draft.text)
+            assertNull(session.interaction.countdown); assertEquals(0, sends)
+        }
+        compose.onNodeWithTag("undo-draft").performClick()
+        compose.runOnIdle { assertEquals(original, session.draft) }
+        compose.runOnIdle {
+            session.redo(); assertEquals(duration, session.recordingDurationMillis)
+            session.clearDraft(); assertEquals(0L, session.recordingDurationMillis)
+            session.undo(); assertEquals(duration, session.recordingDurationMillis)
+            assertTrue(session.markSubmitted())
+            val item = OutboxItem(session.draftId, "host", "device", "target", null, 0, "injected", "1", null, 1L)
+            session.updateReceiver(ready().copy(history = listOf(item)))
+            assertEquals("", session.draft.text); assertEquals(0L, session.recordingDurationMillis); assertFalse(session.canUndo)
+        }
+    }
+
+    @Test fun explicitEndSendWaitsForFinalAndDoesNotChangeAutomaticPreference() {
+        mount(); listen("partial")
+        compose.onNodeWithTag("send-draft").performClick()
+        compose.runOnIdle {
+            assertEquals(RecognitionPhase.Finishing, session.asr.phase)
+            assertEquals(0, sends); assertEquals(SpeakSendMode.Manual, session.sendMode)
+            engine.emit(RecognitionPhase.Idle, "final text", finished = true)
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, sends); assertNull(session.interaction.countdown); assertEquals("final text", session.draft.text) }
+        // A repeated provider final cannot consume the intent twice.
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "duplicate final", finished = true) }
+        compose.runOnIdle { assertEquals(1, sends) }
+    }
+
+    @Test fun endSendIsRevokedByScopeChangeAndByOpeningConnection() {
+        mount()
+        for (openPanel in listOf(false, true)) {
+            compose.runOnIdle { session.changeSendMode(SpeakSendMode.Automatic) }
+            listen("partial")
+            compose.onNodeWithTag("send-draft").performClick()
+            if (openPanel) compose.onNodeWithTag("speak-connect-action").performClick()
+            else compose.runOnIdle { receiver = ready().copy(connectionEpoch = receiver.connectionEpoch + 1) }
+            compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "safe final", finished = true) }
+            compose.runOnIdle { assertEquals(0, sends); assertNull(session.interaction.countdown) }
+            if (openPanel) compose.onNodeWithTag("close-connection").performClick()
+        }
+    }
+
+    @Test fun heldMicrophoneSwipeUpCancelsAndPhysicalTapRetainsDraft() {
+        mount(TextFieldValue("original"))
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.uiAutomation.grantRuntimePermission(instrumentation.targetContext.packageName, android.Manifest.permission.RECORD_AUDIO)
+        compose.onNodeWithTag("start-local-asr").performTouchInput { click() }
+        compose.waitUntil(5000) { engine.starts == 1 }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "first") }
+        compose.onNodeWithTag("start-local-asr").performTouchInput { click() }
+        compose.runOnIdle { assertEquals(RecognitionPhase.Finishing, session.asr.phase); engine.emit(RecognitionPhase.Idle, "first", finished = true) }
+        compose.waitForIdle()
+        val retained = session.draft
+        compose.onNodeWithTag("start-local-asr").performTouchInput { down(center); advanceEventTime(350) }
+        compose.waitUntil(5000) { engine.starts == 2 }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "discard") }
+        compose.onNodeWithTag("start-local-asr").performTouchInput {
+            moveTo(center.copy(y = -80.dp.toPx())); advanceEventTime(60); up()
+        }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(retained, session.draft); assertEquals(0, sends); assertNull(session.interaction.countdown) }
+    }
+
+    @Test fun voiceBarKeepsSameBoundsAndDoesNotSendAnOldDraftWhileNewRecordingIsEmpty() {
+        mount(TextFieldValue("old draft"))
+        val before = compose.onNodeWithTag("voice-bar").fetchSemanticsNode().boundsInRoot
+        listen("")
+        compose.onNodeWithTag("send-draft").assertIsNotEnabled()
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "new text") }
+        compose.onNodeWithTag("send-draft").assertIsEnabled()
+        compose.runOnIdle { session.finishRecording() }
+        val tail = compose.onNodeWithTag("voice-bar").fetchSemanticsNode().boundsInRoot
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "new text", finished = true) }
+        val after = compose.onNodeWithTag("voice-bar").fetchSemanticsNode().boundsInRoot
+        assertEquals(before, tail); assertEquals(before, after)
+        compose.runOnIdle { assertEquals(0, sends) }
     }
 
     private fun screenshot(name: String) {

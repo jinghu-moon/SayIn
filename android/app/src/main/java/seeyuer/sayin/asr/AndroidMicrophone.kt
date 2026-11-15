@@ -10,7 +10,7 @@ import android.util.Log
 import androidx.annotation.RequiresPermission
 import androidx.core.content.ContextCompat
 
-internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_AUDIO) constructor(context: Context) : PcmSource {
+internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_AUDIO) constructor(context: Context, private val onLevel: (Float) -> Unit = {}) : PcmSource {
     private val lock = Any()
     @Volatile private var stopped = false
     private var released = false
@@ -46,7 +46,12 @@ internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_
             if (stopped) return null
             throw error
         }
-        if (count > 0) return FloatArray(count) { buffer[it] / 32768f }
+        if (count > 0) {
+            val samples = FloatArray(count) { buffer[it] / 32768f }
+            val rms = kotlin.math.sqrt(samples.sumOf { (it * it).toDouble() } / count).toFloat()
+            onLevel((rms * 8f).coerceIn(0f, 1f))
+            return samples
+        }
         if (stopped) return null
         error("Microphone read failed: $count")
     }

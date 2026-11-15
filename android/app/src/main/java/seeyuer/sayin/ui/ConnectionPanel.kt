@@ -8,6 +8,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,20 +25,26 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-internal fun ConnectionChip(state: ClientState, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Button(onClick, modifier.heightIn(min = 48.dp).testTag("speak-connect-action"),
+internal fun ConnectionChip(state: ClientState, onClick: () -> Unit, modifier: Modifier = Modifier, compact: Boolean = false) {
+    val description = stringResource(connectionChipText(state.connectionPresentation))
+    Button(onClick, modifier.heightIn(min = 48.dp).testTag("speak-connect-action").semantics { contentDescription = description },
         colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.surfaceContainer,
             contentColor = MiuixTheme.colorScheme.onSurface),
         cornerRadius = 24.dp, insideMargin = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (state.busy || state.recovering || state.discovering) CircularProgressIndicator(size = 12.dp, strokeWidth = 2.dp)
-            else Box(Modifier.size(8.dp).background(if (state.ready) {
+            val working = state.busy || state.recovering || state.discovering
+            val dotColor = if (state.ready) {
                 if (MiuixTheme.colorScheme.background.luminance() < 0.5f) YuePalette.SuccessDark else YuePalette.SuccessLight
-            }
-                else MiuixTheme.colorScheme.onSurfaceSecondary, CircleShape))
-            Text(stringResource(if (state.discovering) R.string.discovering_computer else connectionChipText(state.connectionPresentation)), Modifier.weight(1f, fill = false),
+            } else if (working) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
+            if (compact) Box(Modifier.size(24.dp)) {
+                Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(22.dp).align(Alignment.Center))
+                if (working) CircularProgressIndicator(Modifier.align(Alignment.TopEnd), size = 9.dp, strokeWidth = 1.5.dp)
+                else Box(Modifier.size(8.dp).align(Alignment.TopEnd).background(dotColor, CircleShape))
+            } else if (working) CircularProgressIndicator(size = 12.dp, strokeWidth = 2.dp)
+            else Box(Modifier.size(8.dp).background(dotColor, CircleShape))
+            if (!compact || !state.ready && !state.busy && !state.recovering && !state.discovering) Text(stringResource(if (state.discovering) R.string.discovering_computer else connectionChipText(state.connectionPresentation)), Modifier.weight(1f, fill = false),
                 maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
-            Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(16.dp))
+            if (!compact) Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(16.dp))
         }
     }
 }

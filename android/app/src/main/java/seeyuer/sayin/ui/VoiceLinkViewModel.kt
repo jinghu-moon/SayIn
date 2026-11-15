@@ -20,7 +20,7 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
     val speaking = SpeakSession(application)
     private val foregroundOwners = mutableSetOf<Any>()
     init {
-        speaking.onAutoSend = ::send
+        speaking.onSendReady = ::send
         speaking.requestMicrophoneService = {
             try { ContextCompat.startForegroundService(application, RecordingService.intent(application)) }
             catch (_: Exception) { speaking.microphoneServiceFailed() }
