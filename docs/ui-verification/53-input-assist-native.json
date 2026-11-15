@@ -104,6 +104,21 @@
     "minimal-height layout had no route to the panel",
     "test fixtures used non-UUID phrase ids"
   ],
+  "uiAdjustmentRound": {
+    "reportedByUser": [
+      "list rows should default to one line",
+      "clear-all button looked partly outside the sheet",
+      "editor save action was pushed to the top with a one-line field when the keyboard opened",
+      "row menu animation differed from the page overflow menu"
+    ],
+    "fixes": [
+      "single-line row previews, 48dp rows",
+      "surface clear-all pill with 16dp bottom padding",
+      "Miuix WindowIconDropdownMenu for both lists",
+      "removed duplicate IME reservation; editor fills the available height above the keyboard"
+    ],
+    "verified": "25 panel device tests green; real-device screenshots for list, editor and row menu"
+  },
   "limitations": [
     "Cross-app clipboard history is impossible for a non-IME app on Android 10+ (CDD C-0-1: clipboard data only for the default IME or the focused app); only the last copy is readable",
     "Clipboard clear snapshot comparison cannot distinguish two different non-text clips (both classify as NoText)",

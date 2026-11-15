@@ -70,7 +70,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -105,12 +104,15 @@ import seeyuer.sayin.ui.DraftAssist
 import top.yukonga.miuix.kmp.basic.Button
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.CircularProgressIndicator
 import top.yukonga.miuix.kmp.basic.HorizontalDivider
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextButton
+import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -138,7 +140,6 @@ internal fun AssistPanel(
     phrases: PhraseLibrary,
     ticket: AssistInsertion?,
     initialTab: AssistTab,
-    imeBottom: Dp,
     onTicket: (AssistInsertion?) -> Unit,
     onTab: (AssistTab) -> Unit,
     onDismiss: (AssistDismissReason) -> Unit,
@@ -160,7 +161,6 @@ internal fun AssistPanel(
                     phrases = phrases,
                     ticket = ticket,
                     initialTab = initialTab,
-                    imeBottom = imeBottom,
                     onTicket = onTicket,
                     onTab = onTab,
                     onDismiss = onDismiss,
@@ -186,8 +186,6 @@ private enum class ConfirmKind { ClearClipboard, ClearPhrases, DiscardBack, Disc
 
 private data class PhraseUndo(val phrase: StoredPhrase, val index: Int)
 
-private data class RowMenu(val tab: AssistTab, val rowKey: String, val text: String, val sensitive: Boolean)
-
 private data class PhraseDrag(
     val id: String,
     val index: Int,
@@ -196,15 +194,12 @@ private data class PhraseDrag(
     val edge: Int,
 )
 
-private const val CLIPBOARD_ROW_KEY = "clipboard-current"
-
 @Composable
 private fun AssistPanelContent(
     session: SpeakSession,
     phrases: PhraseLibrary,
     ticket: AssistInsertion?,
     initialTab: AssistTab,
-    imeBottom: Dp,
     onTicket: (AssistInsertion?) -> Unit,
     onTab: (AssistTab) -> Unit,
     onDismiss: (AssistDismissReason) -> Unit,
@@ -242,7 +237,6 @@ private fun AssistPanelContent(
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var stopRequested by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    var menu by remember { mutableStateOf<RowMenu?>(null) }
     var working by remember { mutableStateOf(libraryState.phrases) }
     var drag by remember { mutableStateOf<PhraseDrag?>(null) }
     var dragEpoch by remember { mutableIntStateOf(0) }
@@ -252,7 +246,6 @@ private fun AssistPanelContent(
     val editorFocus = remember { FocusRequester() }
     val confirmCancelFocus = remember { FocusRequester() }
     val rowBounds = remember { mutableMapOf<String, Rect>() }
-    var bodyBounds by remember { mutableStateOf<Rect?>(null) }
     var listBounds by remember { mutableStateOf<Rect?>(null) }
     val scroll = rememberScrollState()
 
@@ -306,9 +299,6 @@ private fun AssistPanelContent(
         withFrameNanos { }
         gripFocusers[id]?.requestFocus()
         pendingGripFocus = null
-    }
-    LaunchedEffect(scroll.isScrollInProgress) {
-        if (scroll.isScrollInProgress) menu = null
     }
     val dragEdge = drag?.edge ?: 0
     LaunchedEffect(dragEdge, drag != null) {
@@ -545,7 +535,6 @@ private fun AssistPanelContent(
         if (index < 0) return
         val rowTop = rowBounds[id]?.top ?: 0f
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-        menu = null
         drag = PhraseDrag(id, index, 0f, rowTop + localY, 0)
     }
 
@@ -588,7 +577,6 @@ private fun AssistPanelContent(
             dragEpoch++
             return true
         }
-        menu?.let { menu = null; return true }
         if (mode == AssistMode.Editor) {
             leaveEditor(closePanel = false)
             return true
@@ -607,16 +595,27 @@ private fun AssistPanelContent(
 
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val fontScale = LocalDensity.current.fontScale
-        // The sheet is anchored to the window bottom, which the soft keyboard covers. The host page
-        // owns the IME inset (the overlay window itself does not receive IME insets), so reserve it
-        // inside the sheet to keep the editor's save action and the footer reachable.
-        val fallbackHeight = LocalWindowInfo.current.containerDpSize.height * 0.62f
-        val bound = if (constraints.hasBoundedHeight && maxHeight != Dp.Infinity) maxHeight else fallbackHeight.coerceAtLeast(280.dp)
-        val available = (bound - 8.dp - imeBottom).coerceAtLeast(0.dp)
-        val minHeight = (280.dp * (1f + (fontScale - 1f) * 0.5f)).coerceAtMost(available)
-        val panelHeight = (available * 0.58f).coerceAtLeast(minHeight).coerceAtMost(available)
+        // The overlay window already shrinks above the soft keyboard, so sizing is a fraction of the
+        // real available height: the list shows a compact sheet, while the editor and the full-text
+        // viewer take all of it so the field grows instead of collapsing to one line.
+        val bounded = constraints.hasBoundedHeight && maxHeight != Dp.Infinity
+        val fallbackHeight = (LocalWindowInfo.current.containerDpSize.height * 0.58f).coerceAtLeast(280.dp)
+        val minHeight = (280.dp * (1f + (fontScale - 1f) * 0.5f))
+            .coerceAtMost(if (bounded) maxHeight else fallbackHeight)
+        val fraction = when (mode) {
+            AssistMode.List -> 0.58f
+            // Leave room for the drag handle and the rounded top edge below the status bar.
+            AssistMode.Editor -> 0.94f
+            AssistMode.Viewer -> 0.90f
+        }
+        val heightModifier = if (bounded) {
+            Modifier.fillMaxHeight(fraction)
+        } else {
+            Modifier.height((fallbackHeight * fraction / 0.58f)
+                .coerceAtMost(LocalWindowInfo.current.containerDpSize.height * 0.94f))
+        }
         Column(
-            Modifier.fillMaxWidth().height(panelHeight + imeBottom).padding(bottom = imeBottom)
+            Modifier.fillMaxWidth().then(heightModifier).heightIn(min = minHeight)
                 .testTag("assist-panel").semantics { paneTitle = panelTitle },
         ) {
             AssistHeader(
@@ -630,7 +629,6 @@ private fun AssistPanelContent(
                 onTab = {
                     tab = it
                     onTab(it)
-                    menu = null
                     undo = null
                     notice = null
                 },
@@ -653,11 +651,10 @@ private fun AssistPanelContent(
                             onReveal = { revealed = true },
                             onRetry = { readAttempt++ },
                             onInsert = { insert(it, closeOnSuccess = true) },
-                            onMenu = { text, sensitive ->
-                                menu = RowMenu(AssistTab.Clipboard, CLIPBOARD_ROW_KEY, text, sensitive)
-                            },
-                            onBodyBounds = { bodyBounds = it },
-                            onRowBounds = { rowBounds[CLIPBOARD_ROW_KEY] = it },
+                            onCopy = { copy(it) },
+                            onPaste = { insert(it, closeOnSuccess = false) },
+                            onSaveAsPhrase = { openEditor(null, it, "") },
+                            onView = { viewerText = it; mode = AssistMode.Viewer },
                         )
                         AssistTab.Phrases -> PhraseTab(
                             phrases = working,
@@ -669,8 +666,13 @@ private fun AssistPanelContent(
                             dragEpoch = dragEpoch,
                             onAdd = { openEditor(null, "", "") },
                             onInsert = { insert(it, closeOnSuccess = true) },
-                            onMenu = { phrase, sensitive ->
-                                menu = RowMenu(AssistTab.Phrases, phrase.id, phrase.text, sensitive)
+                            onCopy = { copy(it.text) },
+                            onPaste = { insert(it.text, closeOnSuccess = false) },
+                            onView = { viewerText = it.text; mode = AssistMode.Viewer },
+                            onEdit = { openEditor(it.id, it.text, it.text) },
+                            onDelete = { phrase ->
+                                val index = working.indexOfFirst { it.id == phrase.id }
+                                if (index >= 0) deletePhrase(phrase, index)
                             },
                             onGripDown = { id, y -> startDrag(id, y) },
                             onGripDrag = { amount -> dragBy(amount) },
@@ -682,7 +684,7 @@ private fun AssistPanelContent(
                             onGripKey = { id, delta -> moveGrip(id, delta) },
                             onGripFocuser = { id, requester -> gripFocusers[id] = requester },
                             onRowBounds = { id, rect -> rowBounds[id] = rect },
-                            onListBounds = { listBounds = it; bodyBounds = it },
+                            onListBounds = { listBounds = it },
                         )
                     }
                     AssistMode.Editor -> {
@@ -702,35 +704,6 @@ private fun AssistPanelContent(
                     }
                     AssistMode.Viewer -> ViewerBody(viewerText)
                 }
-                if (menu != null) AssistRowMenu(
-                    menu = requireNotNull(menu),
-                    bodyBounds = bodyBounds,
-                    rowBounds = rowBounds,
-                    onClose = { menu = null },
-                    onCopy = { text -> menu = null; copy(text) },
-                    onPaste = { text -> menu = null; insert(text, closeOnSuccess = false) },
-                    onSaveAsPhrase = { text -> menu = null; openEditor(null, text, "") },
-                    onView = { text ->
-                        menu = null
-                        viewerText = text
-                        mode = AssistMode.Viewer
-                    },
-                    onEdit = { theme ->
-                        val phrase = working.firstOrNull { it.id == theme.rowKey }
-                        if (phrase != null) {
-                            menu = null
-                            openEditor(phrase.id, phrase.text, phrase.text)
-                        }
-                    },
-                    onDelete = { theme ->
-                        val index = working.indexOfFirst { it.id == theme.rowKey }
-                        val phrase = working.firstOrNull { it.id == theme.rowKey }
-                        if (phrase != null) {
-                            menu = null
-                            deletePhrase(phrase, index)
-                        }
-                    },
-                )
             }
             if (mode == AssistMode.List) {
                 AssistFooter(
@@ -922,13 +895,13 @@ private fun ClipboardTab(
     onReveal: () -> Unit,
     onRetry: () -> Unit,
     onInsert: (String) -> Unit,
-    onMenu: (String, Boolean) -> Unit,
-    onBodyBounds: (Rect) -> Unit,
-    onRowBounds: (Rect) -> Unit,
+    onCopy: (String) -> Unit,
+    onPaste: (String) -> Unit,
+    onSaveAsPhrase: (String) -> Unit,
+    onView: (String) -> Unit,
 ) {
     Column(
-        Modifier.fillMaxSize().onGloballyPositioned { onBodyBounds(it.boundsInRoot()) }
-            .verticalScroll(rememberScrollState()).padding(8.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp),
     ) {
         when (val value = read) {
             null -> {
@@ -963,16 +936,21 @@ private fun ClipboardTab(
             )
             is ClipboardRead.Text -> {
                 if (value.sensitive && !revealed) {
-                    SensitiveClipboardRow(onReveal, onRowBounds)
+                    SensitiveClipboardRow(onReveal)
                 } else {
                     AssistRow(
                         text = value.text,
-                        sensitive = value.sensitive,
                         multiple = value.multiple,
                         onInsert = { onInsert(value.text) },
-                        onMenu = { onMenu(value.text, value.sensitive) },
+                        menuItems = buildList {
+                            add(DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(value.text) }))
+                            add(DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(value.text) }))
+                            add(DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(value.text) }))
+                            if (!value.sensitive) {
+                                add(DropdownItem(stringResource(R.string.assist_save_as_phrase), onClick = { onSaveAsPhrase(value.text) }))
+                            }
+                        },
                         tag = "assist-clipboard-row",
-                        onBounds = onRowBounds,
                     )
                 }
             }
@@ -981,10 +959,9 @@ private fun ClipboardTab(
 }
 
 @Composable
-private fun SensitiveClipboardRow(onReveal: () -> Unit, onBounds: (Rect) -> Unit) {
+private fun SensitiveClipboardRow(onReveal: () -> Unit) {
     Column(
-        Modifier.fillMaxWidth().padding(8.dp).onGloballyPositioned { onBounds(it.boundsInRoot()) }
-            .testTag("assist-clipboard-sensitive"),
+        Modifier.fillMaxWidth().padding(8.dp).testTag("assist-clipboard-sensitive"),
     ) {
         Text(
             stringResource(R.string.assist_sensitive_hidden),
@@ -1015,7 +992,11 @@ private fun PhraseTab(
     dragEpoch: Int,
     onAdd: () -> Unit,
     onInsert: (String) -> Unit,
-    onMenu: (StoredPhrase, Boolean) -> Unit,
+    onCopy: (StoredPhrase) -> Unit,
+    onPaste: (StoredPhrase) -> Unit,
+    onView: (StoredPhrase) -> Unit,
+    onEdit: (StoredPhrase) -> Unit,
+    onDelete: (StoredPhrase) -> Unit,
     onGripDown: (String, Float) -> Unit,
     onGripDrag: (Float) -> Unit,
     onGripEnd: () -> Unit,
@@ -1055,7 +1036,13 @@ private fun PhraseTab(
                     translationY = current?.offset ?: 0f,
                     dragEpoch = dragEpoch,
                     onInsert = { onInsert(phrase.text) },
-                    onMenu = { onMenu(phrase, false) },
+                    menuItems = listOf(
+                        DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_edit), onClick = { onEdit(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_delete), onClick = { onDelete(phrase) }),
+                    ),
                     onGripDown = { y -> onGripDown(phrase.id, y) },
                     onGripDrag = onGripDrag,
                     onGripEnd = onGripEnd,
@@ -1079,7 +1066,7 @@ private fun PhraseRow(
     translationY: Float,
     dragEpoch: Int,
     onInsert: () -> Unit,
-    onMenu: () -> Unit,
+    menuItems: List<DropdownItem>,
     onGripDown: (Float) -> Unit,
     onGripDrag: (Float) -> Unit,
     onGripEnd: () -> Unit,
@@ -1149,7 +1136,7 @@ private fun PhraseRow(
             multiple = false,
             onInsert = onInsert,
             modifier = Modifier.weight(1f).testTag("assist-phrase-row"),
-            onMenu = onMenu,
+            menuItems = menuItems,
             menuTag = "assist-phrase-menu",
         )
         LaunchedEffect(gripFocus) { onGripFocuser(gripFocus) }
@@ -1159,15 +1146,13 @@ private fun PhraseRow(
 @Composable
 private fun AssistRow(
     text: String,
-    sensitive: Boolean,
     multiple: Boolean,
     onInsert: () -> Unit,
-    onMenu: () -> Unit,
+    menuItems: List<DropdownItem>,
     tag: String,
-    onBounds: (Rect) -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp).onGloballyPositioned { onBounds(it.boundsInRoot()) },
+        Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         AssistRowBody(
@@ -1175,7 +1160,7 @@ private fun AssistRow(
             multiple = multiple,
             onInsert = onInsert,
             modifier = Modifier.weight(1f).testTag(tag),
-            onMenu = onMenu,
+            menuItems = menuItems,
             menuTag = "assist-clipboard-menu",
         )
     }
@@ -1187,97 +1172,32 @@ private fun AssistRowBody(
     multiple: Boolean,
     onInsert: () -> Unit,
     modifier: Modifier,
-    onMenu: () -> Unit,
-    menuTag: String?,
+    menuItems: List<DropdownItem>,
+    menuTag: String,
 ) {
     val insertLabel = stringResource(R.string.assist_insert_action)
     val moreLabel = stringResource(R.string.assist_more_for, text)
     val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier.heightIn(min = 56.dp).clip(RoundedCornerShape(16.dp))
+        modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(16.dp))
             .clickable(interactionSource = interaction, indication = null, onClickLabel = insertLabel, role = Role.Button, onClick = onInsert)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Text(text, fontSize = 16.sp, lineHeight = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(text, fontSize = 16.sp, lineHeight = 24.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (multiple) Text(
             stringResource(R.string.assist_multiple_note),
             fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary,
-            maxLines = 2,
+            maxLines = 1,
         )
     }
-    if (menuTag != null) IconButton(
-        onMenu,
+    // The same Miuix icon-dropdown the page's overflow button uses, so the menu motion matches.
+    WindowIconDropdownMenu(
+        DropdownEntry(menuItems),
         Modifier.size(48.dp).testTag(menuTag).semantics { contentDescription = moreLabel },
+        minHeight = 48.dp, minWidth = 48.dp,
     ) {
         Icon(VoiceLinkIcon.More.vector, null, Modifier.size(22.dp))
-    }
-}
-
-@Composable
-private fun AssistRowMenu(
-    menu: RowMenu,
-    bodyBounds: Rect?,
-    rowBounds: MutableMap<String, Rect>,
-    onClose: () -> Unit,
-    onCopy: (String) -> Unit,
-    onPaste: (String) -> Unit,
-    onSaveAsPhrase: (String) -> Unit,
-    onView: (String) -> Unit,
-    onEdit: (RowMenu) -> Unit,
-    onDelete: (RowMenu) -> Unit,
-) {
-    val density = LocalDensity.current
-    val items = buildList {
-        add(Triple("assist-menu-copy", R.string.assist_copy) { onCopy(menu.text) })
-        add(Triple("assist-menu-paste", R.string.assist_paste) { onPaste(menu.text) })
-        add(Triple("assist-menu-view", R.string.assist_view_full) { onView(menu.text) })
-        if (menu.tab == AssistTab.Clipboard) {
-            if (!menu.sensitive) add(Triple("assist-menu-save", R.string.assist_save_as_phrase) { onSaveAsPhrase(menu.text) })
-        } else {
-            add(Triple("assist-menu-edit", R.string.assist_edit) { onEdit(menu) })
-            add(Triple("assist-menu-delete", R.string.assist_delete) { onDelete(menu) })
-        }
-    }
-    val body = bodyBounds
-    val row = rowBounds[menu.rowKey]
-    val gap = with(density) { 48.dp.toPx() }
-    val pad = with(density) { 4.dp.toPx() }
-    val bodyHeight = body?.height ?: with(density) { 240.dp.toPx() }
-    val menuMaxHeight = (bodyHeight - pad * 2).coerceAtLeast(with(density) { 48.dp.toPx() })
-    val estimated = minOf(with(density) { (items.size * 48 + 8).dp.toPx() }, menuMaxHeight)
-    val top = if (body != null && row != null) {
-        (row.top - body.top + gap).coerceIn(pad, (body.height - estimated - pad).coerceAtLeast(pad))
-    } else pad
-    Box(Modifier.fillMaxSize()) {
-        Box(
-            Modifier.matchParentSize().clickable(
-                interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onClose,
-            ),
-        )
-        Card(
-            Modifier.align(Alignment.TopEnd).padding(end = 8.dp)
-                .offset { IntOffset(0, top.toInt()) }
-                .width(220.dp).heightIn(max = with(density) { menuMaxHeight.toDp() })
-                .shadow(8.dp, RoundedCornerShape(16.dp))
-                .testTag("assist-row-menu"),
-            cornerRadius = 16.dp,
-            insideMargin = PaddingValues(4.dp),
-        ) {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                items.forEach { (tag, label, action) ->
-                    Row(
-                        Modifier.fillMaxWidth().heightIn(min = 48.dp)
-                            .clickable(role = Role.Button) {
-                                action()
-                            }
-                            .testTag(tag)
-                            .padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) { Text(stringResource(label), fontSize = 15.sp) }
-                }
-            }
-        }
     }
 }
 
@@ -1294,13 +1214,13 @@ private fun EditorBody(
     val shownError = rejection ?: error
     val counter = with(draft.text) { codePointCount(0, length) }
     val keyboard = LocalSoftwareKeyboardController.current
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
+    Column(Modifier.fillMaxSize().padding(horizontal = 16.dp, vertical = 12.dp)) {
         Text(stringResource(R.string.assist_phrase_label), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         Spacer(Modifier.height(8.dp))
         BasicTextField(
             value = draft.text,
             onValueChange = onText,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 120.dp).focusRequester(focus)
+            modifier = Modifier.fillMaxWidth().weight(1f).focusRequester(focus)
                 .clip(RoundedCornerShape(16.dp)).background(MiuixTheme.colorScheme.background)
                 .padding(12.dp).testTag("assist-editor-field"),
             textStyle = MiuixTheme.textStyles.main.copy(fontSize = 16.sp, lineHeight = 24.sp, color = MiuixTheme.colorScheme.onSurface),
@@ -1362,7 +1282,7 @@ private fun AssistFooter(
     onUndo: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp)) {
+    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 11.dp, bottom = 16.dp)) {
         undo?.let {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -1391,7 +1311,7 @@ private fun AssistFooter(
             cornerRadius = 24.dp,
             insideMargin = PaddingValues(0.dp),
             colors = ButtonDefaults.buttonColors(
-                color = MiuixTheme.colorScheme.background,
+                color = MiuixTheme.colorScheme.surface,
                 contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
             ),
         ) { Text(stringResource(R.string.assist_clear_all), fontWeight = FontWeight.SemiBold) }

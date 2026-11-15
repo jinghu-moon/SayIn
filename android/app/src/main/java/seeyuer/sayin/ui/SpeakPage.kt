@@ -43,7 +43,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -79,7 +78,6 @@ internal fun SpeakPage(
     onDismiss: () -> Unit = {},
     onRequestAction: (String, String) -> Unit = { _, _ -> },
     onImage: () -> Unit = {},
-    imeBottom: Dp = 0.dp,
 ) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -589,7 +587,6 @@ internal fun SpeakPage(
         phrases = phrases,
         ticket = assistTicket,
         initialTab = assistTab,
-        imeBottom = imeBottom,
         onTicket = { assistTicket = it },
         onTab = { tab ->
             assistTab = tab

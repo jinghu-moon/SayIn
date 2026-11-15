@@ -149,7 +149,7 @@ internal fun VoiceLinkContent(
         }
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             if (page == MobilePage.Speak) {
-                SpeakPage(state, session, phrases, onSend, imeBottom = imeBottom,
+                SpeakPage(state, session, phrases, onSend,
                     cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                     onConfigureCloud = { if (quick) onExpand(true) else pageName = MobilePage.Settings.name },
                     onConnect = { showConnection = true },

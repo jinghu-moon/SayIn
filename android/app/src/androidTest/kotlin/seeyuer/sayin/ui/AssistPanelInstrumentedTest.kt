@@ -175,7 +175,7 @@ class AssistPanelInstrumentedTest {
         openPanel()
         waitForClipboardRow()
         compose.onNodeWithTag("assist-clipboard-menu").performClick()
-        compose.onNodeWithTag("assist-menu-save").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_save_as_phrase)).performClick()
         waitForFocus("assist-editor-field")
         waitForKeyboard()
         compose.onNodeWithTag("assist-editor-field").assertTextEquals("from clipboard")
@@ -312,8 +312,8 @@ class AssistPanelInstrumentedTest {
         compose.onNodeWithTag("assist-show-sensitive").performClick()
         compose.onNodeWithText("secret words").assertExists()
         compose.onNodeWithTag("assist-clipboard-menu").performClick()
-        compose.onNodeWithTag("assist-menu-save").assertDoesNotExist()
-        compose.onNodeWithTag("assist-menu-copy").assertExists()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_save_as_phrase)).assertDoesNotExist()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_copy)).assertExists()
     }
 
     @Test fun unavailableClipboardOffersRetryWithoutChangingDraft() {
@@ -349,7 +349,7 @@ class AssistPanelInstrumentedTest {
         openPanel()
         waitForClipboardRow()
         compose.onNodeWithTag("assist-clipboard-menu").performClick()
-        compose.onNodeWithTag("assist-menu-copy").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_copy)).performClick()
         compose.waitUntil(5_000) {
             compose.activity.getSystemService(ClipboardManager::class.java).primaryClip?.getItemAt(0)?.text?.toString() == "copy me"
         }
@@ -387,7 +387,7 @@ class AssistPanelInstrumentedTest {
         compose.waitForIdle()
         // Edit keeps the id and position.
         compose.onAllNodesWithTag("assist-phrase-menu")[0].performClick()
-        compose.onNodeWithTag("assist-menu-edit").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_edit)).performClick()
         waitForFocus("assist-editor-field")
         compose.onNodeWithTag("assist-editor-field").performTextClearance()
         compose.onNodeWithTag("assist-editor-field").performTextInput("改过的第一句")
@@ -396,7 +396,7 @@ class AssistPanelInstrumentedTest {
         compose.onNodeWithText("改过的第一句").assertExists()
         // Delete + six-second undo.
         compose.onAllNodesWithTag("assist-phrase-menu")[0].performClick()
-        compose.onNodeWithTag("assist-menu-delete").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_delete)).performClick()
         compose.waitUntil(5_000) { library.state.value.phrases.none { it.text == "改过的第一句" } }
         compose.onNodeWithTag("assist-undo-delete").assertExists()
         compose.onNodeWithTag("assist-undo-delete").performClick()
@@ -495,8 +495,8 @@ class AssistPanelInstrumentedTest {
         compose.onAllNodesWithTag("assist-phrase-grip")[0].assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.ContentDescription))
         compose.onAllNodesWithTag("assist-phrase-menu")[0].assertWidthIsAtLeast(48.dp).assertHeightIsAtLeast(48.dp)
         compose.onAllNodesWithTag("assist-phrase-menu")[0].performClick()
-        compose.onNodeWithTag("assist-menu-copy").assertHeightIsAtLeast(48.dp)
-        compose.onNodeWithTag("assist-menu-delete").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_copy)).assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_delete)).assertHeightIsAtLeast(48.dp)
     }
 
     @Test fun narrowAndLargeFontLayoutKeepsControlsReachable() {
@@ -665,7 +665,7 @@ class AssistPanelInstrumentedTest {
 
     private fun pasteFromClipboardMenu() {
         compose.onNodeWithTag("assist-clipboard-menu").performClick()
-        compose.onNodeWithTag("assist-menu-paste").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_paste)).performClick()
         compose.waitForIdle()
     }
 
