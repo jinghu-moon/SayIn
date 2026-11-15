@@ -1,0 +1,318 @@
+{
+  "updatedAt": "2026-11-15",
+  "scope": "Design and standalone HTML reference only; no native app changes or APK installation",
+  "baseline": {
+    "sha256": "77ff2f846d46117edfecea49a76ea573237c516b25e8a3f767e9d12f366ff7bc",
+    "clearUndoRestored": true,
+    "voiceBarHeight": 56
+  },
+  "functional": {
+    "replaceSelection": true,
+    "insertUndo": true,
+    "insertRedo": true,
+    "savePhrase": true,
+    "editPhrase": true,
+    "deletePhrase": true,
+    "deleteUndo": true,
+    "duplicateBlocked": true,
+    "longPhraseBlocked": true,
+    "empty": true,
+    "denied": true,
+    "retry": true,
+    "image": true,
+    "empty-phrases": true,
+    "rejectWholeOversize": true,
+    "staleRejected": true,
+    "uncertainDisabled": true,
+    "sendDisabled": true,
+    "recordingDisabled": true,
+    "cancelRetainsDraft": true,
+    "stopRetainsDraft": true,
+    "fixedVoiceBar": true,
+    "translatedInsert": true,
+    "translationUndo": true,
+    "originalPreserved": true,
+    "pageErrors": []
+  },
+  "layout": {
+    "viewports": [
+      {
+        "width": 320,
+        "height": 850,
+        "controls": {
+          "width": 244,
+          "countWidth": 14.822916984558105,
+          "buttons": [
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            }
+          ]
+        },
+        "bounds": {
+          "fits": true,
+          "phoneHeight": 524.5,
+          "panelHeight": 314.69793701171875
+        }
+      },
+      {
+        "width": 360,
+        "height": 850,
+        "controls": {
+          "width": 284,
+          "countWidth": 14.822916984558105,
+          "buttons": [
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            }
+          ]
+        },
+        "bounds": {
+          "fits": true,
+          "phoneHeight": 578.5,
+          "panelHeight": 347.09375
+        }
+      },
+      {
+        "width": 390,
+        "height": 850,
+        "controls": {
+          "width": 314,
+          "countWidth": 14.822916984558105,
+          "buttons": [
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            }
+          ]
+        },
+        "bounds": {
+          "fits": true,
+          "phoneHeight": 578.5,
+          "panelHeight": 347.09375
+        }
+      },
+      {
+        "width": 1280,
+        "height": 850,
+        "controls": {
+          "width": 334,
+          "countWidth": 14.822916984558105,
+          "buttons": [
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            }
+          ]
+        },
+        "bounds": {
+          "fits": true,
+          "phoneHeight": 704.5,
+          "panelHeight": 422.69793701171875
+        }
+      },
+      {
+        "width": 850,
+        "height": 390,
+        "controls": {
+          "width": 334,
+          "countWidth": 14.822916984558105,
+          "buttons": [
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            },
+            {
+              "width": 48,
+              "height": 48,
+              "fits": true
+            }
+          ]
+        },
+        "bounds": {
+          "fits": true,
+          "phoneHeight": 258,
+          "panelHeight": 234
+        }
+      }
+    ],
+    "darkPanel": "rgb(31, 31, 31)",
+    "focusContained": true,
+    "escapeCloses": true,
+    "snapshotDomCleared": true
+  },
+  "existingFlow": {
+    "themes": [
+      {
+        "theme": "light",
+        "dialog": true,
+        "background": "rgb(255, 255, 255)"
+      },
+      {
+        "theme": "dark",
+        "dialog": true,
+        "background": "rgb(31, 31, 31)"
+      }
+    ],
+    "otherLayouts": [
+      {
+        "layout": "b",
+        "opens": true
+      },
+      {
+        "layout": "c",
+        "opens": true
+      },
+      {
+        "layout": "o",
+        "opens": true
+      }
+    ],
+    "finishAndSend": true,
+    "receiptClearsDraft": true,
+    "heightUnchanged": true
+  },
+  "limitations": [
+    "All new clipboard and phrase data is simulated in memory; no Android integration, persistence, encryption or actual OS clipboard read tested.",
+    "Existing copy-to-clipboard action is unchanged; new clipboard panel does not call browser clipboard read APIs.",
+    "Sensitive flag masking, multi-item clipboard notes and complete read-only long-text preview are design requirements, not implemented by this demo.",
+    "Browser viewport bounds and DOM focus checks do not replace real Android IME, system back, accessibility or large-font device acceptance."
+  ],
+  "nativeRegression": "Not rerun: this delivery modifies only authored documentation and HTML; concurrent native edits belong to other work.",
+  "icons": {
+    "clipboard-text": {
+      "url": "https://raw.githubusercontent.com/tabler/tabler-icons/v3.51.0/icons/outline/clipboard-text.svg",
+      "sha256": "1d1b34197245aacb2e503ae55d67e1dc082b17a1bb2204f115c7acd98253d542"
+    },
+    "photo": {
+      "url": "https://raw.githubusercontent.com/tabler/tabler-icons/v3.51.0/icons/outline/photo.svg",
+      "sha256": "67d9b3ec02867e98ad17739380919a2d82287d15d3463161f450e17047ed319b"
+    },
+    "plus": {
+      "url": "https://raw.githubusercontent.com/tabler/tabler-icons/v3.51.0/icons/outline/plus.svg",
+      "sha256": "9cc497d4cc1eb38cf9daae18f41ffdc1a5e2a8431d70247b0854978f303f28d6"
+    },
+    "arrow-left": {
+      "url": "https://raw.githubusercontent.com/tabler/tabler-icons/v3.51.0/icons/outline/arrow-left.svg",
+      "sha256": "12af90f1bb49b7ae62792ecf38d2fa8b39daa4753e39ebc3520d07482a90704f"
+    }
+  },
+  "artifacts": [
+    {
+      "path": "refer/SayIn 底部控制区对比.html",
+      "sha256": "fedd0978f5041823238b9765e16188bc913182165b7d2caacab4f0df3d51b2f8",
+      "bytes": 61133
+    },
+    {
+      "path": "docs/demos/sayin-input-assist.html",
+      "sha256": "fedd0978f5041823238b9765e16188bc913182165b7d2caacab4f0df3d51b2f8",
+      "bytes": 61133
+    },
+    {
+      "path": "docs/52-android-clipboard-and-quick-phrases-design.md",
+      "sha256": "5e12eb3082d9061c87d4afeba897009e37a6b3874cefbbe1f8e76a1a3cc6c4d3",
+      "bytes": 21078
+    }
+  ]
+}
