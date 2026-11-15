@@ -293,9 +293,7 @@ impl HistoryView {
             let mut results = Vec::new();
             for order in missing {
                 let image = match order.parse() {
-                    Ok(value) => crate::image_history::preview(&receiver, value, 256)
-                        .await
-                        .ok(),
+                    Ok(value) => crate::image_history::thumbnail(&receiver, value).await.ok(),
                     Err(_) => None,
                 };
                 results.push((order, image));
@@ -602,12 +600,24 @@ impl HistoryView {
                     .test_support()
                     .role(gpui_kit::Role::Image)
                     .aria_label(format!("{} · {order}", settings.text(M::ImageView)))
+                    .relative()
+                    .flex_none()
                     .w_full()
                     .h_40()
+                    .overflow_hidden()
                     .child(
                         gpui_kit::img(image.image().clone())
+                            // Keep intrinsic image aspect ratio out of flex/grid
+                            // measurement. ScaleDown contains without enlarging
+                            // small sources just to fill this viewport.
+                            .absolute()
+                            .inset_0()
                             .size_full()
-                            .object_fit(gpui_kit::ObjectFit::Contain),
+                            .min_w_0()
+                            .min_h_0()
+                            .object_fit(gpui_kit::ObjectFit::ScaleDown)
+                            .id(SharedString::from(format!("history-image-pixels-{order}")))
+                            .test_support(),
                     )
                     .into_any_element(),
                 Some(None) => {
@@ -1335,12 +1345,21 @@ impl Render for HistoryView {
                             .test_support()
                             .role(gpui_kit::Role::Image)
                             .aria_label(settings.text(M::ImageView))
+                            .relative()
+                            .flex_none()
                             .h_80()
                             .w_full()
+                            .overflow_hidden()
                             .child(match &self.preview {
                                 Some(image) => gpui_kit::img(image.image().clone())
+                                    .absolute()
+                                    .inset_0()
                                     .size_full()
-                                    .object_fit(gpui_kit::ObjectFit::Contain)
+                                    .min_w_0()
+                                    .min_h_0()
+                                    .object_fit(gpui_kit::ObjectFit::ScaleDown)
+                                    .id("history-dialog-image-pixels")
+                                    .test_support()
                                     .into_any_element(),
                                 None => support(
                                     settings.text(if self.preview_task.is_some() {

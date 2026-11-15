@@ -18,13 +18,29 @@ pub(crate) async fn preview(
     order: i64,
     edge: u32,
 ) -> Result<ImagePreviewImage> {
+    decode_preview(receiver, order, edge, u64::from(edge) * u64::from(edge) * 4).await
+}
+
+/// Fit/letterbox thumbnails, not full-width crops. A 1 MiB pixel budget per
+/// image caps the 30-entry history cache at 30 MiB of CPU texture pixels.
+/// The edge allows high-DPI portrait/landscape previews without keeping originals.
+pub(crate) async fn thumbnail(receiver: &Receiver, order: i64) -> Result<ImagePreviewImage> {
+    decode_preview(receiver, order, 1024, 1024 * 1024).await
+}
+
+async fn decode_preview(
+    receiver: &Receiver,
+    order: i64,
+    edge: u32,
+    texture_bytes: u64,
+) -> Result<ImagePreviewImage> {
     let bytes = bytes(receiver, order).await?;
     let limits = ImagePreviewLimits::default()
         .max_encoded_bytes(10 * 1024 * 1024)
         .max_pixels(16_000_000)
         .max_source_edge(8192)
         .max_decode_bytes(128 * 1024 * 1024)
-        .texture_budget(edge, u64::from(edge) * u64::from(edge) * 4);
+        .texture_budget(edge, texture_bytes);
     ImagePreviewImage::from_encoded(&bytes, &limits, "SayIn image")
         .map_err(|_| Error::Protocol("IMAGE_PREVIEW_FAILED"))
 }
