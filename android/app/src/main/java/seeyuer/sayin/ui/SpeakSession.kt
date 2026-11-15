@@ -66,8 +66,20 @@ internal class SpeakSession(
     var submitted by mutableStateOf<SubmittedDraft?>(null); private set
     var draftStorageIssue by mutableStateOf(false)
     var draftRestoring by mutableStateOf(false)
-    var translation by mutableStateOf(DraftTranslation()); private set
+    private var translationState by mutableStateOf(DraftTranslation())
+    /** Content revision of [translation]; every translation mutation advances it independently of [interaction]. */
+    var translationRevision by mutableStateOf(0L); private set
+    var translation: DraftTranslation
+        get() = translationState
+        private set(value) {
+            if (translationState == value) return
+            translationState = value
+            translationRevision++
+            invalidateAssist()
+        }
     var translationShown by mutableStateOf(false); private set
+    /** Monotonic generation of the single active insertion ticket. */
+    var assistEpoch by mutableStateOf(0L); private set
     var modelPreparation by mutableStateOf<ModelPreparationProgress?>(null); private set
     var translationModelReady by mutableStateOf(modelStore.prepared); private set
     var modelPreparationFailed by mutableStateOf(false); private set
@@ -80,6 +92,58 @@ internal class SpeakSession(
     val sendingTranslation get() = translationShown
     val canSendRepresentation get() = !translationStopping && !translation.running && !translationPreparing &&
         (!translationShown || translation.complete && translation.ticket!!.matches(draftId, interaction.version))
+    /** One insertion may start now: draft editable, and no recorder, translation, restore or request contention. */
+    val assistEditable get() = visible && !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
+        !translation.running && !translationStopping && !translationPreparing &&
+        displayedDraft.composition == null && (!translationShown || translation.complete)
+    private val assistRepresentation get() = if (translationShown) DraftRepresentation.Translation else DraftRepresentation.Original
+    private fun assistRevision(value: DraftRepresentation) =
+        if (value == DraftRepresentation.Translation) translationRevision else interaction.version
+
+    /** Captures the frozen position and advances the generation; only the newest ticket is accepted. */
+    fun beginAssistInsertion(): AssistInsertion? {
+        if (!assistEditable) return null
+        invalidateAssist()
+        val value = displayedDraft
+        // A missing editable position is resolved at open time, never guessed again during insert.
+        val range = DraftAssist.selection(value.text, value.selection.start, value.selection.end)
+            ?: TextRange(value.text.length, value.text.length)
+        val representation = assistRepresentation
+        return AssistInsertion(draftId, representation, assistRevision(representation), range.min, range.max, assistEpoch)
+    }
+
+    /** Executes exactly one undoable edit. Every check and the full-result validation run before any state changes. */
+    fun insertAssist(ticket: AssistInsertion, text: String): AssistInsertResult {
+        if (!assistEditable) return AssistInsertResult.NotEditable
+        val representation = assistRepresentation
+        if (ticket.epoch != assistEpoch || ticket.representation != representation || ticket.draftId != draftId ||
+            ticket.revision != assistRevision(representation)) return AssistInsertResult.Stale
+        val value = displayedDraft
+        val range = DraftAssist.selection(value.text, ticket.start, ticket.end) ?: return AssistInsertResult.Stale
+        val result = DraftAssist.compose(value.text, range, text)
+        if (!DraftAssist.acceptable(result)) return AssistInsertResult.Rejected
+        val caret = DraftAssist.caret(range, text)
+        cancelAutoSend()
+        undoDraft = null
+        submitted = null
+        history.breakGroup()
+        record(snapshot())
+        history.breakGroup()
+        if (representation == DraftRepresentation.Original) {
+            interaction = interaction.inputChanged()
+            draftId = UUID.randomUUID().toString()
+            invalidateTranslation()
+            draft = TextFieldValue(result, TextRange(caret))
+            onDraftChanged(draft)
+        } else {
+            translation = translation.copy(value = TextFieldValue(result, TextRange(caret)))
+        }
+        invalidateAssist()
+        return AssistInsertResult.Inserted(caret)
+    }
+
+    /** Any edit, recording, visibility, request or translation change makes captured tickets stale. */
+    fun invalidateAssist() { assistEpoch++ }
     val savedState get(): SavedSpeakingDraft {
         val request = submitted?.takeIf { it.state != "injected" }
         return SavedSpeakingDraft(draftId, draft.text, draft.selection.start, draft.selection.end,
@@ -151,6 +215,7 @@ internal class SpeakSession(
     fun setVisible(owner: Any, value: Boolean) {
         if (value) { visibleOwners.add(owner); backgroundRelease?.cancel() } else {
             visibleOwners.remove(owner)
+            invalidateAssist()
             cancelAutoSend()
             if (explicitFinish) recordingMayAutoSend = false
             if (!visible) preparingToRecord = false
@@ -171,9 +236,14 @@ internal class SpeakSession(
         }
         receiver = value
         val request = submitted ?: return
-        if (value.rejectedDraft == request.id) { submitted = request.copy(state = "failed"); return }
+        if (value.rejectedDraft == request.id) {
+            submitted = request.copy(state = "failed")
+            if (submitted != request) invalidateAssist()
+            return
+        }
         val item = value.history.firstOrNull { it.id == request.id } ?: return
         submitted = request.copy(state = item.state)
+        if (submitted != request) invalidateAssist()
         if (item.state == "injected" && request.state != "injected") { history.clear(); historyRevision++; undoDraft = null }
         if (item.state == "injected" && request.translated && draftId == request.id) {
             // Retaining the original must not retain an already consumed request identity after restart.
@@ -197,6 +267,7 @@ internal class SpeakSession(
         submitted = saved.requestId?.let { SubmittedDraft(it, TextFieldValue(saved.requestText.orEmpty()), saved.requestState ?: "saved", saved.requestTranslated) }
         // The ledger, not this snapshot, remains authoritative about execution.
         updateReceiver(receiver)
+        invalidateAssist()
     }
 
     fun changeDraft(value: TextFieldValue, fromRecognition: Boolean = false) {
@@ -218,6 +289,7 @@ internal class SpeakSession(
         if (compositionEnded) history.breakGroup()
         if (!fromRecognition) undoDraft = null
         onDraftChanged(value)
+        invalidateAssist()
     }
 
     fun selectSource(value: SpeakInputSource) {
@@ -225,6 +297,7 @@ internal class SpeakSession(
         stopTranslation(); cancelAutoSend(); source = value; recognition.clearResult()
         if (value.isRecognition) lastVoiceSource = value
         preferences.edit().putString("input_source", value.name).putString("voice_source", lastVoiceSource.name).apply()
+        invalidateAssist()
         if (value == SpeakInputSource.Local) scope.launch { translator.release(); if (source == value) recognition.prepareLocal() }
     }
 
@@ -236,6 +309,7 @@ internal class SpeakSession(
 
     fun start(cloud: CloudConfiguration?) {
         if (!visible || busy || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
+        invalidateAssist()
         recordingSnapshot = snapshot()
         invalidateTranslation(); cancelAutoSend(); undoDraft = null; submitted = null; explicitFinish = false
         history.breakGroup(); recordingDurationBefore = recordingDurationMillis
@@ -275,12 +349,14 @@ internal class SpeakSession(
     fun microphoneServiceFailed() { preparingToRecord = false; acceptRecognition = false; asr = asr.copy(issue = RecognitionIssue.Microphone) }
     fun finishRecording(andSend: Boolean = false) {
         if (asr.phase != RecognitionPhase.Listening) return
+        invalidateAssist()
         sendAfterFinal = andSend && recordingHasText && visible && recordingScope != null && recordingScope == receiver.receptionScope
         explicitFinish = true; recordingMayAutoSend = recordingMayAutoSend && visible && !andSend
         recognition.finish()
     }
 
     fun cancelRecording(restore: Boolean = true) {
+        invalidateAssist()
         acceptRecognition = false; explicitFinish = false; preparingToRecord = false; pendingCloud = null
         preparationGeneration++; waitingForTranslationStop = false
         cancelAutoSend(); recognition.cancel()
@@ -294,6 +370,7 @@ internal class SpeakSession(
         history.breakGroup()
         changeDraft(TextFieldValue()); recordingDurationMillis = 0L
         history.breakGroup(); undoDraft = old.takeIf { it.text.isNotEmpty() }; submitted = null
+        invalidateAssist()
     }
     fun undoClear() { if (undoDraft != null) undo() }
     fun undo() { if (canUndo) history.undo(snapshot())?.let { restoreSnapshot(it); historyRevision++ } }
@@ -311,6 +388,7 @@ internal class SpeakSession(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version)) }
         translationShown = value.translationShown
         onDraftChanged(draft)
+        invalidateAssist()
     }
     fun edit() { cancelAutoSend(); interaction = interaction.edit() }
     fun cancelAutoSend() { sendAfterFinal = false; countdownJob?.cancel(); countdownJob = null; interaction = interaction.cancelCountdown() }
@@ -320,6 +398,7 @@ internal class SpeakSession(
         if (!visible || requestLocked || draftRestoring) return
         if (translationShown || translation.ticket != null || translationStopping) return
         interaction = interaction.finish(draft.text, draft.composition != null, mode, receiver.receptionScope, SystemClock.elapsedRealtime())
+        invalidateAssist()
         val ticket = interaction.countdown ?: return
         countdownJob = scope.launch {
             while (visible && sendMode == SpeakSendMode.Automatic && interaction.countdown == ticket) {
@@ -341,10 +420,10 @@ internal class SpeakSession(
             draftId = UUID.randomUUID().toString()
             translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
         }
-        cancelAutoSend(); submitted = SubmittedDraft(draftId, value, translated = sendingTranslation); return true
+        cancelAutoSend(); submitted = SubmittedDraft(draftId, value, translated = sendingTranslation); invalidateAssist(); return true
     }
 
-    fun showTranslation(value: Boolean) { cancelAutoSend(); translationShown = value && translation.ticket != null }
+    fun showTranslation(value: Boolean) { cancelAutoSend(); translationShown = value && translation.ticket != null; invalidateAssist() }
 
     fun changeDisplayedDraft(value: TextFieldValue) {
         if (!translationShown) { changeDraft(value); return }
@@ -399,6 +478,7 @@ internal class SpeakSession(
     private fun invalidateTranslation() {
         stopTranslation()
         translation = DraftTranslation(); translationShown = false
+        invalidateAssist()
     }
 
     fun releaseTranslation() { stopTranslation(); preparationJob?.cancel(); scope.launch { translator.release() } }
@@ -433,6 +513,7 @@ internal class SpeakSession(
         submitted = null; changeDraft(TextFieldValue(), fromRecognition = true)
         recordingDurationMillis = 0L
         history.clear(); historyRevision++; undoDraft = null
+        invalidateAssist()
     }
 
     override fun close() { cancelAutoSend(); translator.close(); recognition.close(); scope.cancel() }
