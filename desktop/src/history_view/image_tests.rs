@@ -278,3 +278,101 @@ fn image_history_previews_save_deletion_and_responsive_actions(cx: &mut TestAppC
     wait(cx, |cx| state.read_with(cx, |s, _| s.is_stopped()));
     std::fs::remove_dir_all(directory).unwrap();
 }
+
+#[gpui_kit::test]
+fn full_image_page_bounds_cache_and_releases_closed_originals(cx: &mut TestAppContext) {
+    cx.executor().allow_parking();
+    let directory = std::env::temp_dir().join(format!(
+        "sayin-image-page-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let orders = fixture::seed_page(&directory, 30);
+    let preferences_file = PreferencesFile::in_directory(&directory);
+    preferences_file
+        .save(&Preferences::default().with_language(LanguagePreference::English))
+        .unwrap();
+    let state =
+        cx.update(|cx| cx.new(|cx| ReceptionState::local_only(directory.join("receiver"), cx)));
+    let settings = cx.update(|cx| {
+        yue_component::init(cx, theme::yue(ThemeMode::Light)).unwrap();
+        cx.new(|_| PreferencesState::new(preferences_file))
+    });
+    let retained = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let capture = retained.clone();
+    let owner = state.clone();
+    let (_, cx) = cx.add_window_view(move |window, cx| {
+        let view = cx.new(|cx| HistoryView::new(settings, owner, window, cx));
+        *capture.borrow_mut() = Some(view.clone());
+        gpui_kit::base::Root::new(view, window, cx)
+    });
+    let view = retained.borrow().clone().unwrap();
+    wait(cx, |cx| {
+        view.read_with(cx, |v, _| {
+            v.images.len() == 30 && v.images.values().all(Option::is_some)
+        })
+    });
+    let budget = view.read_with(cx, |v, _| {
+        v.images
+            .values()
+            .map(|p| {
+                let [w, h] = p.as_ref().unwrap().texture_size();
+                let bytes = u64::from(w) * u64::from(h) * 4;
+                assert!(bytes <= 1024 * 1024);
+                bytes
+            })
+            .sum::<u64>()
+    });
+    assert!(budget <= 30 * 1024 * 1024);
+    // Use the production dialog path. Weak references prove that closing does
+    // not retain decoded originals in the view or the previous rendered frame.
+    for order in orders.iter().filter(|order| (**order - 1) % 3 != 2).take(8) {
+        cx.update(|window, cx| view.update(cx, |v, cx| v.view_image(*order, window, cx)));
+        wait(cx, |cx| view.read_with(cx, |v, _| v.preview.is_some()));
+        let original = view.read_with(cx, |v, _| {
+            std::sync::Arc::downgrade(v.preview.as_ref().unwrap().image())
+        });
+        let image_id = original.upgrade().unwrap().id;
+        assert!(
+            cx.update(|window, _| window.has_image_atlas_frame(image_id, 0)),
+            "the opened original must actually reach the renderer"
+        );
+        click(cx, "Close", Role::Button);
+        wait(cx, |_| original.upgrade().is_none());
+        assert!(
+            !cx.update(|window, _| window.has_image_atlas_frame(image_id, 0)),
+            "closed original must leave the renderer atlas as well as Rust state"
+        );
+        assert!(view.read_with(cx, |v, _| v.preview.is_none() && v.preview_order.is_none()));
+    }
+    let thumbnails = view.read_with(cx, |v, _| {
+        v.images
+            .values()
+            .flatten()
+            .map(|p| p.image().id)
+            .collect::<Vec<_>>()
+    });
+    assert!(cx.update(|window, _| {
+        thumbnails
+            .iter()
+            .any(|id| window.has_image_atlas_frame(*id, 0))
+    }));
+    state.update(cx, |s, cx| {
+        s.search_history("no-matching-image-fixture".into(), cx)
+    });
+    wait(cx, |cx| {
+        view.read_with(cx, |v, _| v.images.is_empty() && v.image_task.is_none())
+    });
+    assert!(
+        cx.update(|window, _| thumbnails
+            .iter()
+            .all(|id| !window.has_image_atlas_frame(*id, 0))),
+        "filtered thumbnails must also leave the renderer atlas"
+    );
+    state.update(cx, |s, cx| s.stop(cx));
+    wait(cx, |cx| state.read_with(cx, |s, _| s.is_stopped()));
+    std::fs::remove_dir_all(directory).unwrap();
+}

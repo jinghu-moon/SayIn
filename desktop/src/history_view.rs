@@ -139,11 +139,32 @@ impl HistoryView {
             cx.notify();
         });
         let preview_dialog = cx.new(YueDialogState::new);
-        let preview_closing = cx.subscribe_in(&preview_dialog, window, |this, dialog, _, _, cx| {
-            if !dialog.read(cx).is_open() {
-                this.preview_order = None;
-                this.preview = None;
-            }
+        let preview_closing =
+            cx.subscribe_in(&preview_dialog, window, |this, dialog, _, window, cx| {
+                if !dialog.read(cx).is_open() {
+                    this.preview_order = None;
+                    if let Some(image) = this.preview.take() {
+                        // Arc release only frees CPU pixels. Direct img resources
+                        // also require explicit removal from GPUI's sprite atlas.
+                        cx.drop_image(image.image().clone(), Some(window));
+                    }
+                }
+            });
+        let releasing = cx.on_release(|this, cx| {
+            let images = this
+                .images
+                .values()
+                .flatten()
+                .chain(this.preview.iter())
+                .map(|image| image.image().clone())
+                .collect::<Vec<_>>();
+            // A view can be released while its window is being updated and is
+            // temporarily absent from App.windows. Defer until it is restored.
+            cx.defer(move |cx| {
+                for image in images {
+                    cx.drop_image(image, None);
+                }
+            });
         });
         let mut this = Self {
             recent_only,
@@ -169,7 +190,14 @@ impl HistoryView {
             preview_order: None,
             undo_focus: cx.focus_handle().tab_stop(true),
             last_undo: None,
-            _subscriptions: vec![searching, retaining, receiving, localizing, preview_closing],
+            _subscriptions: vec![
+                searching,
+                retaining,
+                receiving,
+                localizing,
+                preview_closing,
+                releasing,
+            ],
         };
         this.synchronize_policy(window, cx);
         this.refresh_icons(cx);
@@ -272,12 +300,26 @@ impl HistoryView {
             .map(|entry| entry.receipt.order.clone())
             .take(30)
             .collect();
-        self.images
-            .retain(|order, _| self.image_orders.contains(order));
+        let receiver = service.image_receiver();
+        let mut removed = Vec::new();
+        self.images.retain(|order, image| {
+            let keep = self.image_orders.contains(order);
+            if !keep && let Some(image) = image {
+                removed.push(image.image().clone());
+            }
+            keep
+        });
+        if !removed.is_empty() {
+            cx.defer(move |cx| {
+                for image in removed {
+                    cx.drop_image(image, None);
+                }
+            });
+        }
         if self.image_task.is_some() {
             return;
         }
-        let Some(receiver) = service.image_receiver() else {
+        let Some(receiver) = receiver else {
             return;
         };
         let missing = self
@@ -382,7 +424,9 @@ impl HistoryView {
             return;
         };
         self.preview_order = Some(order);
-        self.preview = None;
+        if let Some(image) = self.preview.take() {
+            cx.drop_image(image.image().clone(), Some(window));
+        }
         let _ = self
             .preview_dialog
             .update(cx, |state, cx| state.open(window, cx));

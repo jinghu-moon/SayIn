@@ -12,6 +12,13 @@ use voicelink_receiver::{
 use voicelink_transport::HostIdentity;
 
 pub fn seed(directory: &Path) -> Vec<i64> {
+    seed_page(directory, 3)
+}
+
+/// Independent, completed receipts fill the production 30-entry cache. The
+/// original three-entry fixture retains its final held record.
+pub fn seed_page(directory: &Path, count: usize) -> Vec<i64> {
+    assert!((3..=30).contains(&count));
     let data = directory.join("receiver");
     std::fs::create_dir_all(&data).unwrap();
     let mut ledger = open_ledger(&data).unwrap();
@@ -29,14 +36,13 @@ pub fn seed(directory: &Path) -> Vec<i64> {
     let landscape = include_bytes!("../tests/fixtures/history-landscape.png").as_slice();
     let small = include_bytes!("../assets/sayin-64.png").as_slice();
     let mut orders = Vec::new();
-    for (index, (bytes, width, height, completed)) in [
-        (portrait, 1080, 2400, true),
-        (landscape, 2400, 1080, true),
-        (small, 64, 64, false),
-    ]
-    .into_iter()
-    .enumerate()
-    {
+    for index in 0..count {
+        let (bytes, width, height) = [
+            (portrait, 1080, 2400),
+            (landscape, 2400, 1080),
+            (small, 64, 64),
+        ][index % 3];
+        let completed = count != 3 || index < 2;
         let resource = store
             .prepare(
                 device,
