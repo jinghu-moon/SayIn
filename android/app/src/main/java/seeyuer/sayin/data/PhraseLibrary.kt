@@ -126,6 +126,9 @@ internal object PhraseRules {
  * Versioned JSON codec. [decode] is strict so a corrupt, truncated or structurally invalid library
  * is reported instead of being mistaken for an empty user library.
  */
+/** Thrown only when the encoded library exceeds its storage budget; structural errors stay programming errors. */
+internal class PhraseLibraryOverflow : Exception("Phrase library exceeds its storage budget")
+
 internal object PhraseCodec {
     private const val VERSION = 1
 
@@ -147,7 +150,7 @@ internal object PhraseCodec {
             .put("phrases", phrases)
             .toString()
             .toByteArray(Charsets.UTF_8)
-        require(bytes.size <= PhraseRules.LIMIT_ENCODED_BYTES) { "Phrase library exceeds its storage budget" }
+        if (bytes.size > PhraseRules.LIMIT_ENCODED_BYTES) throw PhraseLibraryOverflow()
         return bytes
     }
 
@@ -325,13 +328,14 @@ internal class PhraseLibrary(
         phrases: List<StoredPhrase>,
     ): Decision {
         val next = current.copy(phrases = phrases)
-        val fits = try {
+        // Only the storage budget is a user-facing rejection here. A structural encode failure is a
+        // programming error that must surface instead of being reported as "too long".
+        return try {
             PhraseCodec.encode(next)
-            true
-        } catch (error: IllegalArgumentException) {
-            false
+            Decision.Committed(next)
+        } catch (overflow: PhraseLibraryOverflow) {
+            Decision.Rejected(PhraseWriteResult.TOO_LONG)
         }
-        return if (fits) Decision.Committed(next) else Decision.Rejected(PhraseWriteResult.TOO_LONG)
     }
 
     private sealed interface Decision {

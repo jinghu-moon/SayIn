@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.PhraseLibrary
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.ui.localization.AppLanguagePicker
 import top.yukonga.miuix.kmp.basic.*
@@ -56,6 +57,7 @@ private enum class MobilePage(val label: Int, val title: Int, val subtitle: Int,
 internal fun VoiceLinkContent(
     state: ClientState,
     session: SpeakSession,
+    phrases: PhraseLibrary,
     onSend: () -> Unit,
     onHistoryAction: (String, String) -> Unit,
     connectionActions: @Composable () -> Unit,
@@ -86,7 +88,10 @@ internal fun VoiceLinkContent(
     var keepAwake by remember { mutableStateOf(preferences.getBoolean("keep_awake", false)) }
     RefreshImeInsetsAfterLayout()
     val view = LocalView.current
-    val editing = page == MobilePage.Speak && WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    // Read the raw IME inset before the Scaffold's imePadding consumes it: the input-assist sheet
+    // renders in an overlay window that receives no IME insets of its own.
+    val imeBottom = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
+    val editing = page == MobilePage.Speak && imeBottom > 0.dp
     DisposableEffect(view, keepAwake) {
         val previous = view.keepScreenOn
         view.keepScreenOn = keepAwake
@@ -144,7 +149,7 @@ internal fun VoiceLinkContent(
         }
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             if (page == MobilePage.Speak) {
-                SpeakPage(state, session, onSend,
+                SpeakPage(state, session, phrases, onSend, imeBottom = imeBottom,
                     cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                     onConfigureCloud = { if (quick) onExpand(true) else pageName = MobilePage.Settings.name },
                     onConnect = { showConnection = true },

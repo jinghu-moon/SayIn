@@ -334,10 +334,14 @@ class MobileShellInstrumentedTest {
         val editorHeight = compose.onNodeWithTag("draft").fetchSemanticsNode().boundsInRoot.height
         val lineHeight = 34 * 1.5f * compose.activity.resources.displayMetrics.density
         assertTrue("Compact editor must fit a full line at 150% text size ($editorHeight >= $lineHeight)", editorHeight >= lineHeight)
-        compose.onNodeWithTag("normalization-toggle").performClick()
+        // At 320dp the fifth tool leaves no room for the optional normalization toggle; the same
+        // preview action stays reachable through the existing overflow menu.
+        compose.onNodeWithTag("speak-more").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.speak_preview)).performClick()
         compose.onNodeWithTag("send-draft").assertIsDisplayed()
         compose.onNodeWithTag("draft-preview").assertTextContains(original.replace('\n', ' '))
-        compose.onNodeWithTag("normalization-toggle").performClick()
+        compose.onNodeWithTag("speak-more").performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.speak_edit)).performClick()
         compose.onNodeWithTag("draft").assertTextContains(original)
         assertTrue(compose.onNodeWithTag("draft").fetchSemanticsNode().boundsInRoot.height > 0)
         screenshot("speak-compact-large-preview")
@@ -484,7 +488,8 @@ class MobileShellInstrumentedTest {
         LaunchedEffect(draft) { session.changeDraft(externalDraft) }
         SideEffect { session.onSendReady = onSend }
         DisposableEffect(session) { onDispose { session.close() } }
-        VoiceLinkContent(state, session, onSend, onHistoryAction, connectionActions, onReconnect)
+        val phrases = rememberTestPhraseLibrary()
+        VoiceLinkContent(state, session, phrases, onSend, onHistoryAction, connectionActions, onReconnect)
     }
 
     @Composable
@@ -496,7 +501,7 @@ class MobileShellInstrumentedTest {
         val session = remember { SpeakSession(context, draft, onDraftChange).also { it.selectSource(source); it.changeSendMode(sendMode) } }
         SideEffect { session.updateReceiver(state); session.onSendReady = onSend }
         DisposableEffect(session) { onDispose { session.close() } }
-        SpeakPage(state, session, onSend, onConnect, cloudConfig, onConfigureCloud)
+        SpeakPage(state, session, rememberTestPhraseLibrary(), onSend, onConnect, cloudConfig, onConfigureCloud)
     }
 
     private fun setTestContent(content: @Composable () -> Unit) {

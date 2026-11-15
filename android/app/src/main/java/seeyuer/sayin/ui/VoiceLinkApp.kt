@@ -99,6 +99,7 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
     VoiceLinkContent(
         state = state,
         session = speaking,
+        phrases = application.phrases,
         onSend = model::send,
         cloudSettings = application.cloudSettings,
         quick = quick, onExpand = onExpand, onDismiss = onDismiss, openSettings = openSettings, entryVersion = entryVersion,

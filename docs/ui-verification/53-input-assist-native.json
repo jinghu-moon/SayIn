@@ -1,0 +1,113 @@
+{
+  "updatedAt": "2026-11-15T20:15:00+08:00",
+  "scope": "Native clipboard and phrase combo panel for the Android speaking screen; shared full page and quick card. Desktop and protocol unchanged.",
+  "reference": {
+    "design": "docs/52-android-clipboard-and-quick-phrases-design.md",
+    "prototype": "refer/SayIn 底部控制区对比.html"
+  },
+  "commits": {
+    "phase1": "514dfdd unify clipboard and phrase draft insertion",
+    "phase2": "ee587eb add encrypted quick phrases and bounded clipboard reads",
+    "phase3": "this commit: combo panel UI, entry, i18n, device UI tests"
+  },
+  "baseline": {
+    "androidJvm": 58,
+    "translationJvm": 1,
+    "deviceRegular": 53,
+    "deviceImage": 4,
+    "debugBuild": "pass",
+    "i18n": "pass"
+  },
+  "android": {
+    "device": "Redmi K40 / API 33",
+    "isolatedApplicationId": "seeyuer.sayin.imagetest",
+    "jvm": {
+      "app": { "tests": 85, "failures": 0, "errors": 0, "skipped": 0 },
+      "translation": { "tests": 1, "failures": 0, "errors": 0, "skipped": 0 },
+      "new": {
+        "DraftAssistTest": 8,
+        "PhraseLibraryTest": 15,
+        "ClipboardTextTest": 4
+      }
+    },
+    "device": {
+      "regular": { "tests": 93, "failures": 0, "fakeInputCalls": 2 },
+      "image": { "tests": 4, "failures": 0, "fakeInputCalls": 1 },
+      "new": {
+        "AssistInsertionInstrumentedTest": 11,
+        "AssistStorageInstrumentedTest": 4,
+        "AssistPanelInstrumentedTest": 25
+      },
+      "suite": "scripts/verify_android_transport.ps1 -FullSuite",
+      "isolatedIdentity": "independent host/device identities and random ports; daily app not replaced"
+    },
+    "static": {
+      "assembleDebug": "pass",
+      "lintDebug": "pass",
+      "checkI18n": "pass (en, zh-Hans; 82 new keys per locale)",
+      "tablerIcons": "31 generated vectors, second run identical",
+      "apk": "no GGUF, no new permission"
+    }
+  },
+  "desktop": {
+    "cargoTestWorkspaceAllTargetsLocked": "pass",
+    "codeChanged": false
+  },
+  "behaviourChecks": {
+    "insertion": [
+      "empty draft",
+      "mid cursor",
+      "reverse and full selection replacement",
+      "invalid selection resolved to end at open",
+      "emoji surrogate boundary",
+      "original edit invalidates translation",
+      "translation insert keeps original",
+      "one undo step and redo",
+      "4001 code points rejected without truncation",
+      "recording/frozen/restoring blocked",
+      "stale ticket after text change, second begin and reopen"
+    ],
+    "clipboard": [
+      "plain text, HTML with text, empty, image, URI, intent, multiple items",
+      "sensitive masked until explicit reveal",
+      "no focus and read failure offer retry",
+      "64000/64001 UTF-16 units and invalid reasons",
+      "clear confirmation cancel, confirm, stale content rejection",
+      "no listener, polling, background read or disk persistence"
+    ],
+    "phrases": [
+      "empty library and add/edit/delete with six-second undo",
+      "duplicate and 100-item limit rejection",
+      "clear-all cancel, confirm, stale revision rejection",
+      "pointer drag and keyboard reorder persisted across remount",
+      "editor save above the soft keyboard",
+      "encrypted roundtrip, wrong key/tamper refusal, serialized concurrent adds"
+    ],
+    "ui": [
+      "entry disabled while recording/frozen/restoring and enabled for a plain draft",
+      "open/close/scrim/back and focus return to the entry",
+      "tab memory across open",
+      "row tap inserts and closes; menu paste keeps the panel and rotates the ticket",
+      "connection and image sheets close the panel",
+      "48dp targets and content descriptions",
+      "320dp width, 200% text and quick-card mount",
+      "five tools plus narrow-width stacking and overflow fallback"
+    ]
+  },
+  "defectsFoundAndFixed": [
+    "selected tab underline with fillMaxWidth collapsed the other tab to 0dp so a tap hit Close",
+    "clipboard read used the overlay window's focus instead of the Activity window -> always unavailable",
+    "clipboard clear verified inside the confirmation dialog where reads are refused",
+    "PhraseCodec structural IllegalArgumentException was reported as TOO_LONG",
+    "Miuix clickable-only buttons cannot take input focus in touch mode, breaking default-cancel focus and focus return",
+    "editor save action was covered by the soft keyboard; the overlay window receives no IME insets",
+    "minimal-height layout had no route to the panel",
+    "test fixtures used non-UUID phrase ids"
+  ],
+  "limitations": [
+    "Cross-app clipboard history is impossible for a non-IME app on Android 10+ (CDD C-0-1: clipboard data only for the default IME or the focused app); only the last copy is readable",
+    "Clipboard clear snapshot comparison cannot distinguish two different non-text clips (both classify as NoText)",
+    "Long-drag edge auto-scroll ergonomics and full TalkBack/RTL walkthrough are not covered by automation",
+    "Device tests overwrite and restore the isolated test process clipboard; the daily package is untouched"
+  ]
+}

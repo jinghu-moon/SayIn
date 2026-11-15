@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 /** Feature UI references meaning; upstream icon names remain within the design system. */
 enum class VoiceLinkIcon {
-    Input, Computer, Send, Microphone, History, Settings, Scan, Wifi, Check, Alert, Shield, Close, Stop, Clear, ChevronRight, ChevronDown, Cloud, Phone, More, Undo, Redo, Translate, Photo, Copy, Automatic, ArrowUp, Retry;
+    Input, Computer, Send, Microphone, History, Settings, Scan, Wifi, Check, Alert, Shield, Close, Stop, Clear, ChevronRight, ChevronDown, Cloud, Phone, More, Undo, Redo, Translate, Photo, Copy, Automatic, ArrowUp, Retry, Clipboard, Plus, ArrowLeft, GripVertical;
 
     val vector: ImageVector
         get() = when (this) {
@@ -35,5 +35,9 @@ enum class VoiceLinkIcon {
             Automatic -> TablerVectors.Automatic
             ArrowUp -> TablerVectors.ArrowUp
             Retry -> TablerVectors.Retry
+            Clipboard -> TablerVectors.Clipboard
+            Plus -> TablerVectors.Plus
+            ArrowLeft -> TablerVectors.ArrowLeft
+            GripVertical -> TablerVectors.GripVertical
         }
 }

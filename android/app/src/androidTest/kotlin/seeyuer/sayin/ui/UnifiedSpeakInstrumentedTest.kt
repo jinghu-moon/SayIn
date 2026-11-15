@@ -51,10 +51,11 @@ class UnifiedSpeakInstrumentedTest {
                 SpeakSession(context, initial, recognition = engine).also { it.selectSource(SpeakInputSource.Local); session = it; it.onSendReady = { sends++ } }
             }
             DisposableEffect(retained) { onDispose { retained.close() } }
+            val phrases = rememberTestPhraseLibrary()
             CompositionLocalProvider(LocalContext provides context) {
                 VoiceLinkTheme {
                     Box(Modifier.size(360.dp, 680.dp)) {
-                        VoiceLinkContent(receiver, retained, { sends++ }, { _, _ -> }, {}, quick = quick)
+                        VoiceLinkContent(receiver, retained, phrases, { sends++ }, { _, _ -> }, {}, quick = quick)
                     }
                 }
             }

@@ -41,6 +41,10 @@ ICONS = {
     "ArrowUp": "arrow-up",
     "Retry": "refresh",
     "Photo": "photo",
+    "Clipboard": "clipboard-text",
+    "Plus": "plus",
+    "ArrowLeft": "arrow-left",
+    "GripVertical": "grip-vertical",
 }
 
 

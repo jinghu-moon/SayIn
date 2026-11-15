@@ -223,6 +223,41 @@ internal object TablerVectors {
         )
     }
 
+    val Clipboard: ImageVector by lazy {
+        outline("Tabler.clipboard-text",
+            "M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2",
+            "M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2",
+            "M9 12h6",
+            "M9 16h6"
+        )
+    }
+
+    val Plus: ImageVector by lazy {
+        outline("Tabler.plus",
+            "M12 5l0 14",
+            "M5 12l14 0"
+        )
+    }
+
+    val ArrowLeft: ImageVector by lazy {
+        outline("Tabler.arrow-left",
+            "M5 12l14 0",
+            "M5 12l6 6",
+            "M5 12l6 -6"
+        )
+    }
+
+    val GripVertical: ImageVector by lazy {
+        outline("Tabler.grip-vertical",
+            "M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+        )
+    }
+
     private fun outline(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { path ->

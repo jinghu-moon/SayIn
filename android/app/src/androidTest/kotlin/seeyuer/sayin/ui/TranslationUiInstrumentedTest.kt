@@ -87,7 +87,8 @@ class TranslationUiInstrumentedTest {
                 }
                 VoiceLinkTheme {
                     Box(Modifier.size(360.dp, if (quick) 400.dp else 680.dp)) {
-                        SpeakPage(retained.receiver, retained, { if (retained.markSubmitted()) sends++ }, {},
+                        SpeakPage(retained.receiver, retained, rememberTestPhraseLibrary(),
+                            { if (retained.markSubmitted()) sends++ }, {},
                             quick = quick, connectionOpen = imageOpen, onImage = { imageRequests++; imageOpen = true })
                     }
                 }
