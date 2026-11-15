@@ -246,7 +246,7 @@ button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .assist-text{flex:1;min-width:0;border:0;background:none;text-align:left;min-height:56px;padding:12px;font-size:16px;cursor:pointer;white-space:pre-wrap;overflow-wrap:anywhere}
 .assist-text span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .assist-row>.ib{width:48px;height:48px;flex:none}
-.assist-actions{position:absolute;right:8px;top:48px;z-index:2;min-width:150px;padding:4px;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 22px rgba(0,0,0,.14);border-radius:16px}
+.assist-actions{position:absolute;right:8px;top:48px;z-index:4;min-width:150px;padding:4px;background:var(--card);border:1px solid var(--line);box-shadow:0 6px 22px rgba(0,0,0,.14);border-radius:16px;overflow-y:auto;overscroll-behavior:contain}
 .assist-actions button{display:block;min-height:48px;width:100%;text-align:left;border:0;background:none;padding:10px 14px;border-radius:12px;cursor:pointer}
 .assist-actions button:hover{background:var(--page)}
 .assist-empty{height:100%;min-height:150px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:16px;text-align:center;color:var(--mute)}
@@ -263,6 +263,18 @@ button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 .assist-privacy{padding:4px 12px;color:var(--mute);font-size:12px}
 .assist-footer{padding:0 16px 12px;flex:none}
 .assist-footer>.assist-primary{width:100%}
+.assist-clear{width:100%;min-height:48px;border:0;border-radius:24px;background:var(--page);color:var(--mute);font-weight:600;cursor:pointer}
+.assist-clear:disabled{opacity:.35;cursor:default}
+.assist-drag{touch-action:none;cursor:grab;color:var(--faint)}
+.assist-row.dragging{background:var(--page);box-shadow:0 4px 14px rgba(0,0,0,.14);outline:1px solid var(--line);z-index:3}
+.assist-row.dragging .assist-drag{cursor:grabbing;color:var(--brand)}
+.assist-confirm{position:absolute;inset:0;z-index:10;background:rgba(0,0,0,.3);display:grid;place-items:center;padding:24px}
+.assist-confirm-card{width:100%;max-width:320px;background:var(--card);border-radius:24px;padding:24px;box-shadow:0 12px 32px rgba(0,0,0,.18)}
+.assist-confirm-card h2{font-size:18px;margin-bottom:12px}
+.assist-confirm-card p{font-size:14px;color:var(--mute);line-height:1.7;margin-bottom:20px}
+.assist-confirm-buttons{display:flex;gap:8px}
+.assist-confirm-buttons button{flex:1;min-height:48px;border:0;border-radius:24px;background:var(--page);color:var(--fg);cursor:pointer}
+.assist-confirm-buttons .danger{background:var(--error-bg);color:var(--error);font-weight:650}
 .toast{z-index:12}
 .assist button:active{transform:none}
 @media(max-width:350px){.cf{grid-template-columns:repeat(5,minmax(48px,1fr))}.cf>.cnt{grid-column:1/-1;grid-row:1;padding-bottom:4px}.cf>.ib{grid-row:2}.cf>.vw{grid-row:1}}
@@ -294,6 +306,12 @@ button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
 <symbol id="i-er" viewBox="0 0 24 24"><path d="M19 20h-10.5l-4.2-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5 5a1 1 0 0 1 0 1.4l-9.2 9.3M18 13.3 11.7 7"/></symbol>
 <symbol id="i-lang" viewBox="0 0 24 24"><path d="M4 5h7M9 3v2c0 4.4-2.2 8-5 8M5 9c0 2.1 3 3.9 6.7 4M12 20l4-9 4 9M19.1 18h-6.2"/></symbol>
 <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3v7h6l-8 11v-7H5z"/></symbol>
+<symbol id="i-grip" viewBox="0 0 24 24"><path d="M8 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M8 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M8 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M14 5a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M14 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" />
+  <path d="M14 19a1 1 0 1 0 2 0a1 1 0 1 0 -2 0" /></symbol>
 <symbol id="i-clipboard" viewBox="0 0 24 24"><path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2" />
   <path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2" />
   <path d="M9 12h6" />
@@ -397,7 +415,14 @@ button:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
         </div>
       </div>
       <div class="assist-footer" id="assist-save-row" hidden><button class="assist-primary" id="assist-save">保存</button></div>
+      <div class="assist-footer" id="assist-clear-row"><button class="assist-clear" id="assist-clear">清除全部</button></div>
     </section>
+    <div class="assist-confirm" id="assist-confirm" hidden>
+      <section class="assist-confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="assist-confirm-title" aria-describedby="assist-confirm-text">
+        <h2 id="assist-confirm-title">清除全部？</h2><p id="assist-confirm-text"></p>
+        <div class="assist-confirm-buttons"><button id="assist-clear-cancel">取消</button><button id="assist-clear-confirm" class="danger">清除</button></div>
+      </section>
+    </div>
   </div>
 </template>
 <div class="stage" id="st"></div>
@@ -437,7 +462,7 @@ const assist=$('#assist');
 let assistTab='clipboard',assistMode='list',assistTicket=null,assistEditId=null,assistDirty=false,assistLastTab='clipboard';
 let simulatedClip='收到，我稍后回复你。',clipState='text',clipSnapshot=null;
 let phrases=[{id:'p1',text:'收到，我稍后回复你。'},{id:'p2',text:'我正在开会，结束后联系你。'},{id:'p3',text:'这部分已确认，可以继续。'}];
-let nextPhrase=4,lastSelection=null,phraseUndo=null;
+let nextPhrase=4,lastSelection=null,phraseUndo=null,assistDrag=null,clearTicket=null;
 const assistEditable=()=>['idle','failed'].includes(s)&&!trl&&!composing;
 const countCodePoints=value=>[...value].length;
 const invalidText=value=>{
@@ -457,6 +482,7 @@ document.addEventListener('selectionchange',captureSelection);
 const closeAssist=(discard=false)=>{
   if(!discard&&assistMode=='editor'&&assistDirty){toast('内容尚未保存，请保存或点返回放弃',false,true);return}
   assist.hidden=true;assistMode='list';assistTicket=null;clipSnapshot=null;assistDirty=false;
+  assistDrag=null;clearTicket=null;$('#assist-confirm').hidden=true;$('.assist-panel').inert=false;
   $('#assist-list').replaceChildren();$('#phrase-content').value='';
   $('.talk').inert=false;$('.top').inert=false;$('.nav').inert=false;
   $('#assist-open').setAttribute('aria-expanded','false');$('#assist-open').focus({preventScroll:true});
@@ -465,6 +491,7 @@ const showAssistList=()=>{
   assistMode='list';assistDirty=false;
   $('#assist-editor').hidden=true;$('#assist-save-row').hidden=true;$('#assist-back').hidden=true;$('#assist-editor-title').hidden=true;
   $('.assist-tabs').hidden=false;$('#assist-list').hidden=false;$('#assist-add').hidden=assistTab!='phrases';
+  $('#assist-clear-row').hidden=false;$('#assist-clear').disabled=assistTab=='phrases'?!phrases.length:!['text','image'].includes(clipState)||clipState=='text'&&!clipSnapshot?.trim();
   $$('.assist-tabs button').forEach(b=>{b.setAttribute('aria-selected',b.dataset.assistTab==assistTab);b.tabIndex=b.dataset.assistTab==assistTab?0:-1});
   $('#assist-list').setAttribute('aria-labelledby',assistTab=='clipboard'?'assist-clip-tab':'assist-phrase-tab');
   const list=$('#assist-list');list.replaceChildren();
@@ -475,8 +502,9 @@ const showAssistList=()=>{
     if(action){const b=document.createElement('button');b.className='assist-primary';b.textContent=action[0];b.onclick=action[1];e.append(b)}
     list.append(e);
   };
-  const row=(text,actions)=>{
+  const row=(text,actions,id=null)=>{
     const r=document.createElement('div');r.className='assist-row';
+    if(id){r.dataset.phraseId=id;const grip=document.createElement('button');grip.className='ib assist-drag';grip.title='拖动排序';grip.setAttribute('aria-label','拖动排序：'+text);grip.innerHTML='<svg class="i"><use href="#i-grip"/></svg>';r.append(grip);enablePhraseDrag(grip,r,id)}
     const body=document.createElement('button');body.className='assist-text';body.title=text;body.setAttribute('aria-label','插入：'+text);
     const preview=document.createElement('span');preview.textContent=text;body.append(preview);body.onclick=()=>insertAssist(text);
     const more=document.createElement('button');more.className='ib';more.title='更多操作';more.setAttribute('aria-label','更多操作');more.setAttribute('aria-expanded','false');
@@ -487,6 +515,7 @@ const showAssistList=()=>{
       list.querySelectorAll('.assist-row>.ib').forEach(b=>b.setAttribute('aria-expanded','false'));more.setAttribute('aria-expanded','true');
       const menu=document.createElement('div');menu.className='assist-actions';menu.setAttribute('role','menu');
       actions.forEach(([label,action])=>{const b=document.createElement('button');b.textContent=label;b.setAttribute('role','menuitem');b.onclick=action;menu.append(b)});r.append(menu);
+      const bounds=list.getBoundingClientRect(),anchor=r.getBoundingClientRect();menu.style.maxHeight=Math.max(48,list.clientHeight-8)+'px';const height=menu.getBoundingClientRect().height;menu.style.top=(Math.max(bounds.top+4,Math.min(anchor.top+48,bounds.bottom-height-4))-anchor.top)+'px';
     };
     r.append(body,more);list.append(r);
   };
@@ -494,9 +523,45 @@ const showAssistList=()=>{
     if(clipState=='denied')empty('暂时无法读取剪贴板','请回到应用后重试，草稿不会改变。',['重试',()=>{clipState='text';clipSnapshot=simulatedClip;showAssistList()}]);
     else if(clipState=='image')empty('剪贴板中没有文字','图片请使用草稿工具栏的图片入口。');
     else if(clipState=='empty'||!clipSnapshot?.trim())empty('剪贴板暂无文字','复制一段文字后，重新打开此标签。');
-    else row(clipSnapshot,[['保存为常用语',()=>editPhrase(null,clipSnapshot)]]);
+    else row(clipSnapshot,[['复制',()=>copyAssist(clipSnapshot)],['粘贴',()=>insertAssist(clipSnapshot,true)],['保存为常用语',()=>editPhrase(null,clipSnapshot)]]);
   }else if(!phrases.length)empty('还没有常用语','保存经常输入的内容，下次点一下即可插入。',['添加常用语',()=>editPhrase(null,'')]);
-  else phrases.forEach((p,index)=>row(p.text,[['编辑',()=>editPhrase(p.id,p.text)],['删除',()=>{phrases=phrases.filter(x=>x.id!=p.id);showAssistList();toast('已删除常用语',true);phraseUndo={item:p,index};$('#tu').disabled=false}]]));
+  else phrases.forEach((p,index)=>row(p.text,[['复制',()=>copyAssist(p.text)],['粘贴',()=>insertAssist(p.text,true)],['编辑',()=>editPhrase(p.id,p.text)],['删除',()=>{phrases=phrases.filter(x=>x.id!=p.id);showAssistList();toast('已删除常用语',true);phraseUndo={item:p,index};$('#tu').disabled=false}]],p.id));
+};
+const copyAssist=text=>{simulatedClip=text;clipState='text';if(assistTab=='clipboard')clipSnapshot=text;showAssistList();toast('已复制（演示）')};
+const enablePhraseDrag=(grip,row,id)=>{
+  const finish=cancel=>{
+    const drag=assistDrag;if(!drag||drag.id!==id)return;assistDrag=null;
+    if(drag.started&&!cancel){const ids=[...$('#assist-list').querySelectorAll('[data-phrase-id]')].map(x=>x.dataset.phraseId);phrases=ids.map(key=>phrases.find(x=>x.id===key));}
+    showAssistList();if(drag.started&&!cancel)toast('顺序已更新');
+  };
+  grip.onpointerdown=e=>{if(e.button!==0||assistDrag)return;e.preventDefault();assistDrag={id,pointerId:e.pointerId,startY:e.clientY,started:false};const list=$('#assist-list');list.onpointermove=grip.onpointermove;list.onpointerup=grip.onpointerup;list.onpointercancel=grip.onpointercancel;list.onlostpointercapture=grip.onlostpointercapture;list.setPointerCapture(e.pointerId)};
+  grip.onpointermove=e=>{
+    const drag=assistDrag;if(!drag||drag.id!==id||drag.pointerId!==e.pointerId)return;
+    if(!drag.started&&Math.abs(e.clientY-drag.startY)<6)return;drag.started=true;row.classList.add('dragging');
+    const list=$('#assist-list');list.querySelectorAll('.assist-actions').forEach(x=>x.remove());
+    const others=[...list.querySelectorAll('[data-phrase-id]')].filter(x=>x!==row);
+    const next=others.find(x=>{const r=x.getBoundingClientRect();return e.clientY<r.top+r.height/2});list.insertBefore(row,next||null);
+    const bounds=list.getBoundingClientRect();if(e.clientY<bounds.top+32)list.scrollTop-=12;else if(e.clientY>bounds.bottom-32)list.scrollTop+=12;
+  };
+  grip.onpointerup=()=>finish(false);grip.onpointercancel=()=>finish(true);grip.onlostpointercapture=()=>finish(true);
+  grip.onkeydown=e=>{
+    if(!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();const index=phrases.findIndex(x=>x.id===id),to=index+(e.key==='ArrowUp'?-1:1);
+    if(to<0||to>=phrases.length)return;const [item]=phrases.splice(index,1);phrases.splice(to,0,item);showAssistList();$('#assist-list').querySelector('[data-phrase-id="'+id+'"] .assist-drag').focus();toast('已移至第 '+(to+1)+' 位');
+  };
+};
+const cancelClear=()=>{clearTicket=null;$('#assist-confirm').hidden=true;$('.assist-panel').inert=false;$('#assist-clear').focus({preventScroll:true})};
+$('#assist-clear').onclick=()=>{
+  if($('#assist-clear').disabled)return;clearTicket={tab:assistTab,ids:phrases.map(x=>x.id).join(','),clip:simulatedClip,state:clipState};
+  $('#assist-confirm-title').textContent=assistTab=='phrases'?'清除全部常用语？':'清除剪贴板？';
+  $('#assist-confirm-text').textContent=assistTab=='phrases'?'将删除全部 '+phrases.length+' 条常用语，无法撤销。草稿和剪贴板不会改变。':'将清除当前剪贴板内容。草稿和常用语不会改变。';
+  $('.assist-panel').inert=true;$('#assist-confirm').hidden=false;$('#assist-clear-cancel').focus();
+};
+$('#assist-clear-cancel').onclick=cancelClear;
+$('#assist-clear-confirm').onclick=()=>{
+  const t=clearTicket;if(!t)return;
+  if(t.tab!==assistTab||t.tab=='phrases'&&t.ids!==phrases.map(x=>x.id).join(',')||t.tab=='clipboard'&&(t.clip!==simulatedClip||t.state!==clipState)){cancelClear();toast('内容已变化，请重新确认',false,true);return}
+  if(t.tab=='phrases')phrases=[];else{simulatedClip='';clipSnapshot=null;clipState='empty'}
+  cancelClear();showAssistList();toast(t.tab=='phrases'?'已清除全部常用语':'已清除剪贴板（演示）');
 };
 const openAssist=(tabName=assistLastTab)=>{
   if(!assistEditable())return;
@@ -507,14 +572,15 @@ const openAssist=(tabName=assistLastTab)=>{
   assist.hidden=false;$('.talk').inert=true;$('.top').inert=true;$('.nav').inert=true;
   $('#assist-open').setAttribute('aria-expanded','true');showAssistList();set();$('#assist-'+(tabName=='clipboard'?'clip':'phrase')+'-tab').focus({preventScroll:true});
 };
-const insertAssist=text=>{
+const insertAssist=(text,keepOpen=false)=>{
   const t=assistTicket;
   if(!assistEditable()||!t||t.text!==txt||t.view!==view||t.revision!==historyRevision){closeAssist(true);toast('草稿已变化，请重新选择插入位置',false,true);return}
   const next=txt.slice(0,t.start)+text+txt.slice(t.end),error=invalidText(next);
   if(error){toast(error+'，未插入',false,true);return}
   const before=snapshot();txt=next;if(trs){if(view=='t')trans=txt;else{trs=0;orig='';trans='';view='o'}}
   s='idle';sendIntent=false;allowAuto=0;remember(before);lastSelection={text:txt,start:t.start+text.length,end:t.start+text.length};
-  closeAssist(true);set();toast('已插入，可撤销');
+  if(keepOpen){assistTicket={text:txt,view,revision:historyRevision,start:lastSelection.start,end:lastSelection.end};showAssistList()}
+  else closeAssist(true);set();toast(keepOpen?'已粘贴，可撤销':'已插入，可撤销');
 };
 const validatePhrase=()=>{
   const text=$('#phrase-content').value;const error=invalidText(text)||(phrases.some(p=>p.id!=assistEditId&&p.text===text)?'这条常用语已存在':'');
@@ -524,6 +590,7 @@ const editPhrase=(id,text)=>{
   if(!id&&phrases.length>=100){toast('最多保存 100 条常用语',false,true);return}
   assistMode='editor';assistEditId=id;assistDirty=false;
   $('#assist-list').hidden=true;$('.assist-tabs').hidden=true;$('#assist-add').hidden=true;
+  $('#assist-clear-row').hidden=true;
   $('#assist-back').hidden=false;$('#assist-editor-title').hidden=false;$('#assist-editor-title').textContent=id?'编辑常用语':'新增常用语';
   $('#assist-editor').hidden=false;$('#assist-save-row').hidden=false;$('#phrase-content').value=text;validatePhrase();$('#phrase-content').focus({preventScroll:true});
 };
@@ -539,8 +606,8 @@ $('#assist-save').onclick=()=>{
 };
 $$('.assist-tabs button').forEach(b=>{b.onclick=()=>{assistTab=b.dataset.assistTab;assistLastTab=assistTab;clipSnapshot=assistTab=='clipboard'&&clipState=='text'?simulatedClip:null;showAssistList()};b.onkeydown=e=>{if(['ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();const other=$$('.assist-tabs button').find(x=>x!=b);other.click();other.focus()}}});
 assist.addEventListener('keydown',e=>{
-  if(e.key=='Escape'){e.preventDefault();e.stopPropagation();if(assistMode=='editor')$('#assist-back').click();else closeAssist();return}
-  if(e.key=='Tab'){const nodes=[...assist.querySelectorAll('button:not(:disabled),textarea')].filter(x=>x.getClientRects().length);const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement==first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement==last){e.preventDefault();first.focus()}}
+  if(e.key=='Escape'){e.preventDefault();e.stopPropagation();if(clearTicket)cancelClear();else if(assistDrag){assistDrag=null;showAssistList()}else if(assistMode=='editor')$('#assist-back').click();else closeAssist();return}
+  if(e.key=='Tab'){const root=clearTicket?$('#assist-confirm'):assist;const nodes=[...root.querySelectorAll('button:not(:disabled),textarea')].filter(x=>x.getClientRects().length&&!x.closest('[inert]'));const first=nodes[0],last=nodes.at(-1);if(e.shiftKey&&document.activeElement==first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement==last){e.preventDefault();first.focus()}}
 });
 P.showAssistDemo=state=>{closeAssist(true);P.jump('text');if(state=='empty-phrases')phrases=[];clipState=['empty','denied','image'].includes(state)?state:'text';openAssist(state.includes('phrases')?'phrases':'clipboard')};
 const travel=redo=>{if((s!='idle'&&s!='failed')||trl||composing)return;const from=redo?future:past,to=redo?past:future;if(!from.length)return;k++;tailCycle++;sendIntent=false;to.push(snapshot());restore(from.pop());historyRevision++;editAt=0;editKind='';clearRevision=-1;ts.classList.remove('on');set()};
