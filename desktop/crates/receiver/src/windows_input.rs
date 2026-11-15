@@ -439,7 +439,7 @@ impl InputAdapter for NativeInput {
             prepared_image = Some(
                 image
                     .metadata
-                    .verify_image(&bytes)
+                    .prepare_image(&bytes)
                     .map_err(|_| "image_invalid")?,
             );
             if self.clipboard_owner.is_none() {

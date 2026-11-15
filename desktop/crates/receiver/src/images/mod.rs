@@ -83,7 +83,7 @@ impl ImageMetadata {
         }
         Ok(())
     }
-    pub fn verify_image(&self, bytes: &[u8]) -> Result<payload::PreparedImage> {
+    fn decode(&self, bytes: &[u8]) -> Result<image::DynamicImage> {
         self.verify_bytes(bytes)?;
         let format = image::guess_format(bytes).map_err(|_| Error::Protocol("IMAGE_FORMAT"))?;
         if !matches!(
@@ -92,11 +92,18 @@ impl ImageMetadata {
         ) {
             return Err(Error::Protocol("IMAGE_FORMAT"));
         }
-        let prepared = payload::prepare(bytes).map_err(Error::Protocol)?;
-        if (self.width, self.height) != (prepared.width, prepared.height) {
+        let decoded = payload::decode(bytes).map_err(Error::Protocol)?;
+        if (self.width, self.height) != (decoded.width(), decoded.height()) {
             return Err(Error::Protocol("IMAGE_DIMENSIONS"));
         }
-        Ok(prepared)
+        Ok(decoded)
+    }
+    /// Validate the entire image before persistence, without clipboard formats.
+    pub fn verify_image(&self, bytes: &[u8]) -> Result<()> {
+        self.decode(bytes).map(|_| ())
+    }
+    pub fn prepare_image(&self, bytes: &[u8]) -> Result<payload::PreparedImage> {
+        payload::prepare_decoded(self.decode(bytes)?).map_err(Error::Protocol)
     }
 }
 

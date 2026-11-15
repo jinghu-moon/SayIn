@@ -175,12 +175,16 @@ fn metadata_must_describe_the_actual_supported_image_not_a_claimed_mime() {
     let bytes = png();
     let meta = metadata(&bytes);
     meta.verify_image(&bytes).unwrap();
+    let prepared = meta.prepare_image(&bytes).unwrap();
+    assert_eq!((prepared.width, prepared.height), (meta.width, meta.height));
     let mut wrong = meta.clone();
     wrong.mime = ImageMime::Jpeg;
     assert!(wrong.verify_image(&bytes).is_err());
+    assert!(wrong.prepare_image(&bytes).is_err());
     let mut wrong = meta.clone();
     wrong.width += 1;
     assert!(wrong.verify_image(&bytes).is_err());
+    assert!(wrong.prepare_image(&bytes).is_err());
     let mut wrong = meta.clone();
     wrong.sha256 = wrong.sha256.to_uppercase();
     assert!(wrong.validate().is_err());
@@ -192,6 +196,15 @@ fn metadata_must_describe_the_actual_supported_image_not_a_claimed_mime() {
     wrong.height = u32::MAX;
     assert!(wrong.validate().is_err());
     assert!(metadata(&[1, 2, 3]).verify_image(&[1, 2, 3]).is_err());
+    // A valid header is insufficient: a damaged compressed payload must fail
+    // both persistence validation and clipboard preparation, even with a new hash.
+    let mut damaged = bytes.clone();
+    let idat = damaged.windows(4).position(|part| part == b"IDAT").unwrap();
+    damaged[idat + 4] ^= 0xff; // corrupt the zlib stream, retain the full header/container
+    let mut corrupt = meta;
+    corrupt.sha256 = digest(&damaged);
+    assert!(corrupt.verify_image(&damaged).is_err());
+    assert!(corrupt.prepare_image(&damaged).is_err());
 }
 
 #[test]

@@ -26,7 +26,9 @@ fn dimensions(width: u32, height: u32) -> Result<usize, &'static str> {
     usize::try_from(pixels * 4).map_err(|_| "image_allocation")
 }
 
-pub fn prepare(encoded: &[u8]) -> Result<PreparedImage, &'static str> {
+// Full decoding is shared by upload validation and clipboard preparation.
+// Upload validation must not pay for PNG encoding or allocate a discarded DIB.
+pub(crate) fn decode(encoded: &[u8]) -> Result<DynamicImage, &'static str> {
     if encoded.is_empty() || encoded.len() > MAX_ENCODED {
         return Err("image_bytes");
     }
@@ -54,6 +56,15 @@ pub fn prepare(encoded: &[u8]) -> Result<PreparedImage, &'static str> {
     let orientation = decoder.orientation().map_err(|_| "image_orientation")?;
     let mut decoded = DynamicImage::from_decoder(decoder).map_err(|_| "image_decode")?;
     decoded.apply_orientation(orientation);
+    dimensions(decoded.width(), decoded.height())?;
+    Ok(decoded)
+}
+
+pub fn prepare(encoded: &[u8]) -> Result<PreparedImage, &'static str> {
+    prepare_decoded(decode(encoded)?)
+}
+
+pub(crate) fn prepare_decoded(decoded: DynamicImage) -> Result<PreparedImage, &'static str> {
     let (width, height) = (decoded.width(), decoded.height());
     let byte_count = dimensions(width, height)?;
     let rgba = decoded.to_rgba8();
