@@ -287,4 +287,27 @@
     <string name="error_discovery">Couldn’t find your paired computer. Check that both devices are on the same local network, or update its address in connection help.</string>
     <string name="error_candidate_connection">Found a possible computer, but couldn’t authenticate the connection. Your pairing is retained. Check the computer or update its address.</string>
     <string name="discovering_computer">Finding your computer…</string>
+    <string name="translation_action">Translate to English</string>
+    <string name="translation_original">Original</string>
+    <string name="translation_english">English translation</string>
+    <string name="translation_send">Send translation</string>
+    <string name="translation_manual_hint">Review or edit the translation, then send it manually. The original is retained.</string>
+    <string name="translation_generating">Translating on this phone…</string>
+    <string name="translation_verifying">Checking model integrity: %1$d%%</string>
+    <string name="translation_loading">Loading local model: %1$d%%</string>
+    <string name="translation_stopping">Stopping local translation…</string>
+    <string name="translation_complete">Translation ready. Check names, numbers, code and meaning before sending.</string>
+    <string name="translation_cancelled">Translation cancelled. The original is retained.</string>
+    <string name="translation_truncated">Translation reached the output limit and is incomplete. It cannot be sent.</string>
+    <string name="translation_input_limit">The original exceeds 1,024 model tokens. Shorten it and translate again.</string>
+    <string name="translation_timeout">Translation timed out. The original is retained; retry manually.</string>
+    <string name="translation_model_unavailable">The local model is missing or failed integrity checks. Prepare it again. The original is retained.</string>
+    <string name="translation_error">Local translation failed. The original is retained. No cloud service was used.</string>
+    <string name="translation_prepare_title">Prepare offline translation</string>
+    <string name="translation_prepare_description">Download the selected Hy-MT2 model (1.13 GB) and verify its integrity. At least 1.15 GB of additional storage is needed during preparation. Later translations run on this phone without uploading text. The download does not translate or send your draft.</string>
+    <string name="translation_prepare_download">Download and prepare model</string>
+    <string name="translation_import_development">Import verified local model (development)</string>
+    <string name="translation_preparing">Preparing translation model: %1$d%%</string>
+    <string name="translation_preparing_verify">Verifying downloaded model: %1$d%%</string>
+    <string name="translation_prepare_failed">Model preparation failed. Check storage and connection, then try again. Your original is retained.</string>
 </resources>

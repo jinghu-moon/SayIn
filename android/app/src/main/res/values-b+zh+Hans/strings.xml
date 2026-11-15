@@ -283,4 +283,27 @@
     <string name="error_discovery">未找到已配对电脑。请确认手机与电脑在同一局域网，也可在连接帮助中更新地址。</string>
     <string name="error_candidate_connection">已发现候选电脑，但未能完成连接认证。配对信息已保留，请检查电脑或更新地址。</string>
     <string name="discovering_computer">正在查找电脑…</string>
+    <string name="translation_action">翻译成英文</string>
+    <string name="translation_original">原文</string>
+    <string name="translation_english">英文译文</string>
+    <string name="translation_send">发送译文</string>
+    <string name="translation_manual_hint">检查或编辑译文后手动发送，原文将保留。</string>
+    <string name="translation_generating">正在手机本地翻译…</string>
+    <string name="translation_verifying">正在校验模型完整性：%1$d%%</string>
+    <string name="translation_loading">正在加载本地模型：%1$d%%</string>
+    <string name="translation_stopping">正在停止本地翻译…</string>
+    <string name="translation_complete">翻译完成，请核对人名、数字、代码及含义后发送。</string>
+    <string name="translation_cancelled">翻译已取消，原文已保留。</string>
+    <string name="translation_truncated">译文已达到输出上限，内容不完整，不能发送。</string>
+    <string name="translation_input_limit">原文超过模型的 1,024 token 限制，请缩短后重新翻译。</string>
+    <string name="translation_timeout">翻译超时，原文已保留，请手动重试。</string>
+    <string name="translation_model_unavailable">本地模型缺失或完整性校验失败，请重新准备，原文已保留。</string>
+    <string name="translation_error">本地翻译失败，原文已保留，未调用云服务。</string>
+    <string name="translation_prepare_title">准备离线翻译</string>
+    <string name="translation_prepare_description">下载选定的 Hy-MT2 模型（1.13 GB）并校验完整性，准备期间至少需要额外 1.15 GB 存储空间。准备完成后在手机本地翻译，不上传正文。下载不会翻译或发送当前草稿。</string>
+    <string name="translation_prepare_download">下载并准备模型</string>
+    <string name="translation_import_development">导入已核验的本地模型（开发用）</string>
+    <string name="translation_preparing">正在准备翻译模型：%1$d%%</string>
+    <string name="translation_preparing_verify">正在校验下载的模型：%1$d%%</string>
+    <string name="translation_prepare_failed">模型准备失败，请检查存储空间和连接后重试，原文已保留。</string>
 </resources>

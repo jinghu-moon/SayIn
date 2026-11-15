@@ -68,15 +68,17 @@ internal fun SpeakPage(
     val owner = remember { Any() }
     var showPreview by remember { mutableStateOf(false) }
     var showSources by remember { mutableStateOf(false) }
+    var showTranslationPreparation by remember { mutableStateOf(false) }
     var focused by remember { mutableStateOf(false) }
     var permissionPending by remember { mutableStateOf(false) }
     var permissionGranted by remember { mutableStateOf(false) }
     var resumed by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
-    val draft = session.draft
+    val draft = session.displayedDraft
     val asr = session.asr
     val source = session.source
     val normalized = remember(draft.text) { runCatching { normalizedText(draft.text) }.getOrNull() }
-    val sendable = normalized != null && draft.text.isNotBlank() && draft.composition == null && !session.requestLocked && !session.draftRestoring
+    val sendable = normalized != null && draft.text.isNotBlank() && draft.composition == null && !session.requestLocked && !session.draftRestoring &&
+        !session.draftStorageIssue && session.canSendRepresentation
     val preparing = session.preparingToRecord || source == SpeakInputSource.Local && session.model in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
     val activeCountdown = session.interaction.countdown
     val autoLabel = stringResource(R.string.speak_auto_send)
@@ -112,8 +114,26 @@ internal fun SpeakPage(
         session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); onConnect()
     }
     fun edit() { session.edit(); showPreview = false; focus.requestFocus(); keyboard?.show() }
+    fun translate() {
+        session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = false
+        if (session.translationModelReady) session.translateDraft() else showTranslationPreparation = true
+    }
     val hint = when {
         session.draftRestoring -> stringResource(R.string.speak_restoring_draft)
+        session.modelPreparation != null && !session.busy -> stringResource(
+            if (session.modelPreparation!!.stage == seeyuer.sayin.translation.ModelPreparationStage.Verifying) R.string.translation_preparing_verify else R.string.translation_preparing,
+            (100 * session.modelPreparation!!.bytes / session.modelPreparation!!.total.coerceAtLeast(1)).toInt())
+        session.modelPreparationFailed && !session.busy -> stringResource(R.string.translation_prepare_failed)
+        session.translationShown && session.translationStopping -> stringResource(R.string.translation_stopping)
+        session.translationShown && session.translation.running -> {
+            val progress = session.translation.progress
+            when (progress?.stage) {
+                seeyuer.sayin.translation.TranslationStage.Verifying -> stringResource(R.string.translation_verifying, (progress.fraction * 100).toInt())
+                seeyuer.sayin.translation.TranslationStage.Loading -> stringResource(R.string.translation_loading, (progress.fraction * 100).toInt())
+                else -> stringResource(R.string.translation_generating)
+            }
+        }
+        session.translationShown -> stringResource(translationEndText(session.translation.end))
         preparing && source == SpeakInputSource.Cloud -> stringResource(R.string.cloud_connecting)
         preparing -> stringResource(if (session.model == LocalModelPhase.Warming) R.string.speak_model_warming else R.string.speak_model_loading)
         asr.busy -> stringResource(when (asr.phase) {
@@ -151,7 +171,7 @@ internal fun SpeakPage(
                 if (!tight) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!tight) Text(if (asr.phase == RecognitionPhase.Listening) stringResource(R.string.speak_listening_time, recordingSeconds / 60, recordingSeconds % 60)
-                        else stringResource(if (session.busy) R.string.speak_recording else R.string.mobile_draft),
+                        else stringResource(if (session.translationShown) R.string.translation_english else if (session.busy) R.string.speak_recording else R.string.mobile_draft),
                         Modifier.weight(1f), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                     else Spacer(Modifier.weight(1f))
                     Text(autoLabel, Modifier.weight(if (tight) 4f else 2f), fontSize = 12.sp,
@@ -163,10 +183,10 @@ internal fun SpeakPage(
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (showPreview && normalized != null) Text(normalized,
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("draft-preview"), fontSize = 22.sp, lineHeight = 34.sp)
-                    else BasicTextField(draft, { session.changeDraft(it) },
+                    else BasicTextField(draft, { session.changeDisplayedDraft(it) },
                         Modifier.fillMaxSize().focusRequester(focus).onFocusChanged {
                             focused = it.isFocused; if (it.isFocused) session.edit()
-                        }.testTag("draft"), readOnly = session.busy || session.requestLocked || session.draftRestoring,
+                        }.testTag("draft"), readOnly = session.busy || session.requestLocked || session.draftRestoring || session.translationShown && !session.translation.complete,
                         cursorBrush = SolidColor(MiuixTheme.colorScheme.primary),
                         textStyle = MiuixTheme.textStyles.main.copy(fontSize = if (quick) 18.sp else 22.sp,
                             lineHeight = if (quick) 28.sp else 34.sp, color = MiuixTheme.colorScheme.onSurface),
@@ -178,6 +198,7 @@ internal fun SpeakPage(
                             }
                         })
                 }
+                if (!collapsedSources) TranslationControls(session, smallControls, ::translate)
                 if (activeCountdown != null) Row(Modifier.fillMaxWidth().testTag("auto-countdown"), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.speak_countdown, session.secondsRemaining), Modifier.weight(1f), fontSize = 13.sp,
                         color = MiuixTheme.colorScheme.primary)
@@ -250,6 +271,16 @@ internal fun SpeakPage(
                             if (quick || collapsedSources) {
                                 add(DropdownItem(stringResource(R.string.speak_source_title), enabled = !session.busy && !session.requestLocked, onClick = { showSources = true }))
                             }
+                            if (collapsedSources) {
+                                if (session.translation.ticket != null) {
+                                    add(DropdownItem(stringResource(R.string.translation_original), selected = !session.translationShown, onClick = { session.showTranslation(false) }))
+                                    add(DropdownItem(stringResource(R.string.translation_english), selected = session.translationShown, onClick = { session.showTranslation(true) }))
+                                }
+                                if (session.translation.running || session.translationStopping) add(DropdownItem(stringResource(R.string.asr_cancel),
+                                    enabled = !session.translationStopping, onClick = { session.stopTranslation() }))
+                                else if (session.translationPreparing) add(DropdownItem(stringResource(R.string.asr_cancel), onClick = { session.cancelModelPreparation() }))
+                                else add(DropdownItem(stringResource(R.string.translation_action), enabled = session.canTranslateDraft, onClick = ::translate))
+                            }
                             if (quick) {
                                 add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
                             }
@@ -286,7 +317,7 @@ internal fun SpeakPage(
                             else -> { permissionPending = true; microphonePermission.launch(Manifest.permission.RECORD_AUDIO) }
                         }
                     }
-                    SpeakRoundAction(VoiceLinkIcon.Send, R.string.speak_send_to_computer, "send-draft", Modifier.weight(1f),
+                    SpeakRoundAction(VoiceLinkIcon.Send, if (session.translationShown) R.string.translation_send else R.string.speak_send_to_computer, "send-draft", Modifier.weight(1f),
                         enabled = sendable && !session.busy, primary = true, compact = true, showLabel = !tight && !focused) {
                         session.cancelAutoSend(); if (state.ready) onSend() else connect()
                     }
@@ -294,6 +325,7 @@ internal fun SpeakPage(
             }
         }
     }
+    TranslationPreparationSheet(session, showTranslationPreparation) { showTranslationPreparation = false }
     OverlayBottomSheet(show = showSources, onDismissRequest = { showSources = false }) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
             Text(stringResource(R.string.speak_source_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -350,7 +382,7 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
 }
 
 @Composable
-private fun plainTextButtonColors() = ButtonDefaults.textButtonColors(color = Color.Transparent,
+internal fun plainTextButtonColors() = ButtonDefaults.textButtonColors(color = Color.Transparent,
     textColor = MiuixTheme.colorScheme.primary)
 
 private fun reviewText(review: DraftReview): Int = when (review) {

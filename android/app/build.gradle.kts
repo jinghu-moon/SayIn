@@ -8,6 +8,7 @@ plugins {
 
 android {
     namespace = "seeyuer.sayin"
+    testBuildType = providers.gradleProperty("sayinVerificationBuildType").getOrElse("debug")
     compileSdk {
         version = release(37) { minorApiLevel = 0 }
     }
@@ -23,7 +24,7 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     sourceSets["main"].assets.srcDir(rootProject.file("local-asr/assets"))
     androidResources {
         noCompress += "onnx"
@@ -40,11 +41,19 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     buildTypes {
-        debug { isPseudoLocalesEnabled = true }
+        debug {
+            isPseudoLocalesEnabled = true
+            // Explicit test-only install isolation; shipped/default applicationId remains seeyuer.sayin.
+            if (providers.gradleProperty("sayinVerification").orNull == "true") applicationIdSuffix = ".translationverification"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (providers.gradleProperty("sayinVerification").orNull == "true") {
+                applicationIdSuffix = ".translationverification"
+                signingConfig = signingConfigs.getByName("debug")
+            }
         }
     }
 }
@@ -54,6 +63,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":translation"))
     // Reproducible download + model preparation: python scripts/prepare_x_asr.py
     implementation(files(rootProject.file("local-asr/sherpa-onnx-2.0.1.aar")))
     testImplementation(libs.junit)
@@ -64,6 +74,7 @@ dependencies {
     debugImplementation(libs.compose.ui.test.manifest)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.junit)
+    androidTestCompileOnly("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation(libs.okhttp)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)

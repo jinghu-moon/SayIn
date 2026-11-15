@@ -30,7 +30,7 @@ class UnifiedSpeakInstrumentedTest {
     @get:Rule(order = 0) val foreground = object : ExternalResource() {
         override fun before() {
             InstrumentationRegistry.getInstrumentation().uiAutomation.executeShellCommand(
-                "am start -W -n seeyuer.sayin/androidx.activity.ComponentActivity"
+                "am start -W -n ${InstrumentationRegistry.getInstrumentation().targetContext.packageName}/androidx.activity.ComponentActivity"
             ).use { d -> FileInputStream(d.fileDescriptor).use { it.readBytes() } }
         }
     }

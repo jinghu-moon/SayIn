@@ -1,0 +1,13 @@
+{
+  "complete": false,
+  "status": "user_will_verify_full_download",
+  "device": "M2012K11AC",
+  "serial": "dc39c31d",
+  "expectedBytes": 1133080448,
+  "receivedBytesAtStop": 28660657,
+  "stop": "explicit user handoff; force-stopped only isolated test process",
+  "partialFileRemoved": true,
+  "previousVerifiedModelRetained": true,
+  "previousModelSha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+  "claims": "Observed actual HTTPS bytes only; not full download or its final integrity validation."
+}

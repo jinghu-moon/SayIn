@@ -1,0 +1,35 @@
+{
+  "defaultBuild": "Debug + AndroidTest + unsigned Release/R8 + lintDebug + 49 JVM: successful (47s)",
+  "i18n": "passed en/zh-Hans",
+  "packageChecks": "Debug and unsigned Release: all native arm64 dependencies, JNI exports, 16KB ELF/ZIP alignment, notices, no GGUF passed",
+  "gitDiffWhitespace": "passed",
+  "javaSourceFilesInTranslationImplementation": 0,
+  "desktopDependencyCheck": "dependency graph passed; external Yue source snapshot differs from baseline; exit 1; not changed or re-recorded",
+  "artifacts": [
+    {
+      "localIgnoredPath": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 669725329,
+      "sha256": "39a1f9f59894aee72bce97ba400b8e03b571aa874e2864fcb07506d4c575da4d",
+      "installedDailyPackage": false
+    },
+    {
+      "localIgnoredPath": "android/app/build/outputs/apk/release/app-release-unsigned.apk",
+      "bytes": 654800304,
+      "sha256": "0c9b62a7305e52eac3e436ad433285f05616e999aab4b2ba848d6a81ac44b085",
+      "installedDailyPackage": false
+    }
+  ],
+  "releaseAndroidTestBuild": "passed after Kotlin-only external driver refactor; default product package, R8 active",
+  "buildEvidence": [
+    {
+      "localIgnoredPath": "translation-default-final-build.log",
+      "sha256": "9d29baa6c3642da0d496d9142d544c38e9e4c4f3ee92f2752cbd3abf9eddd80a",
+      "bytes": 13231
+    },
+    {
+      "localIgnoredPath": "translation-final-release-androidtest.log",
+      "sha256": "1c822176201774c9602050cd2b1bf3972a4244966894460febd430c17c77b718",
+      "bytes": 5658
+    }
+  ]
+}

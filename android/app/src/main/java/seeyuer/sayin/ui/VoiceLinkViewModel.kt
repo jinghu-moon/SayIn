@@ -53,7 +53,7 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
         repository.foreground(foregroundOwners.isNotEmpty() || speaking.recognition.state.value.busy)
     }
     fun send() {
-        if (speaking.markSubmitted()) repository.send(speaking.draft.text, speaking.draftId, speaking.receiver.receptionScope)
+        if (speaking.markSubmitted()) repository.send(checkNotNull(speaking.submitted).value.text, checkNotNull(speaking.submitted).id, speaking.receiver.receptionScope)
     }
     override fun onCleared() { speaking.close(); repository.close() }
 }

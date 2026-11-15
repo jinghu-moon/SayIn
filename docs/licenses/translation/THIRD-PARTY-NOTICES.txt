@@ -1,0 +1,36 @@
+SayIn local translation
+
+Inference: llama.cpp / ggml
+Revision: 32bdc3a89e6528d3e419024c833c5dabf32c7541
+Copyright (c) 2023-2026 The ggml authors
+License: MIT; see llama.cpp-MIT.txt.
+The original source is obtained and checked by scripts/prepare_translation.py.
+The SayIn JNI bridge is separately maintained; upstream source is not modified.
+
+Additional attributions retained in the pinned CPU inference source:
+- ggml/src/ggml-cpu/ops.cpp: YaRN algorithm, MIT licensed.
+  Copyright (c) 2023 Jeffrey Quesnelle and Bowen Peng.
+  The MIT permission and warranty terms in llama.cpp-MIT.txt apply to this
+  contribution with the above copyright attribution.
+- src/llama-vocab.cpp: BPE tokenizer adapted from cmp-nct/ggllm.cpp, MIT.
+  https://github.com/cmp-nct/ggllm.cpp
+
+Selected downloadable weight: tencent/Hy-MT2-1.8B-GGUF
+Revision: a0c709d9fac510f2c807aa3af52872340dc37a4a
+File: Hy-MT2-1.8B-Q4_K_M.gguf
+SHA-256: dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699
+License: Apache-2.0; see Hy-MT2-Apache-2.0.txt.
+Weights are not modified and are not contained in the APK. They are prepared
+only after an explicit user action. Tencent does not endorse SayIn.
+
+Native C++ runtime: libc++_shared.so from Android NDK 29.0.14206865.
+The complete, unmodified Android SDK toolchain notice is included as
+Android-NDK-29-toolchain-NOTICE.txt to retain runtime license declarations.
+That supplemental SDK notice also describes build tools that are not linked
+or distributed in the application. It is not a statement that every component
+listed there is part of SayIn.
+
+PLaMo weights were evaluated separately and are not distributed by this
+product. Their Community License is retained in the development repository.
+Other existing SayIn dependencies retain their own licenses; this notice
+does not assign a single license to the entire application.

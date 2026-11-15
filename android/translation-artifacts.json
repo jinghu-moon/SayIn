@@ -1,0 +1,60 @@
+{
+  "schema": 1,
+  "defaultModel": "hy-mt2-1.8b-q4",
+  "backend": "CPU",
+  "ndk": "29.0.14206865",
+  "cmake": "3.22.1",
+  "llama": {
+    "repository": "https://github.com/ggml-org/llama.cpp",
+    "revision": "32bdc3a89e6528d3e419024c833c5dabf32c7541",
+    "archiveUrl": "https://codeload.github.com/ggml-org/llama.cpp/zip/32bdc3a89e6528d3e419024c833c5dabf32c7541",
+    "treeSha256": "24628d6cb405e3ab145e2551b09968184f4f066f8958692f786e81f68de254a8",
+    "referenceArchiveSha256": "956664906b8ac3fb4c9d2acc9faa963e8bb3a5d719d331c71f9c5edba462b68f",
+    "license": "MIT",
+    "archiveSha256": "0e9a6615348c95f8301d82104784c9d33f3e7acae98830ff0d428277c9d7da6e"
+  },
+  "models": [
+    {
+      "id": "hy-mt2-1.8b-q4",
+      "repository": "tencent/Hy-MT2-1.8B-GGUF",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "file": "Hy-MT2-1.8B-Q4_K_M.gguf",
+      "bytes": 1133080448,
+      "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+      "architecture": "hunyuan-dense",
+      "quantization": "Q4_K_M",
+      "templateKind": 0,
+      "templateRevision": "hy-official-zh-en-v1",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE.txt"
+    },
+    {
+      "id": "plamo-0.8b-q4",
+      "repository": "pfnet/plamo-3-translate-0.8b-GGUF",
+      "revision": "1cf96ae02133958a20074bfdfab76517bb737d00",
+      "file": "plamo-3-translate-0.8b-Q4_K_M.gguf",
+      "bytes": 573126848,
+      "sha256": "70891ec70dc7ab4205745a38307867c2881b99239f20327927633abfe4bc9ec6",
+      "architecture": "plamo3",
+      "quantization": "Q4_K_M",
+      "templateKind": 1,
+      "templateRevision": "pfml3-zh-hans-en-v1",
+      "license": "PLaMo Community License",
+      "licenseFile": "LICENSE/en"
+    },
+    {
+      "id": "plamo-2b-q4",
+      "repository": "pfnet/plamo-3-translate-2b-GGUF",
+      "revision": "4f672106b847200bfdc0f6af6c321cd94eba1aed",
+      "file": "plamo-3-translate-2b-Q4_K_M.gguf",
+      "bytes": 1807203040,
+      "sha256": "1ffd9073afcc70e35ccc942428aa2b73d7aa2b9ea779bf504b775369e0276c13",
+      "architecture": "plamo3",
+      "quantization": "Q4_K_M",
+      "templateKind": 1,
+      "templateRevision": "pfml3-zh-hans-en-v1",
+      "license": "PLaMo Community License",
+      "licenseFile": "LICENSE/en"
+    }
+  ]
+}

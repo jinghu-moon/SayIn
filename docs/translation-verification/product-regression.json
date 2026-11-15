@@ -1,0 +1,84 @@
+{
+  "device": "M2012K11AC",
+  "serial": "dc39c31d",
+  "sdk": 33,
+  "dailyApplicationUntouched": true,
+  "isolationPackage": "seeyuer.sayin.translationverification",
+  "regularTests": 43,
+  "regularFailures": 0,
+  "regularSeconds": 1122.836,
+  "fakeInputAttempts": 2,
+  "fixture": "adb reverse -> loopback; fake injected and uncertain only",
+  "firstRun": {
+    "tests": 42,
+    "failures": 1,
+    "reason": "48dp translation action row displaced landscape IME editor; fixed layout without weakening assertions"
+  },
+  "evidence": [
+    {
+      "localIgnoredPath": "android/local-translation/results/product-regression-43.txt",
+      "sha256": "83adc7b254367ad7679212d5092cd67cd2659b752e222e9e4be7749482c508ab",
+      "bytes": 30683
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/product-first-regression-42.txt",
+      "sha256": "4a6e2328b6d5ea0e2616c48e814ebdae6bd2f63062b223c74a5fa1dccebd6f43",
+      "bytes": 31495
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/translation-full.png",
+      "sha256": "5bf57a85040b2aaec8afab6967044f790143c162e0dc0ccc1594593ee369c23a",
+      "bytes": 147099
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/translation-quick.png",
+      "sha256": "d1cc11b8ccf12e1681126752457652a46612833ddf236fb318bbe2e5abd13740",
+      "bytes": 81076
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/speak-keyboard-landscape.png",
+      "sha256": "517f4c096d58f95101ecf0a3d72984b1bf4bb14a36086c6a814a23e06a703691",
+      "bytes": 39690
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/dc39c31d-product-debug-import/instrumentation.txt",
+      "sha256": "4958becf1320c377d9a9cee5725cda1065925671c495e0dbc93d3f15e0bfcbfa",
+      "bytes": 4581
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/dc39c31d-product-release-import/instrumentation.txt",
+      "sha256": "8a89ed31f7615bb40f24dff351971c7e3d847bd02bc3a3d152e260b95eb934d1",
+      "bytes": 1236
+    },
+    {
+      "localIgnoredPath": "android/local-translation/results/product-debug-unoptimized-6.txt",
+      "sha256": "45678d9fdbe50b1ffa7043bf42563b086b29a032fe1cdaf57a73734345f390d5",
+      "bytes": 4582
+    }
+  ],
+  "appJvm": {
+    "tests": 48,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "translationJvm": {
+    "tests": 1,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "latestTargetedTests": {
+    "tests": 6,
+    "failures": 0,
+    "seconds": 18.268,
+    "scope": "real JNI with ASR weights + four session tests + full/quick UI test; optimized Debug"
+  },
+  "releaseProductTest": {
+    "tests": 1,
+    "failures": 0,
+    "seconds": 9.403,
+    "driver": "external Kotlin instrumentation in independent validation process",
+    "actualTarget": "non-debuggable R8 product UI; original/English preservation; real JNI and ASR prewarm; no microphone/send"
+  }
+}

@@ -55,6 +55,8 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
     val state by repository.state.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current
     val speaking = model.speaking
+    val uiLanguageTags = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
+    LaunchedEffect(uiLanguageTags) { speaking.uiLanguageChanged(uiLanguageTags) }
     val foregroundOwner = remember { Any() }
     var permissionDenied by remember { mutableStateOf(false) }
     var cameraDenied by remember { mutableStateOf(false) }

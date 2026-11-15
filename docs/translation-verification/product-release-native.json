@@ -1,0 +1,14 @@
+{
+  "passed": true,
+  "model": "hy-mt2-1.8b-q4",
+  "modelSha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+  "device": "M2012K11AC",
+  "sdk": 33,
+  "debuggable": false,
+  "method": "external Kotlin instrumentation -> actual optimized product page -> JNI",
+  "asrWeightsCoResident": true,
+  "microphoneOpened": false,
+  "sendPressed": false,
+  "originalRetained": true,
+  "uiTranslationMs": 4741
+}

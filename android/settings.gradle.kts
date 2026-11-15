@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "SayIn"
 include(":app")
+include(":translation", ":translation-benchmark")

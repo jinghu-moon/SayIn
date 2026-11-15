@@ -8,3 +8,5 @@
 *.webp binary
 *.jpg binary
 *.zip binary
+# Preserve upstream license notice bytes and their intentional whitespace.
+docs/licenses/translation/** -text whitespace=-blank-at-eol,-space-before-tab,-blank-at-eof

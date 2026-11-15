@@ -1,0 +1,152 @@
+[
+  {
+    "id": "hy-mt2-1.8b-q4",
+    "bytes": 1133080448,
+    "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699",
+    "officialLfsVerified": true,
+    "metadata": {
+      "tensorCount": 354,
+      "general.architecture": "hunyuan-dense",
+      "general.type": "model",
+      "general.sampling.top_k": 20,
+      "general.sampling.top_p": 0.800000011920929,
+      "general.sampling.temp": 0.699999988079071,
+      "general.name": "1.8B",
+      "general.finetune": "1.8B",
+      "general.size_label": "1.8B",
+      "hunyuan-dense.block_count": 32,
+      "hunyuan-dense.context_length": 262144,
+      "hunyuan-dense.embedding_length": 2048,
+      "hunyuan-dense.rope.scaling.original_context_length": 262144,
+      "tokenizer.ggml.model": "gpt2",
+      "tokenizer.ggml.pre": "hunyuan-dense",
+      "tokenizer.ggml.tokens": {
+        "elementType": 8,
+        "count": 120818
+      },
+      "tokenizer.ggml.token_type": {
+        "elementType": 5,
+        "count": 120818
+      },
+      "tokenizer.ggml.merges": {
+        "elementType": 8,
+        "count": 119758
+      },
+      "tokenizer.ggml.bos_token_id": 120000,
+      "tokenizer.ggml.eos_token_id": 120020,
+      "tokenizer.ggml.padding_token_id": 120002,
+      "tokenizer.ggml.seperator_token_id": 120007,
+      "chatTemplateSha256": "b7491ec0e9c869dfce20f2176758099bf248d979dd05530ede99deb21698acee",
+      "general.quantization_version": 2,
+      "general.file_type": 15
+    }
+  },
+  {
+    "id": "plamo-0.8b-q4",
+    "bytes": 573126848,
+    "sha256": "70891ec70dc7ab4205745a38307867c2881b99239f20327927633abfe4bc9ec6",
+    "officialLfsVerified": true,
+    "metadata": {
+      "tensorCount": 163,
+      "general.architecture": "plamo3",
+      "general.type": "model",
+      "general.name": "plamo-3-translate-0.8b",
+      "general.size_label": "890M",
+      "plamo3.block_count": 16,
+      "plamo3.context_length": 262144,
+      "plamo3.embedding_length": 1536,
+      "plamo3.rope.scaling.original_context_length": 4096,
+      "tokenizer.ggml.pre": "default",
+      "tokenizer.ggml.tokens": {
+        "elementType": 8,
+        "count": 107520
+      },
+      "tokenizer.ggml.scores": {
+        "elementType": 6,
+        "count": 107520
+      },
+      "tokenizer.ggml.token_type": {
+        "elementType": 5,
+        "count": 107520
+      },
+      "tokenizer.ggml.bos_token_id": 1,
+      "tokenizer.ggml.eos_token_id": 1,
+      "tokenizer.ggml.padding_token_id": 3,
+      "tokenizer.ggml.unknown_token_id": 0,
+      "tokenizer.ggml.eot_token_id": 16,
+      "tokenizer.ggml.add_space_prefix": false,
+      "tokenizer.ggml.add_bos_token": true,
+      "tokenizer.ggml.add_eos_token": false,
+      "tokenizer.ggml.break_around_consecutive_spaces_threshold": 2,
+      "tokenizer.ggml.break_around_repeated_chars_threshold": 4,
+      "general.quantization_version": 2,
+      "general.file_type": 15,
+      "tokenizer.ggml.model": "plamo3",
+      "tokenizer.ggml.eom_token_id": 2,
+      "chatTemplateSha256": "ad7eb87b161c6792be070d777a9f9da50c9e57a77e1fa5cca3a24b91b6bdb9e9",
+      "general.license": "other",
+      "general.license.name": "PLaMo Community License",
+      "general.license.link": "https://plamo.preferredai.jp/info/plamo-community-license-en",
+      "general.quantized_by": "Preferred Networks, Inc.",
+      "general.repo_url": "https://huggingface.co/pfnet/plamo-3-translate-0.8b-GGUF",
+      "general.base_model.count": 1,
+      "general.base_model.0.name": "PLaMo 3 Translate 0.8B",
+      "general.base_model.0.organization": "Preferred Networks, Inc.",
+      "general.base_model.0.repo_url": "https://huggingface.co/pfnet/plamo-3-translate-0.8b"
+    }
+  },
+  {
+    "id": "plamo-2b-q4",
+    "bytes": 1807203040,
+    "sha256": "1ffd9073afcc70e35ccc942428aa2b73d7aa2b9ea779bf504b775369e0276c13",
+    "officialLfsVerified": true,
+    "metadata": {
+      "tensorCount": 243,
+      "general.architecture": "plamo3",
+      "general.type": "model",
+      "general.name": "plamo-3-translate-2b",
+      "general.size_label": "2.9B",
+      "plamo3.block_count": 24,
+      "plamo3.context_length": 262144,
+      "plamo3.embedding_length": 2560,
+      "plamo3.rope.scaling.original_context_length": 4096,
+      "tokenizer.ggml.pre": "default",
+      "tokenizer.ggml.tokens": {
+        "elementType": 8,
+        "count": 107520
+      },
+      "tokenizer.ggml.scores": {
+        "elementType": 6,
+        "count": 107520
+      },
+      "tokenizer.ggml.token_type": {
+        "elementType": 5,
+        "count": 107520
+      },
+      "tokenizer.ggml.bos_token_id": 1,
+      "tokenizer.ggml.eos_token_id": 1,
+      "tokenizer.ggml.padding_token_id": 3,
+      "tokenizer.ggml.unknown_token_id": 0,
+      "tokenizer.ggml.eot_token_id": 16,
+      "tokenizer.ggml.add_space_prefix": false,
+      "tokenizer.ggml.add_bos_token": true,
+      "tokenizer.ggml.add_eos_token": false,
+      "tokenizer.ggml.break_around_consecutive_spaces_threshold": 2,
+      "tokenizer.ggml.break_around_repeated_chars_threshold": 4,
+      "general.quantization_version": 2,
+      "general.file_type": 15,
+      "tokenizer.ggml.model": "plamo3",
+      "tokenizer.ggml.eom_token_id": 2,
+      "chatTemplateSha256": "ad7eb87b161c6792be070d777a9f9da50c9e57a77e1fa5cca3a24b91b6bdb9e9",
+      "general.license": "other",
+      "general.license.name": "PLaMo Community License",
+      "general.license.link": "https://plamo.preferredai.jp/info/plamo-community-license-en",
+      "general.quantized_by": "Preferred Networks, Inc.",
+      "general.repo_url": "https://huggingface.co/pfnet/plamo-3-translate-2b-GGUF",
+      "general.base_model.count": 1,
+      "general.base_model.0.name": "PLaMo 3 Translate 2B",
+      "general.base_model.0.organization": "Preferred Networks, Inc.",
+      "general.base_model.0.repo_url": "https://huggingface.co/pfnet/plamo-3-translate-2b"
+    }
+  }
+]

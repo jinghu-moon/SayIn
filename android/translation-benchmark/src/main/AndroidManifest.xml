@@ -1,0 +1,5 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Deliberately no INTERNET, RECORD_AUDIO or LAN permission. Separate UID and data. -->
+    <queries><package android:name="seeyuer.sayin.translationverification" /></queries>
+    <application android:label="SayIn translation verification" android:allowBackup="false" />
+</manifest>

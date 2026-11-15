@@ -66,6 +66,8 @@ python scripts/generate_tabler_icons.py
 
 ## 语音识别
 
+本地中译英的原生依赖准备和回归命令见本文末节。
+
 说话页提供本地识别、云端、输入法三个来源，共用草稿、完成输入和 LAN Outbox。本地使用 X-ASR 480ms 中英带标点模型；准备依赖与验收边界见 [31 本地识别](../docs/31-x-asr-local-recognition.md)。
 
 云端首期接入豆包流式语音识别 2.0 小时版，手机通过 WSS 直接上传音频与可选热词，电脑只接收最终选择发送的文本。进入设置填写 APP Key（旧控制台可用 APP ID + Access Token），保存后验证服务；回到说话页选择「云端」并开始说话。凭据加密存于手机、不进入源码或电脑。使用方法、官方协议依据和真实服务验收步骤见 [32 云端接入](../docs/32-doubao-cloud-streaming-asr.md)。
@@ -92,3 +94,21 @@ python scripts/generate_tabler_icons.py
 
 
 已配对发现的资源与安全规则、真实 LAN/回环验证及旧 Android API 限制见 [40 实施记录](../docs/40-paired-host-discovery-and-reconnect.md)。`scripts/verify_android_discovery.ps1 -Lan` 使用真实 NSD、独立身份和随机端口，不使用 ADB reverse；不带 `-Lan` 只验证隔离连接/认证/回执，不代表真实发现。`-Revoked` 验证撤销身份无法迁移路由。此独立测试类不进入常规 37 项套件；不得运行付费云测试冒充连接验证。
+
+## 本地中译英
+
+三种输入来源完成草稿后可选择“翻译成英文”。翻译由手机 llama.cpp CPU JNI 执行；原文和可编辑译文分别保留，译文只能手动发送，复用既有 Outbox 和接收范围检查。翻译失败不会回退云服务。完整页和快捷卡共享任务；横屏键盘展开等高度不足场景的翻译入口位于“更多”。
+
+开发环境先准备固定源码，保留 JDK 25.0.5+8 / 字节码 17，另安装 NDK 29.0.14206865、CMake 3.22.1：
+
+```powershell
+python scripts/prepare_x_asr.py
+python scripts/prepare_translation.py
+./scripts/gradle.ps1 :app:testDebugUnitTest :translation:testDebugUnitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:assembleRelease :app:lintDebug
+python scripts/check_i18n.py
+python scripts/check_translation_package.py android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+这些准备命令在开发电脑执行，安装后的 Android 产品不需要 Python、Termux 或本地 HTTP 服务。APK 不包含 GGUF。首次使用由用户明确准备单一 Hy-MT2-1.8B Q4_K_M（1,133,080,448 bytes），从固定来源下载并 SHA-256 校验到私有目录；之后离线翻译。Debug 另可导入同一摘要的本机模型，Release 不暴露文件选择器。准备期间需要约 1.15 GB 额外可用存储；网络失败保留原稿和旧可用模型。
+
+回归脚本 `verify_android_transport.ps1 -IsolatedTranslation` 与 `verify_android_translation_product.ps1` 使用独立 `seeyuer.sayin.translationverification` 包，不覆盖日常数据；共享设备必须串行运行。前者验证完整常规套件和恰好两次 fake 输入，后者显式验证真实 JNI 与 ASR 权重共存；两者都不证明真实麦克风到 Wi-Fi 目标应用落字。模型比较和 K40 实测、K90 待验收边界见 [50 本地翻译实施](../docs/50-android-local-translation-implementation.md)。

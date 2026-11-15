@@ -11,6 +11,11 @@ import seeyuer.sayin.asr.CloudSettings
 class SayInApplication : Application(), ViewModelStoreOwner {
     override val viewModelStore = ViewModelStore()
     private val models by lazy { ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory.getInstance(this)) }
-    internal val model get() = models[VoiceLinkViewModel::class.java]
+    private var initializedModel: VoiceLinkViewModel? = null
+    internal val model get() = models[VoiceLinkViewModel::class.java].also { initializedModel = it }
     internal val cloudSettings get() = models[CloudSettings::class.java]
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL) initializedModel?.speaking?.releaseTranslation()
+    }
 }

@@ -1,0 +1,10 @@
+{
+  "model": "plamo-0.8b-q4",
+  "modelSha256": "70891ec70dc7ab4205745a38307867c2881b99239f20327927633abfe4bc9ec6",
+  "device": "M2012K11AC",
+  "measurement": "cancel request to suspended translate return; before all reporting I\/O",
+  "decodeUs": 1126,
+  "prefillUs": 15638,
+  "loadUs": 77911,
+  "passed": true
+}
