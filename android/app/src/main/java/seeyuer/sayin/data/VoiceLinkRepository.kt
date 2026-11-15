@@ -1,6 +1,7 @@
 package seeyuer.sayin.data
 
 import android.content.Context
+import android.net.Uri
 import android.os.SystemClock
 import android.net.Network
 import kotlinx.coroutines.withTimeoutOrNull
@@ -49,6 +50,14 @@ internal data class ClientState(
     val rejectedDraft: String? = null,
     val history: List<OutboxItem> = emptyList(),
     val historyText: Map<String, String> = emptyMap(),
+    val imageDraft: LocalImageDraft? = null,
+    val imageSupported: Boolean = false,
+    val imagePreparing: Boolean = false,
+    val imageBusy: Boolean = false,
+    val imageSubmitted: Boolean = false,
+    val imageProgress: Int = 0,
+    val imageRequest: String? = null,
+    val imageIssue: ImageIssue? = null,
 ) {
     val ready: Boolean get() = storageHealthy && !recovering && connection == Connection.ONLINE && active && !paused && target != null
     val busy: Boolean get() = connection in setOf(Connection.LOADING, Connection.CONNECTING, Connection.PAIRING, Connection.APPROVAL)
@@ -74,7 +83,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     val state = mutable.asStateFlow()
     private lateinit var store: ProtectedStore
     private val database = Room.databaseBuilder(context.applicationContext, OutboxDatabase::class.java, "outbox.db")
-        .addMigrations(OutboxDatabase.KEEP_LEDGER)
+        .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES)
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addCallback(object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
@@ -94,6 +103,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private var lastDraftId: String? = null
     private var reconnectJob: Job? = null
     private var reconnectAttempt = 0
+    private var imageInput: ImageInput? = null
 
     init {
         scope.launch {
@@ -102,6 +112,9 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 dao.pendingCount()
                 store = ProtectedStore(context.applicationContext)
                 host = store.load()?.let(::PairedHost)
+                imageInput = ImageInput(app, store, dao, scope, mutable, { host }, { client }, { session },
+                    { event -> events.trySend(Event.Image(event)).isSuccess }, ::submit, { enqueue(Event.StorageFailure) })
+                imageInput?.open()
                 mutable.update { it.copy(connection = Connection.OFFLINE, paired = host != null, address = host?.address.orEmpty(), port = host?.port ?: 7788) }
                 scope.launch {
                     try { dao.observe().collect { history ->
@@ -146,6 +159,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class Action(val id: String, val action: String) : Event
         data object CancelPairing : Event
         data object Forget : Event
+        data class Image(val value: ImageEvent) : Event
         data object StorageFailure : Event
     }
 
@@ -161,14 +175,21 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     fun pairCode(address: String, port: String, code: String) = enqueue(Event.PairCode(address, port, code))
     fun send(text: String, draftId: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) =
         enqueue(Event.Send(text, draftId, expectedScope))
+    fun selectImage(uri: Uri) = enqueue(Event.Image(ImageEvent.Select(uri)))
+    fun sendImage(resource: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) = enqueue(Event.Image(ImageEvent.Send(resource, expectedScope)))
+    fun cancelImage() = enqueue(Event.Image(ImageEvent.Cancel))
+    fun clearImage() = enqueue(Event.Image(ImageEvent.Clear))
     fun action(id: String, action: String) = enqueue(Event.Action(id, action))
     fun updateAddress(address: String, port: String) = enqueue(Event.UpdateAddress(address, port))
     fun cancelPairing() = enqueue(Event.CancelPairing)
     fun forget() = enqueue(Event.Forget)
-    fun close() { permissionJob?.cancel(); networkMonitor.stop(); discoveryJob?.cancel(); socket?.cancel(); events.close(); scope.cancel(); client?.close() }
+    fun close() { imageInput?.close(); permissionJob?.cancel(); networkMonitor.stop(); discoveryJob?.cancel(); socket?.cancel(); events.close(); scope.cancel(); client?.close() }
 
     private suspend fun handle(event: Event) {
-        if (!mutable.value.storageHealthy) return
+        if (!mutable.value.storageHealthy) {
+            if (event is Event.Image) imageInput?.abandon(event.value)
+            return
+        }
         when (event) {
             is Event.Foreground -> {
                 val wasForeground = foreground
@@ -264,8 +285,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 disconnect()
                 try { store.forget() } catch (_: Exception) { storageFailed(); return }
                 host = null
+                imageInput?.hostChanged()
                 mutable.update { it.copy(paired = false, address = "", issue = null) }
             }
+            is Event.Image -> imageInput?.handle(event.value)
             Event.StorageFailure -> storageFailed()
         }
     }
@@ -340,6 +363,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         }
     }
     private fun disconnect() {
+        imageInput?.invalidate()
         generation++
         discoveryJob?.cancel(); discoveryJob = null
         connectingHost = null
@@ -393,6 +417,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 // Only announce success after durable encrypted credential storage.
                 try { store.save(saved.json) } catch (_: Exception) { storageFailed(); return }
                 host = saved
+                imageInput?.hostChanged()
                 mutable.update { it.copy(paired = true) }
                 if (foreground) connectHost() else disconnect()
             }
@@ -401,6 +426,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 require(value.getString("host_id") == host?.hostId && value.getString("device_id") == host?.deviceId)
                 val sessionId = validId(value.getString("session_id"))
                 session = sessionId
+                imageInput?.welcome(value)
                 applyState(value) // Validate the entire authenticated welcome before persisting routing.
                 // Full pinned TLS + authenticated host/device welcome precede route commit.
                 val authenticated = checkNotNull(connectingHost)
@@ -438,6 +464,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     "err" -> {
                         // Keep payload/id intact; query on reconnect before any retry.
                         mutable.update { it.copy(issue = ClientIssue.PROTOCOL) }
+                        imageInput?.interrupt()
                     }
                     else -> error("Unexpected message")
                 }
@@ -451,6 +478,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             ?.also { require(it.length <= 128) }
         mutable.update { it.copy(paused = value.getBoolean("paused"), pauseReason = pauseReason, target = target, revision = revision,
             active = value.optString("active_device_id") == host?.deviceId) }
+        imageInput?.scopeChanged()
     }
     private suspend fun saveStatus(value: JSONObject) {
         val id = validId(value.getString("id"))
@@ -464,9 +492,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         // Terminal rows are immutable locally; a stale response cannot resurrect text.
         if (item.payload != null) {
             try { dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
-                value.optString("reason").takeIf { it.isNotEmpty() }, terminal); dao.trimTerminal() }
+                value.optString("reason").takeIf { it.isNotEmpty() }, terminal); val garbage = dao.trimTerminal(); imageInput?.cleanup(garbage) }
             catch (_: Exception) { storageFailed(); return }
         }
+        if (status != "unknown" && item.kind == "image") imageInput?.status(item)
         queries.replaceAll { _, refs -> refs - id }
     }
     private suspend fun saveAndSend(event: Event.Send) {
@@ -493,7 +522,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         val transcript = try { store.encrypt(normalized.toByteArray(Charsets.UTF_8)) } catch (_: Exception) { storageFailed(); return }
         val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis(), transcript)
         if (dao.pendingCount() >= 16 || dao.pendingBytes() + item.byteCount > 65536) { mutable.update { it.copy(issue = ClientIssue.QUOTA, rejectedDraft = event.draftId) }; return }
-        try { dao.enqueue(item) } catch (_: Exception) { storageFailed(); return }
+        try { val garbage = dao.enqueue(item); imageInput?.cleanup(garbage) } catch (_: Exception) { storageFailed(); return }
         lastDraftId = event.draftId
         mutable.update { it.copy(savedDraft = event.draftId, issue = null) }
         submit(item)
@@ -515,6 +544,9 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             return
         }
         if (item.payload == null) return
+        // Image references belong to their original session and intent. Queries
+        // and explicit discard remain available; retry/release never reupload.
+        if (item.kind == "image" && action in setOf("retry", "release")) return
         when (action) {
             "retry" -> if (item.state == "review" && mutable.value.ready && item.target == mutable.value.target) submit(item)
             "discard" -> if (item.state == "review") dao.status(id, saved.hostId, saved.deviceId, "cancelled", item.order, "local_discard", true)

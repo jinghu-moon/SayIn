@@ -39,8 +39,15 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    testBuildType = providers.gradleProperty("sayin.instrumentationBuildType").getOrElse("debug")
     buildTypes {
         debug { isPseudoLocalesEnabled = true }
+        create("imageTest") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".imagetest"
+            versionNameSuffix = "-image-test"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -62,6 +69,7 @@ dependencies {
     androidTestImplementation(platform(libs.compose.bom))
     androidTestImplementation(libs.compose.ui.test)
     debugImplementation(libs.compose.ui.test.manifest)
+    add("imageTestImplementation", libs.compose.ui.test.manifest)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.junit)
     implementation(libs.okhttp)
@@ -72,6 +80,7 @@ dependencies {
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.lifecycle.runtime)
     implementation(libs.zxing.embedded)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
