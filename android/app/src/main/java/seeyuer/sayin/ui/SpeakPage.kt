@@ -227,8 +227,6 @@ internal fun SpeakPage(
         val toolsEnabled = !busy && !locked && !session.translation.running && !session.translationStopping && draft.composition == null
         val color = MiuixTheme.colorScheme
         val menu = buildList {
-            add(DropdownItem(stringResource(R.string.image_choose), enabled = state.paired && state.storageHealthy && !busy && !locked,
-                onClick = { session.cancelAutoSend(); onImage() }))
             add(DropdownItem(stringResource(R.string.speak_recognition_settings), enabled = !busy && !locked,
                 icon = { Icon(VoiceLinkIcon.Settings.vector, null, it.size(20.dp)) }, onClick = { showSources = true }))
             add(DropdownItem(autoLabel, icon = { Icon(VoiceLinkIcon.Automatic.vector, null, it.size(20.dp)) }, selected = session.sendMode == SpeakSendMode.Automatic, enabled = !busy && !locked,
@@ -244,7 +242,7 @@ internal fun SpeakPage(
             if (quick) add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
         }
         Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-            if (showHeader) Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (showHeader) Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                 androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.sayin_brand), null, Modifier.size(28.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(stringResource(R.string.app_name), Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
@@ -256,7 +254,7 @@ internal fun SpeakPage(
                 ConnectionChip(state, ::connect, Modifier.widthIn(max = 160.dp), compact = true)
                 if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
             }
-            Column(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(28.dp)).background(color.surface)
+            Column(Modifier.weight(1f).fillMaxWidth().padding(vertical = 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (showTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (session.sendMode == SpeakSendMode.Automatic) Icon(VoiceLinkIcon.Automatic.vector, autoLabel,
@@ -346,6 +344,10 @@ internal fun SpeakPage(
                         if (showPreview) R.string.speak_edit else R.string.speak_preview, "normalization-toggle") {
                         session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
                     }
+                    DraftIcon(VoiceLinkIcon.Photo, R.string.image_choose, "choose-image",
+                        state.paired && state.storageHealthy && !busy && !locked) {
+                        session.cancelAutoSend(); onImage()
+                    }
                     DraftIcon(VoiceLinkIcon.Translate,
                         if (session.translation.running || session.translationPreparing) R.string.asr_cancel else R.string.translation_action, "translate-draft",
                         session.canTranslateDraft || session.translation.running || session.translationPreparing,
@@ -358,7 +360,7 @@ internal fun SpeakPage(
                     DraftIcon(VoiceLinkIcon.Clear, R.string.speak_clear_draft, "clear-draft", toolsEnabled && draft.text.isNotEmpty()) { session.clearDraft() }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(top = if (minimal) 0.dp else 8.dp, bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.fillMaxWidth().padding(bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button({
                     if (busy) session.cancelRecording() else if (focused) { focusManager.clearFocus(); keyboard?.hide() } else edit()

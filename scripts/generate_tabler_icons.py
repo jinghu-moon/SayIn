@@ -40,6 +40,7 @@ ICONS = {
     "Automatic": "bolt",
     "ArrowUp": "arrow-up",
     "Retry": "refresh",
+    "Photo": "photo",
 }
 
 

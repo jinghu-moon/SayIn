@@ -106,8 +106,7 @@ class TranslationUiInstrumentedTest {
             screenshot("translation-quick")
             var releasesBeforeImage = 0
             compose.runOnIdle { releasesBeforeImage = engine.releases }
-            compose.onNodeWithTag("speak-more").performClick()
-            compose.onNodeWithText(context.getString(R.string.image_choose)).performClick()
+            compose.onNodeWithTag("choose-image").performClick()
             compose.waitUntil(5000) { imageOpen }
             // Opening the image sheet uses the same visibility handoff as production.
             // A completed text translation survives background resource release.
