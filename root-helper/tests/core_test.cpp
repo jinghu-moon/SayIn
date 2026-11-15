@@ -1,9 +1,13 @@
 #include "helper.hpp"
 #include <iostream>
 #include <functional>
+#include <fstream>
 
 using namespace sayin;
 static int checks = 0;
+const auto profile33 = platform_profile(33);
+const auto profile37 = platform_profile(37);
+Clip parse_clip33(std::span<const uint8_t> bytes) { return parse_clip(bytes, profile33); }
 void require(bool condition) { ++checks; if (!condition) throw Failure("test_assertion_" + std::to_string(checks)); }
 void rejects(const std::function<void()>& function) { bool failed = false; try { function(); } catch (const Failure&) { failed = true; } require(failed); }
 void i32(std::vector<uint8_t>& b, int value) { append_u32(b, static_cast<uint32_t>(value)); }
@@ -29,19 +33,60 @@ std::vector<uint8_t> sample(bool sensitive = false, std::string text = "hello") 
     for (int i = 0; i < 4; ++i) i32(b, 0);
     return b;
 }
-int main() {
+int main(int argc, char** argv) {
     try {
         require(valid_text("hello\nworld"));
         require(valid_text("\xe4\xb8\xad\xf0\x9f\x99\x82"));
         for (const auto& value : {std::string(), std::string("\xc0\x80", 2), std::string("\xed\xa0\x80",3), std::string("\xf4\x90\x80\x80",4), std::string("a\0b",3), std::string(kMaxText+1, 'x')}) require(!valid_text(value));
         auto bytes = sample(); const auto clip = parse_clip33(bytes);
         require(clip.text == "hello" && clip.timestamp == 12345 && !clip.sensitive);
-        require(parse_description33(bytes) == 12345);
+        require(parse_description(bytes, profile33) == 12345);
         auto secret = parse_clip33(sample(true, "secret")); require(secret.sensitive && secret.text.empty());
         for (size_t i = 0; i < bytes.size(); ++i) rejects([&] { (void)parse_clip33(std::span(bytes).first(i)); });
         auto trailing = bytes; trailing.push_back(1); rejects([&] { (void)parse_clip33(trailing); });
         auto large = sample(false, std::string(kMaxText+1, 'x')); rejects([&] { (void)parse_clip33(large); });
         for (size_t i = 0; i < bytes.size(); ++i) { auto changed = bytes; changed[i] ^= 0xff; try { auto value = parse_clip33(changed); require(value.sensitive || valid_text(value.text)); } catch (const Failure&) {} }
+        require(profile33.current_user_transaction == 126 && !profile33.clipboard_attribution && profile33.item_objects == 4);
+        require(profile37.current_user_transaction == 142 && profile37.clipboard_attribution && profile37.item_objects == 5);
+        require(profile33.interactive_transaction == 16 && profile37.interactive_transaction == 23);
+        require(capture_allowed(true, 0, 0, 0, 1));
+        require(!capture_allowed(true, 0, 0, 1, 0)); // Reproduced: swipe keyguard + screen off, deviceLocked false.
+        require(!capture_allowed(true, 0, 0, 1, 1)); // Screen lit but keyguard still showing.
+        require(!capture_allowed(true, 0, 0, 0, 0)); // Screen off with no configured keyguard.
+        require(!capture_allowed(true, 0, 1, 0, 1));
+        require(!capture_allowed(false, 0, 0, 0, 1));
+        require(!capture_allowed(true, 10, 0, 0, 1));
+        for (int unknown : {-1, 2, 10}) {
+            require(!capture_allowed(true, 0, unknown, 0, 1));
+            require(!capture_allowed(true, 0, 0, unknown, 1));
+            require(!capture_allowed(true, 0, 0, 0, unknown));
+        }
+        for (int api : {0, 29, 32, 34, 35, 36, 38}) rejects([&] { (void)platform_profile(api); });
+        auto modern = bytes; i32(modern, 0);
+        require(parse_clip(modern, profile37).text == "hello");
+        rejects([&] { (void)parse_clip(modern, profile33); });
+        rejects([&] { (void)parse_clip(bytes, profile37); });
+        modern.back() = 1; rejects([&] { (void)parse_clip(modern, profile37); });
+        require(argc == 2);
+        for (bool sensitive : {false, true}) {
+            std::ifstream input(std::string(argv[1]) + (sensitive ? "/clip-api37-sensitive.hex" : "/clip-api37-plain.hex"));
+            require(input.good()); std::vector<uint8_t> captured;
+            unsigned int value;
+            while (input >> std::hex >> value) { require(value <= 255); captured.push_back(static_cast<uint8_t>(value)); }
+            require(!captured.empty());
+            auto vendor37 = profile37; vendor37.bundle_intent_marker = true;
+            const auto actual = parse_clip(captured, vendor37);
+            require(actual.timestamp == 12345 && actual.sensitive == sensitive);
+            require(sensitive ? actual.text.empty() : actual.text == "SAYIN_TEST_platform_\xe4\xb8\xad\xe6\x96\x87\xf0\x9f\x99\x82");
+            if (sensitive) {
+                rejects([&] { (void)parse_clip(captured, profile37); });
+                auto marked = captured; marked[148] = 1; rejects([&] { (void)parse_clip(marked, vendor37); });
+            }
+            if (!sensitive) {
+                for (size_t i = 0; i < captured.size(); ++i) rejects([&] { (void)parse_clip(std::span(captured).first(i), vendor37); });
+                for (size_t i = 0; i < captured.size(); ++i) { auto changed = captured; changed[i] ^= 0xff; try { auto v = parse_clip(changed, vendor37); require(v.sensitive || valid_text(v.text)); } catch (const Failure&) {} }
+            }
+        }
         History h; require(h.add(clip)); require(!h.add(clip)); require(!h.add(secret));
         require(h.add({12346, "next", false})); require(h.add({12347,"hello",false})); require(h.entries().size()==2 && h.entries()[0].text == "hello");
         for (int i = 0; i < 70; ++i) require(h.add({12400+i, "line_"+std::to_string(i), false}));

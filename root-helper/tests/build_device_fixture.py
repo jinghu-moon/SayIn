@@ -18,7 +18,7 @@ classes.mkdir(exist_ok=True)
 def run(*arguments):
     subprocess.run([str(a) for a in arguments], check=True)
 
-run(java / "javac.exe", "--release", "17", "-classpath", android, "-d", classes, source / "ClipboardFixture.java")
+run(java / "javac.exe", "--release", "17", "-classpath", android, "-d", classes, *sorted(source.glob("*.java")))
 jar = output / "fixture.jar"
 with zipfile.ZipFile(jar, "w") as z:
     for p in classes.rglob("*.class"):

@@ -1,15 +1,15 @@
 # SayIn Helper
 
-独立 **C++20** Root 模块：监听并加密保存剪贴板文字，SayIn 不承担采集生命周期。当前仅支持 **Android 13/API 33、arm64**；已在 Redmi K40 验证原生采集。应用保活、SayIn 面板读取及应用签名鉴权尚未实现，普通手机不受影响。
+独立 **C++20** Root 模块：监听并加密保存剪贴板文字，SayIn 不承担采集生命周期。当前支持 **Android 13/API 33 和 Android 17/API 37、arm64**；已分别在 Redmi K40 与 Xiaomi 25102RKBEC 验证独立采集。API 37 的 HyperOS 4.0 使用明确的 Bundle 格式配置，不代表其它 ROM 已验收。应用保活、SayIn 面板读取及应用签名鉴权尚未实现，普通手机不受影响。
 
-设计：[56](../docs/56-root-module-clipboard-and-keepalive-design.md)；Kotlin 骨架历史：[59](../docs/59-root-helper-engineering-foundation.md)；当前实施和验证：[60](../docs/60-root-helper-native-clipboard-collection.md)。
+设计：[56](../docs/56-root-module-clipboard-and-keepalive-design.md)；Kotlin 骨架历史：[59](../docs/59-root-helper-engineering-foundation.md)；原生首版：[60](../docs/60-root-helper-native-clipboard-collection.md)；Android 17 适配：[61](../docs/61-root-helper-android17-validation.md)。
 
 ```text
 root-helper/
   CMakeLists.txt
   include/                 规则、平台和存储接口
   src/
-    binder.cpp             原生 Binder shell UID 监听，仅 API 33
+    binder.cpp             原生 Binder shell UID 监听，API 33/37
     parcel.cpp             有界、严格的纯文字 Parcel 解析
     history.cpp            最近 50 条、去重和清空屏障
     storage.cpp            Root 私有目录、原子提交和权限校验
@@ -29,11 +29,11 @@ pwsh -File scripts/build_root_helper.ps1
 
 使用 NDK **29.0.14206865**、CMake/Ninja；SDK 路径从 `-SdkRoot`、`ANDROID_HOME` 或 `android/local.properties` 解析。主机测试默认使用本机 MinGW GCC，可用 `-HostCompiler` 指定。模块不再依赖 Kotlin、Gradle、DEX、JVM 或 Rust；Android App 的工具链不变。
 
-产物：`root-helper/build/distributions/sayin-helper-0.2.0-dev-arm64.zip` 及 `.zip.sha256`。白名单打包，包含原生 ELF、许可、构建清单及逐文件摘要；没有 APK、设备数据、私钥或用户历史。摘要用于完整性校验，不充当签名信任根。
+产物：`root-helper/build/distributions/sayin-helper-0.3.1-dev-arm64.zip` 及 `.zip.sha256`。白名单打包，包含原生 ELF、许可、构建清单及逐文件摘要；没有 APK、设备数据、私钥或用户历史。摘要用于完整性校验，不充当签名信任根。
 
 ## 安装与使用
 
-通过 Magisk/KernelSU 管理器从本地安装，重启；Recovery 不支持。新版包的真实管理器升级/重启仍待用户验收，之前通过的是 0.1 骨架。KernelSU 运行未验收，不能因脚本通用就称已支持。
+通过 Magisk/KernelSU 管理器从本地安装，重启；Recovery 不支持。当前设备的 KernelSU 隔离原生运行已通过；0.3 管理器安装/重启已核对；锁屏验收发现门禁缺口，已修复为 0.3.1，修复版正式升级仍待验收。此前 Magisk 管理器正式安装通过的是 0.1 骨架，不能混用证据。
 
 **首次安装不采集。** 在管理器点击模块的 Action，明确启用采集；再点关闭，保留加密历史。更新保留启用偏好与历史；卸载停止采集并删除本实现已知的历史/密钥文件，不递归删除未知目录。停用/移除标记最多约一个控制循环后停止，真实时延见实施记录。
 
@@ -50,7 +50,7 @@ Root 调试命令（不要把 `list` 输出保存为普通日志）：
 
 只接收单条 `text/plain`，单条 UTF-8 ≤16KiB，总正文 ≤512KiB，历史最多 50 条。敏感标记、URI、HTML、富文本、图片、复杂 extras 和未知对象跳过；锁屏/非主用户/解锁状态未知时暂停，恢复只接收新事件。系统时间回拨、相同毫秒的多次写入、回调覆盖都存在漏采边界。
 
-Root 父进程唯一持有存储和密钥，采集子进程降为 shell UID，仅经继承 socketpair 交付有界数据。加密使用当前系统 `libcrypto` 的 BoringSSL AEAD API，运行时检查能力；没有内置加密实现，没有不支持时降级明文。该系统 API 不是跨 Android 版本稳定 ABI，首版范围因此严格限定。
+Root 父进程唯一持有存储和密钥，采集子进程降为 shell UID，仅经继承 socketpair 交付有界数据。加密使用当前系统 `libcrypto` 的 BoringSSL AEAD API，运行时检查能力；没有内置加密实现，没有不支持时降级明文。该系统 API 不是跨 Android 版本稳定 ABI，因此只开放已核对的版本配置，实际 ROM 验证范围见 61。
 
 密钥为 Root 私有 0600 文件，随历史一同保存在私有目录；能抵御普通 App/shell 直接读取，**不能抵御 Root 或同时取得密钥和历史的攻击者**。不宣称硬件 Keystore 保护。坏密钥/坏密文拒绝读取、启用，不自动重建清空。
 

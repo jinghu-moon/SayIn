@@ -13,6 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--serial", required=True)
     parser.add_argument("--allow-synthetic-clipboard-writes", action="store_true")
+    parser.add_argument("--installed", action="store_true", help="Run the installed module ELF with isolated test data")
     parser.add_argument("--adb", default="C:/Users/seeyuer/AppData/Local/Android/Sdk/platform-tools/adb.exe")
     args = parser.parse_args()
     if not args.allow_synthetic_clipboard_writes:
@@ -20,10 +21,11 @@ def main():
     adb = [args.adb, "-s", args.serial]
     stamp = str(time.time_ns())
     base = f"/data/local/tmp/sayin-native-verification-{stamp}"
-    binary = base + "-bin"
+    binary = "/data/adb/modules/sayin_helper/bin/sayin-helper" if args.installed else base + "-bin"
     prefix = "SAYIN_TEST_" + stamp + "_"
     package = ROOT / "root-helper/build/package/sayin-helper"
     evidence = {"binary_sha256": hashlib.sha256(package.read_bytes()).hexdigest(), "cases": {}}
+    evidence["source"] = "installed_module" if args.installed else "temporary_binary"
 
     def call(arguments, check=True):
         result = subprocess.run(adb + arguments, capture_output=True, text=True, encoding="utf-8", timeout=30)
@@ -41,9 +43,23 @@ def main():
         return json.loads(helper("status").stdout)
 
     def fixture(tag, count=3, delay=200, mode="normal"):
-        result = call(["shell", "am", "instrument", "-w", "-e", "prefix", prefix+tag+"_", "-e", "count", str(count), "-e", "delay", str(delay), "-e", "mode", mode,
-                       "seeyuer.sayin.helperfixture/.ClipboardFixture"])
-        assert f"samples_written={count}" in result.stdout and "INSTRUMENTATION_CODE: 0" in result.stdout
+        writer = subprocess.Popen(adb + ["shell", "am", "instrument", "-w", "-e", "prefix", prefix+tag+"_", "-e", "count", str(count), "-e", "delay", str(delay), "-e", "mode", mode,
+                       "seeyuer.sayin.helperfixture/.ClipboardFixture"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8")
+        try:
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                if call(["shell", "pidof", "seeyuer.sayin.helperfixture"], check=False).stdout.strip(): break
+                time.sleep(.1)
+            else: raise AssertionError("Fixture instrumentation did not start")
+            # ROM restricts this UID's clipboard writes and background Activity launches.
+            # Give the test a real visible Activity; do not change AppOps or permissions.
+            root("am start -W -n seeyuer.sayin.helperfixture/.ClipboardFixtureActivity")
+            output, error = writer.communicate(timeout=15)
+            assert writer.returncode == 0 and f"samples_written={count}" in output and "INSTRUMENTATION_CODE: 0" in output, output + error
+        finally:
+            if writer.poll() is None:
+                call(["shell", "am", "force-stop", "seeyuer.sayin.helperfixture"], check=False)
+                writer.communicate(timeout=5)
 
     def wait_for(predicate, seconds=5):
         end = time.monotonic() + seconds
@@ -54,10 +70,18 @@ def main():
         raise AssertionError("Device state timeout")
 
     process = None
+    api = "unknown"
     try:
-        assert root("getprop ro.build.version.sdk").stdout.strip() == "33"
-        call(["push", str(package), binary])
-        root(f"chmod 755 {binary}")
+        api = root("getprop ro.build.version.sdk").stdout.strip()
+        assert api in ("33", "37")
+        evidence["api"] = int(api)
+        evidence["serial"] = args.serial
+        assert "package:" in call(["shell", "pm", "path", "seeyuer.sayin.helperfixture"]).stdout
+        if args.installed:
+            assert root(f"sha256sum {binary}").stdout.split()[0] == evidence["binary_sha256"]
+        else:
+            call(["push", str(package), binary])
+            root(f"chmod 755 {binary}")
         assert "true" in root(f"{binary} crypto-test").stdout
         assert "true" in root(f"{binary} probe").stdout
         evidence["cases"]["binder_and_crypto"] = True
@@ -72,17 +96,20 @@ def main():
         fixture("normal", 5)
         assert wait_for(lambda s: s.get("accepted", 0) == 5)["entries"] == 5
         evidence["cases"]["five_continuous_utf8"] = True
-        for mode in ("sensitive", "oversize", "uri"):
+        for mode in ("sensitive", "oversize", "uri", "html", "styled"):
             fixture(mode, 1, mode=mode)
         assert status()["accepted"] == 5
         evidence["cases"]["sensitive_oversize_uri_skipped"] = True
+        fixture("metadata", 1, mode="metadata")
+        assert wait_for(lambda s: s.get("accepted") == 6)["entries"] == 6
+        evidence["cases"]["non_sensitive_bundle_metadata_accepted"] = True
         duplicate = helper("run --duration 1", check=False)
         assert duplicate.returncode != 0 and "instance_busy" in duplicate.stderr
         evidence["cases"]["duplicate_instance_rejected"] = True
         helper("clear")
         assert status()["entries"] == 0
         fixture("after_clear", 2)
-        assert wait_for(lambda s: s.get("entries") == 2)["accepted"] == 7
+        assert wait_for(lambda s: s.get("entries") == 2)["accepted"] == 8
         helper("disable"); process.communicate(timeout=10); assert process.returncode == 0
         saved = json.loads(helper("list").stdout)
         assert len(saved["entries"]) == 2 and all(prefix+"after_clear_" in e["text"] for e in saved["entries"])
@@ -91,7 +118,13 @@ def main():
         assert encrypted.returncode == 0 and prefix.encode() not in encrypted.stdout and encrypted.stdout.startswith(b"SIE1")
         evidence["cases"]["encrypted_at_rest"] = True
         denied = call(["shell", binary, "list", "--data-dir", base], check=False)
-        assert denied.returncode != 0 and "root_required" in denied.stderr
+        assert denied.returncode != 0
+        if args.installed:
+            # Android shell cannot traverse /data/adb; the verified ELF is denied before exec.
+            assert denied.returncode in (126, 127) and binary in denied.stderr
+            assert "Permission denied" in denied.stderr or "inaccessible or not found" in denied.stderr
+        else:
+            assert "root_required" in denied.stderr
         evidence["cases"]["unprivileged_history_denied"] = True
 
         helper("enable"); process = start(); wait_for(lambda s: s.get("capture_ready"))
@@ -143,13 +176,15 @@ def main():
         for directory in (corrupt, base):
             helper("disable", directory); helper("purge", directory)
         evidence["cases"]["owned_data_purge"] = True
-        root(f"rm {binary}; rm {base}/instance.lock {corrupt}/instance.lock; rmdir {base} {corrupt}")
+        if not args.installed: root(f"rm {binary}")
+        root(f"rm {base}/instance.lock {corrupt}/instance.lock; rmdir {base} {corrupt}")
     finally:
         if process and process.poll() is None:
             helper("disable", check=False)
             try: process.communicate(timeout=10)
             except subprocess.TimeoutExpired: process.terminate()
-        target = ROOT / "docs/research/native-clipboard/evidence/device-final.json"
+        suffix = "-installed" if args.installed else ""
+        target = ROOT / f"docs/research/native-clipboard/evidence/device-api{api}-{args.serial}{suffix}.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(evidence, indent=2)+"\n", encoding="utf-8")
         print(json.dumps(evidence, indent=2))

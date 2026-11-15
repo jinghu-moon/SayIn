@@ -4,7 +4,7 @@ SKIPUNZIP=0
 
 [ "$BOOTMODE" = true ] || abort "! Install from the Root manager; recovery is not supported."
 case "$API" in ''|*[!0-9]*) abort "! Cannot determine Android API level." ;; esac
-[ "$API" -eq 33 ] || abort "! This Binder backend supports Android 13 (API 33) only."
+case "$API" in 33|37) ;; *) abort "! Supported Android APIs are 33 and 37 (Android 13/17)." ;; esac
 [ "$ARCH" = arm64 ] || abort "! This development package targets arm64 devices only."
 
 for item in bin/sayin-helper app-policy.json config/defaults.json SHA256SUMS; do

@@ -61,17 +61,21 @@ int32_t integer(std::span<const uint8_t> bytes) {
     if (bytes.size() != 4) throw Failure("system_layout");
     return int32_t(uint32_t(bytes[0]) | (uint32_t(bytes[1]) << 8) | (uint32_t(bytes[2]) << 16) | (uint32_t(bytes[3]) << 24));
 }
-void args(AParcel* parcel) {
+void args(AParcel* parcel, const PlatformProfile& profile) {
     check(AParcel_writeString(parcel, "com.android.shell", 17));
+    if (profile.clipboard_attribution) check(AParcel_writeString(parcel, nullptr, -1));
     check(AParcel_writeInt32(parcel, 0));
+    if (profile.clipboard_attribution) check(AParcel_writeInt32(parcel, 0));
 }
-bool unlocked(Remote& trust, Remote& activity) {
+bool unlocked(Remote& trust, Remote& activity, Remote& window, Remote& power, const PlatformProfile& profile) {
     char value[PROP_VALUE_MAX]{};
     if (__system_property_get("sys.user.0.ce_available", value) <= 0 || std::string(value) != "true") return false;
-    const auto user = activity.call(126, [](AParcel*) {});
+    const auto user = activity.call(profile.current_user_transaction, [](AParcel*) {});
     if (integer(user) != 0) return false;
     const auto lock = trust.call(10, [](AParcel* p) { check(AParcel_writeInt32(p, 0)); check(AParcel_writeInt32(p, 0)); });
-    return integer(lock) == 0;
+    const auto keyguard = window.call(30, [](AParcel*) {});
+    const auto interactive = power.call(profile.interactive_transaction, [](AParcel*) {});
+    return capture_allowed(true, integer(user), integer(lock), integer(keyguard), integer(interactive));
 }
 void shell_identity() {
     const auto parent = getppid();
@@ -82,10 +86,20 @@ void shell_identity() {
     // setresuid clears PDEATHSIG; reinstall it after dropping privileges.
     if (prctl(PR_SET_PDEATHSIG, SIGTERM) || getppid() != parent) throw Failure("parent_changed");
 }
-void platform() {
+PlatformProfile platform() {
     char sdk[PROP_VALUE_MAX]{};
     __system_property_get("ro.build.version.sdk", sdk);
-    if (std::string(sdk) != "33") throw Failure("unsupported_platform_api");
+    auto profile = platform_profile(std::stoi(sdk));
+    char vendor[PROP_VALUE_MAX]{}, os[PROP_VALUE_MAX]{};
+    __system_property_get("ro.product.manufacturer", vendor);
+    __system_property_get("ro.mi.os.version.name", os);
+    // This ROM appends mHasIntent outside each non-empty BaseBundle payload.
+    // AOSP does not. Keep the dialect explicit; never guess by consuming padding.
+    if (profile.api == 37 && std::string(vendor) == "Xiaomi") {
+        if (std::string(os) != "OS4.0") throw Failure("unsupported_vendor_parcel");
+        profile.bundle_intent_marker = true;
+    }
+    return profile;
 }
 int64_t millis() {
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -93,14 +107,16 @@ int64_t millis() {
 }
 
 int probe() {
-    platform(); shell_identity();
+    const auto profile = platform(); shell_identity();
     void* lib = dlopen("libbinder_ndk.so", RTLD_NOW | RTLD_LOCAL);
     if (!lib) throw Failure("binder_unavailable");
     Remote clipboard(lib, "clipboard", "android.content.IClipboard");
     Remote trust(lib, "trust", "android.app.trust.ITrustManager");
     Remote activity(lib, "activity", "android.app.IActivityManager");
-    if (!unlocked(trust, activity)) throw Failure("locked_or_non_owner_user");
-    const auto description = clipboard.call(5, args);
+    Remote window(lib, "window", "android.view.IWindowManager");
+    Remote power(lib, "power", "android.os.IPowerManager");
+    if (!unlocked(trust, activity, window, power, profile)) throw Failure("locked_or_non_owner_user");
+    const auto description = clipboard.call(5, [&](AParcel* p) { args(p, profile); });
     // Do not print, export or store existing clipboard metadata/content.
     if (description.empty()) throw Failure("clipboard_layout_unavailable");
     return 0;
@@ -108,12 +124,14 @@ int probe() {
 
 int collector(int channel, const std::string& test_prefix) {
     try {
-        platform(); shell_identity();
+        const auto profile = platform(); shell_identity();
         void* lib = dlopen("libbinder_ndk.so", RTLD_NOW | RTLD_LOCAL);
         if (!lib) throw Failure("binder_unavailable");
         Remote clipboard(lib, "clipboard", "android.content.IClipboard");
         Remote trust(lib, "trust", "android.app.trust.ITrustManager");
         Remote activity(lib, "activity", "android.app.IActivityManager");
+        Remote window(lib, "window", "android.view.IWindowManager");
+        Remote power(lib, "power", "android.os.IPowerManager");
         struct Callback { std::atomic<uint32_t> pending{0}; } callback;
         auto on_event = [](AIBinder* binder, transaction_code_t code, const AParcel*, AParcel*) -> binder_status_t {
             if (code != 1 || AIBinder_getCallingUid() != 1000) return STATUS_PERMISSION_DENIED;
@@ -125,7 +143,7 @@ int collector(int channel, const std::string& test_prefix) {
         auto* cls = AIBinder_Class_define("android.content.IOnPrimaryClipChangedListener", construct, destroy, on_event);
         AIBinder* listener = AIBinder_new(cls, &callback);
         if (!listener) throw Failure("listener_init");
-        auto listen_args = [&](AParcel* p) { check(AParcel_writeStrongBinder(p, listener)); args(p); };
+        auto listen_args = [&](AParcel* p) { check(AParcel_writeStrongBinder(p, listener)); args(p, profile); };
         int binder_fd = -1;
         check(api<binder_status_t (*)(int*)>(lib, "ABinderProcess_setupPolling")(&binder_fd));
         auto handle = api<void (*)()>(lib, "ABinderProcess_handlePolledCommands");
@@ -152,7 +170,7 @@ int collector(int channel, const std::string& test_prefix) {
                 // Check gate before dispatch/read. Never store a snapshot collected while locked.
                 const auto now = std::chrono::steady_clock::now();
                 if (now - last_gate >= std::chrono::seconds(1)) {
-                    const bool allow = unlocked(trust, activity);
+                    const bool allow = unlocked(trust, activity, window, power, profile);
                     if (allow != active) { baseline = millis(); callback.pending = 0; }
                     active = allow; last_gate = now;
                     if (pending_drops) {
@@ -164,14 +182,14 @@ int collector(int channel, const std::string& test_prefix) {
                 if (descriptors[1].revents & POLLIN) handle();
                 const uint32_t count = callback.pending.exchange(0);
                 if (!count || !active) continue;
-                if (!unlocked(trust, activity)) { active = false; baseline = millis(); continue; }
+                if (!unlocked(trust, activity, window, power, profile)) { active = false; baseline = millis(); continue; }
                 // A listener carries no per-event payload. Multiple queued callbacks may already
                 // refer to the last value: expose coalescing, never claim lossless burst capture.
                 if (count > 1) pending_drops += count - 1;
-                const auto bytes = clipboard.call(4, args); // Access/service failures stop capture.
+                const auto bytes = clipboard.call(4, [&](AParcel* p) { args(p, profile); });
                 try {
-                    auto clip = parse_clip33(bytes);
-                    if (!unlocked(trust, activity)) { active = false; baseline = millis(); continue; }
+                    auto clip = parse_clip(bytes, profile);
+                    if (!unlocked(trust, activity, window, power, profile)) { active = false; baseline = millis(); continue; }
                     if (clip.timestamp <= baseline) continue;
                     Packet p;
                     if (clip.sensitive) { p.kind = 3; p.state = 1; }

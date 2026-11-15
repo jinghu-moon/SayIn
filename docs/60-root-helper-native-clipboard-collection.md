@@ -2,6 +2,8 @@
 
 日期：2026-11-15。阶段：**模块侧采集、过滤、加密历史与 Root 控制完成并通过限定真机回归；SayIn 面板读取和应用保活尚未实现**。
 
+后续：0.3 增加 Android 17/API 37 配置及 HyperOS 4.0 格式，实际记录见 [61](61-root-helper-android17-validation.md)。本文保留 0.2 当时范围与证据。
+
 设计依据：[56 模块设计](56-root-module-clipboard-and-keepalive-design.md)。前一阶段 [59](59-root-helper-engineering-foundation.md) 是 0.1 Kotlin 诊断骨架的历史记录，本阶段直接替换为 0.2 C++20，不维护双运行时。
 
 ## 1. 根因、基线与范围

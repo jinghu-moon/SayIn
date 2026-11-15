@@ -49,7 +49,7 @@ flowchart TB
 
 只发布一个 SayIn 模块安装包。逻辑上包含一个最小平台采集入口和一个业务守护进程；采集入口不是第二套存储。守护进程承担历史唯一写入者和 App 生命周期监督，二者使用独立的任务与预算，数据库写入不得阻塞保活停止命令。
 
-实现语言按用户最新选择采用 **C++20**：模块发布固定原生 ELF，由 Root 管理器启动，独立于 SayIn 和 ART。当前父进程唯一持有加密存储，子进程降为 shell UID 接入 Android 13 Binder；只通过继承的 socketpair 传递有界事件。模块启动/停止使用简短 shell 脚本。不保留 Kotlin/Rust 双实现。
+实现语言按用户最新选择采用 **C++20**：模块发布固定原生 ELF，由 Root 管理器启动，独立于 SayIn 和 ART。当前父进程唯一持有加密存储，子进程降为 shell UID 接入 Android 13/17 Binder；只通过继承的 socketpair 传递有界事件。模块启动/停止使用简短 shell 脚本。不保留 Kotlin/Rust 双实现。
 
 原生独立进程不意味着自动获得剪贴板、Binder 或 SELinux 权限；实际调用身份和接口布局必须在目标 ROM 验证。进程创建、IPC、采集或后台服务恢复失败均按能力失败报告，不静默换成保活 App 的采集方案。
 
@@ -77,13 +77,13 @@ Magisk 和 KernelSU 使用各自明确支持的生命周期入口；不假设同
 
 ### 5.1 采集入口选型与原型门槛
 
-当前已选择并在单台 Redmi K40 / API 33 验证 **C++ 原生 Binder＋shell UID 监听**。只在回调后读取，不周期轮询正文；不设默认输入法，不依赖 SayIn 运行，不增加 Zygisk/Hook。对外声明的支持范围仅 API 33 arm64；其它平台拒绝安装/启动，不能拿 App 的 API 29 最低版本套给本模块。
+当前已选择并在 Redmi K40 / API 33 验证 **C++ 原生 Binder＋shell UID 监听**。只在回调后读取，不周期轮询正文；不设默认输入法，不依赖 SayIn 运行，不增加 Zygisk/Hook。随后已增加 API 37 配置，并在 Xiaomi HyperOS 4.0 / KernelSU 真机回归通过，见 [61](61-root-helper-android17-validation.md)。0.3.1 已修复仅按认证锁定判断锁屏的缺口：同时检查 Keyguard 未显示、设备可交互、CE 可用及主用户；未知状态拒绝采集。当前 API 33/37 arm64 以外拒绝安装/启动，不能拿 App 的 API 29 最低版本套给本模块。
 
 初期 Zygisk 写入侧桥的设想暂不实施。只有当前监听路径在目标需求下无法满足且有证据时，再评估替换；不并存多种采集路线自动试错。
 
 当前读取系统接受后的剪贴板快照，固定主用户 0、检查当前用户及解锁状态，解析敏感标记和系统时间戳，使用自身有序历史 ID 去重。回调不携带正文或真正逐次事件 ID，因此无法承诺极快覆盖不漏采，也无法精确还原写入 App。合并/丢弃计数是可观察到的下限，不能证明没计数就绝无遗漏；分类回调不重复插入同一时间戳。
 
-Root 父进程不使用伪造包名直接读取。采集子进程以真实 shell UID 和 `com.android.shell` 调用；系统不允许时明确失败，不授予权限、不改 AppOps/SELinux/系统服务。Binder 事务码和 Parcel 布局来自固定 AOSP 13 源码，未知对象拒绝，不能将原生崩溃风险转移到 system_server。
+Root 父进程不使用伪造包名直接读取。采集子进程以真实 shell UID 和 `com.android.shell` 调用；系统不允许时明确失败，不授予权限、不改 AppOps/SELinux/系统服务。Binder 事务码和 Parcel 布局以固定 AOSP 13 源码、API 37 真机系统接口及生成样例核对；HyperOS 的 Bundle 额外标记单独选择，未知对象拒绝，不能将原生崩溃风险转移到 system_server。
 
 ### 5.2 事件与资源边界
 

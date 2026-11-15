@@ -3,8 +3,8 @@
 Inherit the repository AGENTS.md. User selected C++ for the independent collector.
 Use the pinned Android NDK 29.0.14206865, CMake and CTest. Do not add to the App build.
 
-Replace the Kotlin diagnostic scaffold instead of maintaining two runtimes. The initial
-native Binder backend supports Android 13/API 33 only; unknown layouts fail closed.
+Replace the Kotlin diagnostic scaffold instead of maintaining two runtimes. Native Binder profiles cover API 33 and API 37. Xiaomi HyperOS 4.0 API 37 has an
+explicit BaseBundle dialect. Unknown layouts fail closed; never guess padding.
 Do not claim clipboard access, App readiness or ROM support from host tests alone.
 
 Before introducing a persistent runtime, implement and validate the gates in docs/56:

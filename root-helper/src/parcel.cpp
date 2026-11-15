@@ -7,11 +7,12 @@ namespace sayin {
 namespace {
 class Reader {
 public:
-    explicit Reader(std::span<const uint8_t> source) : data(source) {
+    explicit Reader(std::span<const uint8_t> source, bool bundle_marker) : data(source), bundle_intent_marker(bundle_marker) {
         if (source.size() > kMaxParcel) throw Failure("parcel_limit");
     }
     std::span<const uint8_t> data;
     size_t pos = 0;
+    bool bundle_intent_marker;
     void need(size_t size) const { if (size > data.size() - pos) throw Failure("parcel_truncated"); }
     int32_t i32() {
         need(4); uint32_t value = 0;
@@ -80,6 +81,7 @@ public:
             if (pos > end) throw Failure("extras_overrun");
         }
         if (pos != end) throw Failure("extras_trailing");
+        if (bundle_intent_marker && i32() != 0) throw Failure("bundle_intent_unsupported");
         return sensitive;
     }
     void skip_bundle() {
@@ -88,6 +90,7 @@ public:
         if (length < 0 || length > 32 * 1024 || length % 4) throw Failure("bundle_length");
         if (i32() != 0x4c444e42) throw Failure("bundle_magic");
         need(length); pos += length;
+        if (bundle_intent_marker && i32() != 0) throw Failure("bundle_intent_unsupported");
     }
     Clip description() {
         (void)plain(); // Label is never stored or logged.
@@ -130,8 +133,20 @@ bool valid_text(const std::string& text) {
     return true;
 }
 
-Clip parse_clip33(std::span<const uint8_t> bytes) {
-    Reader reader(bytes);
+PlatformProfile platform_profile(int api) {
+    switch (api) {
+        case 33: return {33, 126, false, 4, false, 16};
+        case 37: return {37, 142, true, 5, false, 23};
+        default: throw Failure("unsupported_platform_api");
+    }
+}
+
+bool capture_allowed(bool ce_available, int current_user, int device_locked, int keyguard_locked, int interactive) {
+    return ce_available && current_user == 0 && device_locked == 0 && keyguard_locked == 0 && interactive == 1;
+}
+
+Clip parse_clip(std::span<const uint8_t> bytes, const PlatformProfile& profile) {
+    Reader reader(bytes, profile.bundle_intent_marker);
     if (reader.i32() != 1) throw Failure("no_clip");
     Clip clip = reader.description();
     if (clip.sensitive) return clip; // Never extract sensitive body.
@@ -141,14 +156,14 @@ Clip parse_clip33(std::span<const uint8_t> bytes) {
     if (!text || !valid_text(*text)) throw Failure("invalid_text");
     clip.text = std::move(*text);
     if (reader.string8()) throw Failure("html_unsupported");
-    // URI/Intent/ActivityInfo/TextLinks are deliberately not materialized.
-    for (int i = 0; i < 4; ++i) if (reader.i32() != 0) throw Failure("complex_item_unsupported");
+    // API 37 adds IntentSender. Never materialize any of these complex objects.
+    for (int i = 0; i < profile.item_objects; ++i) if (reader.i32() != 0) throw Failure("complex_item_unsupported");
     if (reader.pos != bytes.size()) throw Failure("parcel_trailing");
     return clip;
 }
 
-int64_t parse_description33(std::span<const uint8_t> bytes) {
-    Reader reader(bytes);
+int64_t parse_description(std::span<const uint8_t> bytes, const PlatformProfile& profile) {
+    Reader reader(bytes, profile.bundle_intent_marker);
     if (reader.i32() != 1) return 0;
     return reader.description().timestamp;
 }

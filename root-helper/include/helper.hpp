@@ -18,8 +18,18 @@ struct Clip {
     bool sensitive = false;
 };
 bool valid_text(const std::string& text);
-Clip parse_clip33(std::span<const uint8_t> bytes);
-int64_t parse_description33(std::span<const uint8_t> bytes);
+struct PlatformProfile {
+    int api;
+    uint32_t current_user_transaction;
+    bool clipboard_attribution;
+    int item_objects;
+    bool bundle_intent_marker = false;
+    uint32_t interactive_transaction;
+};
+PlatformProfile platform_profile(int api);
+bool capture_allowed(bool ce_available, int current_user, int device_locked, int keyguard_locked, int interactive);
+Clip parse_clip(std::span<const uint8_t> bytes, const PlatformProfile& profile);
+int64_t parse_description(std::span<const uint8_t> bytes, const PlatformProfile& profile);
 std::string json_string(const std::string& text);
 struct Entry { uint64_t id; int64_t timestamp; std::string text; };
 class History {

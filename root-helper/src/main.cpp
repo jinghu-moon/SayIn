@@ -92,7 +92,7 @@ int run(const std::string& path, const std::string& module, const std::string& p
     uint64_t accepted = 0, dropped = 0; bool ready = false, fatal = false, stop = false;
     const auto started = std::chrono::steady_clock::now();
     const auto status = [&] {
-        return "{\"running\":true,\"backend\":\"binder_api33_shell\",\"capture_ready\":" + std::string(ready ? "true" : "false") +
+        return "{\"running\":true,\"backend\":\"binder_shell\",\"capture_ready\":" + std::string(ready ? "true" : "false") +
             ",\"accepted\":" + std::to_string(accepted) + ",\"dropped_or_coalesced\":" + std::to_string(dropped) +
             ",\"entries\":" + std::to_string(history.entries().size()) + ",\"generation\":" + std::to_string(history.generation) + ",\"keepalive\":\"not_implemented\"}";
     };
@@ -176,7 +176,7 @@ int main(int argc, char** argv) {
             else throw Failure("unknown_argument");
         }
         if (prefix.size() && (path == "/data/adb/sayin-helper" || duration == 0)) throw Failure("test_requires_isolated_directory_and_duration");
-        if (command == "probe") { probe(); std::cout << "{\"clipboard_binder_access\":true,\"api\":33}\n"; return 0; }
+        if (command == "probe") { probe(); std::cout << "{\"clipboard_binder_access\":true}\n"; return 0; }
         if (getuid() != 0) throw Failure("root_required");
         umask(0077); if (prctl(PR_SET_DUMPABLE, 0)) throw Failure("process_protection");
         if (command == "crypto-test") { Crypto{}.self_test(); std::cout << "{\"aes_gcm_and_tamper_test\":true}\n"; return 0; }

@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" package="seeyuer.sayin.helperfixture">
     <uses-sdk android:minSdkVersion="33" android:targetSdkVersion="33" />
-    <application android:label="SayIn Clipboard Fixture" android:allowBackup="false" android:hasCode="true" />
+    <application android:label="SayIn Clipboard Fixture" android:allowBackup="false" android:hasCode="true">
+        <activity android:name=".ClipboardFixtureActivity" android:exported="false" />
+    </application>
     <instrumentation android:name="seeyuer.sayin.helperfixture.ClipboardFixture" android:targetPackage="seeyuer.sayin.helperfixture" android:label="Generated clipboard samples only" />
 </manifest>

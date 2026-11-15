@@ -60,7 +60,7 @@ class EngineeringTest(unittest.TestCase):
             for info in z.infolist():
                 mode = 0o755 if info.filename.endswith(".sh") or info.filename.startswith("bin/") else 0o644
                 self.assertEqual(mode, stat.S_IMODE(info.external_attr >> 16))
-            self.assertEqual(json.loads(z.read("build-manifest.json"))["supported_api"], [33])
+            self.assertEqual(json.loads(z.read("build-manifest.json"))["supported_api"], [33, 37])
         self.assertTrue(target.with_suffix(".zip.sha256").read_text().startswith(hashlib.sha256(first).hexdigest()))
 
     def test_invalid_or_wrong_architecture_binary_rejected(self):
@@ -119,12 +119,14 @@ set_perm() { :; }
         return subprocess.run([bash, "-c", script], cwd=stage, env=dict(os.environ, API=api, ARCH=arch, BOOTMODE=bootmode), capture_output=True, text=True)
 
     def test_supported_installer_fixture(self):
-        result = self.install()
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("collection is OFF", result.stdout)
+        for api in ("33", "37"):
+            with self.subTest(api=api):
+                result = self.install(api=api)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn("collection is OFF", result.stdout)
 
     def test_installer_rejects_unknown_api_arch_recovery_and_tamper(self):
-        for args in ({"api":"32"}, {"api":"34"}, {"api":"unknown"}, {"arch":"x64"}, {"bootmode":"false"}, {"corrupt":True}):
+        for args in ({"api":"32"}, {"api":"34"}, {"api":"36"}, {"api":"38"}, {"api":"unknown"}, {"arch":"x64"}, {"bootmode":"false"}, {"corrupt":True}):
             with self.subTest(args=args):
                 self.assertEqual(self.install(**args).returncode, 2)
 

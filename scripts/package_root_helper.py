@@ -76,7 +76,7 @@ def collect_payload(repo: Path) -> dict[str, bytes]:
     payload["licenses/NDK-NOTICE.txt"] = checked_bytes(repo, "root-helper/licenses/NDK-NOTICE.txt")
     manifest = {
         "schema": 1, "module_id": properties["id"], "version": properties["version"],
-        "stage": "clipboard_collector", "target_abi": "arm64-v8a", "supported_api": [33],
+        "stage": "clipboard_collector", "target_abi": "arm64-v8a", "supported_api": [33, 37],
         "language": "C++20", "ndk": "29.0.14206865",
         "capabilities": {"clipboard_collection": True, "app_keepalive": False, "app_ipc": False},
         "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in sorted(payload.items())},
