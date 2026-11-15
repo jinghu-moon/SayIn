@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -330,10 +331,11 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val showIcons = !compact && maxWidth >= 320.dp * fontScale
         Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(16.dp))
-            .padding(4.dp).selectableGroup(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            .padding(4.dp).horizontalScroll(rememberScrollState()).selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally)) {
             SpeakInputSource.entries.forEach { item ->
                 val selected = source == item
-                Row(Modifier.weight(1f).heightIn(min = 48.dp)
+                Row(Modifier.widthIn(min = 64.dp).heightIn(min = 48.dp)
                     .background(if (selected) MiuixTheme.colorScheme.surfaceContainer else Color.Transparent, RoundedCornerShape(12.dp))
                     .selectable(selected, enabled = enabled, role = Role.Tab, onClick = { onSelect(item) })
                     .testTag("input-source-${item.name}").padding(horizontal = if (showIcons) 8.dp else 2.dp, vertical = 8.dp),
@@ -343,7 +345,7 @@ private fun InputSourcePicker(source: SpeakInputSource, enabled: Boolean = true,
                         null, Modifier.size(18.dp), tint = color)
                     if (showIcons) Spacer(Modifier.width(8.dp))
                     Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_source_local_short else sourceLabel(item)),
-                        modifier = Modifier.testTag("input-source-label-${item.name}"),
+                        modifier = Modifier.width(IntrinsicSize.Max).testTag("input-source-label-${item.name}"),
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                         fontSize = if (compact) 12.sp else 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal, color = color)
                 }

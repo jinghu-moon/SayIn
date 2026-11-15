@@ -2,11 +2,8 @@ package seeyuer.sayin.data
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.graphics.ImageDecoder
 import android.graphics.ColorSpace
-import android.os.Build
-import androidx.exifinterface.media.ExifInterface
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -17,12 +14,11 @@ internal class PreparedMobileImage(val metadata: ImageMetadata, val bytes: ByteA
     override fun close() { bytes.fill(0) }
 }
 
-/** Reject APNG before BitmapFactory can silently select its default frame. */
+/** Reject APNG before a decoder can silently select its default frame. */
 internal fun inspectImageContainer(bytes: ByteArray): ImageMime {
     require(bytes.size in 1..MAX_IMAGE_BYTES)
     if (bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() && bytes[2] == 0xff.toByte()) {
-        // BitmapFactory may return partial pixels for a truncated JPEG. Require
-        // an actual terminal marker before its permissive legacy decoder.
+        // Require a complete container before decoding; no partial JPEGs.
         require(bytes.size >= 5 && bytes[bytes.lastIndex - 1] == 0xff.toByte() && bytes.last() == 0xd9.toByte())
         return ImageMime.JPEG
     }
@@ -52,31 +48,15 @@ internal fun prepareMobileImage(source: ByteArray): PreparedMobileImage {
     }
     validDimensions(bounds.outWidth, bounds.outHeight)
     require(bounds.outMimeType == mime.wire)
-    val options = BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inScaled = false }
-    val decoded = if (Build.VERSION.SDK_INT >= 28) ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(source))) { decoder, info, _ ->
+    val decoded = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(source))) { decoder, info, _ ->
         validDimensions(info.size.width, info.size.height)
         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
         decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
         decoder.setOnPartialImageListener { false }
-    } else requireNotNull(BitmapFactory.decodeByteArray(source, 0, source.size, options))
-    var oriented = decoded
+    }
     try {
-        // ImageDecoder already applies EXIF; legacy BitmapFactory does not.
-        val orientation = if (Build.VERSION.SDK_INT >= 28) ExifInterface.ORIENTATION_NORMAL else
-            ExifInterface(source.inputStream()).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-        val matrix = Matrix().apply {
-            when (orientation) {
-                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> setScale(-1f, 1f)
-                ExifInterface.ORIENTATION_ROTATE_180 -> setRotate(180f)
-                ExifInterface.ORIENTATION_FLIP_VERTICAL -> setScale(1f, -1f)
-                ExifInterface.ORIENTATION_TRANSPOSE -> { setRotate(90f); postScale(-1f, 1f) }
-                ExifInterface.ORIENTATION_ROTATE_90 -> setRotate(90f)
-                ExifInterface.ORIENTATION_TRANSVERSE -> { setRotate(-90f); postScale(-1f, 1f) }
-                ExifInterface.ORIENTATION_ROTATE_270 -> setRotate(-90f)
-            }
-        }
-        if (!matrix.isIdentity) oriented = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, false)
-        validDimensions(oriented.width, oriented.height)
+        // ImageDecoder applies EXIF exactly once on every supported OS.
+        validDimensions(decoded.width, decoded.height)
         // Bitmap compression writes pixels, not the source EXIF/GPS. Preserve
         // PNG transparency; JPEG is normalized once, then preview those bytes.
         val output = object : ByteArrayOutputStream() {
@@ -88,13 +68,12 @@ internal fun prepareMobileImage(source: ByteArray): PreparedMobileImage {
             fun wipe() { buf.fill(0) }
         }
         val bytes = try {
-            require(oriented.compress(if (mime == ImageMime.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, output))
+            require(decoded.compress(if (mime == ImageMime.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, output))
             output.toByteArray()
         } finally { output.wipe() }
-        val metadata = ImageMetadata(bytes.size, mime, oriented.width, oriented.height, imageDigest(bytes))
+        val metadata = ImageMetadata(bytes.size, mime, decoded.width, decoded.height, imageDigest(bytes))
         return PreparedMobileImage(metadata, bytes)
     } finally {
-        if (oriented !== decoded) oriented.recycle()
         decoded.recycle()
     }
 }

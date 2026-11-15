@@ -6,6 +6,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Opt-in emulator ABI is limited to the isolated instrumentation variant.
+val emulatorTests = providers.gradleProperty("sayin.emulatorTests").orNull == "true"
+if (emulatorTests) {
+    require(providers.gradleProperty("sayin.instrumentationBuildType").orNull == "imageTest")
+}
+
 android {
     namespace = "seeyuer.sayin"
     compileSdk {
@@ -15,12 +21,13 @@ android {
 
     defaultConfig {
         applicationId = "seeyuer.sayin"
-        minSdk = 26
+        // The pinned LAN transport requires platform TLS 1.3 (Android 10+).
+        minSdk = 29
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        ndk { abiFilters += "arm64-v8a" }
+        ndk { abiFilters += if (emulatorTests) "x86_64" else "arm64-v8a" }
     }
 
     buildFeatures { compose = true }
@@ -112,9 +119,14 @@ val buildPairingNative = tasks.register<BuildPairingNative>("buildPairingNative"
     inputs.file(projectRoot.resolve("desktop/crates/pairing/Cargo.toml"))
     inputs.file(projectRoot.resolve("desktop/Cargo.lock"))
     inputs.file(projectRoot.resolve("scripts/build_pairing_android.ps1"))
+    inputs.property("abi", if (emulatorTests) "x86_64" else "arm64-v8a")
     outputDirectory.set(layout.buildDirectory.dir("generated/pairingJni"))
     commandLine("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-        projectRoot.resolve("scripts/build_pairing_android.ps1").absolutePath)
+        projectRoot.resolve("scripts/build_pairing_android.ps1").absolutePath,
+        "-Abi", if (emulatorTests) "x86_64" else "arm64-v8a")
+}
+androidComponents.beforeVariants { variant ->
+    if (emulatorTests && variant.buildType != "imageTest") variant.enable = false
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addGeneratedSourceDirectory(buildPairingNative) { it.outputDirectory }

@@ -201,6 +201,11 @@ class MobileShellInstrumentedTest {
                     compose.onNodeWithTag("input-source-label-${source.name}", useUnmergedTree = true)
                         .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
                     assertEquals("Large-text source labels must not split words", 1, layouts.single().lineCount)
+                    val layout = layouts.single()
+                    File(output, "source-layout-${source.name}.txt").writeText(
+                        "size=${layout.size}; paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height}; " +
+                            "overflowWidth=${layout.didOverflowWidth}; overflowHeight=${layout.didOverflowHeight}")
+                    assertTrue("Source labels must remain fully readable", !layout.hasVisualOverflow)
                 }
             }
         }
@@ -257,7 +262,10 @@ class MobileShellInstrumentedTest {
     private fun verifyKeyboardLayout(evidence: String) {
         var sends = 0
         setTestContent {
-            var draft by remember { mutableStateOf(TextFieldValue("Review this text")) }
+            // A committed sentence/cursor boundary avoids AOSP LatinIME
+            // reopening an existing word as an active composing span on focus.
+            // Composition blocking is exercised by the speaking state tests.
+            var draft by remember { mutableStateOf(TextFieldValue("Review this text.", TextRange(17))) }
             VoiceLinkTheme {
                 TestVoiceLinkContent(ready(), draft, { draft = it }, { sends++ }, { _, _ -> }, {})
             }
@@ -266,7 +274,15 @@ class MobileShellInstrumentedTest {
         compose.waitUntil(10_000) { keyboardVisible() }
         // Platform visibility changes before animated Compose insets settle.
         // Assert the actual app layout after it has consumed those insets.
-        compose.waitUntil(10_000) { compose.onAllNodesWithTag("nav-Speak").fetchSemanticsNodes().isEmpty() }
+        try {
+            compose.waitUntil(10_000) { compose.onAllNodesWithTag("nav-Speak").fetchSemanticsNodes().isEmpty() }
+        } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
+            screenshot("$evidence-failure")
+            File(context.filesDir, "ui-verification/$evidence-failure.txt").writeText(
+                "ime=" + ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.getInsets(WindowInsetsCompat.Type.ime()) +
+                    "\n" + compose.onRoot().printToString())
+            throw error
+        }
         compose.waitForIdle()
         screenshot(evidence)
         File(context.filesDir, "ui-verification/$evidence.txt").writeText(
@@ -285,7 +301,7 @@ class MobileShellInstrumentedTest {
         assertEquals(1, sends)
         closeKeyboard()
         compose.onNodeWithTag("nav-Speak").assertIsDisplayed()
-        compose.onNodeWithTag("draft").assertTextContains("Review this text")
+        compose.onNodeWithTag("draft").assertTextEquals("Review this text.")
     }
 
     @Test fun compactLargeTextAndNormalizationPreviewKeepSendVisible() {

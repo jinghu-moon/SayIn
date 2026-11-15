@@ -81,6 +81,7 @@ internal fun VoiceLinkContent(
     LaunchedEffect(quick) { session.cancelAutoSend() }
     SideEffect { session.updateReceiver(state) }
     var keepAwake by remember { mutableStateOf(preferences.getBoolean("keep_awake", false)) }
+    RefreshImeInsetsAfterLayout()
     val view = LocalView.current
     val editing = page == MobilePage.Speak && WindowInsets.ime.getBottom(LocalDensity.current) > 0
     DisposableEffect(view, keepAwake) {
