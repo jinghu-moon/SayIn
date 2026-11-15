@@ -117,6 +117,7 @@
       "Miuix WindowIconDropdownMenu for both lists",
       "removed duplicate IME reservation; editor fills the available height above the keyboard"
     ],
+    "dragAnimation": "Reordered phrase list moved to LazyColumn with stable keys; Modifier.animateItem() on non-dragged rows, zIndex+translationY on the dragged row, 140ms settle glide on drop, frame-time and overshoot based edge auto-scroll compensating the drag offset. Panel device tests (25) pass.",
     "verified": "25 panel device tests green; real-device screenshots for list, editor and row menu"
   },
   "limitations": [

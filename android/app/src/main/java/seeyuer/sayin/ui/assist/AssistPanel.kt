@@ -8,11 +8,17 @@ import android.content.ContextWrapper
 import android.os.SystemClock
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -247,7 +253,10 @@ private fun AssistPanelContent(
     val confirmCancelFocus = remember { FocusRequester() }
     val rowBounds = remember { mutableMapOf<String, Rect>() }
     var listBounds by remember { mutableStateOf<Rect?>(null) }
-    val scroll = rememberScrollState()
+    val phraseList = rememberLazyListState()
+    // Residual offset of the row that was just dropped; it glides into its slot like the reference
+    // Reorderable library instead of snapping by half a row.
+    var settling by remember { mutableStateOf<Pair<String, Float>?>(null) }
 
     SideEffect { onModalChange(mode != AssistMode.List || drag != null) }
     DisposableEffect(lifecycle) {
@@ -300,17 +309,6 @@ private fun AssistPanelContent(
         gripFocusers[id]?.requestFocus()
         pendingGripFocus = null
     }
-    val dragEdge = drag?.edge ?: 0
-    LaunchedEffect(dragEdge, drag != null) {
-        if (drag == null) return@LaunchedEffect
-        val delta = with(density) { 4.dp.toPx() } * dragEdge
-        if (delta == 0f) return@LaunchedEffect
-        while (drag != null) {
-            scroll.dispatchRawDelta(delta)
-            withFrameNanos { }
-        }
-    }
-
     // One read per panel open, plus one per switch back to the clipboard tab and per explicit
     // retry. The Miuix sheet hosts its content in a non-focusable popup-style window, so the
     // Activity window is the authority for "this app currently owns input focus"; the read also
@@ -533,15 +531,15 @@ private fun AssistPanelContent(
     fun startDrag(id: String, localY: Float) {
         val index = working.indexOfFirst { it.id == id }
         if (index < 0) return
+        settling = null
         val rowTop = rowBounds[id]?.top ?: 0f
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
         drag = PhraseDrag(id, index, 0f, rowTop + localY, 0)
     }
 
-    fun dragBy(amount: Float) {
-        val current = drag ?: return
+    fun reorderOffset(current: PhraseDrag, start: Float): Pair<Int, Float> {
         var index = current.index
-        var offset = current.offset + amount
+        var offset = start
         val rowHeight = { key: String -> rowBounds[key]?.height ?: with(density) { 64.dp.toPx() } }
         while (index < working.lastIndex && offset > rowHeight(working[index].id) / 2f) {
             offset -= rowHeight(working[index].id)
@@ -553,9 +551,15 @@ private fun AssistPanelContent(
             working = working.toMutableList().apply { add(index - 1, removeAt(index)) }
             index--
         }
+        return index to offset
+    }
+
+    fun dragBy(amount: Float) {
+        val current = drag ?: return
+        val (index, offset) = reorderOffset(current, current.offset + amount)
         val pointerY = current.pointerY + amount
         val bounds = listBounds
-        val threshold = with(density) { 40.dp.toPx() }
+        val threshold = with(density) { 48.dp.toPx() }
         val edge = when {
             bounds == null -> 0
             pointerY < bounds.top + threshold -> -1
@@ -565,10 +569,57 @@ private fun AssistPanelContent(
         drag = current.copy(index = index, offset = offset, pointerY = pointerY, edge = edge)
     }
 
+    fun advanceAutoScroll(delta: Float) {
+        val current = drag ?: return
+        val (index, offset) = reorderOffset(current, current.offset + delta)
+        drag = current.copy(index = index, offset = offset)
+    }
+
     fun finishDrag(commit: Boolean) {
-        if (drag == null) return
+        val current = drag ?: return
         drag = null
         if (commit) commitOrder() else working = phrases.state.value.phrases
+        if (commit && current.offset != 0f) {
+            val id = current.id
+            scope.launch {
+                val animation = Animatable(current.offset)
+                settling = id to current.offset
+                animation.animateTo(0f, tween(durationMillis = 140)) { settling = id to value }
+                settling = null
+            }
+        } else {
+            settling = null
+        }
+    }
+
+    val dragEdge = drag?.edge ?: 0
+    LaunchedEffect(dragEdge, drag != null) {
+        if (drag == null) return@LaunchedEffect
+        val threshold = with(density) { 48.dp.toPx() }
+        val maxSpeed = with(density) { 1400.dp.toPx() }
+        var previousFrame = 0L
+        while (true) {
+            val frame = withFrameNanos { it }
+            val current = drag ?: break
+            val edge = current.edge
+            val bounds = listBounds
+            if (edge == 0 || bounds == null) {
+                previousFrame = 0L
+                continue
+            }
+            val deltaTime = if (previousFrame == 0L) 0f else
+                ((frame - previousFrame) / 1_000_000_000f).coerceAtMost(0.05f)
+            previousFrame = frame
+            if (deltaTime == 0f) continue
+            val overshoot = if (edge > 0) current.pointerY - (bounds.bottom - threshold)
+            else (bounds.top + threshold) - current.pointerY
+            val speed = maxSpeed * (overshoot / threshold).coerceIn(0.25f, 1f)
+            val delta = speed * deltaTime * edge
+            phraseList.scrollBy(delta)
+            // The list content moved under a stationary finger; compensate so the dragged row
+            // stays under it and reorder thresholds keep working while scrolling.
+            advanceAutoScroll(delta)
+        }
     }
 
     fun onBack(): Boolean {
@@ -661,7 +712,8 @@ private fun AssistPanelContent(
                             ready = libraryReady,
                             issue = libraryIssue,
                             emptyAction = { openEditor(null, "", "") },
-                            scroll = scroll,
+                            listState = phraseList,
+                            settling = settling,
                             drag = drag,
                             dragEpoch = dragEpoch,
                             onAdd = { openEditor(null, "", "") },
@@ -987,7 +1039,8 @@ private fun PhraseTab(
     ready: Boolean,
     issue: Boolean,
     emptyAction: () -> Unit,
-    scroll: androidx.compose.foundation.ScrollState,
+    listState: LazyListState,
+    settling: Pair<String, Float>?,
     drag: PhraseDrag?,
     dragEpoch: Int,
     onAdd: () -> Unit,
@@ -1021,39 +1074,43 @@ private fun PhraseTab(
         )
         return
     }
-    Column(
-        Modifier.fillMaxSize().onGloballyPositioned { onListBounds(it.boundsInRoot()) }
-            .verticalScroll(scroll).padding(8.dp).testTag("assist-phrase-list"),
+    LazyColumn(
+        state = listState,
+        modifier = Modifier.fillMaxSize().onGloballyPositioned { onListBounds(it.boundsInRoot()) }
+            .testTag("assist-phrase-list"),
+        contentPadding = PaddingValues(8.dp),
     ) {
-        phrases.forEachIndexed { index, phrase ->
+        itemsIndexed(phrases, key = { _, phrase -> phrase.id }) { index, phrase ->
             val current = drag?.takeIf { it.id == phrase.id }
-            key(phrase.id) {
-                PhraseRow(
-                    phrase = phrase,
-                    index = index,
-                    total = phrases.size,
-                    dragging = current != null,
-                    translationY = current?.offset ?: 0f,
-                    dragEpoch = dragEpoch,
-                    onInsert = { onInsert(phrase.text) },
-                    menuItems = listOf(
-                        DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(phrase) }),
-                        DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(phrase) }),
-                        DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(phrase) }),
-                        DropdownItem(stringResource(R.string.assist_edit), onClick = { onEdit(phrase) }),
-                        DropdownItem(stringResource(R.string.assist_delete), onClick = { onDelete(phrase) }),
-                    ),
-                    onGripDown = { y -> onGripDown(phrase.id, y) },
-                    onGripDrag = onGripDrag,
-                    onGripEnd = onGripEnd,
-                    onGripCancel = onGripCancel,
-                    onGripKey = { delta -> onGripKey(phrase.id, delta) },
-                    onGripFocuser = { requester -> onGripFocuser(phrase.id, requester) },
-                    onBounds = { rect -> onRowBounds(phrase.id, rect) },
-                )
-            }
+            val settleOffset = settling?.takeIf { it.first == phrase.id }?.second
+            val animatePlacement = current == null && settleOffset == null
+            PhraseRow(
+                phrase = phrase,
+                index = index,
+                total = phrases.size,
+                dragging = current != null,
+                settling = settleOffset != null,
+                translationY = current?.offset ?: settleOffset ?: 0f,
+                dragEpoch = dragEpoch,
+                onInsert = { onInsert(phrase.text) },
+                menuItems = listOf(
+                    DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(phrase) }),
+                    DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(phrase) }),
+                    DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(phrase) }),
+                    DropdownItem(stringResource(R.string.assist_edit), onClick = { onEdit(phrase) }),
+                    DropdownItem(stringResource(R.string.assist_delete), onClick = { onDelete(phrase) }),
+                ),
+                onGripDown = { y -> onGripDown(phrase.id, y) },
+                onGripDrag = onGripDrag,
+                onGripEnd = onGripEnd,
+                onGripCancel = onGripCancel,
+                onGripKey = { delta -> onGripKey(phrase.id, delta) },
+                onGripFocuser = { requester -> onGripFocuser(phrase.id, requester) },
+                onBounds = { rect -> onRowBounds(phrase.id, rect) },
+                itemModifier = if (animatePlacement) Modifier.animateItem() else Modifier,
+            )
         }
-        Spacer(Modifier.height(8.dp))
+        item(key = "assist-phrase-tail") { Spacer(Modifier.height(8.dp)) }
     }
 }
 
@@ -1062,9 +1119,10 @@ private fun PhraseRow(
     phrase: StoredPhrase,
     index: Int,
     total: Int,
-    dragging: Boolean,
-    translationY: Float,
     dragEpoch: Int,
+    dragging: Boolean,
+    settling: Boolean,
+    translationY: Float,
     onInsert: () -> Unit,
     menuItems: List<DropdownItem>,
     onGripDown: (Float) -> Unit,
@@ -1074,6 +1132,7 @@ private fun PhraseRow(
     onGripKey: (Int) -> Unit,
     onGripFocuser: (FocusRequester) -> Unit,
     onBounds: (Rect) -> Unit,
+    itemModifier: Modifier,
 ) {
     val reorderDescription = stringResource(R.string.assist_reorder_for, phrase.text)
     val positionDescription = stringResource(R.string.assist_moved, index + 1, total)
@@ -1082,7 +1141,8 @@ private fun PhraseRow(
     val gripFocus = remember(phrase.id) { FocusRequester() }
     val shape = RoundedCornerShape(16.dp)
     Row(
-        Modifier.fillMaxWidth().padding(vertical = 2.dp).zIndex(if (dragging) 1f else 0f)
+        Modifier.fillMaxWidth().then(itemModifier).padding(vertical = 2.dp)
+            .zIndex(if (dragging || settling) 1f else 0f)
             .shadow(if (dragging) 6.dp else 0.dp, shape)
             .clip(shape)
             .background(MiuixTheme.colorScheme.surface)
