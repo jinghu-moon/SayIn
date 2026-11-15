@@ -9,7 +9,7 @@
 
 构建与启动说明：[Android](android/README.md)、[Windows](desktop/README.md)。工程决策和验收记录在 [docs](docs/)。
 
-可选 Root 模块位于 [root-helper](root-helper/README.md)，采用 C++ 独立采集和加密保存剪贴板历史；后端包含 Android 13/17 arm64 配置，默认关闭，实际 ROM 验证范围见 [61](docs/61-root-helper-android17-validation.md)。SayIn 面板读取及应用保活尚未接入，普通手机行为不变。
+可选 Root 模块位于 [root-helper](root-helper/README.md)，采用 C++ 独立采集和加密保存剪贴板历史；后端包含 Android 13/17 arm64 配置，默认关闭，实际 ROM 验证范围见 [61](docs/61-root-helper-android17-validation.md)。0.4.0 已接入签名校验的本地 socket 和 SayIn 多条记录面板，实施及安装边界见 [62](docs/62-root-helper-app-clipboard-integration.md)；应用保活尚未接入，普通手机继续当前单条剪贴板。
 
 更新资源：`python scripts/sync_brand_assets.py`。原始图标位于 `assets/sayin-icons/B-field`，脚本原样同步平台资源，Windows 任务栏明暗主题使用对应托盘图标。
 

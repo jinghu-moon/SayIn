@@ -268,3 +268,7 @@ IPC 分开区分系统采集入口与 App 控制入口；普通 App 不可提交
 - [Android Settings](https://developer.android.com/reference/android/provider/Settings)、[ActivityManager.isBackgroundRestricted](https://developer.android.com/reference/android/app/ActivityManager#isBackgroundRestricted())：系统设置入口与平台后台限制状态；不把这些 API 当作厂商自启动授权查询。
 
 官方机制不等于本模块已经可用；支持范围以实施后的真实设备记录为准。
+
+## 11. 0.4.0 App 读取实施更新
+
+实际实现与本机 IPC 权威定义见 [62](62-root-helper-app-clipboard-integration.md)。本版实现签名准入的本地 socket、LIST/GET/CLEAR、组合面板多条记录及普通单条回退；采集仍由 Action 明确控制，关闭采集后的只读控制实例保留历史访问。上文 App 内开关、保活、单条删除及租约等是后续完整设计，不能当成本版已实现。0.3.1 需要更新模块及配套 App，不能直接读取 Root 数据文件。

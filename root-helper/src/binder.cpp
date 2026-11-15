@@ -106,6 +106,21 @@ int64_t millis() {
 }
 }
 
+bool history_access_allowed() {
+    try {
+        struct Gate {
+            PlatformProfile profile = platform();
+            void* lib = dlopen("libbinder_ndk.so", RTLD_NOW | RTLD_LOCAL);
+            Remote trust{lib, "trust", "android.app.trust.ITrustManager"};
+            Remote activity{lib, "activity", "android.app.IActivityManager"};
+            Remote window{lib, "window", "android.view.IWindowManager"};
+            Remote power{lib, "power", "android.os.IPowerManager"};
+        };
+        static Gate gate;
+        return unlocked(gate.trust, gate.activity, gate.window, gate.power, gate.profile);
+    } catch (...) { return false; }
+}
+
 int probe() {
     const auto profile = platform(); shell_identity();
     void* lib = dlopen("libbinder_ndk.so", RTLD_NOW | RTLD_LOCAL);

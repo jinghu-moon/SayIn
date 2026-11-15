@@ -64,11 +64,17 @@ def collect_payload(repo: Path) -> dict[str, bytes]:
     if defaults != {"schema": 1, "clipboard_enabled": False, "keepalive_enabled": False}:
         raise ValueError("Installation defaults cannot enable collection or keepalive")
     policy = json.loads(payload["app-policy.json"])
-    if policy != {"schema": 1, "application_id": "seeyuer.sayin",
-                  "allowed_signing_certificate_sha256": [], "ipc_protocol": None}:
-        raise ValueError("App IPC must remain unavailable until signature admission is implemented")
+    if (policy.get("schema") != 1 or policy.get("ipc_protocol") != 1
+        or policy.get("application_ids") != ["seeyuer.sayin", "seeyuer.sayin.imagetest"]
+        or len(policy.get("allowed_signing_certificate_sha256", [])) != 1
+        or not re.fullmatch(r"[0-9a-f]{64}", policy["allowed_signing_certificate_sha256"][0])
+        or policy.get("trust") != "explicit_local_debug_certificate"):
+        raise ValueError("Explicit development package/certificate admission is required")
     binary = checked_bytes(repo, "root-helper/build/package/sayin-helper")
     validate_elf(binary)
+    for literal in policy["application_ids"] + policy["allowed_signing_certificate_sha256"]:
+        if literal.encode() not in binary:
+            raise ValueError("Binary admission does not match app-policy.json; rebuild first")
     payload["bin/sayin-helper"] = binary
     payload["LICENSE"] = checked_bytes(repo, "LICENSE")
     payload["licenses/Apache-2.0.txt"] = checked_bytes(repo, "licenses/Apache-2.0.txt")
@@ -78,7 +84,7 @@ def collect_payload(repo: Path) -> dict[str, bytes]:
         "schema": 1, "module_id": properties["id"], "version": properties["version"],
         "stage": "clipboard_collector", "target_abi": "arm64-v8a", "supported_api": [33, 37],
         "language": "C++20", "ndk": "29.0.14206865",
-        "capabilities": {"clipboard_collection": True, "app_keepalive": False, "app_ipc": False},
+        "capabilities": {"clipboard_collection": True, "app_keepalive": False, "app_ipc": True},
         "sha256": {name: hashlib.sha256(data).hexdigest() for name, data in sorted(payload.items())},
     }
     payload["build-manifest.json"] = (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode()

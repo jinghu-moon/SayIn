@@ -429,4 +429,18 @@
     <string name="assist_library_issue">Phrases could not be opened. Existing data is kept.</string>
     <string name="assist_loading">Loading phrases…</string>
     <string name="assist_reading_clipboard">Reading clipboard…</string>
+
+    <!-- Independent Root module clipboard history -->
+    <string name="root_clipboard_history">Module clipboard history</string>
+    <string name="root_clipboard_current">Current clipboard</string>
+    <string name="root_clipboard_refresh">Refresh</string>
+    <string name="root_clipboard_paused">Collection is off or paused. Saved records remain available; use module Action to change collection.</string>
+    <string name="root_clipboard_empty">No module records yet. New copied text will appear here after collection starts.</string>
+    <string name="root_clipboard_clear_title">Clear module history?</string>
+    <string name="root_clipboard_clear_message">Delete all %1$d module records? This leaves the system clipboard and phrases unchanged.</string>
+    <string name="root_clipboard_cleared">Module history cleared.</string>
+    <string name="root_clipboard_changed">Records changed. Refresh before trying again.</string>
+    <string name="root_clipboard_denied">Module access was denied. Install matching official development builds.</string>
+    <string name="root_clipboard_locked">Unlock the primary user to view module records.</string>
+    <string name="root_clipboard_unavailable">Module not connected. Current clipboard is still available. If a clear request timed out, refresh to check its result.</string>
 </resources>

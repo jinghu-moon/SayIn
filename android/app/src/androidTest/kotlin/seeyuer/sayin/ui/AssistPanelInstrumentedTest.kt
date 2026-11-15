@@ -54,6 +54,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.ExternalResource
 import org.junit.runner.RunWith
+import seeyuer.sayin.ui.assist.LocalRootClipboardClient
+import seeyuer.sayin.data.RootClipboardClient
 import seeyuer.sayin.R
 import seeyuer.sayin.asr.CloudConfiguration
 import seeyuer.sayin.asr.LocalModelPhase
@@ -93,6 +95,7 @@ class AssistPanelInstrumentedTest {
     private var quick by mutableStateOf(false)
     private var mountGeneration by mutableIntStateOf(0)
     private var sends = 0
+    private var helperEndpoint = "SAYIN_TEST_Disabled"
     private var failClipboard = false
     private var layoutWidth = 360.dp
     private var layoutHeight = 680.dp
@@ -117,6 +120,58 @@ class AssistPanelInstrumentedTest {
         val manager = compose.activity.getSystemService(ClipboardManager::class.java) ?: return
         val clip = originalClip
         if (clip == null) manager.clearPrimaryClip() else manager.setPrimaryClip(clip)
+    }
+
+    @RootHelperDeviceTest
+    @Test fun rootHistoryFullPagePastesWithoutSending() = checkRootHistory(false)
+    @RootHelperDeviceTest
+    @Test fun rootHistoryQuickCardPastesWithoutSending() = checkRootHistory(true)
+
+    private fun checkRootHistory(asQuick: Boolean) {
+        val args = InstrumentationRegistry.getArguments()
+        val endpoint = args.getString("helperSocket").orEmpty()
+        assumeTrue(endpoint.startsWith("SAYIN_TEST_"))
+        helperEndpoint = endpoint
+        quick = asQuick
+        mount(TextFieldValue("base:", TextRange(5)))
+        openPanel()
+        waitForTag("root-clipboard-list")
+        compose.onAllNodesWithTag("assist-clipboard-menu").assertCountEquals(3)
+        val prefix = args.getString("helperPrefix").orEmpty()
+        compose.onAllNodesWithText(prefix, substring = true)[0].performClick()
+        compose.waitUntil(5_000) { compose.onAllNodesWithTag("assist-panel").fetchSemanticsNodes().isEmpty() }
+        compose.runOnIdle {
+            assertEquals("base:" + prefix + "3 中文🙂", session.draft.text)
+            assertEquals(0, sends)
+        }
+        openPanel()
+        waitForTag("root-clipboard-list")
+        val previousLength = session.draft.text.length
+        compose.onAllNodesWithTag("assist-clipboard-menu")[0].performClick()
+        compose.onNodeWithText(compose.activity.getString(R.string.assist_paste)).performClick()
+        compose.waitUntil(5_000) { session.draft.text.length > previousLength }
+        compose.onNodeWithTag("assist-panel").assertExists()
+        compose.runOnIdle { assertEquals(0, sends) }
+    }
+
+    @RootHelperDeviceTest
+    @Test fun rootHistoryClearRequiresConfirmation() {
+        val args = InstrumentationRegistry.getArguments()
+        val endpoint = args.getString("helperSocket").orEmpty()
+        assumeTrue(endpoint.startsWith("SAYIN_TEST_"))
+        helperEndpoint = endpoint
+        mount(TextFieldValue("unchanged"))
+        openPanel()
+        waitForTag("root-clipboard-list")
+        compose.onNodeWithTag("root-clipboard-clear").performClick()
+        waitForTag("assist-confirm-cancel")
+        compose.onNodeWithTag("assist-confirm-cancel").performClick()
+        compose.onAllNodesWithTag("assist-clipboard-menu").assertCountEquals(3)
+        compose.onNodeWithTag("root-clipboard-clear").performClick()
+        waitForTag("assist-confirm-action")
+        compose.onNodeWithTag("assist-confirm-action").performClick()
+        waitForTag("root-clipboard-empty")
+        compose.runOnIdle { assertEquals("unchanged", session.draft.text); assertEquals(0, sends) }
     }
 
     @Test fun editorSaveStaysAboveTheKeyboard() {
@@ -588,7 +643,7 @@ class AssistPanelInstrumentedTest {
                     }
                 }
             }
-            CompositionLocalProvider(
+            CompositionLocalProvider(LocalRootClipboardClient provides RootClipboardClient(helperEndpoint),
                 LocalContext provides isolated,
                 LocalDensity provides Density(baseDensity.density, scale),
             ) {

@@ -425,4 +425,18 @@
     <string name="assist_library_issue">常用语库无法打开，现有数据已保留。</string>
     <string name="assist_loading">正在加载常用语…</string>
     <string name="assist_reading_clipboard">正在读取剪贴板…</string>
+
+    <!-- Independent Root module clipboard history -->
+    <string name="root_clipboard_history">模块剪贴板记录</string>
+    <string name="root_clipboard_current">当前剪贴板</string>
+    <string name="root_clipboard_refresh">刷新</string>
+    <string name="root_clipboard_paused">采集已关闭或暂停，仍可查看已保存记录；可在模块 Action 中启停采集。</string>
+    <string name="root_clipboard_empty">暂无模块记录。开启采集后，新复制的文字会记录在这里。</string>
+    <string name="root_clipboard_clear_title">清空模块记录？</string>
+    <string name="root_clipboard_clear_message">删除模块中的全部 %1$d 条记录，系统剪贴板和常用语不受影响。</string>
+    <string name="root_clipboard_cleared">模块记录已清空。</string>
+    <string name="root_clipboard_changed">记录已变化，请刷新后再操作。</string>
+    <string name="root_clipboard_denied">模块拒绝访问，请安装签名匹配的配套开发版本。</string>
+    <string name="root_clipboard_locked">请解锁手机并切换到主用户后查看模块记录。</string>
+    <string name="root_clipboard_unavailable">模块未连接，仍可使用当前剪贴板。若清空操作超时，请刷新核对结果。</string>
 </resources>

@@ -1,4 +1,5 @@
 #include "helper.hpp"
+#include "app_bridge.hpp"
 #include <iostream>
 #include <functional>
 #include <fstream>
@@ -100,6 +101,32 @@ int main(int argc, char** argv) {
         for (int i = 1; i <= 50; ++i) require(bounded.add({i,std::string(kMaxText-3,'x')+std::to_string(i),false}));
         size_t sum = 0; for (const auto& e : bounded.entries()) sum += e.text.size(); require(sum <= kMaxBytes);
         require(json_string("a\n\"\\") == "\"a\\u000a\\\"\\\\\"");
+        History ipc; require(ipc.add({1,"first",false}));
+        require(app_reply("LIST", ipc, true, []{}).find("first")!=std::string::npos);
+        require(app_reply("GET 1:2 1", ipc, true, []{}).find("first")!=std::string::npos);
+        rejects([&]{app_reply("GET 1:1 1",ipc,true,[]{});});
+        rejects([&]{app_reply("GET 1:2 999",ipc,true,[]{});});
+        rejects([&]{app_reply("GET 1:2 -1",ipc,true,[]{});});
+        rejects([&]{app_reply("GET 1:2 1 extra",ipc,true,[]{});});
+        rejects([&]{app_reply(std::string(129,'x'),ipc,true,[]{});});
+        int saved=0;
+        require(app_reply("CLEAR 1:2",ipc,true,[&]{++saved;}).find("true")!=std::string::npos);
+        require(saved==1 && ipc.entries().empty() && ipc.generation==2);
+        rejects([&]{app_reply("CLEAR 1:2",ipc,true,[]{});});
+        auto lp=[](std::vector<uint8_t> data) { std::vector<uint8_t> out;append_u32(out,static_cast<uint32_t>(data.size()));out.insert(out.end(),data.begin(),data.end());return out; };
+        auto concat=[](std::vector<uint8_t> a,const std::vector<uint8_t>& b){a.insert(a.end(),b.begin(),b.end());return a;};
+        auto signed_data=concat(concat(lp({}),lp(lp({1,2,3}))),lp({}));
+        auto signer=concat(concat(lp(signed_data),lp({})),lp({}));
+        auto block=lp(lp(signer));
+        require(apk_v2_certificate(block)==std::vector<uint8_t>({1,2,3}));
+        auto reserved_data = concat(signed_data,lp({}));
+        auto reserved_signer = concat(concat(lp(reserved_data),lp({})),lp({}));
+        require(apk_v2_certificate(lp(lp(reserved_signer)))==std::vector<uint8_t>({1,2,3}));
+        reserved_data.back()=1;
+        reserved_signer=concat(concat(lp(reserved_data),lp({})),lp({}));
+        rejects([&]{apk_v2_certificate(lp(lp(reserved_signer)));});
+        for(size_t n=0;n<block.size();++n) rejects([&]{apk_v2_certificate(std::span(block).first(n));});
+        rejects([&]{apk_v2_certificate(lp(concat(lp(signer),lp(signer))));});
         std::cout << checks << " assertions passed\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }

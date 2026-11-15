@@ -43,7 +43,8 @@ class EngineeringTest(unittest.TestCase):
         header = bytearray(64)
         header[:7] = b"\x7fELF\x02\x01\x01"
         struct.pack_into("<HH", header, 16, 3, 183)
-        self.binary.write_bytes(header)
+        policy = json.loads((self.repo / "root-helper/module/app-policy.json").read_bytes())
+        self.binary.write_bytes(header + "\0".join(policy["application_ids"] + policy["allowed_signing_certificate_sha256"]).encode())
 
     def test_reproducible_whitelist_checksums_permissions(self):
         extra = self.repo / "root-helper/module/secret.env"
@@ -62,6 +63,13 @@ class EngineeringTest(unittest.TestCase):
                 self.assertEqual(mode, stat.S_IMODE(info.external_attr >> 16))
             self.assertEqual(json.loads(z.read("build-manifest.json"))["supported_api"], [33, 37])
         self.assertTrue(target.with_suffix(".zip.sha256").read_text().startswith(hashlib.sha256(first).hexdigest()))
+
+    def test_policy_and_binary_must_match(self):
+        policy = self.repo / "root-helper/module/app-policy.json"
+        value = json.loads(policy.read_bytes())
+        value["allowed_signing_certificate_sha256"] = ["ab" * 32]
+        policy.write_text(json.dumps(value))
+        with self.assertRaises(ValueError): PACK.collect_payload(self.repo)
 
     def test_invalid_or_wrong_architecture_binary_rejected(self):
         for value in (b"", b"dex\n035\x00" + bytes(100), b"\x7fELF"+bytes(60)):
@@ -88,7 +96,7 @@ class EngineeringTest(unittest.TestCase):
             with self.assertRaises(ValueError): PACK.collect_payload(self.repo)
         defaults.write_bytes(original)
         policy = self.repo / "root-helper/module/app-policy.json"
-        value = json.loads(policy.read_bytes()); value["allowed_signing_certificate_sha256"] = ["00"*32]
+        value = json.loads(policy.read_bytes()); value["allowed_signing_certificate_sha256"] = ["invalid-pin"]
         policy.write_text(json.dumps(value))
         with self.assertRaises(ValueError): PACK.collect_payload(self.repo)
 

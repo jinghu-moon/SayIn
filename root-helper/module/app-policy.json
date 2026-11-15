@@ -1,6 +1,12 @@
 {
   "schema": 1,
-  "application_id": "seeyuer.sayin",
-  "allowed_signing_certificate_sha256": [],
-  "ipc_protocol": null
+  "application_ids": [
+    "seeyuer.sayin",
+    "seeyuer.sayin.imagetest"
+  ],
+  "allowed_signing_certificate_sha256": [
+    "1c44f971d0ce85b4d81bfa4f84ea7c8d6b2999aa1483fd6846627b5da2e31f36"
+  ],
+  "ipc_protocol": 1,
+  "trust": "explicit_local_debug_certificate"
 }

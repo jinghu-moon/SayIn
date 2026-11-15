@@ -188,7 +188,7 @@ private data class PendingConfirm(
     val count: Int = 0,
 )
 
-private enum class ConfirmKind { ClearClipboard, ClearPhrases, DiscardBack, DiscardClose }
+private enum class ConfirmKind { ClearClipboard, ClearPhrases, ClearRoot, DiscardBack, DiscardClose }
 
 private data class PhraseUndo(val phrase: StoredPhrase, val index: Int)
 
@@ -235,6 +235,8 @@ private fun AssistPanelContent(
     var editorRejection by remember { mutableStateOf<Int?>(null) }
     var notice by remember { mutableStateOf<Int?>(null) }
     var undo by remember { mutableStateOf<PhraseUndo?>(null) }
+    var moduleHistory by remember { mutableStateOf(false) }
+    var moduleModal by remember { mutableStateOf(false) }
     var clipboardRead by remember { mutableStateOf<ClipboardRead?>(null) }
     var clipboardLoading by remember { mutableStateOf(false) }
     var revealed by remember { mutableStateOf(false) }
@@ -258,7 +260,7 @@ private fun AssistPanelContent(
     // Reorderable library instead of snapping by half a row.
     var settling by remember { mutableStateOf<Pair<String, Float>?>(null) }
 
-    SideEffect { onModalChange(mode != AssistMode.List || drag != null) }
+    SideEffect { onModalChange(mode != AssistMode.List || drag != null || moduleModal) }
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
@@ -267,6 +269,8 @@ private fun AssistPanelContent(
                     resumed = false
                     readGeneration++
                     clipboardRead = null
+                    viewerText = ""
+                    if (mode == AssistMode.Viewer) mode = AssistMode.List
                     revealed = false
                     confirm = null
                     if (event == Lifecycle.Event.ON_STOP) stopRequested = true
@@ -695,7 +699,15 @@ private fun AssistPanelContent(
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 when (mode) {
                     AssistMode.List -> when (tab) {
-                        AssistTab.Clipboard -> ClipboardTab(
+                        AssistTab.Clipboard -> RootClipboardTab(
+                            onAvailable = { moduleHistory = it },
+                            onModal = { moduleModal = it },
+                            onInsert = { insert(it, closeOnSuccess = true) },
+                            onCopy = { copy(it) },
+                            onPaste = { insert(it, closeOnSuccess = false) },
+                            onSaveAsPhrase = { openEditor(null, it, "") },
+                            onView = { viewerText = it; mode = AssistMode.Viewer },
+                        ) { ClipboardTab(
                             read = clipboardRead,
                             loading = clipboardLoading,
                             revealed = revealed,
@@ -706,7 +718,7 @@ private fun AssistPanelContent(
                             onPaste = { insert(it, closeOnSuccess = false) },
                             onSaveAsPhrase = { openEditor(null, it, "") },
                             onView = { viewerText = it; mode = AssistMode.Viewer },
-                        )
+                        ) }
                         AssistTab.Phrases -> PhraseTab(
                             phrases = working,
                             ready = libraryReady,
@@ -757,7 +769,7 @@ private fun AssistPanelContent(
                     AssistMode.Viewer -> ViewerBody(viewerText)
                 }
             }
-            if (mode == AssistMode.List) {
+            if (mode == AssistMode.List && (tab != AssistTab.Clipboard || !moduleHistory)) {
                 AssistFooter(
                     tab = tab,
                     issue = libraryIssue,
@@ -842,6 +854,7 @@ private fun AssistPanelContent(
             onConfirm = {
                 confirm = null
                 when (currentConfirm.kind) {
+                    ConfirmKind.ClearRoot -> Unit // Owned by RootClipboardTab.
                     ConfirmKind.ClearClipboard -> scope.launch { clearConfirmedClipboard(currentConfirm) }
                     ConfirmKind.ClearPhrases -> scope.launch {
                         when (withContext(NonCancellable) { phrases.clearAll(currentConfirm.revision) }) {
@@ -1204,7 +1217,7 @@ private fun PhraseRow(
 }
 
 @Composable
-private fun AssistRow(
+internal fun AssistRow(
     text: String,
     multiple: Boolean,
     onInsert: () -> Unit,
@@ -1387,15 +1400,17 @@ private fun AssistConfirmDialog(
     onCancel: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val cancelLabel = if (confirm.kind == ConfirmKind.ClearClipboard || confirm.kind == ConfirmKind.ClearPhrases) R.string.assist_cancel else R.string.assist_discard_keep
-    val confirmLabel = if (confirm.kind == ConfirmKind.ClearClipboard || confirm.kind == ConfirmKind.ClearPhrases) R.string.assist_clear else R.string.assist_discard_confirm
+    val cancelLabel = if (confirm.kind == ConfirmKind.ClearClipboard || confirm.kind == ConfirmKind.ClearPhrases || confirm.kind == ConfirmKind.ClearRoot) R.string.assist_cancel else R.string.assist_discard_keep
+    val confirmLabel = if (confirm.kind == ConfirmKind.ClearClipboard || confirm.kind == ConfirmKind.ClearPhrases || confirm.kind == ConfirmKind.ClearRoot) R.string.assist_clear else R.string.assist_discard_confirm
     val title = when (confirm.kind) {
         ConfirmKind.ClearClipboard -> R.string.assist_clear_clipboard_title
+        ConfirmKind.ClearRoot -> R.string.root_clipboard_clear_title
         ConfirmKind.ClearPhrases -> R.string.assist_clear_phrases_title
         else -> R.string.assist_discard_title
     }
     val message = when (confirm.kind) {
         ConfirmKind.ClearClipboard -> stringResource(R.string.assist_clear_clipboard_text)
+        ConfirmKind.ClearRoot -> stringResource(R.string.root_clipboard_clear_message, confirm.count)
         ConfirmKind.ClearPhrases -> stringResource(R.string.assist_clear_phrases_text, confirm.count)
         else -> stringResource(R.string.assist_discard_text)
     }
@@ -1537,4 +1552,11 @@ private suspend fun awaitClipboardWindow(context: Context, view: View): Boolean 
 private fun imeVisible(context: Context, fallback: View): Boolean {
     val decor = context.hostActivity()?.window?.decorView ?: fallback
     return ViewCompat.getRootWindowInsets(decor)?.isVisible(WindowInsetsCompat.Type.ime()) == true
+}
+
+@Composable
+internal fun RootClearConfirmation(count: Int, onCancel: () -> Unit, onConfirm: () -> Unit) {
+    val scrim = YuePalette.Neutral1000.copy(alpha = 0.35f)
+    AssistConfirmDialog(PendingConfirm(ConfirmKind.ClearRoot, count = count), scrim,
+        remember { FocusRequester() }, onCancel, onConfirm)
 }

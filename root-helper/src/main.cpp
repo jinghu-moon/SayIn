@@ -1,4 +1,5 @@
 #include "platform.hpp"
+#include "app_bridge.hpp"
 #include <algorithm>
 #include <array>
 #include <cerrno>
@@ -68,40 +69,52 @@ std::string client(Store& store, char command) {
     if (size <= 0) throw Failure("control_timeout");
     return std::string(response.data(), static_cast<size_t>(size));
 }
-int run(const std::string& path, const std::string& module, const std::string& prefix, int duration) {
+int run(const std::string& path, const std::string& module, const std::string& prefix, int duration, const std::string& app_socket) {
     Store store(path); Instance instance(store);
-    if (!store.enabled()) throw Failure("clipboard_not_enabled");
+    const bool capturing = store.enabled();
     const int server = socket_server(store);
-    int pair[2];
-    if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair)) throw Failure("capture_channel");
-    const int budget = 512 * 1024;
-    setsockopt(pair[0], SOL_SOCKET, SO_RCVBUF, &budget, sizeof(budget));
-    const pid_t parent = getpid(), child = fork();
-    if (child < 0) throw Failure("collector_fork");
-    if (child == 0) {
-        close(pair[0]); close(server); close(instance.fd); close(store.directory());
-        if (prctl(PR_SET_PDEATHSIG, SIGTERM) || getppid() != parent) _exit(70);
-        _exit(collector(pair[1], prefix));
+    const int apps = app_server(app_socket);
+    int pair[2]{-1, -1};
+    pid_t child = -1;
+    if (capturing) {
+        if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, pair)) throw Failure("capture_channel");
+        const int budget = 512 * 1024;
+        setsockopt(pair[0], SOL_SOCKET, SO_RCVBUF, &budget, sizeof(budget));
+        const pid_t parent = getpid(); child = fork();
+        if (child < 0) throw Failure("collector_fork");
+        if (child == 0) {
+            close(pair[0]); close(server); if (apps >= 0) close(apps); close(instance.fd); close(store.directory());
+            if (prctl(PR_SET_PDEATHSIG, SIGTERM) || getppid() != parent) _exit(70);
+            _exit(collector(pair[1], prefix));
+        }
+        close(pair[1]);
     }
-    close(pair[1]);
     // Read the encryption key only after fork: the shell child must never inherit it.
     History history;
-    try { history = store.load(); }
-    catch (...) { kill(child, SIGTERM); waitpid(child, nullptr, 0); close(pair[0]); close(server); remove_file(store, "control.sock"); throw; }
+    try {
+        const bool key = store.exists("key"), saved = store.exists("history.enc");
+        if (key != saved || (capturing && !key)) throw Failure("storage_incomplete");
+        if (key) history = store.load();
+    }
+    catch (...) { if (child > 0) { kill(child, SIGTERM); waitpid(child, nullptr, 0); } close(pair[0]); close(server); remove_file(store, "control.sock"); throw; }
     signal(SIGTERM, signal_stop); signal(SIGINT, signal_stop); signal(SIGPIPE, SIG_IGN);
     uint64_t accepted = 0, dropped = 0; bool ready = false, fatal = false, stop = false;
     const auto started = std::chrono::steady_clock::now();
     const auto status = [&] {
-        return "{\"running\":true,\"backend\":\"binder_shell\",\"capture_ready\":" + std::string(ready ? "true" : "false") +
+        return "{\"running\":true,\"enabled\":" + std::string(capturing ? "true" : "false") + ",\"backend\":\"binder_shell\",\"capture_ready\":" + std::string(ready ? "true" : "false") +
             ",\"accepted\":" + std::to_string(accepted) + ",\"dropped_or_coalesced\":" + std::to_string(dropped) +
             ",\"entries\":" + std::to_string(history.entries().size()) + ",\"generation\":" + std::to_string(history.generation) + ",\"keepalive\":\"not_implemented\"}";
+    };
+    const auto active = [&] {
+        return !interrupted && store.enabled() == capturing && (module.empty() ||
+            (access((module+"/disable").c_str(), F_OK) != 0 && access((module+"/remove").c_str(), F_OK) != 0));
     };
     try {
         while (!interrupted && !stop) {
             if (duration > 0 && std::chrono::steady_clock::now()-started >= std::chrono::seconds(duration)) break;
-            if (!store.enabled() || (!module.empty() && (access((module+"/disable").c_str(), F_OK) == 0 || access((module+"/remove").c_str(), F_OK) == 0))) break;
-            pollfd fds[2]{{server, POLLIN, 0}, {pair[0], POLLIN, 0}};
-            int result; do { result = poll(fds, 2, 1000); } while (result < 0 && errno == EINTR && !interrupted);
+            if (!active()) break;
+            pollfd fds[3]{{server, POLLIN, 0}, {pair[0], POLLIN, 0}, {apps, POLLIN, 0}};
+            int result; do { result = poll(fds, 3, 1000); } while (result < 0 && errno == EINTR && !interrupted);
             if (result < 0) { if (interrupted) break; throw Failure("control_poll"); }
             // Commands precede queued capture: clear/stop form a single-writer barrier.
             if (fds[0].revents & POLLIN) {
@@ -130,6 +143,7 @@ int run(const std::string& path, const std::string& module, const std::string& p
                 }
             }
             if (stop) break;
+            if (apps >= 0 && (fds[2].revents & POLLIN)) serve_app(apps, store, history, ready, pair[0], active);
             if (fds[1].revents & POLLIN) {
                 Packet packet{}; const auto size = recv(pair[0], &packet, sizeof(packet), MSG_DONTWAIT | MSG_TRUNC);
                 if (size != sizeof(packet)) throw Failure("capture_packet");
@@ -143,6 +157,7 @@ int run(const std::string& path, const std::string& module, const std::string& p
             } else if (fds[1].revents & (POLLHUP | POLLERR)) { fatal = true; break; }
         }
     } catch (...) { fatal = true; }
+    if (child > 0) {
     const char quit = 'Q'; (void)send(pair[0], &quit, 1, MSG_DONTWAIT | MSG_NOSIGNAL);
     bool reaped = false;
     for (int i = 0; i < 20; ++i) {
@@ -150,7 +165,8 @@ int run(const std::string& path, const std::string& module, const std::string& p
         usleep(50000);
     }
     if (!reaped) { kill(child, SIGTERM); waitpid(child, nullptr, 0); }
-    close(pair[0]); close(server); remove_file(store, "control.sock");
+    }
+    close(pair[0]); close(server); if (apps >= 0) close(apps); remove_file(store, "control.sock");
     store.write_state("{\"running\":false,\"last_exit\":\"" + std::string(fatal ? "capture_fault" : "stopped") + "\",\"accepted\":" + std::to_string(accepted) + ",\"dropped_or_coalesced\":" + std::to_string(dropped) + "}\n");
     std::cout << "{\"running\":false,\"accepted\":" << accepted << ",\"dropped_or_coalesced\":" << dropped << ",\"entries\":" << history.entries().size() << "}\n";
     if (fatal) throw Failure("capture_stopped_on_fault");
@@ -164,7 +180,7 @@ int main(int argc, char** argv) {
     try {
         if (argc < 2) throw Failure("usage_required");
         const std::string command = argv[1];
-        std::string path = "/data/adb/sayin-helper", module, prefix;
+        std::string path = "/data/adb/sayin-helper", module, prefix, app_socket;
         int duration = 0;
         for (int i = 2; i < argc; ++i) {
             const std::string option = argv[i];
@@ -172,6 +188,7 @@ int main(int argc, char** argv) {
             if (option == "--data-dir") path = argv[i];
             else if (option == "--module-dir") module = argv[i];
             else if (option == "--test-prefix") { prefix = argv[i]; if (!prefix.starts_with("SAYIN_TEST_") || prefix.size() > 80) throw Failure("test_prefix"); }
+            else if (option == "--app-socket") { app_socket = argv[i]; if (!app_socket.starts_with("SAYIN_TEST_") || app_socket.size()>80) throw Failure("test_socket"); }
             else if (option == "--duration") { duration = std::stoi(argv[i]); if (duration < 1 || duration > 600) throw Failure("duration_limit"); }
             else throw Failure("unknown_argument");
         }
@@ -180,7 +197,9 @@ int main(int argc, char** argv) {
         if (getuid() != 0) throw Failure("root_required");
         umask(0077); if (prctl(PR_SET_DUMPABLE, 0)) throw Failure("process_protection");
         if (command == "crypto-test") { Crypto{}.self_test(); std::cout << "{\"aes_gcm_and_tamper_test\":true}\n"; return 0; }
-        if (command == "run") return run(path, module, prefix, duration);
+        if (!app_socket.empty() && (prefix.empty() || path == "/data/adb/sayin-helper" || !duration)) throw Failure("test_socket_requires_isolation");
+        if (command == "run") return run(path, module, prefix, duration,
+            path == "/data/adb/sayin-helper" ? "seeyuer.sayin.clipboard.v1" : app_socket);
         Store store(path);
         if (command == "status") {
             if (live(store)) std::cout << client(store, 'S') << '\n';

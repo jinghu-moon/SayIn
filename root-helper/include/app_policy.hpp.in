@@ -1,0 +1,6 @@
+#pragma once
+namespace sayin {
+[[gnu::used, gnu::retain]] constexpr char kAppPin[] = "@PIN@";
+constexpr const char* kAllowedApp = "@APP@";
+constexpr const char* kAllowedTestApp = "@TEST_APP@";
+}
