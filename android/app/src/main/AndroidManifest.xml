@@ -26,6 +26,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SayIn"
         android:usesCleartextTraffic="false">
+        <provider android:name=".data.HistoryImageProvider"
+            android:authorities="${applicationId}.history-images"
+            android:exported="false" android:grantUriPermissions="true" />
         <!-- AndroidX owns locale persistence on API 26-32; API 33+ uses platform storage. -->
         <service
             android:name="androidx.appcompat.app.AppLocalesMetadataHolderService"

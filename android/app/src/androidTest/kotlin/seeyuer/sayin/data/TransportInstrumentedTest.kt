@@ -63,7 +63,9 @@ class TransportInstrumentedTest {
             assertNull(delivered.history.single().payload)
             val id = delivered.history.single().id
             assertNotNull(delivered.history.single().transcript)
-            waitFor { it.historyText[id] == "中文 😀 {ENTER}" }
+            waitFor { it.historyText[id] == "中文 😀 {ENTER}" && it.historyApplications[id]?.name == "Fixture Editor" }
+            assertNotNull(repository.state.value.historyApplications[id]?.icon)
+            assertNotNull(repository.state.value.history.single().application)
             // Querying a terminal receipt must retain its original identity and
             // encrypted display text, without submitting another input attempt.
             repeat(2) {
@@ -103,6 +105,8 @@ class TransportInstrumentedTest {
             repository.send("中文 😀 {ENTER}", draftId)
             delay(250)
             val restored = repository.state.value.history
+            assertEquals("Fixture Editor", repository.state.value.historyApplications[id]?.name)
+            assertNotNull(repository.state.value.historyApplications[id]?.icon)
             assertEquals(2, restored.size)
             assertEquals(id, restored.single { it.state == "injected" }.id)
             assertEquals(heldId, restored.single { it.state == "expired" }.id)
@@ -134,6 +138,14 @@ class TransportInstrumentedTest {
             assertEquals("outcome_review_required", repository.state.value.pauseReason)
             assertFalse(repository.state.value.ready)
             assertEquals(3, repository.state.value.history.size)
+            val uncertainId = repository.state.value.history.single { it.state == "uncertain" }.id
+            repository.action(uncertainId, "delete")
+            waitFor { it.history.single { row -> row.id == uncertainId }.historyHidden }
+            repository.action(uncertainId, "query")
+            delay(250)
+            assertTrue(repository.state.value.history.single { it.id == uncertainId }.historyHidden)
+            assertEquals("outcome_review_required", repository.state.value.pauseReason)
+            assertFalse(repository.state.value.ready)
         } finally {
             repository.close()
             // Namespaced fixture files only. Keystore keys are never deleted.

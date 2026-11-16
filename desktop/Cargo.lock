@@ -6745,6 +6745,7 @@ name = "voicelink-receiver"
 version = "0.1.0"
 dependencies = [
  "atomic-write-file",
+ "base64 0.22.1",
  "futures-channel",
  "getrandom 0.4.3",
  "hmac 0.13.0",

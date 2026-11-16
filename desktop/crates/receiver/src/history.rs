@@ -47,6 +47,8 @@ pub struct TargetApplication {
     pub window_title: String,
     pub process_id: u32,
     pub process_created: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display: Option<crate::application_icon::ApplicationDisplay>,
 }
 impl TargetApplication {
     pub fn new(
@@ -60,6 +62,7 @@ impl TargetApplication {
             window_title,
             process_id,
             process_created,
+            display: None,
         }
     }
     pub fn name(&self) -> &str {
@@ -207,7 +210,12 @@ impl Ledger {
         ))
     }
 
-    fn read_target(&self, bytes: &[u8], device: &str, id: &str) -> Result<TargetApplication> {
+    pub(crate) fn read_target(
+        &self,
+        bytes: &[u8],
+        device: &str,
+        id: &str,
+    ) -> Result<TargetApplication> {
         let raw = self.protector.unprotect(bytes)?;
         let body: ProtectedTarget =
             serde_json::from_slice(&raw).map_err(|_| Error::Protocol("HISTORY_CORRUPT"))?;

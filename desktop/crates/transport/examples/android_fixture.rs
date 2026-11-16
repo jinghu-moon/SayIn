@@ -23,6 +23,21 @@ struct FakeInput {
     pause: Option<std::sync::mpsc::SyncSender<String>>,
 }
 impl InputAdapter for FakeInput {
+    fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
+        let mut target = voicelink_receiver::history::TargetApplication::new(
+            "C:\\fixture\\Editor.exe".into(),
+            "fixture".into(),
+            1,
+            1,
+        );
+        target.display = Some(voicelink_receiver::application_icon::ApplicationDisplay {
+            name: "Fixture Editor".into(),
+            icon_png: voicelink_receiver::application_icon::png(
+                &std::path::PathBuf::from(std::env::var("WINDIR").ok()?).join("explorer.exe"),
+            ),
+        });
+        Some(target)
+    }
     fn preflight(&mut self, job: &Execution) -> Result<(), &'static str> {
         if let Some(pause) = &self.pause
             && matches!(job.operation(), voicelink_receiver::protocol::Operation::Text { text, .. } if text == "fixture: pause upload")

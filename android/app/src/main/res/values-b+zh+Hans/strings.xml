@@ -460,4 +460,12 @@
     <string name="connect_camera_retry">允许使用相机</string>
     <string name="connect_not_connected">未连接</string>
     <string name="connect_more">更多连接选项</string>
+    <string name="history_delete">删除记录</string>
+    <string name="history_delete_help">仅隐藏本机记录，不取消请求、不撤回电脑输入，也不解除待核对。</string>
+    <string name="history_target_unknown">未记录目标应用</string>
+    <string name="history_image_unavailable">图片暂不可用</string>
+    <string name="history_copied">已复制</string>
+    <string name="history_submitted_help">仅表示输入指令已提交，不保证目标应用已显示内容。</string>
+    <string name="history_image_submitted">粘贴指令已提交</string>
+    <string name="history_copy_failed">复制失败，请重试。</string>
 </resources>

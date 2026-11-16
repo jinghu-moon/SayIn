@@ -24,6 +24,84 @@ impl Protector for TestProtector {
     }
 }
 static NEXT: AtomicU64 = AtomicU64::new(0);
+
+#[test]
+fn receipt_application_is_an_identity_bound_execution_snapshot_not_live_metadata() {
+    use voicelink_receiver::{application_icon::ApplicationDisplay, history::TargetApplication};
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let mut request = fixture.submit(&session, "snapshot test");
+    let pending = ledger.submit(&session, &request).unwrap();
+    assert!(pending.application.is_none());
+    let mut target = TargetApplication::new(
+        "C:\\private\\Editor.exe".into(),
+        "Private title".into(),
+        42,
+        99,
+    );
+    target.display = Some(ApplicationDisplay {
+        name: "Original editor".into(),
+        icon_png: None,
+    });
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing_at(&job, Some(target)).unwrap());
+    assert_eq!(
+        ledger
+            .query(&session, &request.id)
+            .unwrap()
+            .unwrap()
+            .application
+            .unwrap()
+            .name,
+        "Original editor"
+    );
+    let receipt = ledger
+        .finish(&job, InputOutcome::Injected { method: "test" })
+        .unwrap();
+    let wire = serde_json::to_string(&receipt).unwrap();
+    assert!(wire.contains("Original editor"));
+    for secret in [
+        "private",
+        "Private title",
+        "process_id",
+        "process_created",
+        "executable",
+    ] {
+        assert!(!wire.contains(secret));
+    }
+    drop(ledger);
+    let mut ledger = fixture.open();
+    let session = ledger
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    let restored = ledger.query(&session, &request.id).unwrap().unwrap();
+    assert_eq!(restored.application, receipt.application);
+    let other_device = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&other_device, &[5; 32], "same name".into())
+        .unwrap();
+    let other = ledger.authenticate(&other_device, &[5; 32]).unwrap();
+    assert!(ledger.query(&other, &request.id).unwrap().is_none());
+    let session = ledger
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    ledger
+        .delete_history(receipt.order.parse().unwrap())
+        .unwrap();
+    let hidden = ledger.query(&session, &request.id).unwrap().unwrap();
+    assert_eq!(hidden.st, State::Injected);
+    assert!(
+        hidden.application.is_none(),
+        "deleted history is not disclosed by queries"
+    );
+    request.session_id = session.id().into();
+    assert_eq!(
+        ledger.submit(&session, &request).unwrap().order,
+        receipt.order
+    );
+    ledger.revoke(&fixture.device).unwrap();
+    assert!(ledger.query(&session, &request.id).is_err());
+}
 struct Fixture {
     directory: PathBuf,
     key: Vec<u8>,

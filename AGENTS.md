@@ -332,7 +332,7 @@
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
 - 已支持代码协议和手工 IPv4/二维码；已支持有界 IPv4 mDNS/NSD，无空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。手机先连保存地址，失败后通过有界 NSD 找回同一身份，完整认证后才持久更新 IPv4/端口；连接帮助内手动维护仍保留，详见 40。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
-- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，当前包含 111 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
+- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，当前包含 115 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
 ---
@@ -456,3 +456,9 @@
 - 分支和工作区归并依据见 [66 主线整合](docs/66-main-branch-consolidation.md)。旧分支/worktree 为审查证据而保留，不代表其中未提交快照比当前 main 新；继续开发前先核对共同基线，不能直接覆盖回主线。
 - [54 信息微调](docs/54-android-speak-page-information-polish.md) 包含草稿字数、翻译按钮和认证后的前台应用名称/图标。前台数据仅内存展示，不是目标锁定或输入授权；暂停、非活动、断连及过期清除整个快照，原输入时的即时目标校验不变。
 - [58 排序动画](docs/58-android-phrase-reorder-animation.md) 记录六份必要 Reorderable 源码及本地修正；修改后同步 `android/reorderable-sources.json` 摘要与许可说明。排序预览与持久化分开，取消不落盘，失败恢复，外部 revision 改变使旧拖动失效。
+
+## 26. Android 历史记录卡片
+
+- 设计、实现和验证见 [67 记录页](docs/67-android-history-card-refactor.md)。手机历史目标只能使用原请求执行时的 status.application 快照；实时 foreground 不补历史。名称最多 96 码点、PNG 48×48/12KiB，禁止把路径、窗口标题或进程身份发给手机。
+- Room schema 4 加密保存绑定 host/device/request 的快照；historyHidden 只影响记录页。内部状态和 pending 查询继续看见隐藏行，不能借删除取消请求、解除 uncertain、释放 held 或重放。
+- 图片历史按需解密采样；64dp Fit 缩略图，详情有界 1600px。复制通过不可导出、只读、系统 URI grant 的提供者与有界解密管道，不产生明文缓存、不触发电脑输入。隐藏记录不再允许新读取。

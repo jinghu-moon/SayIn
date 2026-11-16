@@ -11,6 +11,34 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class OutboxInstrumentedTest {
+    @Test fun hidingHistoryKeepsPendingLedgerAndImmutableExecutionDisplay() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, OutboxDatabase::class.java).build()
+        try {
+            val dao = database.outbox()
+            val item = OutboxItem(UUID.randomUUID().toString(), UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                "scope", byteArrayOf(1, 2), 2, "held", "1", "paused", 1, byteArrayOf(3))
+            dao.enqueue(item)
+            dao.hide(item.id)
+            assertNull(dao.visible(item.id))
+            val pending = dao.pending(item.hostId, item.deviceId).single()
+            assertEquals(item.id, pending.id)
+            assertEquals("held", pending.state)
+            assertArrayEquals(item.payload, pending.payload)
+            assertEquals(1, dao.pendingCount())
+            dao.application(item.id, "other-host", item.deviceId, byteArrayOf(8))
+            assertNull(dao.find(item.id, item.hostId, item.deviceId)!!.application)
+            dao.application(item.id, item.hostId, item.deviceId, byteArrayOf(4))
+            dao.application(item.id, item.hostId, item.deviceId, byteArrayOf(5))
+            dao.status(item.id, item.hostId, item.deviceId, "uncertain", "1", "check", true)
+            val terminal = dao.find(item.id, item.hostId, item.deviceId)!!
+            assertTrue(terminal.historyHidden)
+            assertEquals("uncertain", terminal.state)
+            assertArrayEquals(byteArrayOf(4), terminal.application)
+            assertArrayEquals(byteArrayOf(3), terminal.transcript)
+            assertNull(terminal.payload)
+        } finally { database.close() }
+    }
     @Test fun quotaAndAuthorizationScopeAndTerminalCleanup() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val database = Room.inMemoryDatabaseBuilder(context, OutboxDatabase::class.java).build()

@@ -42,10 +42,54 @@ import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.OutboxItem
 import seeyuer.sayin.designsystem.VoiceLinkTheme
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.Scaffold
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MobileShellInstrumentedTest {
+    @Test fun historyUsesOriginalApplicationAndSupportsSearchCopyAndLocalHide() {
+        val id = java.util.UUID.randomUUID().toString()
+        var state by mutableStateOf(ready().copy(history = listOf(item("injected", id)),
+            historyText = mapOf(id to "Original words"),
+            historyApplications = mapOf(id to seeyuer.sayin.data.ForegroundApplication("Original Editor")),
+            foregroundApplication = seeyuer.sayin.data.ForegroundApplication("Current Browser")))
+        val actions = mutableListOf<Pair<String, String>>()
+        setTestContent { VoiceLinkTheme { Scaffold {
+            MobileHistoryPage(state, action = { request, command ->
+                actions += request to command
+                if (command == "delete") state = state.copy(history = state.history.map { it.copy(historyHidden = true) })
+            })
+        } } }
+        compose.onNodeWithText("Original Editor").assertExists()
+        compose.onNodeWithText("Current Browser").assertDoesNotExist()
+        compose.onNodeWithTag("history-search").performTextInput("Original Editor")
+        compose.onNodeWithTag("history-text-$id").assertExists()
+        compose.onNodeWithTag("history-search").performTextClearance()
+        compose.onNodeWithTag("history-copy-$id").performClick()
+        compose.waitUntil(5000) { compose.onAllNodesWithContentDescription(context.getString(R.string.history_copied)).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNodeWithTag("history-more-$id").performClick()
+        compose.onNodeWithText(context.getString(R.string.history_delete)).performClick()
+        compose.onNodeWithText(context.getString(R.string.history_delete_help)).assertExists()
+        assertTrue(actions.isEmpty())
+        compose.onAllNodesWithText(context.getString(R.string.history_delete)).filter(hasClickAction()).onFirst().performClick()
+        compose.onNodeWithTag("history-text-$id").assertDoesNotExist()
+        assertEquals(listOf(id to "delete"), actions)
+        assertEquals("injected", state.history.single().state)
+    }
+
+    @Test fun historyImageFitsCardAndOpensLargerPreviewWithoutSending() {
+        val id = java.util.UUID.randomUUID().toString()
+        val requests = mutableListOf<Int>()
+        val bitmap = Bitmap.createBitmap(1200, 2400, Bitmap.Config.ARGB_8888)
+        val state = ready().copy(history = listOf(item("injected", id).copy(kind = "image")))
+        setTestContent { VoiceLinkTheme { Scaffold {
+            MobileHistoryPage(state, action = { _, _ -> error("Preview cannot send") }, loadImage = { _, edge -> requests += edge; bitmap })
+        } } }
+        compose.waitUntil(5000) { 256 in requests }
+        compose.onNodeWithTag("history-image-$id").assertWidthIsEqualTo(64.dp).assertHeightIsEqualTo(64.dp).performClick()
+        compose.waitUntil(5000) { 1600 in requests }
+        compose.onNodeWithText(context.getString(R.string.history_submitted_help)).assertExists()
+    }
     // MIUI blocks ActivityScenario launches from a background instrumentation process.
     // Bring the debug-only empty host to the foreground through shell before each rule.
     @get:Rule(order = 0) val foregroundHost = object : ExternalResource() {

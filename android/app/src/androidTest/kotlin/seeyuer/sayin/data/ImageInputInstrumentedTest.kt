@@ -111,7 +111,7 @@ class ImageInputInstrumentedTest {
             db.execSQL("INSERT INTO outbox VALUES(?,?,?,'scope',?,2,'saved',NULL,NULL,1,?)",arrayOf(id,host,device,byteArrayOf(1,2),byteArrayOf(3,4)))
             db.version=2
         }
-        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES).build()
+        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY).build()
         try {
             val dao=database.outbox();val original=checkNotNull(dao.find(id,host,device))
             assertEquals("text",original.kind);assertArrayEquals(byteArrayOf(1,2),original.payload)
@@ -155,6 +155,9 @@ class ImageInputInstrumentedTest {
             val first=delivered.history.single()
             assertNull(first.payload);assertEquals("image",first.kind);assertNotNull(first.imageReference)
             assertEquals(0,first.byteCount);assertEquals(image.resourceId,first.imageResource)
+            val thumbnail = checkNotNull(repository.historyImage(first.id, 256))
+            assertTrue(thumbnail.width <= 256 && thumbnail.height <= 256); thumbnail.recycle()
+            waitFor { it.historyApplications[first.id]?.name == "Fixture Editor" }
             repository.sendImage(image.resourceId);repository.cancelImage()
             waitFor{it.history.any{row->row.state=="cancelled"&&row.reason=="image_not_submitted"}}
             assertEquals(2,repository.state.value.history.size)

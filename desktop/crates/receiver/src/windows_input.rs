@@ -681,15 +681,20 @@ fn application_at(identity: (usize, u32, u64, u32)) -> Result<crate::history::Ta
         result.map_err(platform)?;
         let mut title = [0u16; 1024];
         let count = GetWindowTextW(HWND(identity.0 as *mut _), &mut title).max(0) as usize;
+        let executable = String::from_utf16_lossy(&path[..length as usize]);
+        let display =
+            crate::application_icon::ApplicationDisplay::capture(std::path::Path::new(&executable));
         if foreground()? != identity {
             return Err(Error::Protocol("FOCUS_CHANGED"));
         }
-        Ok(crate::history::TargetApplication::new(
-            String::from_utf16_lossy(&path[..length as usize]),
+        let mut target = crate::history::TargetApplication::new(
+            executable,
             String::from_utf16_lossy(&title[..count]),
             identity.1,
             identity.2,
-        ))
+        );
+        target.display = display;
+        Ok(target)
     }
 }
 

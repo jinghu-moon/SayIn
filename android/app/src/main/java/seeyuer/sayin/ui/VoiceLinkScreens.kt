@@ -72,6 +72,7 @@ internal fun VoiceLinkContent(
     onSendImage: (String) -> Unit = {},
     onCancelImage: () -> Unit = {},
     onClearImage: () -> Unit = {},
+    loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
     val page = MobilePage.valueOf(pageName)
@@ -158,12 +159,16 @@ internal fun VoiceLinkContent(
                     onImage = { session.cancelAutoSend(); showImage = true },
                     quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
                     onRequestAction = onHistoryAction)
+            } else if (page == MobilePage.History) {
+                Box(Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("page-History")) {
+                    MobileHistoryPage(state, onHistoryAction, loadHistoryImage)
+                }
             } else Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(requireNotNull(scroll))
                 .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-${page.name}"),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 when (page) {
                     MobilePage.Speak -> Unit
-                    MobilePage.History -> MobileHistoryPage(state, onHistoryAction)
+                    MobilePage.History -> Unit
                     MobilePage.Connection -> {
                         if (!state.paired && state.connectionPresentation == ConnectionPresentation.First) {
                             ConnectionDetails(state, onReconnect, connectionActions)

@@ -169,6 +169,7 @@ pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
         st,
         reason: row.get(3)?,
         method: row.get(4)?,
+        application: None,
     })
 }
 
@@ -709,6 +710,7 @@ impl Ledger {
             st: state,
             reason: reason.map(str::to_owned),
             method: None,
+            application: None,
         })
     }
 
@@ -719,7 +721,20 @@ impl Ledger {
     }
 
     fn find(&self, device: &str, id: &str) -> Result<Option<Receipt>> {
-        Ok(self.database.query_row("SELECT id,accept_order,state,reason,method FROM receipts WHERE device=?1 AND id=?2", params![device,id], receipt).optional()?)
+        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method FROM receipts WHERE device=?1 AND id=?2", params![device,id], receipt).optional()?;
+        if let Some(receipt) = &mut result {
+            // Only the same authenticated device's retained history can supply
+            // display metadata. Never look up the current foreground process.
+            let target: Option<Vec<u8>> = self.database.query_row(
+                "SELECT h.target FROM message_history h JOIN receipts r ON r.accept_order=h.accept_order WHERE r.device=?1 AND r.id=?2 AND h.deleted_at IS NULL",
+                params![device,id], |row| row.get(0),
+            ).optional()?.flatten();
+            receipt.application = target
+                .and_then(|bytes| self.read_target(&bytes, device, id).ok())
+                .and_then(|target| target.display)
+                .filter(|display| display.valid());
+        }
+        Ok(result)
     }
 
     pub fn pause(&mut self) -> Result<ControlState> {

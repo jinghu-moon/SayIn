@@ -464,4 +464,12 @@
     <string name="connect_camera_retry">Allow camera access</string>
     <string name="connect_not_connected">Not connected</string>
     <string name="connect_more">More connection options</string>
+    <string name="history_delete">Delete record</string>
+    <string name="history_delete_help">Hide this record on this phone only. This does not cancel the request, undo computer input, or clear a result that needs checking.</string>
+    <string name="history_target_unknown">Target application not recorded</string>
+    <string name="history_image_unavailable">Image unavailable</string>
+    <string name="history_copied">Copied</string>
+    <string name="history_submitted_help">Input events were submitted. This does not prove that the target application displayed the content.</string>
+    <string name="history_image_submitted">Paste instruction submitted</string>
+    <string name="history_copy_failed">Unable to copy. Try again.</string>
 </resources>

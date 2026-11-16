@@ -16,6 +16,7 @@ getrandom = "0.4.3"
 zeroize = "1.9.1"
 thiserror = "2.0.21"
 futures-channel = "0.3.34"
+base64 = "=0.22.1"
 
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
 atomic-write-file = "0.3.1"

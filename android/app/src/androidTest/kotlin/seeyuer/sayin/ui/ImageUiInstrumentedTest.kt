@@ -64,14 +64,14 @@ class ImageUiInstrumentedTest {
     @Test fun imageHistoryNeverOffersReleaseAndShowsPasteSemantics() {
         val item=OutboxItem(UUID.randomUUID().toString(),"host","device","scope",null,0,"held","1",null,System.currentTimeMillis(),kind="image")
         var state by mutableStateOf(ClientState(history=listOf(item),connection=Connection.ONLINE,active=true,paused=false,target="scope"))
-        compose.setContent { VoiceLinkTheme { Scaffold { androidx.compose.foundation.layout.Column { MobileHistoryPage(state) { _,action -> assertNotEquals("release",action) } } } } }
+        compose.setContent { VoiceLinkTheme { Scaffold { androidx.compose.foundation.layout.Column { MobileHistoryPage(state, action = { _,action -> assertNotEquals("release",action) }) } } } }
         compose.onNodeWithText(context.getString(R.string.image_history)).assertExists()
         compose.onNodeWithText(context.getString(R.string.release_request)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.image_held)).assertExists()
         compose.runOnIdle { state=state.copy(history=listOf(item.copy(state="injected"))) }
         compose.onNodeWithTag("history-more-${item.id}").performClick()
         compose.onNodeWithText(context.getString(R.string.history_details)).performClick()
-        compose.onNodeWithText(context.getString(R.string.image_paste_submitted)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.history_submitted_help)).assertExists()
     }
 
     @Test fun imageSheetSupportsLanguagesThemesAndLargeText() {

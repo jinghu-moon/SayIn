@@ -45,7 +45,7 @@ class SpeakingPersistenceInstrumentedTest {
                 db.version = 1
             }
             val database = Room.databaseBuilder(context, OutboxDatabase::class.java, name)
-                .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES).build()
+                .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY).build()
             try {
                 val dao = database.outbox()
                 val old = dao.find(oldId, "host", "device")!!

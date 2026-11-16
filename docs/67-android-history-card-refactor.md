@@ -1,0 +1,61 @@
+# 67 Android 记录卡片与执行目标联动
+
+日期：2026-11-16。共同基线：main `f03f5544d0f1b2fb26b3815806fe4c430456e67c`。
+
+## 问题与目标
+
+原生记录页只有状态、文字与通用电脑标签，图片只显示“图片”。电脑虽然保存执行目标，手机未持久化目标快照。使用实时前台名称补历史会把旧请求错误地归属到新窗口。
+
+按 `refer/sayin-history-card-demo.html` 重构：状态与时间、正文或有界图片缩略图、执行时应用图标和名称、复制图标；搜索、筛选、日期分组、详情与本地隐藏。原有查询、暂存、取消、待核对及图片不重放规则保持有效。
+
+## 阶段一：演示页
+
+- 更新用户指定的 refer 文件；该目录被 Git 忽略，因此将相同 HTML 和 Yue tokens 快照纳入 `docs/demos/sayin-history-card-demo.html`。
+- 成功卡片不重复说明，详情区分“指令已提交”与实际显示；未取得回执不能显示“未输入”。暂存不承诺恢复后自动执行。
+- 不重复显示本机手机名；未知/未执行记录不伪造目标。图片可直接点开，复制和更多使用 48px 点击区域及图标。
+- 本地删除二次确认；修复演示页删除后筛选仍统计脱离 DOM 记录的问题。
+- Playwright 实际验证 320/360/390/1000px 无水平溢出，缩略图打开、关闭、删除、搜索空态、深色切换，无脚本异常。演示复制仅展示反馈，不读取真实剪贴板。
+
+## 阶段二：双端实现
+
+### 执行快照
+
+电脑原生 preflight 在已校验的目标身份上提取显示名称和 48×48 PNG，提取后重新确认原窗口身份；执行前和原目标一起 DPAPI 保存。每条 status 的可选 application 仅含名称/图标，不含路径、窗口标题、PID 或进程创建时间。查询仅返回同一认证设备的请求。删除/停用电脑历史后，不再从历史披露快照；协议回执与去重仍保留。旧记录没有快照就显示未知，不用当前窗口补齐。
+
+手机 Room schema 4 新增加密 application 及 historyHidden。升级仅为保留用户当前身份、草稿、账本和历史，不提供旧协议适配层。快照加密信封绑定请求/host/device，首份有效快照不可被迟到回执覆盖；终态恢复规则不变。隐藏标志只供历史展示，内部 reconciliation 和 pending 查询仍可见账本，不能因隐藏卡片丢失待核对状态。
+
+### 图片与界面
+
+历史页使用有界 LazyColumn，缩略图 64dp、Fit 保持比例；IO 读取原有加密图片并按采样解码，详情最大 1600px。复制图片使用不可导出的只读 ContentProvider 和系统 URI grant，匿名管道解密传输，不生成明文缓存，不额外发送或粘贴。提供者拒绝写入、非法路径和隐藏记录。
+
+正常卡片只留简要状态；异常卡片保留必要补救动作，不增加自动重发。应用图标为真实执行快照，缺失时使用中性电脑图标。英文/简体中文、深浅色、48dp 操作热区；真机外观由用户验收。
+
+## 验证与交付
+
+修改前：Android 99 JVM 通过；桌面 144 项工作区测试通过。日常桌面 exe 正在运行，默认目标目录首次测试受文件占用阻挡，改用 `desktop/target/main-consolidation-build` 完成基线；未强停日常应用。
+
+最终检查：
+
+| 检查 | 结果 |
+| --- | --- |
+| Android `:app:testDebugUnitTest :translation:testDebugUnitTest` | 101 项通过（app 100 + translation 1） |
+| Android `:app:assembleDebug :app:lintDebug` | 通过；原有 RecordingService/API 29 的 InlinedApi 警告仍在，无新增错误 |
+| `python scripts/check_i18n.py` | en / zh-Hans 键与占位符通过 |
+| imageTest 应用/测试 APK 构建 | 通过 |
+| Redmi K40 / API 33 完整隔离套件 | 115 文字/UI + 4 图片 = 119 项通过；文字 fixture 恰好 2 次 fake 输入，独立图片 fixture 恰好 1 次 |
+| Rust `cargo test --workspace --all-targets --locked` | 146 项通过，独立 target-dir |
+| Rust 工作区 Clippy `-D warnings` | 通过 |
+| 四个项目包限定格式检查、工作区构建 | 通过；不使用 fmt --all |
+| 桌面依赖检查 | Yue / GPUI Kit 及三份补丁一致 |
+
+新增回归包括：历史目标与当前前台不同仍保持原归属，搜索应用名称，复制反馈，删除确认只隐藏，64dp 图片不溢出且直接打开较大预览；Room 隐藏行保留 pending / 身份 / 载荷，目标密文绑定请求/主机/设备；加密图片实际解密与透明度、只读提供者、非法路径及未授权 UID 拒绝；真实固定证书 TLS fixture 的目标名称/图标随回执持久化，手机重启后保留，隐藏 uncertain 后再查询仍暂停。
+
+权限验证使用系统 URI 权限检查；另从实际 UID 2000 的 adb shell 请求提供者，得到 SecurityException / Permission Denial。未验证任意第三方应用获取剪贴板 URI 后的实际粘贴兼容性。
+
+测试过程发现并修正了测试设施问题：独立 Compose 页必须挂载 Miuix Scaffold 才能测试弹层；MIUI 的 UiAutomation 标准错误输出/EOF 不适合权限断言；重跑曾只更新测试 APK，遇到与应用 APK 不同的 Compose 方法签名，随后同时重装本轮两份 APK，完整重跑通过。未跳过、删减或降低相关断言。前期失败不计为通过。
+
+测试用 `seeyuer.sayin.imagetest`、独立身份/目录/随机端口与 adb reverse，不替换日常配对。测试期间暂停 Root 剪贴板采集，保留启用偏好和日常历史，完成后恢复；不读取或导出用户历史正文。工作区同期连接卡菜单改动予以保留，不归入本记录页提交。
+
+边界：本轮未重复真实 Wi-Fi / 真实 Word 或聊天软件落字测试；fixture 的应用显示名是明确的 Fixture Editor，不能冒充真实前台输入。Windows 可执行文件图标提取有真实资源解码测试。真机外观由用户检查，未用手机截图代替验收。旧历史没有执行显示快照就保持未知；手机不会自动查询/重新发送所有旧终态记录来填图标。电脑旧进程需正常退出后启动本轮构建，新增记录才能提供快照。
+
+演示页阶段提交：`351839c`；双端实施另行提交。结构化验证见 `docs/research/67-history-card-verification.json`。

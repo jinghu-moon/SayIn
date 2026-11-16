@@ -267,7 +267,7 @@ API 37+/target 37 检查并按用户操作申请 `ACCESS_LOCAL_NETWORK`，拒绝
 | 手机 → `hello` | v, device_id, token, name | 创建认证会话，并在令牌认证成功后刷新设备显示名称 |
 | 电脑 → `welcome` | v, session_id, host_id, device_id, active_device_id, state_rev, paused, target, capabilities, limits | 认证、状态和资源限制；target 无可用目标时为 null |
 | 手机 → `submit` | id, op, target | 提交一个最终操作；op 为 text 或 key，见下文 |
-| 电脑 → `status` | id, st；已接受时有 order | 返回当前/最终状态；可带 reason、method、server_ms |
+| 电脑 → `status` | id, st；已接受时有 order | 返回当前/最终状态；可带 reason、method、server_ms、application |
 | 手机 → `query` | id, refs | 查询最多 32 个本设备操作 ID；服务端逐个返回 status，完成后返回 queried |
 | 电脑 → `queried` | ref | 对应 query.id，表示本次状态快照已发完 |
 | 手机 → `control` | id, name；按操作带 refs、expected_rev、target | 独立控制队列，不能作为系统按键执行 |
@@ -713,6 +713,22 @@ SenseVoiceSmall 作为整句最终识别，不把 VAD 分段包装成模型本�
 现有 8 秒 ping 的 pong 增加 `foreground_seq`（字符串或 null），仅当新鲜快照与已推送名称及图标一致时确认该序号；不重复携带名称或图标。手机只接受当前 ping 的 nonce 匹配且 8 秒内返回的序号确认；新连接只采用连接建立后的原生采样，不复用旧连接快照。手机在最近应用快照/序号确认后 20 秒未收到确认时一起清空名称与图标，断连/暂停/非活动立即清空，不持久化或从历史恢复。该有界过期窗口并不表示焦点锁定。
 
 这些字段不参与 target、state_rev、ReceptionScope、请求 ID、摘要、Outbox、信任或输入授权，不触发提交、重试、release、恢复或核对。实际输入仍执行原有即时 foreground lease、完整性、会话、修饰键与输入桌面检查。
+
+### 记录的执行目标展示
+
+`status.application` 与实时 `foreground` 是两份不同的事实。例如：
+
+```json
+{"v":2,"t":"status","session_id":"当前会话 UUID","id":"原请求 UUID","order":"42","st":"injected","method":"unicode","application":{"name":"Word"}}
+```
+
+- application 是原生执行准备阶段对原目标的显示快照，提取后再次校验窗口身份，与 executing 标记及历史目标同事务持久化；不表示应用已实际显示内容。尚未执行、无法提取、未保留/已删除电脑历史时允许缺失，不用当前前台窗口补历史。
+- 仅有名称（非空、无控制字符、最多 96 Unicode 码点）和可选 PNG（48×48，最多 12KiB，标准 Base64 最多 16384 字符）；禁止包含完整路径、窗口标题、PID 或创建时间。单条 status 单独返回，query 不聚合图片到一个 JSON 帧，仍遵守 64KiB 控制消息上限。
+- 该字段只在固定证书认证后的原会话内返回，按原 device/request 查询；撤销设备不能读取，同名设备不能读取另一设备记录。现有 submit/control/target/去重指纹/输入门禁不变。
+- 手机加密信封绑定 host/device/request，只保存首份有效执行快照。坏图标退回中性图标，坏名称不保存；展示错误不得阻挡原回执持久化。断连后历史快照保留，实时 foreground 按原规则清空。
+- 手机“删除记录”只设置本机展示隐藏标记，不发远程取消，不改请求状态、身份、载荷或恢复查询，也不解除 uncertain/主动暂停。双端各自保留/删除本机历史，不增加全文历史同步或自动重放。
+
+实现与验证见 [67 记录卡片重构](67-android-history-card-refactor.md)。
 
 
 ## 手机连接状态展示（2026-11-16）

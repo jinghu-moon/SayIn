@@ -29,4 +29,8 @@ internal object YuePalette {
     val ErrorDark = Color(0xFFF5AAA3)
     val ErrorContainerLight = Color(0xFFFFECEA)
     val ErrorContainerDark = Color(0xFF391512)
+    val SuccessContainerLight = Color(0xFFC1E6CF)
+    val SuccessContainerDark = Color(0xFF233E30)
+    val WarningContainerLight = Color(0xFFFFF4D3)
+    val WarningContainerDark = Color(0xFF351B07)
 }

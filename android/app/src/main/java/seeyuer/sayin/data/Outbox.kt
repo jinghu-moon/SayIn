@@ -31,6 +31,8 @@ internal data class OutboxItem(
     val imageResource: String? = null,
     val imageReference: ByteArray? = null,
     @ColumnInfo(defaultValue = "0") val imageByteCount: Int = 0,
+    val application: ByteArray? = null,
+    @ColumnInfo(defaultValue = "0") val historyHidden: Boolean = false,
 )
 
 @Entity(tableName = "image_drafts", primaryKeys = ["hostId", "deviceId"])
@@ -54,7 +56,12 @@ internal interface OutboxDao {
         insert(item)
         return trimTerminal()
     }
+    // Protocol/UI request reconciliation still sees hidden rows. Only history presentation hides them.
     @Query("SELECT * FROM outbox ORDER BY createdAt DESC LIMIT 100") fun observe(): Flow<List<OutboxItem>>
+    @Query("SELECT * FROM outbox WHERE id=:id AND historyHidden=0 LIMIT 1") suspend fun visible(id: String): OutboxItem?
+    @Query("UPDATE outbox SET historyHidden=1 WHERE id=:id") suspend fun hide(id: String)
+    @Query("UPDATE outbox SET application=:value WHERE id=:id AND hostId=:host AND deviceId=:device AND application IS NULL")
+    suspend fun application(id: String, host: String, device: String, value: ByteArray)
     @Query("SELECT * FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL ORDER BY createdAt,id") suspend fun pending(hostId: String, deviceId: String): List<OutboxItem>
     @Query("SELECT * FROM outbox WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId LIMIT 1") suspend fun find(id: String, hostId: String, deviceId: String): OutboxItem?
     @Query("UPDATE outbox SET state=:state,`order`=:order,reason=:reason,payload=CASE WHEN :terminal THEN NULL ELSE payload END,byteCount=CASE WHEN :terminal THEN 0 ELSE byteCount END WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId")
@@ -75,10 +82,17 @@ internal interface OutboxDao {
     suspend fun imageReady(id: String, hostId: String, deviceId: String, payload: ByteArray): Int
 }
 
-@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 3, exportSchema = true)
+@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 4, exportSchema = true)
 internal abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
     companion object {
+        // Preserve pairing, immutable request IDs and payloads, including hidden pending rows.
+        val ADD_HISTORY_DISPLAY = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE outbox ADD COLUMN application BLOB")
+                db.execSQL("ALTER TABLE outbox ADD COLUMN historyHidden INTEGER NOT NULL DEFAULT 0")
+            }
+        }
         // Keep the user's paired identity and existing ledger; previous terminal text cannot be reconstructed.
         val ADD_IMAGES = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {

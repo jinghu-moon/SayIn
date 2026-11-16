@@ -277,4 +277,7 @@ pub struct Receipt {
     pub reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub method: Option<String>,
+    /// Execution-time display only. Never a route, scope or proof of insertion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub application: Option<crate::application_icon::ApplicationDisplay>,
 }

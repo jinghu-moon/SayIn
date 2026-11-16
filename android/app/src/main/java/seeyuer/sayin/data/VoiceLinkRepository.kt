@@ -51,6 +51,8 @@ internal data class ClientState(
     val rejectedDraft: String? = null,
     val history: List<OutboxItem> = emptyList(),
     val historyText: Map<String, String> = emptyMap(),
+    val historyApplications: Map<String, ForegroundApplication> = emptyMap(),
+    val historyImages: Map<String, ImageMetadata> = emptyMap(),
     val imageDraft: LocalImageDraft? = null,
     val imageSupported: Boolean = false,
     val imagePreparing: Boolean = false,
@@ -84,7 +86,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     val state = mutable.asStateFlow()
     private lateinit var store: ProtectedStore
     private val database = Room.databaseBuilder(context.applicationContext, OutboxDatabase::class.java, "outbox.db")
-        .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES)
+        .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY)
         .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .addCallback(object : RoomDatabase.Callback() {
             override fun onOpen(db: SupportSQLiteDatabase) { db.execSQL("PRAGMA synchronous=FULL") }
@@ -128,7 +130,21 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         val text = history.mapNotNull { item -> item.transcript?.let { encrypted ->
                             runCatching { item.id to store.decrypt(encrypted).toString(Charsets.UTF_8) }.getOrNull()
                         } }.toMap()
-                        mutable.update { it.copy(history = history, historyText = text) }
+                        val applications = history.mapNotNull { item -> item.application?.let { encrypted ->
+                            runCatching {
+                                val bytes = store.decrypt(encrypted)
+                                try { HistoryApplication.restore(bytes, item)?.display()?.let { item.id to it } }
+                                finally { bytes.fill(0) }
+                            }.getOrNull()
+                        } }.toMap()
+                        val images = history.mapNotNull { item -> item.imageReference?.let { encrypted ->
+                            runCatching {
+                                val bytes = store.decrypt(encrypted)
+                                try { ImageReference.parse(strictJson(bytes.toString(Charsets.UTF_8))).metadata.let { item.id to it } }
+                                finally { bytes.fill(0) }
+                            }.getOrNull()
+                        } }.toMap()
+                        mutable.update { it.copy(history = history, historyText = text, historyApplications = applications, historyImages = images) }
                     } }
                     catch (cancel: CancellationException) { throw cancel }
                     catch (_: Exception) { enqueue(Event.StorageFailure) }
@@ -538,6 +554,15 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         val terminal = status in setOf("injected", "cancelled", "expired", "failed", "uncertain")
         val order = if (value.isNull("order")) null else value.getString("order").also { require(it.matches(Regex("[0-9]{1,20}"))) }
         if (status != "unknown") require(order != null)
+        // Missing/invalid display metadata must never prevent receipt reconciliation.
+        // Fill once, for this execution/order only; never relabel a terminal result.
+        if (item.application == null && status in setOf("executing", "injected", "failed", "uncertain") &&
+            (item.payload != null || item.state == status && item.order == order)) {
+            val display = value.optJSONObject("application")?.let(HistoryApplication::parse)
+            if (display != null) try {
+                dao.application(id, saved.hostId, saved.deviceId, store.encrypt(display.protectedJson(item)))
+            } catch (_: Exception) { storageFailed(); return }
+        }
         // Terminal rows are immutable locally; a stale response cannot resurrect text.
         if (item.payload != null) {
             try { dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
@@ -583,6 +608,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         sendFrame(base("submit").put("id", item.id).put("target", item.target).put("op", operation))
     }
     private suspend fun historyAction(id: String, action: String) {
+        if (action == "delete") { dao.hide(validId(id)); return }
         val saved = host ?: return
         val item = dao.find(id, saved.hostId, saved.deviceId) ?: return
         if (action == "query") {
@@ -604,5 +630,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     .put("refs", JSONArray(listOf(id))).put("target", mutable.value.target).put("expected_rev", mutable.value.revision))
             }
         }
+    }
+
+    suspend fun historyImage(id: String, edge: Int): android.graphics.Bitmap? = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        if (!::store.isInitialized || edge !in setOf(256, 1600)) return@withContext null
+        runCatching { dao.visible(validId(id))?.let { HistoryImages.read(app, store, it, edge) } }.getOrNull()
     }
 }
