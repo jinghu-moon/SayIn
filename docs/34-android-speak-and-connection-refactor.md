@@ -1,5 +1,7 @@
 # Android 说话页与双端连接联动重构
 
+> 最新手机连接页与权限恢复见 [65 · 连接页重构](65-android-connection-page-refactor.md)。电脑批准、暂停与待核对仍沿用原安全语义。
+
 > 最新手机说话页布局与工具入口见 [51 · 三区语音栏](51-android-three-zone-voice-bar.md)。本记录保留该阶段实现与验证，连接和录音生命周期约束继续适用。
 
 日期：2026-11-14。设计依据：[手机 Demo](demos/sayin-mobile-speak.html)、[Demo 说明](demos/sayin-mobile-speak-design.md)、[桌面接收页重构](29-desktop-receive-ui-refactor.md)。

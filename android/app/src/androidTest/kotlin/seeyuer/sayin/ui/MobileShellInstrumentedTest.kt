@@ -417,7 +417,7 @@ class MobileShellInstrumentedTest {
         screenshot("connection-ready")
         assertEquals(0, reconnects)
         compose.runOnIdle { state = ready().copy(paused = true, pauseReason = "outcome_review_required") }
-        compose.onNodeWithText(context.getString(R.string.connection_review_title)).assertIsDisplayed()
+        compose.onNodeWithTag("connection-receive-status").assertTextEquals(context.getString(R.string.connection_review_label))
         screenshot("connection-review")
         compose.onNodeWithText(context.getString(R.string.resume_input)).assertDoesNotExist()
         compose.onNodeWithTag("close-connection").performClick()
@@ -446,7 +446,7 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithTag("computer-address").performTextInput("192.168.1.23:7788")
         compose.onNodeWithTag("pairing-code").performTextInput("12345678")
         closeKeyboard()
-        compose.onNodeWithText(context.getString(R.string.pair_computer)).assertIsDisplayed().performClick()
+        compose.onNodeWithText(context.getString(R.string.pair_computer)).performScrollTo().assertIsDisplayed().performClick()
         compose.onNodeWithText(context.getString(R.string.approve_on_computer)).assertIsDisplayed()
         screenshot("connection-approval")
         assertEquals(1, codeRequests); assertEquals(0, scans)

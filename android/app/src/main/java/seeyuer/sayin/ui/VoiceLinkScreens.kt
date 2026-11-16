@@ -48,7 +48,7 @@ import java.util.Date
 private enum class MobilePage(val label: Int, val title: Int, val subtitle: Int, val icon: VoiceLinkIcon) {
     Speak(R.string.nav_speak, R.string.app_name, R.string.app_tagline, VoiceLinkIcon.Microphone),
     History(R.string.nav_history, R.string.mobile_history_title, R.string.mobile_history_subtitle, VoiceLinkIcon.History),
-    Connection(R.string.nav_connection, R.string.mobile_connection_title, R.string.mobile_connection_subtitle, VoiceLinkIcon.Computer),
+    Connection(R.string.nav_connection, R.string.nav_connection, R.string.mobile_connection_subtitle, VoiceLinkIcon.Computer),
     Settings(R.string.nav_settings, R.string.mobile_settings_title, R.string.mobile_settings_subtitle, VoiceLinkIcon.Settings),
 }
 
@@ -116,7 +116,8 @@ internal fun VoiceLinkContent(
                     Text(stringResource(page.title), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
                     if (page != MobilePage.Speak) Caption(stringResource(page.subtitle))
                 }
-                ConnectionChip(state, { showConnection = true }, Modifier.widthIn(max = 180.dp))
+                if (page == MobilePage.Connection) Box(Modifier.widthIn(max = 110.dp)) { ConnectionBadge(state) }
+                else ConnectionChip(state, { showConnection = true }, Modifier.widthIn(max = 180.dp))
             }
         },
         bottomBar = {
@@ -164,8 +165,9 @@ internal fun VoiceLinkContent(
                     MobilePage.Speak -> Unit
                     MobilePage.History -> MobileHistoryPage(state, onHistoryAction)
                     MobilePage.Connection -> {
-                        Text(stringResource(connectionTitle(state.connectionPresentation)), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                        Panel { ConnectionDetails(state, onReconnect, connectionActions) }
+                        if (!state.paired && state.connectionPresentation == ConnectionPresentation.First) {
+                            ConnectionDetails(state, onReconnect, connectionActions)
+                        } else Panel { ConnectionDetails(state, onReconnect, connectionActions) }
                     }
                     MobilePage.Settings -> SettingsPage(keepAwake, source, sendMode, cloudSettings, cloudState) {
                         keepAwake = it
@@ -181,7 +183,7 @@ internal fun VoiceLinkContent(
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("connection-sheet")) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(connectionTitle(state.connectionPresentation)), Modifier.weight(1f),
+                    Text(stringResource(R.string.mobile_connection_title), Modifier.weight(1f),
                         fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                     IconButton(onClick = { showConnection = false }, modifier = Modifier.size(48.dp).testTag("close-connection")) {
                         Icon(VoiceLinkIcon.Close.vector, stringResource(R.string.connection_close))

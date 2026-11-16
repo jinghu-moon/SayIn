@@ -4,6 +4,8 @@ import org.junit.Assert.*
 import org.junit.Test
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.ClientIssue
+import seeyuer.sayin.R
 
 class ConnectionPresentationTest {
     private val ready = ClientState(connection = Connection.ONLINE, paired = true, paused = false, active = true, target = "scope")
@@ -22,6 +24,27 @@ class ConnectionPresentationTest {
         assertEquals(ConnectionPresentation.Approval, ready.copy(connection = Connection.APPROVAL).connectionPresentation)
         assertEquals(ConnectionPresentation.Storage, ready.copy(storageHealthy = false).connectionPresentation)
         assertEquals(ConnectionPresentation.Recovering, ready.copy(recovering = true).connectionPresentation)
+    }
+
+    @Test fun permissionAndStorageOverrideRetryAndStaleTransport() {
+        val denied = ready.copy(connection = Connection.OFFLINE, issue = ClientIssue.LOCAL_NETWORK_PERMISSION)
+        assertEquals(ConnectionPresentation.Permission, denied.connectionPresentation)
+        assertEquals(R.string.connect_lan_title, connectionStatusText(denied))
+        assertFalse(denied.showConnectionRetry)
+        assertFalse(denied.copy(storageHealthy = false).showConnectionRetry)
+        assertEquals(ConnectionPresentation.Storage, denied.copy(storageHealthy = false).connectionPresentation)
+        assertTrue(ready.copy(connection = Connection.OFFLINE).showConnectionRetry)
+        assertFalse(ready.copy(connection = Connection.OFFLINE, discovering = true).showConnectionRetry)
+        assertFalse(ready.copy(connection = Connection.CONNECTING).showConnectionRetry)
+        assertFalse(ready.showConnectionRetry)
+    }
+
+    @Test fun discoveryAndActualDesktopGateHaveDistinctStatus() {
+        assertEquals(R.string.discovering_computer, connectionStatusText(ready.copy(connection = Connection.OFFLINE, discovering = true)))
+        assertEquals(R.string.connect_retry_wait, connectionStatusText(ready.copy(connection = Connection.OFFLINE)))
+        assertEquals(R.string.connect_ready, connectionStatusText(ready))
+        assertNotEquals(R.string.connect_ready, connectionStatusText(ready.copy(paused = true)))
+        assertNotEquals(R.string.connect_ready, connectionStatusText(ready.copy(recovering = true)))
     }
 
     @Test fun endpointEntryUsesOneFieldAndNeverResolvesNames() {

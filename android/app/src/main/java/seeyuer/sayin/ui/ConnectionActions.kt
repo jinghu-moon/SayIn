@@ -3,6 +3,7 @@ package seeyuer.sayin.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -13,6 +14,9 @@ import androidx.compose.ui.unit.dp
 import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.ClientIssue
+import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
+import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.basic.*
 
 /** One form shared by the connection tab and the speak-page sheet. Secrets are not saveable. */
@@ -32,15 +36,16 @@ internal fun ConnectionActions(
     var endpoint by remember { mutableStateOf(TextFieldValue()) }
     var code by remember { mutableStateOf(TextFieldValue()) }
     LaunchedEffect(state.paired, state.connection) {
+        if (!state.paired) { help = false; updating = false; confirmForget = false }
         if (!state.paired && state.busy) { form = false; code = TextFieldValue() }
         if (state.connection == Connection.ONLINE) { form = false; updating = false; code = TextFieldValue() }
     }
-    if (!state.storageHealthy || state.connection == Connection.LOADING) return
+    if (!state.storageHealthy || state.connection == Connection.LOADING || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!state.paired && !state.busy) {
             if (!form) {
                 Action(R.string.scan_qr, primary = true, onClick = onScan)
-                Action(R.string.use_pair_code) { form = true }
+                ConnectionTextAction(R.string.use_pair_code) { form = true }
             } else {
                 EndpointField(endpoint) { endpoint = it }
                 TextField(code, { code = it }, Modifier.fillMaxWidth().testTag("pairing-code"),
@@ -53,13 +58,22 @@ internal fun ConnectionActions(
                     val secret = code.text; code = TextFieldValue()
                     onPair(address.first, address.second.toString(), secret)
                 }
-                Action(R.string.connection_back) { form = false; code = TextFieldValue() }
+                ConnectionTextAction(R.string.connection_back) { form = false; code = TextFieldValue() }
             }
         }
-        if (!state.paired && state.busy) Action(R.string.cancel_pairing, onClick = onCancel)
+        if (!state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
         if (state.paired) {
-            TextButton(stringResource(R.string.connection_help), onClick = { help = !help },
-                modifier = Modifier.fillMaxWidth().testTag("connection-help"), minHeight = 48.dp)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                WindowIconDropdownMenu(DropdownEntry(buildList {
+                    add(DropdownItem(stringResource(R.string.connection_help), onClick = { help = !help; updating = false; confirmForget = false }))
+                    if (state.connection != Connection.ONLINE) add(DropdownItem(stringResource(R.string.connection_update_address), onClick = {
+                        help = true; updating = true; confirmForget = false; endpoint = TextFieldValue("${state.address}:${state.port}")
+                    }))
+                    add(DropdownItem(stringResource(R.string.forget_computer), onClick = { help = true; confirmForget = true; updating = false }))
+                }), Modifier.size(48.dp).testTag("connection-help")) {
+                    Icon(VoiceLinkIcon.More.vector, stringResource(R.string.connect_more), Modifier.size(22.dp))
+                }
+            }
             if (help) {
                 Caption(stringResource(R.string.connection_network_help))
                 Text(stringResource(R.string.connection_endpoint, state.address, state.port))
@@ -72,6 +86,7 @@ internal fun ConnectionActions(
                             val address = checkNotNull(parseComputerAddress(endpoint.text))
                             onUpdateAddress(address.first, address.second.toString()); updating = false
                         }
+                        ConnectionTextAction(R.string.connection_back) { updating = false }
                     }
                 }
                 if (!confirmForget) Action(R.string.forget_computer) { confirmForget = true }
@@ -105,3 +120,10 @@ internal fun parseComputerAddress(value: String): Pair<String, Int>? = runCatchi
     require(port in 1..65535)
     address to port
 }.getOrNull()
+
+@Composable
+private fun ConnectionTextAction(label: Int, onClick: () -> Unit) {
+    TextButton(stringResource(label), onClick, Modifier.fillMaxWidth().heightIn(min = 48.dp), minHeight = 48.dp,
+        colors = ButtonDefaults.textButtonColors(color = androidx.compose.ui.graphics.Color.Transparent,
+            textColor = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.primary))
+}

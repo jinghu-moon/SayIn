@@ -4,6 +4,8 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.LocalActivity
+import androidx.core.app.ActivityCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -58,8 +60,9 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
     val uiLanguageTags = androidx.compose.ui.platform.LocalConfiguration.current.locales.toLanguageTags()
     LaunchedEffect(uiLanguageTags) { speaking.uiLanguageChanged(uiLanguageTags) }
     val foregroundOwner = remember { Any() }
-    var permissionDenied by remember { mutableStateOf(false) }
-    var cameraDenied by remember { mutableStateOf(false) }
+    val activity = LocalActivity.current
+    var permissionDenied by rememberSaveable { mutableStateOf(false) }
+    var cameraDenied by rememberSaveable { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     fun networkGranted(): Boolean = Build.VERSION.SDK_INT < 37 || ContextCompat.checkSelfPermission(context,
         Manifest.permission.ACCESS_LOCAL_NETWORK) == PackageManager.PERMISSION_GRANTED
@@ -78,6 +81,7 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         result.contents?.let { value -> withNetwork { repository.pairQr(value) } }
     }
     fun launchScanner() {
+        cameraDenied = false
         scanner.launch(pairingScanOptions(prompt))
     }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -87,7 +91,11 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
     DisposableEffect(lifecycle, repository) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_START -> model.foreground(foregroundOwner, true)
+                Lifecycle.Event.ON_START -> {
+                    if (networkGranted()) permissionDenied = false
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) cameraDenied = false
+                    model.foreground(foregroundOwner, true)
+                }
                 Lifecycle.Event.ON_STOP -> model.foreground(foregroundOwner, false)
                 else -> Unit
             }
@@ -120,9 +128,23 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
                     onCancel = repository::cancelPairing,
                     onUpdateAddress = { address, port -> withNetwork { repository.updateAddress(address, port) } },
                     onForget = repository::forget)
-                state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION) }?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
-                if (permissionDenied) Notice(stringResource(R.string.network_permission_denied), VoiceLinkIcon.Alert)
-                if (cameraDenied) Notice(stringResource(R.string.camera_permission_denied), VoiceLinkIcon.Alert)
+                state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION, ClientIssue.LOCAL_NETWORK_PERMISSION) }
+                    ?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
+                if (permissionDenied || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
+                    PermissionRecovery(R.string.network_permission_denied, R.string.connect_allow_network,
+                        permanent = permissionDenied && activity != null && Build.VERSION.SDK_INT >= 37 &&
+                            !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_LOCAL_NETWORK),
+                        onRequest = { withNetwork {} }, onSettings = {
+                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                android.net.Uri.parse("package:${context.packageName}")))
+                        })
+                }
+                if (cameraDenied && !state.paired && !state.busy) PermissionRecovery(R.string.camera_permission_denied, R.string.connect_camera_retry,
+                    permanent = activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA),
+                    onRequest = { cameraPermission.launch(Manifest.permission.CAMERA) }, onSettings = {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${context.packageName}")))
+                    })
             }
         },
     )
@@ -194,4 +216,14 @@ internal fun receiptCause(reason: String?): Int? = when (reason) {
         "modifier_held" -> R.string.receipt_modifier_held
         "session_unavailable" -> R.string.receipt_session_unavailable
         else -> null
+}
+
+/** Permission recovery never forgets a host or starts a new pairing implicitly. */
+@Composable
+internal fun PermissionRecovery(message: Int, request: Int, permanent: Boolean, onRequest: () -> Unit, onSettings: () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Notice(stringResource(message), VoiceLinkIcon.Shield)
+        Action(if (permanent) R.string.connect_open_settings else request, primary = true,
+            onClick = if (permanent) onSettings else onRequest)
+    }
 }

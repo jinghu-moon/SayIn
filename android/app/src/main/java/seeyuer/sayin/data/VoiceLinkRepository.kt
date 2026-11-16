@@ -197,6 +197,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 if (!foreground) { permissionJob?.cancel(); permissionJob = null; networkMonitor.stop(); candidates.clear(); disconnect() }
                 else if (!localPermission()) { watchPermission(); fail(ClientIssue.LOCAL_NETWORK_PERMISSION) }
                 else {
+                    // Granting permission restores the existing flow, including the unpaired page.
+                    if (mutable.value.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) mutable.update { it.copy(issue = null) }
                     watchPermission()
                     networkMonitor.start()
                     if (!wasForeground) { network = networkMonitor.current(); networkKey = networkMonitor.key(network) }

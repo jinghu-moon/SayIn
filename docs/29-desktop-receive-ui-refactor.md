@@ -1,5 +1,7 @@
 # SayIn 桌面接收页重构
 
+> 最新手机连接页与权限恢复见 [65 · 连接页重构](65-android-connection-page-refactor.md)。电脑批准、暂停与待核对仍沿用原安全语义。
+
 日期：2026-11-13。状态：原生实现与自动化验证完成；真实手机到目标输入框验收按文末步骤进行。
 
 设计依据：[接收页 demo](demos/sayin-receive.html)、[接收页设计](demos/sayin-receive-design.md)、[设备显示名称](24-android-device-display-name-plan.md)、[历史记录卡片](25-desktop-history-ui-refactor.md)。本轮不改造 Android 界面。

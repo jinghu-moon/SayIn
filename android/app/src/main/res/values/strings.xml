@@ -16,7 +16,7 @@
     <string name="pair_help">Open Pair phone on the computer. Scan its QR code or enter its address and 8-digit code.</string>
     <string name="scan_qr">Scan QR code</string>
     <string name="scan_prompt">Scan the QR code shown by SayIn on your computer</string>
-    <string name="use_pair_code">Use a pairing code</string>
+    <string name="use_pair_code">Can’t scan? Use a pairing code</string>
     <string name="hide_pair_code">Hide pairing code form</string>
     <string name="ip_address">Computer IPv4 address</string>
     <string name="port">Port</string>
@@ -214,9 +214,9 @@
     <string name="connection_unavailable_help">Connection is working. Open SayIn on your computer to check its receiving status.</string>
     <string name="connection_paused_help">Connection is working. Resume receiving on the computer Receive page before sending.</string>
     <string name="connection_ready_help">Text goes to the current cursor on your computer. No need to open SayIn there.</string>
-    <string name="connection_help">Connection help</string>
+    <string name="connection_help">Connection details and help</string>
     <string name="connection_network_help">Keep SayIn running on your computer and use a LAN that allows the devices to reach each other. Changing the Windows public/private network category is not required. Firewall rules or guest-network isolation may still block access.</string>
-    <string name="connection_update_address">Computer address changed?</string>
+    <string name="connection_update_address">Update address</string>
     <string name="connection_save_address">Save and reconnect</string>
     <string name="connection_address">Computer address (IPv4:port)</string>
     <string name="connection_back">Back</string>
@@ -440,4 +440,16 @@
     <string name="root_clipboard_denied">Module access was denied. Install matching official development builds.</string>
     <string name="root_clipboard_locked">Unlock the primary user to view module records.</string>
     <string name="root_clipboard_unavailable">Module not connected. Current clipboard is still available. If a clear request timed out, refresh to check its result.</string>
+    <string name="connect_step_open">Open Receive in SayIn on your computer</string>
+    <string name="connect_step_scan">Scan the QR code with this phone</string>
+    <string name="connect_step_approve">Check this phone’s name on the computer and approve</string>
+    <string name="connect_approval_notice">The computer must approve the first connection.</string>
+    <string name="connect_lan_title">Local network permission needed</string>
+    <string name="connect_ready">Connected · ready for input</string>
+    <string name="connect_retry_wait">Not connected · retrying automatically</string>
+    <string name="connect_allow_network">Allow local network access</string>
+    <string name="connect_open_settings">Open app settings</string>
+    <string name="connect_camera_retry">Allow camera access</string>
+    <string name="connect_not_connected">Not connected</string>
+    <string name="connect_more">More connection options</string>
 </resources>

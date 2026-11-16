@@ -1,0 +1,39 @@
+{
+  "date": "2026-11-16",
+  "baseline": "91742e646969dc4e84b790ccd0c1385e23e7b072",
+  "device": "Redmi K40 / Android 13 / API 33",
+  "jvm": {
+    "tests": 89,
+    "errors": 0,
+    "failures": 0,
+    "skipped": 0
+  },
+  "instrumentation": {
+    "text_and_ui": 102,
+    "images": 4,
+    "isolated_package": "seeyuer.sayin.imagetest",
+    "text_fake_input_calls": 2,
+    "image_fake_input_calls": 1,
+    "uses_adb_reverse": true,
+    "connection_behavior_tests": 9
+  },
+  "debug_apk_sha256": "df8a856638708cde4542ab34ebcc314c97096d0794d38a57661c9647553d1f8f",
+  "checks": {
+    "debug_build": "passed",
+    "lint_debug": "passed",
+    "i18n": "passed",
+    "desktop_dependencies": "passed",
+    "desktop_core_tests": "passed"
+  },
+  "not_verified": [
+    "API 37 real permission UI in this iteration",
+    "physical camera scan in this iteration",
+    "real LAN discovery or native target input in this iteration",
+    "GPUI full workspace / Clippy (no desktop code changes)"
+  ],
+  "collector_restored": {
+    "running": true,
+    "enabled": true,
+    "capture_ready": true
+  }
+}
