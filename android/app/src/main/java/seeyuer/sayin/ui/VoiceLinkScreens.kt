@@ -40,7 +40,8 @@ import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.PhraseLibrary
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
-import seeyuer.sayin.ui.localization.AppLanguagePicker
+import seeyuer.sayin.ui.settings.SettingsHost
+import seeyuer.sayin.ui.settings.SettingsRoute
 import top.yukonga.miuix.kmp.utils.PagerNavigationSpringSpec
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -90,6 +91,8 @@ internal fun VoiceLinkContent(
     }
     var showConnection by remember { mutableStateOf(false) }
     var showImage by remember { mutableStateOf(false) }
+    var settingsSubpage by remember { mutableStateOf(false) }
+    var settingsEntry by remember { mutableStateOf(SettingsRoute.Root) }
     val context = LocalContext.current
     val preferences = remember(context) { context.getSharedPreferences("presentation", 0) }
     val cloudState by cloudSettings.state.collectAsStateWithLifecycle()
@@ -128,7 +131,7 @@ internal fun VoiceLinkContent(
         bottomBar = {
             // Keep the bar composed at the window bottom. The IME window slides over it instead of
             // the layout removing it, so the page never has to jump to make room.
-            if (!quick) {
+            if (!quick && !settingsSubpage) {
                 val navigationLine = if (MiuixTheme.colorScheme.background == YuePalette.Neutral100) YuePalette.Neutral200 else YuePalette.Neutral850
                 Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
                     .drawBehind { drawLine(navigationLine, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
@@ -148,19 +151,18 @@ internal fun VoiceLinkContent(
         },
     ) { insets ->
         val connectionScroll = rememberScrollState()
-        val settingsScroll = rememberScrollState()
         val extraImeBottom = (imeBottom - insets.calculateBottomPadding()).coerceAtLeast(0.dp)
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
             .then(if (extraImeBottom > 0.dp) Modifier.padding(bottom = extraImeBottom) else Modifier)) {
             HorizontalPager(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize(),
-                userScrollEnabled = !quick,
+                userScrollEnabled = !quick && !settingsSubpage,
             ) { index ->
                 when (MobilePage.entries[index]) {
                     MobilePage.Speak -> SpeakPage(state, session, phrases, onSend,
                         cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
-                        onConfigureCloud = { if (quick) onExpand(true) else goTo(MobilePage.Settings) },
+                        onConfigureCloud = { if (quick) onExpand(true) else { settingsEntry = SettingsRoute.Recognition; goTo(MobilePage.Settings) } },
                         onConnect = { showConnection = true },
                         connectionOpen = showConnection || showImage,
                         onImage = { session.cancelAutoSend(); showImage = true },
@@ -187,20 +189,18 @@ internal fun VoiceLinkContent(
                             }
                         }
                     }
-                    MobilePage.Settings -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
-                        PageTopBar(MobilePage.Settings)
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                            Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(settingsScroll)
-                                .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-Settings"),
-                                verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                                SettingsPage(keepAwake, source, sendMode, cloudSettings, cloudState) {
-                                    keepAwake = it
-                                    preferences.edit().putBoolean("keep_awake", it).apply()
-                                }
-                                Spacer(Modifier.height(4.dp))
-                            }
-                        }
-                    }
+                    MobilePage.Settings -> SettingsHost(
+                        session = session,
+                        cloudSettings = cloudSettings,
+                        cloudState = cloudState,
+                        keepAwake = keepAwake,
+                        onKeepAwake = {
+                            keepAwake = it
+                            preferences.edit().putBoolean("keep_awake", it).apply()
+                        },
+                        onSubpageChange = { settingsSubpage = it },
+                        initialRoute = settingsEntry,
+                    )
                 }
             }
         }
@@ -238,38 +238,6 @@ private fun PageTopBar(page: MobilePage) {
         defaultWindowInsetsPadding = false,
         color = MiuixTheme.colorScheme.surface,
     )
-}
-
-@Composable
-private fun SettingsPage(keepAwake: Boolean, source: SpeakInputSource, sendMode: SpeakSendMode, cloudSettings: CloudSettings, cloudState: CloudSettingsState, onKeepAwake: (Boolean) -> Unit) {
-    Panel {
-        SectionTitle(R.string.mobile_input_settings, VoiceLinkIcon.Input)
-        SettingLine(R.string.mobile_default_mode, sourceLabel(source))
-        HorizontalDivider()
-        SettingLine(R.string.mobile_send_mode, if (sendMode == SpeakSendMode.Manual) R.string.speak_send_manual else R.string.speak_auto_send)
-        HorizontalDivider()
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(R.string.mobile_keep_awake))
-                Caption(stringResource(R.string.mobile_keep_awake_help))
-            }
-            Switch(checked = keepAwake, onCheckedChange = onKeepAwake,
-                modifier = Modifier.testTag("keep-awake").sizeIn(minWidth = 48.dp, minHeight = 48.dp))
-        }
-    }
-    CloudSettingsCard(cloudSettings, cloudState)
-    AppLanguagePicker()
-    seeyuer.sayin.quick.QuickEntrySettings()
-    Notice(stringResource(R.string.mobile_privacy), VoiceLinkIcon.Shield)
-}
-
-@Composable
-private fun SettingLine(title: Int, summary: Int) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(stringResource(title), fontWeight = FontWeight.Medium)
-        Caption(stringResource(summary))
-    }
 }
 
 @Composable

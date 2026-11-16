@@ -91,7 +91,6 @@ internal fun SpeakPage(
     val context = LocalContext.current
     val owner = remember { Any() }
     var showPreview by remember { mutableStateOf(false) }
-    var showSources by remember { mutableStateOf(false) }
     var showTranslationPreparation by remember { mutableStateOf(false) }
     var showAssist by remember { mutableStateOf(false) }
     var assistGeneration by remember { mutableIntStateOf(0) }
@@ -195,8 +194,8 @@ internal fun SpeakPage(
             kotlinx.coroutines.delay(16)
         }
     }
-    LaunchedEffect(connectionOpen, showSources, showTranslationPreparation) {
-        if (showAssist && (connectionOpen || showSources || showTranslationPreparation)) closeAssist(AssistDismissReason.User)
+    LaunchedEffect(connectionOpen, showTranslationPreparation) {
+        if (showAssist && (connectionOpen || showTranslationPreparation)) closeAssist(AssistDismissReason.User)
     }
     DisposableEffect(Unit) { onDispose { if (showAssist) session.invalidateAssist() } }
     fun edit() { session.edit(); showPreview = false; focus.requestFocus(); keyboard?.show() }
@@ -291,7 +290,7 @@ internal fun SpeakPage(
         val color = MiuixTheme.colorScheme
         val menu = buildList {
             add(DropdownItem(stringResource(R.string.speak_recognition_settings), enabled = !busy && !locked,
-                icon = { Icon(VoiceLinkIcon.Settings.vector, null, it.size(20.dp)) }, onClick = { showSources = true }))
+                icon = { Icon(VoiceLinkIcon.Settings.vector, null, it.size(20.dp)) }, onClick = { onConfigureCloud() }))
             add(DropdownItem(autoLabel, icon = { Icon(VoiceLinkIcon.Automatic.vector, null, it.size(20.dp)) }, selected = session.sendMode == SpeakSendMode.Automatic, enabled = !busy && !locked,
                 onClick = { session.changeSendMode(if (session.sendMode == SpeakSendMode.Automatic) SpeakSendMode.Manual else SpeakSendMode.Automatic) }))
             if (!showTools || minimal) {
@@ -582,16 +581,7 @@ internal fun SpeakPage(
         },
         onDismiss = ::closeAssist,
     )
-    OverlayBottomSheet(show = showSources, onDismissRequest = { showSources = false }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp)) {
-            Text(stringResource(R.string.speak_recognition_settings), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(16.dp))
-            RecognitionChoices(voiceSource, cloudConfig != null) {
-                session.selectSource(it); showSources = false
-                if (it == SpeakInputSource.Cloud && cloudConfig == null) onConfigureCloud()
-            }
-        }
-    }
+
 }
 
 @Composable
@@ -693,30 +683,6 @@ private fun VoiceWaveform(level: Float, listening: Boolean, color: Color) {
             val bar = (3.dp.toPx() + sample * 17.dp.toPx()).coerceAtMost(size.height)
             drawLine(color, androidx.compose.ui.geometry.Offset(left + index * step, (size.height - bar) / 2),
                 androidx.compose.ui.geometry.Offset(left + index * step, (size.height + bar) / 2), strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-        }
-    }
-}
-
-@Composable
-private fun RecognitionChoices(source: SpeakInputSource, cloudConfigured: Boolean, onSelect: (SpeakInputSource) -> Unit) {
-    Column(Modifier.fillMaxWidth().selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        listOf(SpeakInputSource.Local, SpeakInputSource.Cloud).forEach { item ->
-            val selected = source == item
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
-                .background(if (selected) MiuixTheme.colorScheme.background else Color.Transparent)
-                .selectable(selected, role = Role.RadioButton, onClick = { onSelect(item) })
-                .testTag("input-source-${item.name}").padding(horizontal = 14.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Icon((if (item == SpeakInputSource.Local) VoiceLinkIcon.Phone else VoiceLinkIcon.Cloud).vector, null, Modifier.size(22.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_offline_recognition else R.string.speak_cloud_recognition),
-                        Modifier.testTag("input-source-label-${item.name}"), fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 24.sp, softWrap = true, maxLines = 2)
-                    Text(stringResource(if (item == SpeakInputSource.Local) R.string.speak_offline_description
-                        else if (cloudConfigured) R.string.speak_cloud_description else R.string.cloud_setup_hint), fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                }
-                if (selected) Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.primary)
-            }
         }
     }
 }
