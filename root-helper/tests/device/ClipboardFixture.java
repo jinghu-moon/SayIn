@@ -40,6 +40,29 @@ public final class ClipboardFixture extends Instrumentation {
                 ClipData clip;
                 if (mode.equals("uri")) clip = ClipData.newRawUri("fixture", android.net.Uri.parse("content://sayin.invalid/test"));
                 else if (mode.equals("html")) clip = ClipData.newHtmlText("fixture", prefix + i, "<b>synthetic</b>");
+                else if (mode.equals("spanned") || mode.equals("classified")) {
+                    String text = prefix + i + " 中文🙂";
+                    clip = ClipData.newPlainText("fixture", new android.text.SpannedString(text));
+                    if (mode.equals("classified")) {
+                        // Public Parcelable round trip populates the final TextLinks
+                        // field without hidden methods or reading a real clipboard.
+                        android.os.Parcel parcel = android.os.Parcel.obtain();
+                        android.os.Parcel linksParcel = android.os.Parcel.obtain();
+                        try {
+                            clip.writeToParcel(parcel, 0);
+                            byte[] encoded = parcel.marshall();
+                            android.view.textclassifier.TextLinks links = new android.view.textclassifier.TextLinks.Builder(text)
+                                .addLink(0, 5, java.util.Collections.singletonMap("url", 1.0f)).build();
+                            links.writeToParcel(linksParcel, 0);
+                            byte[] metadata = linksParcel.marshall();
+                            byte[] joined = java.util.Arrays.copyOf(encoded, encoded.length + metadata.length);
+                            joined[encoded.length - 4] = 1;
+                            System.arraycopy(metadata, 0, joined, encoded.length, metadata.length);
+                            parcel.unmarshall(joined, 0, joined.length); parcel.setDataPosition(0);
+                            clip = ClipData.CREATOR.createFromParcel(parcel);
+                        } finally { parcel.recycle(); linksParcel.recycle(); }
+                    }
+                }
                 else if (mode.equals("styled")) {
                     android.text.SpannableString text = new android.text.SpannableString(prefix + i);
                     text.setSpan(new android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, text.length(), 0);

@@ -21,12 +21,18 @@ internal data class RootClip(val id: Long, val timestamp: Long, val preview: Str
 internal data class RootClips(val revision: String, val captureReady: Boolean, val entries: List<RootClip>)
 internal class RootClipboardFailure(val code: String) : IOException(code)
 
+internal interface RootClipboardAccess {
+    suspend fun list(): RootClips
+    suspend fun get(snapshot: RootClips, id: Long): String
+    suspend fun clear(snapshot: RootClips)
+}
+
 /** No Root grant, shell, background service, disk cache, or clipboard reads in the App. */
-internal class RootClipboardClient internal constructor(private val endpoint: String = ENDPOINT) {
+internal class RootClipboardClient internal constructor(private val endpoint: String = ENDPOINT) : RootClipboardAccess {
     init { require(endpoint == ENDPOINT || endpoint.startsWith("SAYIN_TEST_") && endpoint.length <= 80) }
 
-    suspend fun list(): RootClips = RootClipboardProtocol.list(exchange("LIST"))
-    suspend fun get(snapshot: RootClips, id: Long): String {
+    override suspend fun list(): RootClips = RootClipboardProtocol.list(exchange("LIST"))
+    override suspend fun get(snapshot: RootClips, id: Long): String {
         require(snapshot.entries.any { it.id == id })
         val reply = exchange("GET ${snapshot.revision} $id")
         if (reply.getString("revision") != snapshot.revision) throw RootClipboardFailure("invalid_response")
@@ -34,7 +40,7 @@ internal class RootClipboardClient internal constructor(private val endpoint: St
         if (text.isEmpty() || text.toByteArray(Charsets.UTF_8).size > 16 * 1024 || '\u0000' in text) throw RootClipboardFailure("invalid_response")
         return text
     }
-    suspend fun clear(snapshot: RootClips) {
+    override suspend fun clear(snapshot: RootClips) {
         val reply = exchange("CLEAR ${snapshot.revision}")
         if (!reply.getBoolean("cleared")) throw RootClipboardFailure("invalid_response")
     }

@@ -41,7 +41,7 @@ private:
 };
 // The child drops to shell before opening Binder. Parent alone owns private history.
 int collector(int channel, const std::string& test_prefix);
-int probe();
+int probe(bool validate_clip = false);
 struct Packet {
     uint32_t kind = 0; // 1=text, 2=ready/paused, 3=drop, 4=fatal
     uint32_t state = 0;

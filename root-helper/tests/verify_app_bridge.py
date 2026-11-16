@@ -110,6 +110,9 @@ def main():
             instrument('-e','class','seeyuer.sayin.ui.RootClipboardInstrumentedTest#bootIdleEndpointWithoutHistory','-e','verifyBootIdle','true')
             root('test ! -e /data/adb/sayin-helper/key && test ! -e /data/adb/sayin-helper/history.enc')
             evidence['cases']['real_boot_idle_endpoint_signed_app_empty_without_key']=True
+        for method in ('resolvingModuleDoesNotFlashCurrentClipboard', 'absentModuleFallsBackAfterResolution', 'lateResolutionAfterClosingPanelHasNoUiEffect'):
+            instrument('-e','class','seeyuer.sayin.ui.RootClipboardUiInstrumentedTest#'+method)
+        evidence['cases']['loading_fallback_and_late_resolution_ui']=True
         helper('enable')
         proc=subprocess.Popen(adb+['shell','su','-c',shlex.quote(f'{binary} run --data-dir {base} --test-prefix {prefix} --app-socket {sock} --duration 300')],stdout=subprocess.PIPE,stderr=subprocess.PIPE)
         end=time.monotonic()+10

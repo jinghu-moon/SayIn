@@ -100,8 +100,13 @@ def main():
             fixture(mode, 1, mode=mode)
         assert status()["accepted"] == 5
         evidence["cases"]["sensitive_oversize_uri_skipped"] = True
-        fixture("metadata", 1, mode="metadata")
+        fixture("spanned", 1, mode="spanned")
         assert wait_for(lambda s: s.get("accepted") == 6)["entries"] == 6
+        fixture("classified", 1, mode="classified")
+        assert wait_for(lambda s: s.get("accepted") == 7)["entries"] == 7
+        evidence["cases"]["plain_spanned_and_text_links_accepted"] = True
+        fixture("metadata", 1, mode="metadata")
+        assert wait_for(lambda s: s.get("accepted") == 8)["entries"] == 8
         evidence["cases"]["non_sensitive_bundle_metadata_accepted"] = True
         duplicate = helper("run --duration 1", check=False)
         assert duplicate.returncode != 0 and "instance_busy" in duplicate.stderr
@@ -109,7 +114,7 @@ def main():
         helper("clear")
         assert status()["entries"] == 0
         fixture("after_clear", 2)
-        assert wait_for(lambda s: s.get("entries") == 2)["accepted"] == 8
+        assert wait_for(lambda s: s.get("entries") == 2)["accepted"] == 10
         helper("disable"); process.communicate(timeout=10); assert process.returncode == 0
         saved = json.loads(helper("list").stdout)
         assert len(saved["entries"]) == 2 and all(prefix+"after_clear_" in e["text"] for e in saved["entries"])

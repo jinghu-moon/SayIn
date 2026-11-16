@@ -195,6 +195,7 @@ int main(int argc, char** argv) {
         if (prefix.size() && (path == "/data/adb/sayin-helper" || duration == 0)) throw Failure("test_requires_isolated_directory_and_duration");
         if (command == "probe") { probe(); std::cout << "{\"clipboard_binder_access\":true}\n"; return 0; }
         if (getuid() != 0) throw Failure("root_required");
+        if (command == "diagnose-clipboard") { probe(true); std::cout << "{\"current_text_supported\":true}\n"; return 0; }
         umask(0077); if (prctl(PR_SET_DUMPABLE, 0)) throw Failure("process_protection");
         if (command == "crypto-test") { Crypto{}.self_test(); std::cout << "{\"aes_gcm_and_tamper_test\":true}\n"; return 0; }
         if (!app_socket.empty() && (prefix.empty() || path == "/data/adb/sayin-helper" || !duration)) throw Failure("test_socket_requires_isolation");

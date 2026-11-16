@@ -1,6 +1,6 @@
 # SayIn Helper
 
-独立 **C++20** Root 模块：监听并加密保存剪贴板文字，SayIn 不承担采集生命周期。当前支持 **Android 13/API 33 和 Android 17/API 37、arm64**；已分别在 Redmi K40 与 Xiaomi 25102RKBEC 验证独立采集。API 37 的 HyperOS 4.0 使用明确的 Bundle 格式配置，不代表其它 ROM 已验收。0.4.0 增加签名校验的本地 socket 和 SayIn 面板读取，实施及本次真机范围见 [62](../docs/62-root-helper-app-clipboard-integration.md)。应用保活尚未实现，普通手机继续当前单条剪贴板。
+独立 **C++20** Root 模块：监听并加密保存剪贴板文字，SayIn 不承担采集生命周期。当前支持 **Android 13/API 33 和 Android 17/API 37、arm64**；已分别在 Redmi K40 与 Xiaomi 25102RKBEC 验证独立采集。API 37 的 HyperOS 4.0 使用明确的 Bundle 格式配置，不代表其它 ROM 已验收。0.4.0 增加签名校验的本地 socket 和 SayIn 面板读取，实施及本次真机范围见 [62](../docs/62-root-helper-app-clipboard-integration.md)。0.4.1 修复普通文本附带空 span 包装及 TextLinks 分类信息时被误拒绝的问题，并消除面板加载闪现，见 [63](../docs/63-root-clipboard-classification-and-loading-fix.md)。应用保活尚未实现，普通手机继续当前单条剪贴板。
 
 设计：[56](../docs/56-root-module-clipboard-and-keepalive-design.md)；Kotlin 骨架历史：[59](../docs/59-root-helper-engineering-foundation.md)；原生首版：[60](../docs/60-root-helper-native-clipboard-collection.md)；Android 17 适配：[61](../docs/61-root-helper-android17-validation.md)。
 
@@ -31,7 +31,7 @@ pwsh -File scripts/build_root_helper.ps1
 
 使用 NDK **29.0.14206865**、CMake/Ninja；SDK 路径从 `-SdkRoot`、`ANDROID_HOME` 或 `android/local.properties` 解析。主机测试默认使用本机 MinGW GCC，可用 `-HostCompiler` 指定。模块不再依赖 Kotlin、Gradle、DEX、JVM 或 Rust；Android App 的工具链不变。
 
-产物：`root-helper/build/distributions/sayin-helper-0.4.0-dev-arm64.zip` 及 `.zip.sha256`。白名单打包，包含原生 ELF、许可、构建清单及逐文件摘要；没有 APK、设备数据、私钥或用户历史。摘要用于完整性校验，不充当签名信任根。
+产物：`root-helper/build/distributions/sayin-helper-0.4.1-dev-arm64.zip` 及 `.zip.sha256`。白名单打包，包含原生 ELF、许可、构建清单及逐文件摘要；没有 APK、设备数据、私钥或用户历史。摘要用于完整性校验，不充当签名信任根。
 
 ## 安装与使用
 
@@ -43,6 +43,7 @@ Root 调试命令（不要把 `list` 输出保存为普通日志）：
 
 ```sh
 /data/adb/modules/sayin_helper/bin/sayin-helper status
+/data/adb/modules/sayin_helper/bin/sayin-helper diagnose-clipboard
 /data/adb/modules/sayin_helper/bin/sayin-helper disable
 /data/adb/modules/sayin_helper/bin/sayin-helper list
 /data/adb/modules/sayin_helper/bin/sayin-helper clear
@@ -50,7 +51,9 @@ Root 调试命令（不要把 `list` 输出保存为普通日志）：
 
 `list` 是停止实例后的 Root 诊断入口，保证唯一写入者；0.4.0 运行时由 App 使用鉴权 LIST/GET，不使用此命令。运行中支持 `status`、`clear`、`disable`、`stop`。`disable` 持久关闭并等待停止；`stop` 为更新临时停止，保留启用偏好。`clear` 只清历史、不改系统剪贴板。Root CLI 是开发管理入口，不是 App 面板接口。
 
-只接收单条 `text/plain`，单条 UTF-8 ≤16KiB，总正文 ≤512KiB，历史最多 50 条。敏感标记、URI、HTML、富文本、图片、复杂 extras 和未知对象跳过；锁屏/非主用户/解锁状态未知时暂停，恢复只接收新事件。系统时间回拨、相同毫秒的多次写入、回调覆盖都存在漏采边界。
+`diagnose-clipboard` 仅由 Root 在解锁时检查当前格式，输出固定成功/错误码，不输出正文、标签、extras 或原始 Parcel，不保存历史。
+
+只接收单条 `text/plain`，单条 UTF-8 ≤16KiB，总正文 ≤512KiB，历史最多 50 条。接受无实际 span 的纯文本包装和已知格式的 TextLinks 分类元数据，但不保存/执行分类信息。敏感标记、URI、HTML、实际带样式的富文本、图片、复杂 extras 和未知对象跳过；锁屏/非主用户/解锁状态未知时暂停，恢复只接收新事件。系统时间回拨、相同毫秒的多次写入、回调覆盖都存在漏采边界。
 
 Root 父进程唯一持有存储和密钥，采集子进程降为 shell UID，仅经继承 socketpair 交付有界数据。加密使用当前系统 `libcrypto` 的 BoringSSL AEAD API，运行时检查能力；没有内置加密实现，没有不支持时降级明文。该系统 API 不是跨 Android 版本稳定 ABI，因此只开放已核对的版本配置，实际 ROM 验证范围见 61。
 

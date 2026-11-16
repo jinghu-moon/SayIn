@@ -21,11 +21,12 @@ import seeyuer.sayin.R
 import seeyuer.sayin.data.RootClip
 import seeyuer.sayin.data.RootClips
 import seeyuer.sayin.data.RootClipboardClient
+import seeyuer.sayin.data.RootClipboardAccess
 import seeyuer.sayin.data.RootClipboardFailure
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
-internal val LocalRootClipboardClient = staticCompositionLocalOf { RootClipboardClient() }
+internal val LocalRootClipboardClient = staticCompositionLocalOf<RootClipboardAccess> { RootClipboardClient() }
 
 /** A visible-window data source only. Full page and quick card use the same draft callbacks. */
 @Composable
@@ -44,6 +45,7 @@ internal fun RootClipboardTab(
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var snapshot by remember { mutableStateOf<RootClips?>(null) }
+    var resolved by remember { mutableStateOf(false) }
     var pendingClear by remember { mutableStateOf<RootClips?>(null) }
     var busy by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -52,14 +54,14 @@ internal fun RootClipboardTab(
     var epoch by remember { mutableIntStateOf(0) }
     val availableCallback by rememberUpdatedState(onAvailable)
     val modalCallback by rememberUpdatedState(onModal)
-    SideEffect { availableCallback(snapshot != null); modalCallback(pendingClear != null) }
+    SideEffect { availableCallback(snapshot != null || !resolved); modalCallback(pendingClear != null) }
 
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) resumed = true
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 resumed = false; epoch++; operation?.cancel(); operation = null
-                snapshot = null; pendingClear = null; busy = false
+                snapshot = null; resolved = false; pendingClear = null; busy = false
             }
         }
         lifecycle.addObserver(observer)
@@ -83,7 +85,7 @@ internal fun RootClipboardTab(
                 snapshot = null
                 if (wasAvailable || refresh > 0 || failure is RootClipboardFailure) notice = rootClipboardMessage(failure)
             }
-        } finally { if (generation == epoch) busy = false }
+        } finally { if (generation == epoch) { resolved = true; busy = false } }
     }
 
     fun textAction(entry: RootClip, action: (String) -> Unit) {
@@ -111,7 +113,10 @@ internal fun RootClipboardTab(
                 Modifier.heightIn(min = 48.dp).testTag("root-clipboard-refresh"), minHeight = 48.dp)
         }
         val current = snapshot
-        if (current == null) Box(Modifier.weight(1f)) { ordinary() }
+        if (!resolved && current == null) Box(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-loading"), contentAlignment = Alignment.Center) {
+            LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
+        }
+        else if (current == null) Box(Modifier.weight(1f)) { ordinary() }
         else {
             if (!current.captureReady) Text(stringResource(R.string.root_clipboard_paused),
                 Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)

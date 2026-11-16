@@ -21,7 +21,7 @@ void s16(std::vector<uint8_t>& b, const std::string& text) {
     for (const auto c : text) { b.push_back(static_cast<uint8_t>(c)); b.push_back(0); }
     b.push_back(0); b.push_back(0); while (b.size() % 4) b.push_back(0);
 }
-std::vector<uint8_t> sample(bool sensitive = false, std::string text = "hello") {
+std::vector<uint8_t> sample(bool sensitive = false, std::string text = "hello", bool spanned = false, bool classified = false) {
     std::vector<uint8_t> b;
     i32(b, 1); i32(b, 1); s8(b, "fixture"); // present, plain label
     i32(b, 1); s16(b, "text/plain");
@@ -30,8 +30,16 @@ std::vector<uint8_t> sample(bool sensitive = false, std::string text = "hello") 
         i32(b, static_cast<int>(extras.size())); i32(b, 0x4c444e42); b.insert(b.end(), extras.begin(), extras.end());
     } else i32(b, -1);
     append_u64(b, 12345); i32(b, 0); i32(b, 1); i32(b, 0); // timestamp, styled, classification, confidences
-    i32(b, 0); i32(b, 1); i32(b, 1); s8(b, text); i32(b, -1);
-    for (int i = 0; i < 4; ++i) i32(b, 0);
+    i32(b, 0); i32(b, 1); i32(b, spanned ? 0 : 1); s8(b, text);
+    if (spanned) i32(b, 0); // SpannedString with no actual ParcelableSpan.
+    i32(b, -1);
+    for (int i = 0; i < 3; ++i) i32(b, 0);
+    i32(b, classified ? 1 : 0);
+    if (classified) {
+        s16(b, text); i32(b, 1); i32(b, 1); // TextLinks full text, typed list, item present.
+        i32(b, 1); s16(b, "url"); i32(b, 0x3f800000); // EntityConfidence.
+        i32(b, 0); i32(b, 5); i32(b, 0); i32(b, 0); // Range, link extras, links extras.
+    }
     return b;
 }
 int main(int argc, char** argv) {
@@ -43,6 +51,18 @@ int main(int argc, char** argv) {
         require(clip.text == "hello" && clip.timestamp == 12345 && !clip.sensitive);
         require(parse_description(bytes, profile33) == 12345);
         auto secret = parse_clip33(sample(true, "secret")); require(secret.sensitive && secret.text.empty());
+        require(parse_clip33(sample(false, "hello", true)).text == "hello");
+        const auto classified = sample(false, "hello", true, true);
+        require(parse_clip33(classified).text == "hello");
+        for (size_t i = 0; i < classified.size(); ++i) rejects([&] { (void)parse_clip33(std::span(classified).first(i)); });
+        const size_t links = sample(false, "hello", true).size() - 4;
+        for (const auto& change : std::vector<std::pair<size_t, uint8_t>>{{links,2}, {links+4,255}, {links+18,1}, {links+24,255}, {links+28,0}, {links+32,0}}) {
+            auto invalid = classified; invalid[change.first] = change.second;
+            rejects([&] { (void)parse_clip33(invalid); });
+        }
+        auto modern_classified = classified;
+        modern_classified.insert(modern_classified.begin()+static_cast<std::ptrdiff_t>(links), 4, 0);
+        require(parse_clip(modern_classified, profile37).text == "hello");
         for (size_t i = 0; i < bytes.size(); ++i) rejects([&] { (void)parse_clip33(std::span(bytes).first(i)); });
         auto trailing = bytes; trailing.push_back(1); rejects([&] { (void)parse_clip33(trailing); });
         auto large = sample(false, std::string(kMaxText+1, 'x')); rejects([&] { (void)parse_clip33(large); });

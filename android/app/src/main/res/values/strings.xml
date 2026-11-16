@@ -435,7 +435,7 @@
     <string name="root_clipboard_current">Current clipboard</string>
     <string name="root_clipboard_refresh">Refresh</string>
     <string name="root_clipboard_paused">Collection is off or paused. Saved records remain available; use module Action to change collection.</string>
-    <string name="root_clipboard_empty">No module records yet. New copied text will appear here after collection starts.</string>
+    <string name="root_clipboard_empty">No history yet. Newly copied text will appear here.</string>
     <string name="root_clipboard_clear_title">Clear module history?</string>
     <string name="root_clipboard_clear_message">Delete all %1$d module records? This leaves the system clipboard and phrases unchanged.</string>
     <string name="root_clipboard_cleared">Module history cleared.</string>

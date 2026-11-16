@@ -121,7 +121,7 @@ bool history_access_allowed() {
     } catch (...) { return false; }
 }
 
-int probe() {
+int probe(bool validate_clip) {
     const auto profile = platform(); shell_identity();
     void* lib = dlopen("libbinder_ndk.so", RTLD_NOW | RTLD_LOCAL);
     if (!lib) throw Failure("binder_unavailable");
@@ -134,6 +134,13 @@ int probe() {
     const auto description = clipboard.call(5, [&](AParcel* p) { args(p, profile); });
     // Do not print, export or store existing clipboard metadata/content.
     if (description.empty()) throw Failure("clipboard_layout_unavailable");
+    if (validate_clip) {
+        // Root diagnostic outputs only a fixed parser result, never clipboard
+        // text, raw parcels, labels or extras. It does not open the history store.
+        const auto bytes = clipboard.call(4, [&](AParcel* p) { args(p, profile); });
+        if (parse_clip(bytes, profile).sensitive) throw Failure("sensitive_clip_skipped");
+        if (!unlocked(trust, activity, window, power, profile)) throw Failure("locked_or_non_owner_user");
+    }
     return 0;
 }
 

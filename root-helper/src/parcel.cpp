@@ -49,8 +49,46 @@ public:
         pos += aligned; return value;
     }
     std::optional<std::string> plain() {
-        if (i32() != 1) throw Failure("styled_text_unsupported");
-        return string8();
+        const int kind = i32();
+        if (kind != 0 && kind != 1) throw Failure("char_sequence_kind");
+        auto value = string8();
+        // TextUtils also serializes a plain SpannedString as kind 0 followed by
+        // an empty span list. The wrapper alone does not make text formatted.
+        if (kind == 0) {
+            const int span = i32();
+            if (span != 0) throw Failure("styled_text_unsupported");
+        }
+        return value;
+    }
+    // TextLinks carries a second UTF-16 copy of the text. Validate bounded
+    // framing without decoding, retaining or exposing this redundant metadata.
+    int skip_string16(size_t limit) {
+        const int size = i32();
+        if (size < 0 || static_cast<size_t>(size) > limit) throw Failure("text_links_string");
+        const size_t aligned = (static_cast<size_t>(size) * 2 + 5) & ~size_t(3);
+        need(aligned);
+        if (data[pos + 2 * size] || data[pos + 2 * size + 1]) throw Failure("text_links_terminator");
+        pos += aligned; return size;
+    }
+    void text_links() {
+        const int present = i32();
+        if (present == 0) return;
+        if (present != 1) throw Failure("text_links_presence");
+        const int length = skip_string16(kMaxText);
+        const int count = i32();
+        if (count < 0 || count > 256) throw Failure("text_links_count");
+        for (int i = 0; i < count; ++i) {
+            if (i32() != 1) throw Failure("text_link_presence");
+            const int entities = i32();
+            if (entities < 1 || entities > 32) throw Failure("text_link_entities");
+            for (int j = 0; j < entities; ++j) {
+                (void)skip_string16(1024); (void)i32(); // Entity label and float score; never used.
+            }
+            const int start = i32(), end = i32();
+            if (start < 0 || end <= start || end > length) throw Failure("text_link_range");
+            skip_bundle();
+        }
+        skip_bundle();
     }
     bool extras() {
         const int32_t length = i32();
@@ -157,7 +195,8 @@ Clip parse_clip(std::span<const uint8_t> bytes, const PlatformProfile& profile) 
     clip.text = std::move(*text);
     if (reader.string8()) throw Failure("html_unsupported");
     // API 37 adds IntentSender. Never materialize any of these complex objects.
-    for (int i = 0; i < profile.item_objects; ++i) if (reader.i32() != 0) throw Failure("complex_item_unsupported");
+    for (int i = 0; i < profile.item_objects - 1; ++i) if (reader.i32() != 0) throw Failure("complex_item_unsupported");
+    reader.text_links(); // Last item field on both supported profiles; not an Intent/URI.
     if (reader.pos != bytes.size()) throw Failure("parcel_trailing");
     return clip;
 }
