@@ -18,7 +18,7 @@ private fun voiceLinkColors(dark: Boolean): Colors = with(YuePalette) {
     val surface = if (dark) Neutral900 else Neutral0
     val raised = if (dark) Neutral850 else Neutral50
     val ink = if (dark) Neutral100 else Neutral900
-    val secondaryInk = if (dark) Neutral400 else Neutral700
+    val secondaryInk = if (dark) Neutral500 else Neutral600
     val muted = if (dark) Neutral600 else Neutral400
     val line = if (dark) Neutral800 else Neutral300
     Colors(
