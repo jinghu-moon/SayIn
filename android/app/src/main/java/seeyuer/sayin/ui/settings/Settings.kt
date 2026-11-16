@@ -312,6 +312,7 @@ private fun RootPage(
                     summary = stringResource(R.string.settings_auto_send_summary),
                     checked = session.sendMode == SpeakSendMode.Automatic,
                     enabled = !session.busy && !session.requestLocked && !session.translation.running && !session.translationStopping,
+                    switchColors = settingsSwitchColors(),
                     onCheckedChange = { session.changeSendMode(if (it) SpeakSendMode.Automatic else SpeakSendMode.Manual) })
                 ArrowPreference(title = stringResource(R.string.settings_translation),
                     summary = stringResource(R.string.settings_translation_summary),
@@ -326,6 +327,7 @@ private fun RootPage(
                     summary = stringResource(if (ballDenied) R.string.quick_overlay_denied else R.string.quick_overlay_help),
                     checked = ballEnabled,
                     startAction = startIcon(VoiceLinkIcon.Phone),
+                    switchColors = settingsSwitchColors(),
                     modifier = Modifier.testTag("quick-ball"),
                     onCheckedChange = { checked ->
                         if (!checked) {
@@ -369,6 +371,7 @@ private fun RootPage(
                 SwitchPreference(title = stringResource(R.string.settings_keep_awake),
                     summary = stringResource(R.string.settings_keep_awake_summary),
                     checked = keepAwake, startAction = startIcon(VoiceLinkIcon.Computer),
+                    switchColors = settingsSwitchColors(),
                     modifier = Modifier.testTag("keep-awake"),
                     onCheckedChange = onKeepAwake)
             }
@@ -398,6 +401,14 @@ private fun RootPage(
         item { Spacer(Modifier.height(16.dp)) }
     }
 }
+
+@Composable
+private fun settingsSwitchColors() = SwitchDefaults.switchColors(
+    checkedTrackColor = MiuixTheme.colorScheme.primary,
+    checkedThumbColor = MiuixTheme.colorScheme.onPrimary,
+    uncheckedTrackColor = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.Neutral700 else YuePalette.Neutral300,
+    uncheckedThumbColor = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.Neutral100 else YuePalette.Neutral0,
+)
 
 @Composable
 private fun GroupHeader(title: Int) {
