@@ -581,4 +581,8 @@
     <string name="cloud_clear_confirm_title">Remove cloud configuration?</string>
     <string name="cloud_clear_confirm_message">The credential and its hotwords will be deleted. Pairing, drafts and history are kept.</string>
     <string name="cloud_clear_confirm">Remove</string>
+    <string name="settings_unsaved_title">Discard unsaved changes?</string>
+    <string name="settings_unsaved_message">Your edits have not been saved.</string>
+    <string name="settings_keep_editing">Keep editing</string>
+    <string name="settings_discard_changes">Discard</string>
 </resources>

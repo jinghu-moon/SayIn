@@ -56,6 +56,7 @@ import seeyuer.sayin.translation.ModelPreparationStage
 import seeyuer.sayin.ui.SpeakInputSource
 import seeyuer.sayin.ui.SpeakSendMode
 import seeyuer.sayin.ui.SpeakSession
+import seeyuer.sayin.ui.CloudEditorState
 import seeyuer.sayin.ui.CloudSettingsCard
 import seeyuer.sayin.ui.localization.AppLanguage
 import seeyuer.sayin.ui.localization.AppLanguages
@@ -64,6 +65,17 @@ import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
+
+internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
+    var text by mutableStateOf(config?.hotwords?.joinToString("\n").orEmpty())
+    private var base = config?.hotwords?.joinToString("\n").orEmpty()
+    val dirty: Boolean get() = text != base
+    fun reset(config: seeyuer.sayin.asr.CloudConfiguration?) {
+        base = config?.hotwords?.joinToString("\n").orEmpty()
+        text = base
+    }
+}
 
 internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Root(null),
@@ -90,6 +102,16 @@ internal fun SettingsHost(
 ) {
     var route by rememberSaveable { mutableStateOf(initialRoute) }
     LaunchedEffect(initialRoute) { route = initialRoute }
+    val cloudEditor = remember(cloudState.config) { CloudEditorState(cloudState.config) }
+    val hotwordsDraft = remember(cloudState.config) { HotwordsDraft(cloudState.config) }
+    var confirmLeave by remember { mutableStateOf(false) }
+    fun leave() { route = route.parent ?: SettingsRoute.Root }
+    fun hasUnsavedChanges() = when (route) {
+        SettingsRoute.Cloud -> cloudEditor.dirty
+        SettingsRoute.Hotwords -> hotwordsDraft.dirty
+        else -> false
+    }
+    fun requestBack() { if (hasUnsavedChanges()) confirmLeave = true else leave() }
     val rootList = rememberLazyListState()
     val scrollStates = remember { mutableMapOf<SettingsRoute, androidx.compose.foundation.ScrollState>() }
     fun scrollFor(value: SettingsRoute) = scrollStates.getOrPut(value) { androidx.compose.foundation.ScrollState(0) }
@@ -101,10 +123,28 @@ internal fun SettingsHost(
         onDispose { }
     }
     DisposableEffect(Unit) { onDispose { onSubpageChange(false) } }
-    BackHandler(enabled = route != SettingsRoute.Root) { route = route.parent ?: SettingsRoute.Root }
+    BackHandler(enabled = route != SettingsRoute.Root) { requestBack() }
     Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
         if (route == SettingsRoute.Root) RootTopBar()
-        else SettingsTopBar(stringResource(route.titleRes()), onBack = { route = route.parent ?: SettingsRoute.Root })
+        else SettingsTopBar(stringResource(route.titleRes()), onBack = ::requestBack, actions = {
+            when (route) {
+                SettingsRoute.Cloud -> TextButton(
+                    stringResource(R.string.cloud_save),
+                    onClick = { cloudEditor.save(cloudSettings) },
+                    enabled = !cloudState.busy && cloudEditor.dirty && cloudEditor.filled,
+                    minHeight = 40.dp,
+                )
+                SettingsRoute.Hotwords -> cloudState.config?.let { config ->
+                    TextButton(
+                        stringResource(R.string.settings_hotwords_save),
+                        onClick = { cloudSettings.save(config.auth, config.appKey, config.appId, config.accessToken, hotwordsDraft.text) },
+                        enabled = !cloudState.busy && hotwordsDraft.dirty,
+                        minHeight = 40.dp,
+                    )
+                }
+                else -> Unit
+            }
+        })
         Box(Modifier.weight(1f).fillMaxWidth().testTag("settings-page-${route.name}"), contentAlignment = Alignment.TopCenter) {
             val pageModifier = Modifier.widthIn(max = 600.dp).fillMaxHeight()
             when (route) {
@@ -117,8 +157,8 @@ internal fun SettingsHost(
                     onOpenHotwords = { route = SettingsRoute.Hotwords }, modifier = pageModifier,
                     scroll = scrollFor(SettingsRoute.Recognition),
                 )
-                SettingsRoute.Cloud -> CloudPage(cloudSettings, cloudState, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
-                SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
+                SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
+                SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                 SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
                 SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                 SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
@@ -126,6 +166,22 @@ internal fun SettingsHost(
                 SettingsRoute.About -> AboutPage(onOpenHelp = { route = SettingsRoute.Help }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.About))
                 SettingsRoute.Help -> HelpPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Help))
             }
+        }
+    }
+    WindowDialog(
+        title = stringResource(R.string.settings_unsaved_title),
+        summary = stringResource(R.string.settings_unsaved_message),
+        show = confirmLeave,
+        onDismissRequest = { confirmLeave = false },
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.settings_keep_editing), onClick = { confirmLeave = false },
+                modifier = Modifier.weight(1f).testTag("settings-keep-editing"))
+            TextButton(stringResource(R.string.settings_discard_changes), onClick = {
+                confirmLeave = false
+                if (route == SettingsRoute.Cloud) cloudEditor.reset(cloudState.config) else hotwordsDraft.reset(cloudState.config)
+                leave()
+            }, modifier = Modifier.weight(1f).testTag("settings-discard-changes"))
         }
     }
 }
@@ -159,7 +215,7 @@ private fun RootTopBar() {
 }
 
 @Composable
-private fun SettingsTopBar(title: String, onBack: () -> Unit) {
+private fun SettingsTopBar(title: String, onBack: () -> Unit, actions: @Composable RowScope.() -> Unit = {}) {
     SmallTopAppBar(
         title = "",
         modifier = Modifier.fillMaxWidth(),
@@ -173,6 +229,7 @@ private fun SettingsTopBar(title: String, onBack: () -> Unit) {
         },
         navigationIconPadding = 4.dp,
         actionIconPadding = 20.dp,
+        actions = actions,
         defaultWindowInsetsPadding = false,
         color = MiuixTheme.colorScheme.background,
     )
@@ -415,9 +472,9 @@ private fun modelStatus(session: SpeakSession): String = when {
 }
 
 @Composable
-private fun CloudPage(settings: CloudSettings, state: CloudSettingsState, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+private fun CloudPage(editor: CloudEditorState, settings: CloudSettings, state: CloudSettingsState, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp)) {
-        CloudSettingsCard(settings, state, showHotwords = false)
+        CloudSettingsCard(editor, settings, state, showHotwords = false, showSave = false)
     }
 }
 
@@ -425,6 +482,7 @@ private fun CloudPage(settings: CloudSettings, state: CloudSettingsState, modifi
 private fun HotwordsPage(
     settings: CloudSettings,
     state: CloudSettingsState,
+    draft: HotwordsDraft,
     onOpenCloud: () -> Unit,
     modifier: Modifier,
     scroll: androidx.compose.foundation.ScrollState,
@@ -437,12 +495,10 @@ private fun HotwordsPage(
         }
         return
     }
-    var text by remember(config) { mutableStateOf(config.hotwords.joinToString("\n")) }
-    val canSave = !state.busy && text != config.hotwords.joinToString("\n")
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         TextField(
-            value = text,
-            onValueChange = { if (it.length <= 4096) text = it },
+            value = draft.text,
+            onValueChange = { if (it.length <= 4096) draft.text = it },
             modifier = Modifier.fillMaxWidth().testTag("settings-hotwords"),
             label = stringResource(R.string.settings_hotwords),
             enabled = !state.busy,
@@ -452,17 +508,10 @@ private fun HotwordsPage(
         Text(
             stringResource(
                 R.string.settings_hotwords_count,
-                text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().count(),
-                text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.sumOf { it.length },
+                draft.text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.distinct().count(),
+                draft.text.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.sumOf { it.length },
             ),
             fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
-        )
-        TextButton(
-            stringResource(R.string.settings_hotwords_save),
-            onClick = { settings.save(config.auth, config.appKey, config.appId, config.accessToken, text) },
-            enabled = canSave,
-            minHeight = 48.dp,
-            modifier = Modifier.fillMaxWidth().testTag("settings-hotwords-save"),
         )
         state.issue?.let { NoticeText(cloudIssueText(it)) }
     }
