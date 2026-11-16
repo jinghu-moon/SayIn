@@ -423,7 +423,16 @@ internal class SpeakSession(
         cancelAutoSend(); submitted = SubmittedDraft(draftId, value, translated = sendingTranslation); invalidateAssist(); return true
     }
 
-    fun showTranslation(value: Boolean) { cancelAutoSend(); translationShown = value && translation.ticket != null; invalidateAssist() }
+    fun toggleTranslation() {
+        if (!translation.running && !canTranslateDraft) return
+        when {
+            translation.running -> stopTranslation()
+            translation.complete && translation.ticket?.matches(draftId, interaction.version) == true -> {
+                cancelAutoSend(); translationShown = !translationShown; invalidateAssist()
+            }
+            else -> translateDraft()
+        }
+    }
 
     fun changeDisplayedDraft(value: TextFieldValue) {
         if (!translationShown) { changeDraft(value); return }
@@ -443,25 +452,34 @@ internal class SpeakSession(
         val ticket = TranslationTicket(UUID.randomUUID().toString(), draftId, interaction.version, draft.text,
             translationModel.sha256, translationModel.templateRevision)
         translation = DraftTranslation(ticket = ticket, running = true)
-        translationShown = true
+        translationShown = false
         translationJob = scope.launch {
-            val updates = MutableStateFlow(TranslationStream())
+            val updates = MutableStateFlow<TranslationProgress?>(null)
             val observer = launch {
                 updates.collect { update ->
                     if (translation.running && translation.accepts(ticket.id, draftId, interaction.version)) {
-                        translation = translation.copy(progress = update.progress,
-                            value = update.partial?.let(::TextFieldValue) ?: translation.value)
+                        translation = translation.copy(progress = update)
                     }
                 }
             }
             try {
                 val result = translator.translate(modelStore.file, translationModel, ticket.source,
-                    onProgress = { progress -> updates.value = updates.value.copy(progress = progress) },
-                    onPartial = { text -> updates.value = updates.value.copy(partial = text) })
-                if (translation.accepts(ticket.id, draftId, interaction.version)) {
-                    translation = translation.copy(running = false, end = result.end, value = TextFieldValue(result.text))
+                    onProgress = { progress -> updates.value = progress })
+                if (translation.running && translation.accepts(ticket.id, draftId, interaction.version)) {
+                    translation = translation.copy(running = false, end = result.end,
+                        value = TextFieldValue(if (result.end == TranslationEnd.Complete) result.text else ""))
+                    translationShown = translation.complete
                     if (translation.complete) record(before)
                     if (result.end == TranslationEnd.ModelMissing || result.end == TranslationEnd.Integrity) translationModelReady = false
+                }
+            } catch (cancelled: CancellationException) {
+                if (translation.running && translation.ticket?.id == ticket.id) {
+                    translation = DraftTranslation(end = TranslationEnd.Cancelled); translationShown = false
+                }
+                throw cancelled
+            } catch (_: Exception) {
+                if (translation.running && translation.accepts(ticket.id, draftId, interaction.version)) {
+                    translation = DraftTranslation(end = TranslationEnd.Error); translationShown = false
                 }
             } finally { observer.cancel(); if (translation.ticket?.id == ticket.id) translation = translation.copy(running = false) }
         }
@@ -470,7 +488,8 @@ internal class SpeakSession(
     fun stopTranslation() {
         if (!translation.running && translationJob?.isActive != true) return
         translator.cancel(); translationJob?.cancel()
-        translation = translation.copy(running = false, end = TranslationEnd.Cancelled)
+        translation = DraftTranslation(end = TranslationEnd.Cancelled)
+        translationShown = false
         translationStopping = true
         scope.launch { translator.release(); translationStopping = false }
     }
@@ -520,6 +539,5 @@ internal class SpeakSession(
 }
 
 internal data class SubmittedDraft(val id: String, val value: TextFieldValue, val state: String = "saved", val translated: Boolean = false)
-private data class TranslationStream(val progress: TranslationProgress? = null, val partial: String? = null)
 
 private data class SpeakingSnapshot(val draft: TextFieldValue, val translation: DraftTranslation, val translationShown: Boolean, val duration: Long)

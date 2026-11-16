@@ -97,9 +97,12 @@ class TranslationUiInstrumentedTest {
             compose.waitUntil(5000) { engine.calls == 1 }
             compose.runOnIdle { engine.partial("The meeting") }
             compose.onNodeWithTag("send-draft").assertIsNotEnabled()
+            compose.onNodeWithTag("draft").assertTextContains("会议改到周六", substring = true)
+            compose.onNodeWithTag("translate-draft").assertIsNotSelected()
             engine.result.complete(TranslationResult(TranslationEnd.Complete, "The meeting has been moved to Saturday.\nPlease do not send automatically. 😊"))
             compose.waitUntil(5000) { session.translation.complete }
             compose.onNodeWithTag("draft").assertTextContains("The meeting", substring = true)
+            compose.onNodeWithTag("translate-draft").assertIsSelected()
             screenshot("translation-full")
             compose.runOnIdle { quick = true }
             compose.onNodeWithTag("draft").assertTextContains("The meeting", substring = true)
@@ -119,11 +122,16 @@ class TranslationUiInstrumentedTest {
                 imageOpen = false
             }
             compose.onNodeWithTag("draft").assertTextContains("The meeting", substring = true)
-            compose.onNodeWithTag("translation-original").performClick()
+            compose.onNodeWithTag("translate-draft").performClick()
             compose.onNodeWithTag("draft").assertTextContains("会议改到周六", substring = true)
-            compose.onNodeWithTag("translation-english").performClick()
+            compose.onNodeWithTag("translate-draft").performClick()
             compose.onNodeWithTag("draft").performTextReplacement("Edited English for manual sending.")
             compose.runOnIdle { assertEquals("会议改到周六。\n请不要自动发送。😊", session.draft.text); assertEquals(0, sends) }
+            compose.onNodeWithTag("translate-draft").performClick()
+            compose.onNodeWithTag("translate-draft").assertIsNotSelected()
+            compose.onNodeWithTag("translate-draft").performClick()
+            compose.onNodeWithTag("draft").assertTextContains("Edited English for manual sending.")
+            compose.runOnIdle { assertEquals(1, engine.calls) }
             compose.onNodeWithTag("send-draft").performClick()
             compose.runOnIdle { assertEquals(1, sends); assertEquals("Edited English for manual sending.", session.submitted!!.value.text) }
         } finally {

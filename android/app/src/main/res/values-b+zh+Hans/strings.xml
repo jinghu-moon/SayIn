@@ -124,7 +124,7 @@
     <string name="speak_change_send_mode">发送方式：%1$s。点按切换。</string>
     <string name="speak_source_local">本地识别</string>
     <string name="speak_source_keyboard">输入法</string>
-    <string name="speak_draft_placeholder">文字会显示在这里，可编辑或继续补充。</string>
+    <string name="speak_draft_placeholder">按住下方麦克风说话，或直接输入、粘贴内容</string>
     <string name="speak_preview_title">发送预览</string>
     <string name="speak_preview">发送预览</string>
     <string name="speak_edit">编辑</string>
@@ -330,7 +330,6 @@
     <string name="translation_preparing_verify">正在校验下载的模型：%1$d%%</string>
     <string name="translation_prepare_failed">模型准备失败，请检查存储空间和连接后重试，原文已保留。</string>
     <string name="speak_redo">重做</string>
-    <string name="speak_translation_short">译文</string>
     <string name="speak_copy_draft">复制文本</string>
     <string name="speak_count_short">%1$d 字</string>
     <string name="speak_start_short">说话</string>
@@ -342,7 +341,6 @@
     <string name="speak_cloud_recognition">云端识别</string>
     <string name="speak_offline_description">在手机上处理</string>
     <string name="speak_cloud_description">使用已配置的云服务</string>
-    <string name="speak_original_short">原文</string>
     <string name="assist_open">剪贴板与常用语</string>
     <string name="assist_close">关闭面板</string>
     <string name="assist_tab_clipboard">剪贴板</string>
@@ -425,6 +423,20 @@
     <string name="assist_library_issue">常用语库无法打开，现有数据已保留。</string>
     <string name="assist_loading">正在加载常用语…</string>
     <string name="assist_reading_clipboard">正在读取剪贴板…</string>
+    <string name="speak_computer_current">电脑当前：%1$s</string>
+    <string name="speak_computer_offline">未连接电脑</string>
+    <string name="speak_computer_paused">电脑暂停接收</string>
+    <string name="speak_computer_unknown">当前应用未知</string>
+    <string name="speak_computer_connected">电脑已连接</string>
+    <string name="speak_computer_description">%1$s。实际输入位置以电脑执行时的焦点为准。</string>
+    <plurals name="speak_selected_count">
+        <item quantity="one">已选 %1$d 字</item>
+        <item quantity="other">已选 %1$d 字</item>
+    </plurals>
+    <string name="speak_limit_count">%1$d / %2$d</string>
+    <string name="translation_cancel">取消翻译</string>
+    <string name="translation_show_original">正在显示译文，点击恢复原文</string>
+    <string name="translation_show_cached">显示已有译文</string>
 
     <!-- Independent Root module clipboard history -->
     <string name="root_clipboard_paused">采集已关闭或暂停，仍可查看已保存记录；可在模块 Action 中启停采集。</string>

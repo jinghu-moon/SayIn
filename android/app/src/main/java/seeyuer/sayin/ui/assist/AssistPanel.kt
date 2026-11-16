@@ -8,13 +8,13 @@ import android.content.ContextWrapper
 import android.os.SystemClock
 import android.view.View
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -34,12 +34,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -48,9 +46,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.ClipEntry
 import androidx.compose.ui.platform.LocalClipboard
 import androidx.compose.ui.platform.LocalContext
@@ -80,7 +75,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.compose.ui.zIndex
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
@@ -88,11 +82,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.util.Locale
-import kotlin.math.abs
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import sh.calvin.reorderable.DragGestureDetector
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import seeyuer.sayin.R
 import seeyuer.sayin.data.AndroidClipboard
 import seeyuer.sayin.data.ClipboardInvalidReason
@@ -192,13 +188,7 @@ private enum class ConfirmKind { ClearClipboard, ClearPhrases, ClearRoot, Discar
 
 private data class PhraseUndo(val phrase: StoredPhrase, val index: Int)
 
-private data class PhraseDrag(
-    val id: String,
-    val index: Int,
-    val offset: Float,
-    val pointerY: Float,
-    val edge: Int,
-)
+private data class PhraseDrag(val id: String, val revision: Long)
 
 @Composable
 private fun AssistPanelContent(
@@ -245,21 +235,16 @@ private fun AssistPanelContent(
     var readGeneration by remember { mutableIntStateOf(0) }
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var stopRequested by remember { mutableStateOf(false) }
-    val density = LocalDensity.current
     var working by remember { mutableStateOf(libraryState.phrases) }
     var drag by remember { mutableStateOf<PhraseDrag?>(null) }
     var dragEpoch by remember { mutableIntStateOf(0) }
-    var reorderJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var orderSaving by remember { mutableStateOf(false) }
+    var orderRevision by remember { mutableLongStateOf(libraryState.revision) }
     var pendingGripFocus by remember { mutableStateOf<String?>(null) }
     val gripFocusers = remember { mutableMapOf<String, FocusRequester>() }
     val editorFocus = remember { FocusRequester() }
     val confirmCancelFocus = remember { FocusRequester() }
-    val rowBounds = remember { mutableMapOf<String, Rect>() }
-    var listBounds by remember { mutableStateOf<Rect?>(null) }
     val phraseList = rememberLazyListState()
-    // Residual offset of the row that was just dropped; it glides into its slot like the reference
-    // Reorderable library instead of snapping by half a row.
-    var settling by remember { mutableStateOf<Pair<String, Float>?>(null) }
 
     SideEffect { onModalChange(mode != AssistMode.List || drag != null || moduleModal) }
     DisposableEffect(lifecycle, rootClipboard) {
@@ -290,10 +275,18 @@ private fun AssistPanelContent(
             keyboard?.hide()
         }
     }
-    // Library updates are adopted only while no drag owns the local order; a drop commits the
-    // optimistic order once, so resetting on drag == null would race the write.
-    LaunchedEffect(libraryState.phrases) {
-        if (drag == null) working = libraryState.phrases
+    // A gesture owns only a preview. Invalidate it if another entry changes the library;
+    // never apply an order built from an older revision to the new contents.
+    LaunchedEffect(libraryState, orderSaving) {
+        if (drag?.revision?.let { it != libraryState.revision } == true) {
+            drag = null
+            dragEpoch++
+            notice = R.string.assist_reorder_failed
+        }
+        if (drag == null && !orderSaving) {
+            working = libraryState.phrases
+            orderRevision = libraryState.revision
+        }
     }
     LaunchedEffect(notice) {
         val current = notice
@@ -503,26 +496,25 @@ private fun AssistPanelContent(
         }
     }
 
-    fun commitOrder() {
-        val previous = reorderJob
-        reorderJob = scope.launch {
+    fun commitOrder(revision: Long = orderRevision) {
+        // Capture the released order now, before the coroutine or any library notification runs.
+        val ids = working.map { it.id }
+        if (ids == phrases.state.value.phrases.map { it.id }) return
+        orderSaving = true
+        scope.launch {
             withContext(NonCancellable) {
-                previous?.join()
-                val ids = working.map { it.id }
-                val revision = phrases.state.value.revision
-                when (phrases.reorder(ids, revision)) {
-                    PhraseWriteResult.SAVED -> notice = R.string.assist_reordered
-                    else -> {
-                        working = phrases.state.value.phrases
-                        notice = R.string.assist_reorder_failed
-                    }
-                }
+                val result = phrases.reorder(ids, revision)
+                working = phrases.state.value.phrases
+                orderRevision = phrases.state.value.revision
+                orderSaving = false
+                notice = if (result == PhraseWriteResult.SAVED) R.string.assist_reordered
+                    else R.string.assist_reorder_failed
             }
         }
     }
 
     fun moveGrip(id: String, delta: Int) {
-        if (libraryIssue || !libraryReady) return
+        if (libraryIssue || !libraryReady || orderSaving || drag != null) return
         val index = working.indexOfFirst { it.id == id }
         val to = index + delta
         if (index < 0 || to < 0 || to >= working.size) return
@@ -534,97 +526,12 @@ private fun AssistPanelContent(
         commitOrder()
     }
 
-    fun startDrag(id: String, localY: Float) {
-        val index = working.indexOfFirst { it.id == id }
-        if (index < 0) return
-        settling = null
-        val rowTop = rowBounds[id]?.top ?: 0f
-        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-        drag = PhraseDrag(id, index, 0f, rowTop + localY, 0)
-    }
-
-    fun reorderOffset(current: PhraseDrag, start: Float): Pair<Int, Float> {
-        var index = current.index
-        var offset = start
-        val rowHeight = { key: String -> rowBounds[key]?.height ?: with(density) { 64.dp.toPx() } }
-        while (index < working.lastIndex && offset > rowHeight(working[index].id) / 2f) {
-            offset -= rowHeight(working[index].id)
-            working = working.toMutableList().apply { add(index + 1, removeAt(index)) }
-            index++
-        }
-        while (index > 0 && offset < -rowHeight(working[index].id) / 2f) {
-            offset += rowHeight(working[index - 1].id)
-            working = working.toMutableList().apply { add(index - 1, removeAt(index)) }
-            index--
-        }
-        return index to offset
-    }
-
-    fun dragBy(amount: Float) {
-        val current = drag ?: return
-        val (index, offset) = reorderOffset(current, current.offset + amount)
-        val pointerY = current.pointerY + amount
-        val bounds = listBounds
-        val threshold = with(density) { 48.dp.toPx() }
-        val edge = when {
-            bounds == null -> 0
-            pointerY < bounds.top + threshold -> -1
-            pointerY > bounds.bottom - threshold -> 1
-            else -> 0
-        }
-        drag = current.copy(index = index, offset = offset, pointerY = pointerY, edge = edge)
-    }
-
-    fun advanceAutoScroll(delta: Float) {
-        val current = drag ?: return
-        val (index, offset) = reorderOffset(current, current.offset + delta)
-        drag = current.copy(index = index, offset = offset)
-    }
-
     fun finishDrag(commit: Boolean) {
         val current = drag ?: return
         drag = null
-        if (commit) commitOrder() else working = phrases.state.value.phrases
-        if (commit && current.offset != 0f) {
-            val id = current.id
-            scope.launch {
-                val animation = Animatable(current.offset)
-                settling = id to current.offset
-                animation.animateTo(0f, tween(durationMillis = 140)) { settling = id to value }
-                settling = null
-            }
-        } else {
-            settling = null
-        }
-    }
-
-    val dragEdge = drag?.edge ?: 0
-    LaunchedEffect(dragEdge, drag != null) {
-        if (drag == null) return@LaunchedEffect
-        val threshold = with(density) { 48.dp.toPx() }
-        val maxSpeed = with(density) { 1400.dp.toPx() }
-        var previousFrame = 0L
-        while (true) {
-            val frame = withFrameNanos { it }
-            val current = drag ?: break
-            val edge = current.edge
-            val bounds = listBounds
-            if (edge == 0 || bounds == null) {
-                previousFrame = 0L
-                continue
-            }
-            val deltaTime = if (previousFrame == 0L) 0f else
-                ((frame - previousFrame) / 1_000_000_000f).coerceAtMost(0.05f)
-            previousFrame = frame
-            if (deltaTime == 0f) continue
-            val overshoot = if (edge > 0) current.pointerY - (bounds.bottom - threshold)
-            else (bounds.top + threshold) - current.pointerY
-            val speed = maxSpeed * (overshoot / threshold).coerceIn(0.25f, 1f)
-            val delta = speed * deltaTime * edge
-            phraseList.scrollBy(delta)
-            // The list content moved under a stationary finger; compensate so the dragged row
-            // stays under it and reorder thresholds keep working while scrolling.
-            advanceAutoScroll(delta)
+        if (commit) commitOrder(current.revision) else {
+            working = phrases.state.value.phrases
+            orderRevision = phrases.state.value.revision
         }
     }
 
@@ -735,37 +642,42 @@ private fun AssistPanelContent(
                                 onSaveAsPhrase = { openEditor(null, it, "") },
                                 onView = { viewerText = it; mode = AssistMode.Viewer },
                             ) }
-                            AssistTab.Phrases -> PhraseTab(
-                                phrases = working,
-                                ready = libraryReady,
-                                issue = libraryIssue,
-                                emptyAction = { openEditor(null, "", "") },
-                                listState = phraseList,
-                                settling = settling,
-                                drag = drag,
-                                dragEpoch = dragEpoch,
-                                onAdd = { openEditor(null, "", "") },
-                                onInsert = { insert(it, closeOnSuccess = true) },
-                                onCopy = { copy(it.text) },
-                                onPaste = { insert(it.text, closeOnSuccess = false) },
-                                onView = { viewerText = it.text; mode = AssistMode.Viewer },
-                                onEdit = { openEditor(it.id, it.text, it.text) },
-                                onDelete = { phrase ->
-                                    val index = working.indexOfFirst { it.id == phrase.id }
-                                    if (index >= 0) deletePhrase(phrase, index)
-                                },
-                                onGripDown = { id, y -> startDrag(id, y) },
-                                onGripDrag = { amount -> dragBy(amount) },
-                                onGripEnd = { finishDrag(true) },
-                                onGripCancel = {
-                                    finishDrag(false)
-                                    dragEpoch++
-                                },
-                                onGripKey = { id, delta -> moveGrip(id, delta) },
-                                onGripFocuser = { id, requester -> gripFocusers[id] = requester },
-                                onRowBounds = { id, rect -> rowBounds[id] = rect },
-                                onListBounds = { listBounds = it },
-                            )
+                            AssistTab.Phrases -> key(dragEpoch) {
+                                PhraseTab(
+                                    phrases = working,
+                                    ready = libraryReady,
+                                    issue = libraryIssue,
+                                    emptyAction = { openEditor(null, "", "") },
+                                    listState = phraseList,
+                                    reorderEnabled = !orderSaving,
+                                    onInsert = { insert(it, closeOnSuccess = true) },
+                                    onCopy = { copy(it.text) },
+                                    onPaste = { insert(it.text, closeOnSuccess = false) },
+                                    onView = { viewerText = it.text; mode = AssistMode.Viewer },
+                                    onEdit = { openEditor(it.id, it.text, it.text) },
+                                    onDelete = { phrase ->
+                                        val index = working.indexOfFirst { it.id == phrase.id }
+                                        if (index >= 0) deletePhrase(phrase, index)
+                                    },
+                                    onMove = { from, to ->
+                                        if (drag?.id == from) {
+                                            val fromIndex = working.indexOfFirst { it.id == from }
+                                            val toIndex = working.indexOfFirst { it.id == to }
+                                            if (fromIndex >= 0 && toIndex >= 0) {
+                                                working = working.toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+                                                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                            }
+                                        }
+                                    },
+                                    onGripDown = { id ->
+                                        drag = PhraseDrag(id, orderRevision)
+                                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                    },
+                                    onGripEnd = { released -> finishDrag(released) },
+                                    onGripKey = { id, delta -> moveGrip(id, delta) },
+                                    onGripFocuser = { id, requester -> gripFocusers[id] = requester },
+                                )
+                            }
                         }
                         AssistMode.Editor -> {
                             val draft = editor
@@ -1060,24 +972,18 @@ private fun PhraseTab(
     issue: Boolean,
     emptyAction: () -> Unit,
     listState: LazyListState,
-    settling: Pair<String, Float>?,
-    drag: PhraseDrag?,
-    dragEpoch: Int,
-    onAdd: () -> Unit,
+    reorderEnabled: Boolean,
     onInsert: (String) -> Unit,
     onCopy: (StoredPhrase) -> Unit,
     onPaste: (StoredPhrase) -> Unit,
     onView: (StoredPhrase) -> Unit,
     onEdit: (StoredPhrase) -> Unit,
     onDelete: (StoredPhrase) -> Unit,
-    onGripDown: (String, Float) -> Unit,
-    onGripDrag: (Float) -> Unit,
-    onGripEnd: () -> Unit,
-    onGripCancel: () -> Unit,
+    onMove: (String, String) -> Unit,
+    onGripDown: (String) -> Unit,
+    onGripEnd: (released: Boolean) -> Unit,
     onGripKey: (String, Int) -> Unit,
     onGripFocuser: (String, FocusRequester) -> Unit,
-    onRowBounds: (String, Rect) -> Unit,
-    onListBounds: (Rect) -> Unit,
 ) {
     if (issue) {
         AssistEmpty(R.string.assist_library_issue, null, tag = "assist-library-issue")
@@ -1094,43 +1000,53 @@ private fun PhraseTab(
         )
         return
     }
+    val reorderState = rememberReorderableLazyListState(listState, scrollThreshold = 48.dp) { from, to ->
+        onMove(from.key as String, to.key as String)
+    }
     LazyColumn(
         state = listState,
-        modifier = Modifier.fillMaxSize().onGloballyPositioned { onListBounds(it.boundsInRoot()) }
-            .testTag("assist-phrase-list"),
+        modifier = Modifier.fillMaxSize().testTag("assist-phrase-list"),
         contentPadding = PaddingValues(8.dp),
     ) {
         itemsIndexed(phrases, key = { _, phrase -> phrase.id }) { index, phrase ->
-            val current = drag?.takeIf { it.id == phrase.id }
-            val settleOffset = settling?.takeIf { it.first == phrase.id }?.second
-            val animatePlacement = current == null && settleOffset == null
-            PhraseRow(
-                phrase = phrase,
-                index = index,
-                total = phrases.size,
-                dragging = current != null,
-                settling = settleOffset != null,
-                translationY = current?.offset ?: settleOffset ?: 0f,
-                dragEpoch = dragEpoch,
-                onInsert = { onInsert(phrase.text) },
-                menuItems = listOf(
-                    DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(phrase) }),
-                    DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(phrase) }),
-                    DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(phrase) }),
-                    DropdownItem(stringResource(R.string.assist_edit), onClick = { onEdit(phrase) }),
-                    DropdownItem(stringResource(R.string.assist_delete), onClick = { onDelete(phrase) }),
-                ),
-                onGripDown = { y -> onGripDown(phrase.id, y) },
-                onGripDrag = onGripDrag,
-                onGripEnd = onGripEnd,
-                onGripCancel = onGripCancel,
-                onGripKey = { delta -> onGripKey(phrase.id, delta) },
-                onGripFocuser = { requester -> onGripFocuser(phrase.id, requester) },
-                onBounds = { rect -> onRowBounds(phrase.id, rect) },
-                itemModifier = if (animatePlacement) Modifier.animateItem() else Modifier,
-            )
+            ReorderableItem(reorderState, key = phrase.id) { dragging ->
+                // Reorderable calls onDragStopped for both release and cancellation (including
+                // disposal). Only a real pointer-up may persist the preview order.
+                var released by remember { mutableStateOf(false) }
+                val gestureDetector = remember {
+                    DragGestureDetector { start, end, cancel, drag ->
+                        detectVerticalDragGestures(
+                            onDragStart = { released = false; start(it) },
+                            onDragEnd = { released = true; end() },
+                            onDragCancel = cancel,
+                            onVerticalDrag = { change, amount -> drag(change, Offset(0f, amount)) },
+                        )
+                    }
+                }
+                PhraseRow(
+                    phrase = phrase,
+                    index = index,
+                    total = phrases.size,
+                    dragging = dragging,
+                    onInsert = { onInsert(phrase.text) },
+                    menuItems = listOf(
+                        DropdownItem(stringResource(R.string.assist_copy), onClick = { onCopy(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_paste), onClick = { onPaste(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_view_full), onClick = { onView(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_edit), onClick = { onEdit(phrase) }),
+                        DropdownItem(stringResource(R.string.assist_delete), onClick = { onDelete(phrase) }),
+                    ),
+                    gripModifier = Modifier.draggableHandle(
+                        enabled = reorderEnabled,
+                        dragGestureDetector = gestureDetector,
+                        onDragStarted = { onGripDown(phrase.id) },
+                        onDragStopped = { onGripEnd(released) },
+                    ),
+                    onGripKey = { delta -> onGripKey(phrase.id, delta) },
+                    onGripFocuser = { requester -> onGripFocuser(phrase.id, requester) },
+                )
+            }
         }
-        item(key = "assist-phrase-tail") { Spacer(Modifier.height(8.dp)) }
     }
 }
 
@@ -1139,20 +1055,12 @@ private fun PhraseRow(
     phrase: StoredPhrase,
     index: Int,
     total: Int,
-    dragEpoch: Int,
     dragging: Boolean,
-    settling: Boolean,
-    translationY: Float,
     onInsert: () -> Unit,
     menuItems: List<DropdownItem>,
-    onGripDown: (Float) -> Unit,
-    onGripDrag: (Float) -> Unit,
-    onGripEnd: () -> Unit,
-    onGripCancel: () -> Unit,
+    gripModifier: Modifier,
     onGripKey: (Int) -> Unit,
     onGripFocuser: (FocusRequester) -> Unit,
-    onBounds: (Rect) -> Unit,
-    itemModifier: Modifier,
 ) {
     val reorderDescription = stringResource(R.string.assist_reorder_for, phrase.text)
     val positionDescription = stringResource(R.string.assist_moved, index + 1, total)
@@ -1160,14 +1068,15 @@ private fun PhraseRow(
     val moveDown = stringResource(R.string.assist_move_down)
     val gripFocus = remember(phrase.id) { FocusRequester() }
     val shape = RoundedCornerShape(16.dp)
+    val elevation by animateDpAsState(
+        if (dragging) 6.dp else 0.dp,
+        spring(stiffness = Spring.StiffnessMediumLow),
+    )
     Row(
-        Modifier.fillMaxWidth().then(itemModifier).padding(vertical = 2.dp)
-            .zIndex(if (dragging || settling) 1f else 0f)
-            .shadow(if (dragging) 6.dp else 0.dp, shape)
+        Modifier.fillMaxWidth().padding(vertical = 2.dp)
+            .shadow(elevation, shape)
             .clip(shape)
-            .background(MiuixTheme.colorScheme.surface)
-            .graphicsLayer { this.translationY = translationY }
-            .onGloballyPositioned { onBounds(it.boundsInRoot()) },
+            .background(MiuixTheme.colorScheme.surface),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         val reorderLabel = stringResource(R.string.assist_reorder)
@@ -1181,17 +1090,7 @@ private fun PhraseRow(
                         else -> false
                     }
                 }
-                .pointerInput(phrase.id, dragEpoch) {
-                    detectVerticalDragGestures(
-                        onDragStart = { offset -> onGripDown(offset.y) },
-                        onDragEnd = { onGripEnd() },
-                        onDragCancel = { onGripCancel() },
-                        onVerticalDrag = { change, amount ->
-                            change.consume()
-                            onGripDrag(amount)
-                        },
-                    )
-                }
+                .then(gripModifier)
                 .semantics {
                     contentDescription = reorderDescription
                     role = Role.Button

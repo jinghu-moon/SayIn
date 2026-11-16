@@ -14,11 +14,15 @@ import seeyuer.sayin.data.PhraseStorage
 /** In-memory, serial, atomic-enough phrase storage for instrumented UI mounts. */
 internal class MemoryPhraseStorage(initial: PhraseLibraryState? = PhraseLibraryState()) : PhraseStorage {
     var stored: PhraseLibraryState? = initial
+    var failWrites = false
+    var writes = 0
 
     override fun load(): PhraseLibraryState? = stored
 
     override fun save(state: PhraseLibraryState) {
+        if (failWrites) throw java.io.IOException("Test storage unavailable")
         stored = state
+        writes++
     }
 }
 

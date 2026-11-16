@@ -30,7 +30,7 @@ if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSu
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
-$expectedTests = if ($FullSuite) { 102 } elseif ($TransportOnly) { 1 } else { 4 }
+$expectedTests = if ($FullSuite) { 111 } elseif ($TransportOnly) { 1 } else { 4 }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
@@ -71,7 +71,7 @@ try {
     if ($FullSuite) { $arguments += @('-e', 'notAnnotation', 'seeyuer.sayin.ui.RootHelperDeviceTest') }
     # Pairing invitations and active-device gates are single-use state. The
     # image data suite gets its own fresh desktop identity, not a reset gate.
-    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest') }
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
     $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
     & $adb @arguments > $log 2>&1
@@ -86,7 +86,7 @@ try {
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }
-        Write-Output 'PASS: all 106 regular device tests (102 text/UI + 4 image) across independent text/image desktop identities; live paid cloud and discovery fixtures remain separate.'
+        Write-Output 'PASS: all 115 regular device tests (111 text/UI + 4 image) across independent text/image desktop identities; live paid cloud and discovery fixtures remain separate.'
     }
 } finally {
     try {

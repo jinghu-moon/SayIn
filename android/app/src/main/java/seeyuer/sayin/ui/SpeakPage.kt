@@ -7,6 +7,8 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
@@ -18,9 +20,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.key.*
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import seeyuer.sayin.designsystem.YuePalette
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.*
@@ -39,9 +39,12 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.*
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -51,6 +54,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.core.content.ContextCompat
 import seeyuer.sayin.R
 import seeyuer.sayin.asr.*
+import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.PhraseLibrary
 import seeyuer.sayin.data.normalizedText
@@ -197,7 +201,7 @@ internal fun SpeakPage(
     fun edit() { session.edit(); showPreview = false; focus.requestFocus(); keyboard?.show() }
     fun translate() {
         session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = false
-        if (session.translationModelReady) session.translateDraft() else showTranslationPreparation = true
+        if (session.translation.complete || session.translationModelReady) session.toggleTranslation() else showTranslationPreparation = true
     }
     val hint = when {
         session.draftRestoring -> stringResource(R.string.speak_restoring_draft)
@@ -205,8 +209,8 @@ internal fun SpeakPage(
             if (session.modelPreparation!!.stage == seeyuer.sayin.translation.ModelPreparationStage.Verifying) R.string.translation_preparing_verify else R.string.translation_preparing,
             (100 * session.modelPreparation!!.bytes / session.modelPreparation!!.total.coerceAtLeast(1)).toInt())
         session.modelPreparationFailed && !session.busy -> stringResource(R.string.translation_prepare_failed)
-        session.translationShown && session.translationStopping -> stringResource(R.string.translation_stopping)
-        session.translationShown && session.translation.running -> {
+        session.translationStopping -> stringResource(R.string.translation_stopping)
+        session.translation.running -> {
             val progress = session.translation.progress
             when (progress?.stage) {
                 seeyuer.sayin.translation.TranslationStage.Verifying -> stringResource(R.string.translation_verifying, (progress.fraction * 100).toInt())
@@ -214,7 +218,7 @@ internal fun SpeakPage(
                 else -> stringResource(R.string.translation_generating)
             }
         }
-        session.translationShown -> stringResource(translationEndText(session.translation.end))
+        session.translation.end != null && !session.translation.complete -> stringResource(translationEndText(session.translation.end))
         preparing && source == SpeakInputSource.Cloud -> stringResource(R.string.cloud_connecting)
         preparing -> stringResource(if (session.model == LocalModelPhase.Warming) R.string.speak_model_warming else R.string.speak_model_loading)
         asr.busy -> stringResource(when (asr.phase) {
@@ -254,13 +258,6 @@ internal fun SpeakPage(
         clearNotice = session.undoDraft != null
         if (clearNotice) { kotlinx.coroutines.delay(6000); clearNotice = false }
     }
-    var readyNotice by remember { mutableStateOf(false) }
-    var lastModel by remember { mutableStateOf(session.model) }
-    LaunchedEffect(session.model) {
-        val becameReady = session.model == LocalModelPhase.Ready && lastModel in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
-        lastModel = session.model
-        if (becameReady) { readyNotice = true; kotlinx.coroutines.delay(2000); readyNotice = false }
-    }
     val voiceSource = if (source.isRecognition) source else session.lastVoiceSource
     fun microphone() {
         when {
@@ -277,11 +274,11 @@ internal fun SpeakPage(
         }
     }
     BoxWithConstraints(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("page-Speak")) {
-        val availableWidth = maxWidth
         val availableHeight = maxHeight
         val fontScale = LocalDensity.current.fontScale
         val compact = maxHeight < 300.dp * fontScale
         val minimal = maxHeight < 170.dp * fontScale
+        val inlineEditingActions = maxHeight < 144.dp * fontScale
         val controlSize = if (minimal) 48.dp else 56.dp
         val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         val showHeader = !imeOpen && maxHeight >= 260.dp * fontScale
@@ -297,8 +294,6 @@ internal fun SpeakPage(
             add(DropdownItem(autoLabel, icon = { Icon(VoiceLinkIcon.Automatic.vector, null, it.size(20.dp)) }, selected = session.sendMode == SpeakSendMode.Automatic, enabled = !busy && !locked,
                 onClick = { session.changeSendMode(if (session.sendMode == SpeakSendMode.Automatic) SpeakSendMode.Manual else SpeakSendMode.Automatic) }))
             if (!showTools || minimal) {
-                add(DropdownItem(stringResource(R.string.speak_undo), enabled = session.canUndo, onClick = session::undo))
-                add(DropdownItem(stringResource(R.string.speak_redo), enabled = session.canRedo, onClick = session::redo))
                 add(DropdownItem(stringResource(R.string.assist_open), enabled = session.assistEditable && !busy && !locked,
                     icon = { Icon(VoiceLinkIcon.Clipboard.vector, null, it.size(20.dp)) }, onClick = { openAssist() }))
             }
@@ -324,17 +319,11 @@ internal fun SpeakPage(
             }
             Column(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (minimal) 0.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
-                if (showTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (session.sendMode == SpeakSendMode.Automatic) Icon(VoiceLinkIcon.Automatic.vector, autoLabel,
-                        Modifier.size(18.dp).testTag("auto-send-indicator"), tint = color.primary)
-                    if (preparing) Text(hint, Modifier.weight(1f).testTag("model-preparation-notice").semantics { liveRegion = LiveRegionMode.Polite },
-                        color = color.onSurfaceSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else if (readyNotice) Text(stringResource(R.string.speak_local_ready), Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite },
-                        color = color.onSurfaceSecondary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    else Spacer(Modifier.weight(1f))
+                if (!inlineEditingActions) DraftInformation(state, draft, session.sendMode == SpeakSendMode.Automatic) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
                     DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
                 }
+                if (!inlineEditingActions && !minimal) Spacer(Modifier.height(6.dp))
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     if (showPreview && normalized != null) Text(normalized,
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("draft-preview"), fontSize = 22.sp, lineHeight = 35.sp)
@@ -352,15 +341,15 @@ internal fun SpeakPage(
                             lineHeight = if (quick) 28.sp else 35.sp, color = color.onSurface),
                         decorationBox = { inner ->
                             Box(Modifier.fillMaxSize()) {
-                                if (draft.text.isEmpty() && !focused) Canvas(Modifier.fillMaxWidth().height(32.dp).align(Alignment.Center).alpha(.26f)) {
-                                    val points = listOf(10f to 16f, 90f to 16f, 96f to 11f, 102f to 21f, 108f to 7f,
-                                        114f to 27f, 120f to 11f, 126f to 21f, 132f to 16f, 218f to 16f)
-                                    val path = Path()
-                                    points.forEachIndexed { index, (x, y) ->
-                                        if (index == 0) path.moveTo(x / 300f * size.width, y / 32f * size.height)
-                                        else path.lineTo(x / 300f * size.width, y / 32f * size.height)
-                                    }
-                                    drawPath(path, color.onSurfaceSecondary, style = Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+                                if (draft.text.isEmpty() && !focused) Box(
+                                    Modifier.fillMaxSize().padding(horizontal = 8.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(stringResource(R.string.speak_draft_placeholder),
+                                        Modifier.testTag("draft-placeholder"),
+                                        fontSize = 13.sp, lineHeight = 19.sp,
+                                        color = color.onSurfaceSecondary.copy(alpha = .85f),
+                                        textAlign = TextAlign.Center, maxLines = 2)
                                 }
                                 inner()
                             }
@@ -371,18 +360,17 @@ internal fun SpeakPage(
                     DraftIcon(VoiceLinkIcon.Close, R.string.speak_cancel_send, "cancel-auto-send") { session.cancelAutoSend() }
                 }
                 val exceptional = session.draftRestoring || session.draftStorageIssue || session.microphoneDenied || asr.issue != null ||
-                    session.model == LocalModelPhase.Failed || session.translation.running || session.translationStopping || session.translationPreparing ||
-                    session.modelPreparationFailed || session.translationShown && !session.translation.complete || draft.text.isNotEmpty() && normalized == null
-                if (exceptional && !compact) Text(if (session.draftStorageIssue) stringResource(R.string.speak_draft_storage_issue) else hint,
+                    preparing || session.model == LocalModelPhase.Failed || session.translation.running || session.translationStopping || session.translationPreparing ||
+                    session.modelPreparationFailed || session.translation.end != null && !session.translation.complete || draft.text.isNotEmpty() && normalized == null
+                if (exceptional) Text(if (session.draftStorageIssue) stringResource(R.string.speak_draft_storage_issue) else hint,
                     Modifier.fillMaxWidth().testTag("draft-hint").semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 12.sp,
-                    color = color.onSurfaceSecondary, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    color = color.onSurfaceSecondary)
                 if (session.microphoneDenied && !compact) TextButton(stringResource(R.string.asr_open_settings), {
                     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                 }, minHeight = 48.dp, colors = plainTextButtonColors())
                 session.submitted?.takeIf { it.state != "injected" }?.let { request ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(receiptText(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp,
-                            maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+                        Text(stringResource(receiptText(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp)
                         if (request.state in setOf("saved", "accepted", "held", "executing", "review")) TextButton(
                             stringResource(R.string.speak_query), { onRequestAction(request.id, "query") }, minHeight = 48.dp, colors = plainTextButtonColors())
                         if (request.state == "held" && state.ready) TextButton(stringResource(R.string.release_request),
@@ -390,24 +378,11 @@ internal fun SpeakPage(
                         if (request.state == "uncertain" && state.ready) TextButton(stringResource(R.string.speak_new_draft),
                             session::newDraft, minHeight = 48.dp, colors = plainTextButtonColors())
                     }
-                    if (request.state == "uncertain" && !compact) Text(stringResource(R.string.uncertain_warning), fontSize = 12.sp, color = color.onSurfaceSecondary)
+                    if (request.state == "uncertain") Text(stringResource(R.string.uncertain_warning), fontSize = 12.sp, color = color.onSurfaceSecondary)
                 }
-                if (!minimal) {
-                    val translationToggle = session.translation.ticket != null
-                    // Five bottom tools must keep 48dp targets. On a 320dp page the count/translation
-                    // selector moves to its own line. Send preview is available only in the overflow
-                    // menu, so draft content changes never add a sixth toolbar button.
-                    val stackedTools = availableWidth < 360.dp || translationToggle
-                    if (stackedTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (draft.text.isEmpty()) "" else draft.text.codePointCount(0, draft.text.length).toString(),
-                            Modifier.weight(1f), fontSize = 13.sp, color = color.onSurfaceSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (translationToggle) TranslationToggle(session)
-                    } else Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (draft.text.isEmpty()) "" else draft.text.codePointCount(0, draft.text.length).toString(),
-                            Modifier.weight(1f), fontSize = 13.sp, color = color.onSurfaceSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (!stackedTools && translationToggle) TranslationToggle(session)
+                if (showTools) {
+                    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
                         DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist",
                             session.assistEditable && !busy && !locked,
                             modifier = Modifier.focusRequester(assistEntryFocus)
@@ -419,9 +394,14 @@ internal fun SpeakPage(
                             session.cancelAutoSend(); onImage()
                         }
                         DraftIcon(VoiceLinkIcon.Translate,
-                            if (session.translation.running || session.translationPreparing) R.string.asr_cancel else R.string.translation_action, "translate-draft",
+                            when {
+                                session.translation.running || session.translationPreparing -> R.string.translation_cancel
+                                session.translationShown -> R.string.translation_show_original
+                                session.translation.complete -> R.string.translation_show_cached
+                                else -> R.string.translation_action
+                            }, "translate-draft",
                             session.canTranslateDraft || session.translation.running || session.translationPreparing,
-                            progress = session.translation.running || session.translationPreparing) {
+                            progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
                             when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
                         }
                         DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
@@ -432,7 +412,11 @@ internal fun SpeakPage(
                 }
             }
             Row(Modifier.fillMaxWidth().padding(bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                horizontalArrangement = Arrangement.spacedBy(if (inlineEditingActions) 0.dp else 10.dp)) {
+                if (inlineEditingActions) {
+                    DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
+                    DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
+                }
                 Button({
                     if (busy) session.cancelRecording() else if (focused) { focusManager.clearFocus(); keyboard?.hide() } else edit()
                 }, Modifier.size(controlSize).testTag(if (busy) "cancel-recording" else "open-keyboard"), enabled = !locked &&
@@ -601,32 +585,87 @@ internal fun SpeakPage(
 }
 
 @Composable
-private fun TranslationToggle(session: SpeakSession) {
+private fun DraftInformation(state: ClientState, draft: androidx.compose.ui.text.input.TextFieldValue,
+                             automatic: Boolean, actions: @Composable RowScope.() -> Unit) {
     val color = MiuixTheme.colorScheme
-    Row(Modifier.background(color.background, RoundedCornerShape(16.dp))) {
-        listOf(false, true).forEach { translated ->
-            val selected = session.translationShown == translated
-            Box(Modifier.size(48.dp).selectable(selected, role = Role.Tab, onClick = { session.showTranslation(translated) })
-                .testTag(if (translated) "translation-english" else "translation-original"), contentAlignment = Alignment.Center) {
-                Box(Modifier.height(28.dp).fillMaxWidth().background(if (selected) color.surface else Color.Transparent, RoundedCornerShape(14.dp)),
-                    contentAlignment = Alignment.Center) {
-                    Text(stringResource(if (translated) R.string.speak_translation_short else R.string.speak_original_short),
-                        fontSize = 12.sp, color = if (selected) color.primary else color.onSurfaceSecondary, maxLines = 1)
-                }
+    val connected = state.connection == Connection.ONLINE && !state.paused && state.active
+    // The card header identifies the computer with the device-desktop icon; the user-visible text
+    // is only the current application name, while accessibility keeps the full sentence.
+    val application = when {
+        state.connection != Connection.ONLINE -> stringResource(R.string.speak_computer_offline)
+        state.paused -> stringResource(R.string.speak_computer_paused)
+        !state.active || state.foregroundApplication == null -> stringResource(R.string.speak_computer_unknown)
+        else -> stringResource(R.string.speak_computer_current, state.foregroundApplication.name)
+    }
+    val visibleName = when {
+        state.connection != Connection.ONLINE -> stringResource(R.string.speak_computer_offline)
+        state.paused -> stringResource(R.string.speak_computer_paused)
+        !state.active || state.foregroundApplication == null -> stringResource(R.string.speak_computer_unknown)
+        else -> state.foregroundApplication.name
+    }
+    val generic = if (connected) stringResource(R.string.speak_computer_connected) else application
+    val count = draftCharacterCount(draft)
+    // The voice bar already shows the draft length next to Send. The header only adds a number when
+    // it answers a different question: how much is selected, or how close we are to the limit.
+    val countWorthShowing = !draft.selection.collapsed || count >= 3600
+    val countText = when {
+        !draft.selection.collapsed -> pluralStringResource(R.plurals.speak_selected_count, count, count)
+        count >= 3600 -> stringResource(R.string.speak_limit_count, count, 4000)
+        else -> pluralStringResource(R.plurals.speak_character_count, count, count)
+    }
+    val description = stringResource(R.string.speak_computer_description, application)
+    val density = LocalDensity.current
+    val textStyle = MiuixTheme.textStyles.main.copy(fontSize = 12.sp)
+    val measurer = rememberTextMeasurer()
+    val countWidth = with(density) { measurer.measure(countText, textStyle).size.width.toDp() } + 12.dp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val applicationIcon = state.foregroundApplication?.icon.takeIf { connected }
+        val leadingWidth = 18.dp + 6.dp +
+            (if (applicationIcon != null) 18.dp + 6.dp else 0.dp) +
+            (if (automatic) 24.dp else 0.dp)
+        val showCount = countWorthShowing &&
+            maxWidth >= 96.dp + leadingWidth + 112.dp * density.fontScale + countWidth
+        val fullLabel = maxWidth - 96.dp - leadingWidth - (if (showCount) countWidth else 0.dp) >= 112.dp * density.fontScale
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            // device-desktop: the computer this draft is sent to. It doubles as the fallback when the
+            // computer did not report an application icon.
+            Box(Modifier.size(18.dp).testTag("foreground-application-fallback")) {
+                Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(18.dp).testTag("desktop-indicator"),
+                    tint = color.onSurfaceSecondary)
             }
+            Spacer(Modifier.width(6.dp))
+            if (applicationIcon != null) {
+                Image(applicationIcon.asImageBitmap(), null, Modifier.size(18.dp).testTag("foreground-application-icon"))
+                Spacer(Modifier.width(6.dp))
+            }
+            if (automatic) Icon(VoiceLinkIcon.Automatic.vector, stringResource(R.string.speak_auto_send),
+                Modifier.size(24.dp).testTag("auto-send-indicator"), tint = color.primary)
+            Text(if (fullLabel) visibleName else generic, Modifier.weight(1f).testTag("foreground-application")
+                .clearAndSetSemantics { contentDescription = description; liveRegion = LiveRegionMode.Polite },
+                fontSize = 12.sp, color = color.onSurfaceSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (showCount) Text(countText, Modifier.padding(start = 8.dp).testTag("draft-character-count"),
+                fontSize = 12.sp, color = if (count >= 3600) color.primary else color.onSurfaceSecondary,
+                maxLines = 1)
+            actions()
         }
     }
 }
 
+internal fun draftCharacterCount(draft: androidx.compose.ui.text.input.TextFieldValue): Int =
+    if (draft.selection.collapsed) draft.text.codePointCount(0, draft.text.length)
+    else draft.text.codePointCount(draft.selection.min, draft.selection.max)
+
 @Composable
 private fun DraftIcon(icon: VoiceLinkIcon, label: Int, tag: String, enabled: Boolean = true, progress: Boolean = false,
-                      modifier: Modifier = Modifier, onClick: () -> Unit) {
+                      modifier: Modifier = Modifier, selected: Boolean = false, onClick: () -> Unit) {
     val description = stringResource(label)
-    IconButton(onClick, Modifier.size(48.dp).testTag(tag).semantics { contentDescription = description; role = Role.Button; if (!enabled) disabled() }
+    IconButton(onClick, Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))
+        .background(if (selected) MiuixTheme.colorScheme.primary.copy(alpha = .12f) else Color.Transparent)
+        .testTag(tag).semantics { contentDescription = description; role = Role.Button; this.selected = selected; if (!enabled) disabled() }
         .then(modifier), enabled = enabled) {
         if (progress) CircularProgressIndicator(size = 19.dp, strokeWidth = 2.dp)
         else Icon(icon.vector, null, Modifier.size(21.dp),
-            tint = MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = if (enabled) 1f else .25f))
+            tint = (if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary).copy(alpha = if (enabled) 1f else .25f))
     }
 }
 

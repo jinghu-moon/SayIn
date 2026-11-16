@@ -34,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
@@ -395,7 +396,9 @@ class AssistPanelInstrumentedTest {
         pressBack()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("assist-panel").fetchSemanticsNodes().isEmpty() }
         compose.runOnIdle { session.undo(); assertEquals("X", session.draft.text); session.undo(); assertEquals("", session.draft.text) }
-        compose.onNodeWithTag("draft").assertTextEquals("")
+        // BasicTextField merges its decoration's placeholder into Text; the editable value
+        // must still be empty after both undo steps.
+        compose.onNodeWithTag("draft").assert(SemanticsMatcher.expectValue(SemanticsProperties.EditableText, AnnotatedString("")))
     }
 
     @Test fun copyKeepsPanelAndDoesNotTouchDraft() {
@@ -534,6 +537,146 @@ class AssistPanelInstrumentedTest {
         compose.runOnIdle { mountGeneration++ }
         compose.waitUntil(10_000) { storage.stored?.phrases?.map { it.text } == afterKeyboard }
         compose.waitUntil(10_000) { library.ready.value && library.state.value.phrases.map { it.text } == afterKeyboard }
+    }
+
+    @Test fun draggedPhraseTracksFingerAcrossAnimatedSlotChanges() {
+        openReorderPhrases(6)
+        val list = compose.onNodeWithTag("assist-phrase-list")
+        val start = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center -
+            list.fetchSemanticsNode().boundsInRoot.topLeft
+        list.performTouchInput { down(start); moveBy(Offset(0f, 20.dp.toPx())) }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        try {
+            val firstY = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center.y
+            val neighborY = phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.center.y
+            list.performTouchInput { moveBy(Offset(0f, 56.dp.toPx())) }
+            compose.mainClock.advanceTimeBy(32)
+            compose.waitForIdle()
+            val nextY = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center.y
+            val density = compose.activity.resources.displayMetrics.density
+            assertEquals("The grabbed row must not jump when its slot changes", 56f * density, nextY - firstY, 3f)
+            // Neighbor placement is in flight, rather than snapping directly into the vacant slot.
+            val neighborDuring = phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.center.y
+            screenshot("58-phrase-crossing")
+            compose.mainClock.advanceTimeBy(700)
+            compose.waitForIdle()
+            val neighborAfter = phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.center.y
+            assertTrue("Neighbor must move upward", neighborAfter < neighborY)
+            assertTrue("Neighbor must animate through intermediate positions", neighborDuring > neighborAfter + 1f)
+            assertEquals("Preview must not write on every crossing", 0, storage.writes)
+            // Saving shows a notice above the list, moving the list's root origin. Measure
+            // spring motion in list coordinates, independently of that notice's layout.
+            fun releasedRowY() = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center.y -
+                list.fetchSemanticsNode().boundsInRoot.top
+            val beforeRelease = releasedRowY()
+            list.performTouchInput { up() }
+            compose.mainClock.advanceTimeBy(32)
+            compose.waitForIdle()
+            val duringRelease = releasedRowY()
+            compose.mainClock.advanceTimeBy(1_000)
+            compose.waitForIdle()
+            val afterRelease = releasedRowY()
+            assertTrue("Release must spring through intermediate positions", kotlin.math.abs(duringRelease - afterRelease) > 1f)
+            assertTrue("Release must approach the new slot: $beforeRelease/$duringRelease/$afterRelease", kotlin.math.abs(duringRelease - afterRelease) < kotlin.math.abs(beforeRelease - afterRelease))
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
+        compose.waitUntil(5_000) { storage.writes == 1 }
+        assertEquals("phrase 1", library.state.value.phrases.first().text)
+        assertEquals("phrase 0", library.state.value.phrases[1].text)
+        screenshot("58-phrase-settled")
+        assertEquals("", session.draft.text)
+        assertEquals(0, sends)
+    }
+
+    @Test fun pointerCancellationAndBackRestorePreviewWithoutWriting() {
+        openReorderPhrases(6)
+        val original = library.state.value
+        startPhraseDrag("phrase 0", 90f)
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { cancel() }
+        compose.waitForIdle()
+        assertEquals(original, library.state.value)
+        assertEquals(0, storage.writes)
+        assertTrue(phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.top <
+            phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.top)
+        startPhraseDrag("phrase 0", 90f)
+        pressBack()
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { up() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("assist-panel").assertExists()
+        assertEquals(original, library.state.value)
+        assertEquals(0, storage.writes)
+    }
+
+    @Test fun stationaryEdgeDragScrollsAndEndOfListDoesNotDrift() {
+        openReorderPhrases(20)
+        val list = compose.onNodeWithTag("assist-phrase-list")
+        val bounds = list.fetchSemanticsNode().boundsInRoot
+        val start = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center - bounds.topLeft
+        list.performTouchInput { down(start); moveBy(Offset(0f, 20.dp.toPx())) }
+        compose.waitForIdle()
+        list.performTouchInput { moveTo(Offset(start.x, height - 8.dp.toPx()), delayMillis = 700) }
+        try {
+            compose.waitUntil(10_000) {
+                compose.onAllNodes(hasTestTag("assist-phrase-row") and hasText("phrase 19"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+        } finally {
+            screenshot("58-phrase-edge-scroll")
+        }
+        // Keep the same pointer down at the boundary: exhausted scroll cannot accumulate drift.
+        val before = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center.y
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
+        val after = phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.center.y
+        assertEquals("The row must stay beneath the stationary finger at the scroll limit", before, after, 3f)
+        assertEquals(0, storage.writes)
+        list.performTouchInput { up() }
+        compose.waitUntil(5_000) { storage.writes == 1 }
+        assertTrue(library.state.value.phrases.indexOfFirst { it.text == "phrase 0" } > 10)
+        assertEquals(20, library.state.value.phrases.map { it.id }.toSet().size)
+    }
+
+    @Test fun failedReorderSaveRestoresPersistedOrder() {
+        openReorderPhrases(6)
+        val original = library.state.value
+        storage.failWrites = true
+        startPhraseDrag("phrase 0", 90f)
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { up() }
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithText(compose.activity.getString(R.string.assist_reorder_failed))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        assertEquals(original, library.state.value)
+        assertEquals(original, storage.stored)
+        assertEquals(0, storage.writes)
+        assertTrue(phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.top <
+            phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    @Test fun externalLibraryChangeInvalidatesActiveDrag() {
+        openReorderPhrases(6)
+        startPhraseDrag("phrase 0", 90f)
+        compose.runOnIdle { runBlocking { library.add("external phrase") } }
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { up() }
+        compose.waitForIdle()
+        assertEquals(1, storage.writes)
+        assertEquals((0 until 6).map { "phrase $it" } + "external phrase", library.state.value.phrases.map { it.text })
+        assertTrue(phraseGrip("phrase 0").fetchSemanticsNode().boundsInRoot.top <
+            phraseGrip("phrase 1").fetchSemanticsNode().boundsInRoot.top)
+    }
+
+    @Test fun dragAtFirstAndLastBoundaryDoesNotCreateOrderWrites() {
+        openReorderPhrases(1)
+        startPhraseDrag("phrase 0", -90f)
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { up() }
+        compose.waitForIdle()
+        startPhraseDrag("phrase 0", 90f)
+        compose.onNodeWithTag("assist-phrase-list").performTouchInput { up() }
+        compose.waitForIdle()
+        assertEquals(0, storage.writes)
+        assertEquals(listOf("phrase 0"), library.state.value.phrases.map { it.text })
     }
 
     @Test fun panelControlsMeet48DpAndHaveDescriptions() {
@@ -716,6 +859,31 @@ class AssistPanelInstrumentedTest {
                 it.config.getOrNull(SemanticsProperties.Text)?.joinToString("")?.contains(text) == true
             }
         }
+    }
+
+    private fun openReorderPhrases(count: Int) {
+        storage.stored = PhraseLibraryState(2, (0 until count).map { StoredPhrase(phraseUuid(it), "phrase $it") })
+        mount()
+        openPanel()
+        compose.onNodeWithTag("assist-tab-phrases").performClick()
+        waitForPhrase("phrase 0")
+    }
+
+    private fun phraseGrip(text: String) = compose.onNode(
+        hasTestTag("assist-phrase-grip") and
+            hasContentDescription(compose.activity.getString(R.string.assist_reorder_for, text)),
+        useUnmergedTree = true,
+    )
+
+    private fun startPhraseDrag(text: String, deltaDp: Float) {
+        val list = compose.onNodeWithTag("assist-phrase-list")
+        val start = phraseGrip(text).fetchSemanticsNode().boundsInRoot.center -
+            list.fetchSemanticsNode().boundsInRoot.topLeft
+        list.performTouchInput {
+            down(start)
+            moveBy(Offset(0f, deltaDp.dp.toPx()), delayMillis = 400)
+        }
+        compose.waitForIdle()
     }
 
     private fun pasteFromClipboardMenu() {

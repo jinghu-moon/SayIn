@@ -6,6 +6,7 @@ rust-version = "1.99"
 publish = false
 
 [dependencies]
+base64 = "0.23.1"
 voicelink-receiver = { path = "../receiver" }
 voicelink-pairing = { path = "../pairing" }
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }

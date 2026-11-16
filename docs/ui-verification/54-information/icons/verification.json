@@ -1,0 +1,71 @@
+{
+  "scope": "2026-11-16 actual software icons; no production identity reset",
+  "jvm": {
+    "app": {
+      "tests": 94,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "translation": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "rust_passed": 144,
+  "device_regular_passed": 106,
+  "native_edit": "passed; precise CJK/emoji/literal ENTER; no duplicate/no appended Enter",
+  "checks": [
+    "Android lintDebug",
+    "Rust clippy -D warnings",
+    "package-limited fmt --check",
+    "workspace all-targets locked build",
+    "double-end i18n/dependency graph"
+  ],
+  "artifacts": {
+    "android/app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "5c4c469d33cb9ad5cb7bcb03a231073e20e5532e9e166eb42407d82393dbda9c"
+    },
+    "desktop/target/debug/sayin.exe": {
+      "sha256": "7aff27dafdeb17035241aab6e1d7c5200dfa3caa25ae1b820eeb4a7fc1572d75"
+    }
+  },
+  "daily_android": {
+    "serial": "dc39c31d",
+    "package": "seeyuer.sayin",
+    "install": "adb install -r; no data clear",
+    "lastUpdateTime": "2026-11-16 00:29:05",
+    "launch_status": "ok",
+    "focused_main_activity": true
+  },
+  "desktop_window": {
+    "process_id": 17820,
+    "path": "D:\\100_Projects\\110_Daily\\VoiceInput\\desktop\\target\\debug\\sayin.exe",
+    "title": "SayIn",
+    "visible": true,
+    "minimized": false
+  },
+  "live_icons": {
+    "samples": 20,
+    "p50_ms": 340.5,
+    "p95_ms": 551.5,
+    "clock": {
+      "half_rtt_ms": 42.5,
+      "offset_ms": 485.5
+    },
+    "idle": {
+      "duration_ms": 18011,
+      "rx_bytes": 432,
+      "tx_bytes": 498,
+      "display_changes": 0
+    },
+    "scope": "native Windows foreground -> pinned TLS via USB adb reverse -> Redmi K40 Compose; not WiFi latency"
+  },
+  "device_additional": {
+    "foreground_live": "passed (1 test, 20 changes, distinct real icon hashes, zero fake input)",
+    "boundary_ui_repeat": "passed (1 test); truncated PNG/stale bitmap on offline, paused, inactive"
+  },
+  "initial_live_attempt": "fixed-window latency comparison failed because unrelated foreground applications interrupted samples; observations retained; not counted as a successful measurement"
+}

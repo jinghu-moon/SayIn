@@ -128,7 +128,7 @@
     <string name="speak_change_send_mode">Send mode: %1$s. Tap to switch.</string>
     <string name="speak_source_local">Local</string>
     <string name="speak_source_keyboard">Keyboard</string>
-    <string name="speak_draft_placeholder">Your words appear here. You can edit or add more before sending.</string>
+    <string name="speak_draft_placeholder">Hold the microphone below to speak, or type or paste here</string>
     <string name="speak_preview_title">Text to send</string>
     <string name="speak_preview">Preview before sending</string>
     <string name="speak_edit">Edit</string>
@@ -230,8 +230,8 @@
     <string name="speak_cloud_idle">Doubao · Audio sent to the cloud</string>
     <string name="speak_keyboard_idle">Use your keyboard to enter text</string>
     <plurals name="speak_character_count">
-        <item quantity="one">%1$d character</item>
-        <item quantity="other">%1$d characters</item>
+        <item quantity="one">%1$d char</item>
+        <item quantity="other">%1$d chars</item>
     </plurals>
     <string name="speak_recording">Listening</string>
     <string name="speak_clear">Clear</string>
@@ -334,7 +334,6 @@
     <string name="translation_preparing_verify">Verifying downloaded model: %1$d%%</string>
     <string name="translation_prepare_failed">Model preparation failed. Check storage and connection, then try again. Your original is retained.</string>
     <string name="speak_redo">Redo</string>
-    <string name="speak_translation_short">EN</string>
     <string name="speak_copy_draft">Copy text</string>
     <string name="speak_count_short">%1$d chars</string>
     <string name="speak_start_short">Speak</string>
@@ -346,7 +345,6 @@
     <string name="speak_cloud_recognition">Cloud recognition</string>
     <string name="speak_offline_description">Processed on your phone</string>
     <string name="speak_cloud_description">Use your configured cloud service</string>
-    <string name="speak_original_short">Text</string>
     <string name="assist_open">Clipboard and phrases</string>
     <string name="assist_close">Close panel</string>
     <string name="assist_tab_clipboard">Clipboard</string>
@@ -429,6 +427,20 @@
     <string name="assist_library_issue">Phrases could not be opened. Existing data is kept.</string>
     <string name="assist_loading">Loading phrases…</string>
     <string name="assist_reading_clipboard">Reading clipboard…</string>
+    <string name="speak_computer_current">Computer: %1$s</string>
+    <string name="speak_computer_offline">Computer disconnected</string>
+    <string name="speak_computer_paused">Computer reception paused</string>
+    <string name="speak_computer_unknown">Current app unknown</string>
+    <string name="speak_computer_connected">Computer connected</string>
+    <string name="speak_computer_description">%1$s. Input uses the computer focus at execution time.</string>
+    <plurals name="speak_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="speak_limit_count">%1$d / %2$d</string>
+    <string name="translation_cancel">Cancel translation</string>
+    <string name="translation_show_original">Showing translation. Show original</string>
+    <string name="translation_show_cached">Show saved translation</string>
 
     <!-- Independent Root module clipboard history -->
     <string name="root_clipboard_paused">Collection is off or paused. Saved records remain available; use module Action to change collection.</string>

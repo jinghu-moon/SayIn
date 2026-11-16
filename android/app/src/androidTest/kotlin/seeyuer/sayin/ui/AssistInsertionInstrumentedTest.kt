@@ -205,12 +205,21 @@ class AssistInsertionInstrumentedTest {
             main {
                 val ticket = subject.beginAssistInsertion()!!
                 subject.selectSource(SpeakInputSource.Local)
+                // Hold the service-acceptance boundary explicitly. A ready fake
+                // recognizer may otherwise start synchronously before this assertion.
+                subject.requestMicrophoneService = {}
                 subject.start(null)
                 assertTrue(subject.preparingToRecord)
                 assertFalse(subject.assistEditable)
                 assertNull(subject.beginAssistInsertion())
                 assertEquals(AssistInsertResult.NotEditable, subject.insertAssist(ticket, "x"))
                 assertEquals("draft", subject.draft.text)
+                subject.startPreparedRecording()
+            }
+            main {
+                assertEquals(RecognitionPhase.Listening, subject.asr.phase)
+                assertFalse(subject.assistEditable)
+                assertNull(subject.beginAssistInsertion())
                 subject.cancelRecording(restore = false)
             }
         } finally { main { subject.close() } }

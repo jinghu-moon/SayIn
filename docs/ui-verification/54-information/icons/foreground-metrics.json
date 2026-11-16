@@ -1,0 +1,325 @@
+{
+  "observations": [
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760013053,
+      "connection": "OFFLINE"
+    },
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760013184,
+      "connection": "PAIRING"
+    },
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760013243,
+      "connection": "APPROVAL"
+    },
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760013314,
+      "connection": "CONNECTING"
+    },
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760013357,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760013463,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760034541,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760036009,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760037506,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760039030,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760040516,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760041984,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760043540,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760045012,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760046993,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760048522,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760050021,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760051506,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760053015,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760054497,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760056023,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "AstraGram",
+      "icon_present": true,
+      "icon_pixels_hash": -1321220907,
+      "displayed_at_ms": 1794760057045,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760057519,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760059028,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760060535,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -729475910,
+      "displayed_at_ms": 1794760062021,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "AstraGram",
+      "icon_present": true,
+      "icon_pixels_hash": -1321220907,
+      "displayed_at_ms": 1794760062532,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "icon_present": true,
+      "icon_pixels_hash": -246034884,
+      "displayed_at_ms": 1794760063527,
+      "connection": "ONLINE"
+    },
+    {
+      "name": null,
+      "icon_present": false,
+      "icon_pixels_hash": null,
+      "displayed_at_ms": 1794760070290,
+      "connection": "OFFLINE"
+    }
+  ],
+  "idle": {
+    "duration_ms": 18011,
+    "rx_bytes": 432,
+    "tx_bytes": 498,
+    "display_changes": 0
+  },
+  "samples": 20,
+  "switches": [
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760033715
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760035283
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760036810
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760038339
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760039864
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760041388
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760042904
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760044430
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760045956
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760047469
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760048995
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760050520
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760052033
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760053563
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760055089
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760056603
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760058157
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760059683
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794760061207
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794760062725
+    }
+  ],
+  "scope": "Windows native foreground -> pinned TLS via adb reverse -> Redmi K40 Compose frame; isolated identities; no input",
+  "latencies_ms": [
+    340.5,
+    240.5,
+    210.5,
+    205.5,
+    166.5,
+    110.5,
+    150.5,
+    96.5,
+    551.5,
+    567.5,
+    540.5,
+    500.5,
+    496.5,
+    448.5,
+    448.5,
+    430.5,
+    385.5,
+    366.5,
+    328.5,
+    316.5
+  ],
+  "p50_ms": 340.5,
+  "p95_ms": 551.5,
+  "clock": {
+    "half_rtt_ms": 42.5,
+    "offset_ms": 485.5
+  }
+}

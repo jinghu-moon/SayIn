@@ -1,0 +1,7 @@
+{
+  "tests": 4,
+  "real_lan": false,
+  "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+  "scope": "isolated imageTest UID/identity/data; fake input only",
+  "fake_input_calls": 1
+}

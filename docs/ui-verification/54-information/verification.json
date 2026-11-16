@@ -1,0 +1,37 @@
+{
+  "android_jvm": {
+    "app": {
+      "tests": 93,
+      "failures": 0,
+      "errors": 0
+    },
+    "translation": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0
+    }
+  },
+  "rust_workspace_passed": 141,
+  "regular_device_tests": 106,
+  "device": "Redmi K40 / dc39c31d / API 33",
+  "artifacts": {
+    "android/app/build/outputs/apk/debug/app-debug.apk": {
+      "sha256": "46a3b3c94609c60200a914bcdd8960ba478f1f86f802b4c109fd699340229241",
+      "bytes": 696826834
+    },
+    "desktop/target/debug/sayin.exe": {
+      "sha256": "9918575898e2fa4163f086c9466a92ea8e830848c6227743a42af2ccca34cc4e",
+      "bytes": 45929472
+    }
+  },
+  "daily_install": {
+    "package": "seeyuer.sayin",
+    "device_serial": "dc39c31d",
+    "last_update_time": "2026-11-15 23:58:52",
+    "launch_status": "ok",
+    "data_cleared": false,
+    "method": "adb install -r; am start -W"
+  },
+  "foreground_metrics": "foreground-metrics.json",
+  "completed_date": "2026-11-16"
+}

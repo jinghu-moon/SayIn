@@ -230,6 +230,96 @@ fn desktop_is_interactive() -> Result<()> {
     }
 }
 
+/// Display-only metadata cache. It never creates a lease or changes the input gate.
+#[derive(Default)]
+pub struct ForegroundApplication {
+    identity: Option<(usize, u32, u64)>,
+    application: Option<crate::application_icon::ApplicationDisplay>,
+}
+impl ForegroundApplication {
+    pub fn sample(&mut self) -> Option<crate::application_icon::ApplicationDisplay> {
+        let result = self.query();
+        if result.is_err() {
+            self.identity = None;
+            self.application = None;
+        }
+        result.ok().flatten()
+    }
+
+    fn query(&mut self) -> Result<Option<crate::application_icon::ApplicationDisplay>> {
+        desktop_is_interactive()?;
+        // SAFETY: query-only handle, closed before returning; window identities
+        // are compared again after the potentially slower version-resource read.
+        unsafe {
+            let window = GetForegroundWindow();
+            if window.0.is_null() || !IsWindow(Some(window)).as_bool() || IsIconic(window).as_bool()
+            {
+                return Err(Error::Protocol("NO_FOREGROUND_TARGET"));
+            }
+            let mut pid = 0;
+            GetWindowThreadProcessId(window, Some(&mut pid));
+            let mut session = 0;
+            let mut own = 0;
+            ProcessIdToSessionId(pid, &mut session).map_err(platform)?;
+            ProcessIdToSessionId(GetCurrentProcessId(), &mut own).map_err(platform)?;
+            if session != own {
+                return Err(Error::Protocol("SESSION_CHANGED"));
+            }
+            session_is_active(own)?;
+            let handle =
+                OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).map_err(platform)?;
+            let result = (|| {
+                let (mut created, mut exited, mut kernel, mut user) = (
+                    FILETIME::default(),
+                    FILETIME::default(),
+                    FILETIME::default(),
+                    FILETIME::default(),
+                );
+                GetProcessTimes(handle, &mut created, &mut exited, &mut kernel, &mut user)
+                    .map_err(platform)?;
+                let identity = (
+                    window.0 as usize,
+                    pid,
+                    (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime),
+                );
+                if self.identity != Some(identity) {
+                    let mut path = vec![0u16; 32768];
+                    let mut length = path.len() as u32;
+                    QueryFullProcessImageNameW(
+                        handle,
+                        PROCESS_NAME_WIN32,
+                        PWSTR(path.as_mut_ptr()),
+                        &mut length,
+                    )
+                    .map_err(platform)?;
+                    let path = String::from_utf16(&path[..length as usize])
+                        .map_err(|_| Error::Protocol("INVALID_PROCESS_PATH"))?;
+                    self.application =
+                        crate::application_name::display_name(Path::new(&path)).map(|name| {
+                            crate::application_icon::ApplicationDisplay {
+                                name,
+                                icon_png: crate::application_icon::png(Path::new(&path)),
+                            }
+                        });
+                    self.identity = Some(identity);
+                }
+                let mut current_pid = 0;
+                GetWindowThreadProcessId(window, Some(&mut current_pid));
+                if GetForegroundWindow() != window
+                    || current_pid != pid
+                    || !IsWindow(Some(window)).as_bool()
+                {
+                    return Err(Error::Protocol("FOCUS_CHANGED"));
+                }
+                desktop_is_interactive()?;
+                Ok(self.application.clone())
+            })();
+            let _ = CloseHandle(handle);
+            result
+        }
+    }
+}
+
 fn foreground() -> Result<(usize, u32, u64, u32)> {
     desktop_is_interactive()?;
     // SAFETY: Only query access is requested; process/token handles are closed.

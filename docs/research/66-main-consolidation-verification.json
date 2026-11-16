@@ -1,0 +1,210 @@
+{
+  "date": "2026-11-16T14:15:10.220319+08:00",
+  "baseline": "96becf29d34c6f41703c0c9ed35af7478f8033f5",
+  "scope": "Combined main working tree; source integration and regression before unified merge commit.",
+  "branches": {
+    "local": 7,
+    "remote": 1,
+    "worktrees": 8,
+    "already_reachable_tips": [
+      "feat/connect-page",
+      "codex/image-input",
+      "codex/image-input-core",
+      "codex/image-network-bench",
+      "codex/local-translation"
+    ],
+    "redundant_wip": "aee02944c67c3e54a7511aa80672089ec2f747b8",
+    "redundant_wip_patch_equivalent": true,
+    "merge_strategy": "ours for audited patch-equivalent WIP ancestry only; pending functional changes explicitly staged",
+    "branches_deleted": false,
+    "worktrees_reset_or_stashed": false
+  },
+  "foreign_worktree_audit": {
+    "files": 123,
+    "same_as_current_main": 71,
+    "in_main_history": 28,
+    "BOM_or_newline_equivalent": 20,
+    "superseded_design_snapshots": 2,
+    "obsolete_fixture_helpers_replaced_by_production": 2,
+    "unresolved": 0,
+    "local_backup_file_snapshots": 202
+  },
+  "android": {
+    "jvm": {
+      "app": {
+        "tests": 98,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      },
+      "translation": {
+        "tests": 1,
+        "failures": 0,
+        "errors": 0,
+        "skipped": 0
+      }
+    },
+    "total_jvm": 99,
+    "debug_build": "pass",
+    "image_test_app_and_instrumentation_build": "pass",
+    "lint": {
+      "result": "pass",
+      "errors": 0,
+      "warnings": 109,
+      "hints": 6
+    },
+    "i18n": "pass"
+  },
+  "desktop": {
+    "tests_passed": 144,
+    "failed": 0,
+    "clippy": "pass (-D warnings)",
+    "package_scoped_fmt": "pass",
+    "dependency_graph_and_yue_source": "pass",
+    "build": "pass in independent output; running daily exe untouched",
+    "build_command": "cargo build --workspace --locked --target-dir target/main-consolidation-build"
+  },
+  "device": {
+    "serial": "dc39c31d",
+    "model": "Redmi K40",
+    "api": 33,
+    "isolated_package": "seeyuer.sayin.imagetest",
+    "regular_tests_passed": 115,
+    "fixtures": [
+      {
+        "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+        "scope": "isolated imageTest UID/identity/data; fake input only",
+        "fake_input_calls": 2,
+        "tests": 111,
+        "real_lan": false
+      },
+      {
+        "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+        "scope": "isolated imageTest UID/identity/data; fake input only",
+        "fake_input_calls": 1,
+        "tests": 4,
+        "real_lan": false
+      }
+    ],
+    "transport": "adb reverse to loopback; fake input; independent text/image identities and random ports",
+    "targeted_recheck": "3/3 pass",
+    "collector_restored": {
+      "running": true,
+      "enabled": true,
+      "capture_ready": true
+    },
+    "daily_app_or_pairing_reset": false,
+    "daily_desktop_stopped": false
+  },
+  "failed_attempts": [
+    {
+      "suite": "initial regular text/UI",
+      "passed": 108,
+      "failed": 3,
+      "diagnosis": "placeholder merged Text vs EditableText; ordinary count intentionally removed from header; root-coordinate drift caused by save notice"
+    },
+    {
+      "suite": "first targeted recheck",
+      "passed": 0,
+      "failed": 3,
+      "diagnosis": "new placeholder visibility assertion depended on focus; selection count needed wide layout; measured list-origin change 1009px to 1078px"
+    },
+    {
+      "suite": "desktop default-output build",
+      "result": "blocked by running sayin.exe; independent full workspace build subsequently passed"
+    }
+  ],
+  "test_changes": "Preserve exact EditableText and undo state assertions; assert ordinary count in voice bar and selection count at wide width plus narrow layout variants; measure spring in list-local coordinates while retaining intermediate-position and approach assertions.",
+  "commands": [
+    "./scripts/gradle.ps1 :app:testDebugUnitTest :translation:testDebugUnitTest :app:assembleDebug :app:lintDebug",
+    "./scripts/gradle.ps1 '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest",
+    "python scripts/check_i18n.py",
+    "cargo test --workspace --all-targets --locked (cwd desktop)",
+    "cargo clippy --workspace --all-targets --locked -- -D warnings (cwd desktop)",
+    "cargo fmt -p voicelink-desktop -p voicelink-receiver -p voicelink-pairing -p voicelink-transport -- --check (cwd desktop)",
+    "cargo build --workspace --locked --target-dir target/main-consolidation-build (cwd desktop)",
+    "python scripts/check_desktop_dependencies.py",
+    "./scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -UseExistingRootInstall -FullSuite -SkipBuild",
+    "adb isolated instrumentation targeted three tests (two rechecks; final passed)",
+    "./scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -UseExistingRootInstall -FullSuite -SkipBuild -SkipInstall",
+    "git diff --cached --check",
+    "Pinned Reorderable vendored SHA-256 verification (six source files)"
+  ],
+  "artifacts": {
+    "android_debug": {
+      "path": "android/app/build/outputs/apk/debug/app-debug.apk",
+      "bytes": 696897666,
+      "sha256": "9575fdf13dc5607e44efd3b0d63a9f84d0559a2bff7a5bdbf31502be5eb90e7a"
+    },
+    "android_image_test": {
+      "path": "android/app/build/outputs/apk/imageTest/app-imageTest.apk",
+      "bytes": 689153273,
+      "sha256": "fecdb240cc288806a3841b99269310fd645135282ba4762a4336443b795df9c4"
+    },
+    "android_instrumentation": {
+      "path": "android/app/build/outputs/apk/androidTest/imageTest/app-imageTest-androidTest.apk",
+      "bytes": 4767722,
+      "sha256": "5a151c935e0be3aecd6de66ec30347aeb893934fc6c22caac3230418865a9cf4"
+    },
+    "desktop_isolated_debug": {
+      "path": "desktop/target/main-consolidation-build/debug/sayin.exe",
+      "bytes": 45928448,
+      "sha256": "660737b341cf02a726b97fa4cab84fcc8eb2461c3c425b8f59050e5a4442a395"
+    }
+  },
+  "logs": [
+    {
+      "local_path": "root-helper/build/branch-consolidation/android-debug.log",
+      "sha256": "e04ea0cb8d4dc71fd9b87574b077dfe99a61ab82d5b15f380d70191b39824767"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/android-final-debug.log",
+      "sha256": "bb702c79ecbe1c874441a2b8980c64db9990f447fd69d987085cd5a934ccc57d"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/android-image-test-build.log",
+      "sha256": "c2cc909a7d86e1f59de81760e3938a3b67633fb89cc8fce6eba2f9d243ff6d31"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/android-image-test-build-recheck.log",
+      "sha256": "a1f755d58e47f4b582d58634af7d7cf92df7029597043d1e1dc66b8dbcd0875d"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/android-image-test-build-recheck2.log",
+      "sha256": "865f31c9f48a3b9578b4dea40fda91542cba41aa0f1ec2e478dfb7c73f4519b4"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/desktop-regression.log",
+      "sha256": "4a1d2d73764ae90acd89f3ae4608141e21f601983d92c16d8eda22e44f4f996f"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/desktop-isolated-build.log",
+      "sha256": "f84f43d987c9f55df61f11ff50064374a8c16a3f7f3afd6be5154acf66cb7dd3"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/device-suite.log",
+      "sha256": "ea6d9c67b8433114316b8663479074e052d8b72e8c92cd2d947ba2200a3d2343"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/device-targeted-recheck.log",
+      "sha256": "9e5a492ec5e45de5eac95a1310c30c3c82822b7e27b352d0d405757465f07adf"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/device-targeted-recheck2.log",
+      "sha256": "4aa935b68fbbc78a00e6ee74ca495caabcb5fa784412946ab85ea5e3e7fdc18b"
+    },
+    {
+      "local_path": "root-helper/build/branch-consolidation/device-suite-final.log",
+      "sha256": "e48c4e2f3bfea18750ec0bfa0b88455edb7fc8cffc5fc0053b2f9a53a58b4b94"
+    }
+  ],
+  "not_rerun_this_integration": [
+    "paid live cloud ASR",
+    "real microphone to user application input",
+    "real Wi-Fi address migration and multi-adapter changes",
+    "foreground-switch latency benchmark",
+    "long-term power, GPU memory or frame-time benchmarks",
+    "standalone translation native/model download acceptance",
+    "root-helper collector implementation regressions (no collector source change)"
+  ]
+}

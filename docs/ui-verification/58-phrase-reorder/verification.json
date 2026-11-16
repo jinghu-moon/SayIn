@@ -1,0 +1,66 @@
+{
+  "date": "2026-11-15",
+  "device": "Redmi K40 / API 33",
+  "package": "seeyuer.sayin.imagetest",
+  "daily_package_replaced": false,
+  "baseline_pointer_keyboard_persistence_tests": 1,
+  "upstream_scroller_regressions": {
+    "before": {
+      "tests": 2,
+      "failures": 2
+    },
+    "after": {
+      "tests": 2,
+      "failures": 0
+    }
+  },
+  "jvm": {
+    "app": {
+      "tests": 87,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "translation": {
+      "tests": 1,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "instrumentation": {
+    "regular_text_ui": 99,
+    "separate_host_image": 4,
+    "total": 103,
+    "panel_tests_included": 31,
+    "new_panel_tests": 6,
+    "final_motion_recheck": 2,
+    "fake_text_input_calls": 2,
+    "fake_image_input_calls": 1
+  },
+  "rust_tests": 138,
+  "checks": {
+    "debug_build": "passed",
+    "lint_debug": "passed",
+    "i18n": "passed",
+    "desktop_dependencies": "passed",
+    "rust_clippy": "passed",
+    "rust_format": "passed",
+    "rust_build": "passed"
+  },
+  "scope": "Isolated UI and fixture regressions; no real microphone, real target-app input or frame-time benchmark claim.",
+  "artifacts": {
+    "58-phrase-crossing.png": "c97a2f9f8aec02734455484f0f92a91810f96dbf6c14f3e91dbcba412482353e",
+    "58-phrase-edge-scroll.png": "0cb96ec25870eb57b689d2cee31b60f14b58e2e2030f98bb1c303fb7f95cb399",
+    "58-phrase-settled.png": "ffa216af75b0efe7fa15b5d5b244ab055ae9111efe63ea532b82dc7b24904c84",
+    "android-build.log": "a89b939c5dfd87b6d179dfbb4341fcca63770c6470d5262e34b2b2799f51299c",
+    "android-instrumentation-build.log": "f2529733b89eee5111801f8b74659cafc7a3cc4c070b23c90aa1b3474517bcb8",
+    "baseline.log": "ad637ce49a900367dc736466f6338fc0ed2aa16aebc7b0f956f60ea086e07b9c",
+    "full-suite.log": "50cd2a485195c4f6edf2cdb00b413e66dc51912bd67c966f508ff52392b0d824",
+    "motion-tests.log": "2ac73b838604a7fed34826bfdce870489692bcbc3e63796c51510248364faaec",
+    "rust-build.log": "8cef2dff86ba8547eb6adb35d4c2a1df43778bed42d2d6d0e2778c6414bd11cb",
+    "rust-clippy.log": "19a79c7bbd3ede7cae98bd67b64a4b4861327cf5361058fa90491168d9bbb172",
+    "rust-test.log": "0b78982570d08f746a7c1749650a03fcd3a786149eb626c4d01c3449844ac4d6",
+    "upstream-scroller-reproduction.log": "5faecbb0adb6b3530a1cb0f04279f35e4cc549519272abee9017bbc4a67b8dc9"
+  }
+}

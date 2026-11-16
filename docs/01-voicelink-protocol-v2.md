@@ -244,7 +244,7 @@ API 37+/target 37 检查并按用户操作申请 `ACCESS_LOCAL_NETWORK`，拒绝
 | 接受结果未知 | 保留同 ID/payload；重连先查询，可显式查询/核对，不换新 ID 自动再发；没有独立 1 秒 ACK 计时器 |
 | 执行耗时异常 | 保留回执身份并查询；held 30 秒期限由电脑推进，等待/暂停不等于网络失败，不自动补输 |
 
-应用 ping/pong 仅带 nonce，不携带业务操作。WebSocket 协议层 Ping/Pong 由库正确处理；不要同时启用两套互不协调的超时判断。应用 JSON 控制与文字共用一个 TCP 流，优先级只能作用于尚未写出的消息，不能宣称有独立物理通道。[S1]
+应用 ping/pong 携带 nonce，pong 另带仅用于前台应用展示新鲜度的 `foreground_seq`，不携带业务操作。WebSocket 协议层 Ping/Pong 由库正确处理；不要同时启用两套互不协调的超时判断。应用 JSON 控制与文字共用一个 TCP 流，优先级只能作用于尚未写出的消息，不能宣称有独立物理通道。[S1]
 
 ## 8. 消息格式
 
@@ -273,7 +273,8 @@ API 37+/target 37 检查并按用户操作申请 `ACCESS_LOCAL_NETWORK`，拒绝
 | 手机 → `control` | id, name；按操作带 refs、expected_rev、target | 独立控制队列，不能作为系统按键执行 |
 | 电脑 → `controlled` | ref, ok, state_rev, paused；可带 reason、in_flight | 控制结果；ref 对应 control.id |
 | 电脑 → `state` | state_rev, paused, active_device_id, target | 状态变化；可带最小化的 focus_label 与 pause_reason |
-| 双向 `ping` / `pong` | nonce | 应用活性探测；pong 回显 nonce |
+| 双向 `ping` / `pong` | nonce；pong 的 foreground_seq | 应用活性探测；pong 回显 nonce，仅确认展示序号 |
+| 电脑 → 手机 `foreground` | session_id、seq、name、icon_png | 已认证连接内的前台应用名称及可选实际图标；仅供展示 |
 | 电脑 → `err` | code, ref?, retry_after_ms? | 未接受的格式/权限/流控等错误；ref 指向相关请求 |
 
 `pair.name` 与 `hello.name` 是显示元数据，必须为非空、无控制字符、最多 64 个 Unicode 码点的名称。手机优先读取只读商品名称属性，回退到 `Build.MODEL`，再回退 `Android`；不使用设备代号，不因界面语言翻译名称。详见 [24 设备名称方案](24-android-device-display-name-plan.md)。
@@ -695,6 +696,23 @@ SenseVoiceSmall 作为整句最终识别，不把 VAD 分段包装成模型本�
 - **[P7]** KDE，[协议身份保护设计讨论MR !780](https://invent.kde.org/network/kdeconnect-kde/-/merge_requests/780)：加密身份和时变校验码提案；不代表本文验证了发布状态。
 
 调研方法：网页搜索定位候选项目与官方文档，查阅官方说明，并通过GitHub仓库元数据与固定提交源码核对关键路径。未用项目星数评价性能；未将第三方估计或示例数字当成本项目测试结果。
+
+
+### 前台应用展示状态（54 实施）
+
+已认证控制 WSS 在 `welcome` 之后发送 `foreground`：
+
+```json
+{"v":2,"t":"foreground","session_id":"当前会话 UUID","seq":"1","name":"Word","icon_png":null}
+```
+
+`seq` 是当前连接内从 1 开始递增的十进制字符串，`name` 为最多 96 个 Unicode 码点的非空应用版本元数据名称，或 `null`（未知、暂停、非活动设备、查询失败）。`icon_png` 为标准带 padding Base64 的 48×48 PNG（解码后最多 12288 bytes、字符串最多 16384 字符），或 `null`。只提取本地可执行文件资源，不传标题、路径、PID、HWND 或进程创建时间。名称与图标在同一序号中原子更新；名称为 null 时图标也为 null。手机先检查编码长度、PNG signature/IHDR 与尺寸，在 IO actor 内先读 bounds 再解码；图标缺失或损坏只回退中性图标，不丢弃有效应用名、不影响控制通道。新连接重新从 1 开始；手机先核对回调连接代次与 `session_id`，忽略当前连接中迟到/重复序号。元数据格式错误只清除展示名称，不破坏已认证控制状态。
+
+电脑在存在已认证控制连接时，通过一个后台任务每 500ms 采样一次；名称和图标资源只在 HWND/PID/创建时间组成的本地身份变化时读取，读取后重新核对前台窗口与交互桌面。原生查询不在 GPUI 或异步 socket 线程执行；同一时间最多一次，watch 只保存最新快照。相同可见名称与图标字节不重复发消息，暂停/失效转为 null。采样超过 2 秒未更新即不再确认新鲜；连接 watchdog 最多再等 2 秒将旧名称清空。
+
+现有 8 秒 ping 的 pong 增加 `foreground_seq`（字符串或 null），仅当新鲜快照与已推送名称及图标一致时确认该序号；不重复携带名称或图标。手机只接受当前 ping 的 nonce 匹配且 8 秒内返回的序号确认；新连接只采用连接建立后的原生采样，不复用旧连接快照。手机在最近应用快照/序号确认后 20 秒未收到确认时一起清空名称与图标，断连/暂停/非活动立即清空，不持久化或从历史恢复。该有界过期窗口并不表示焦点锁定。
+
+这些字段不参与 target、state_rev、ReceptionScope、请求 ID、摘要、Outbox、信任或输入授权，不触发提交、重试、release、恢复或核对。实际输入仍执行原有即时 foreground lease、完整性、会话、修饰键与输入桌面检查。
 
 
 ## 手机连接状态展示（2026-11-16）

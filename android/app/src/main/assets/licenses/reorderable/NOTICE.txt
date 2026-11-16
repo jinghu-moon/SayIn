@@ -1,0 +1,9 @@
+Reorderable 3.1.0 - selected lazy-list sources
+Copyright 2023 Calvin Liang
+https://github.com/Calvin-LL/Reorderable
+Licensed under the Apache License, Version 2.0; see LICENSE.txt.
+SayIn vendors the lazy-list implementation from refer/Reorderable-main.
+Local change: enqueue scroll commands before immediate coroutine launch and restart completed edge-scroll jobs.
+Local change: remember the two derived orientation states across compositions.
+Local change: remove the unused deprecated column/row forwarding aliases.
+Source provenance: android/reorderable-sources.json.

@@ -38,6 +38,7 @@ use voicelink_receiver::{
 };
 use zeroize::Zeroizing;
 
+mod foreground;
 mod image_channel;
 #[cfg(test)]
 mod tests;
@@ -92,6 +93,7 @@ struct Shared {
     image_bindings: Mutex<HashMap<String, Arc<image_channel::Binding>>>,
     image_slots: Arc<Semaphore>,
     image_decode: Arc<Semaphore>,
+    foreground: watch::Sender<foreground::Sample>,
 }
 impl Shared {
     fn notify(&self) {
@@ -204,6 +206,7 @@ impl NetworkService {
             image_bindings: Mutex::new(HashMap::new()),
             image_slots: Arc::new(Semaphore::new(2)),
             image_decode: Arc::new(Semaphore::new(1)),
+            foreground: watch::channel(foreground::Sample::default()).0,
         });
         let (stop, mut stopping) = watch::channel(false);
         let (done, completion) = oneshot::channel();
@@ -235,6 +238,7 @@ impl NetworkService {
                 let unauthenticated=Arc::new(Semaphore::new(8));
                 let mut connections=JoinSet::new();
                 let monitor=tokio::spawn(monitor_profile(state.clone(),binding,policy_stop.clone(),stopping.clone(),crate::interfaces::available_interfaces));
+                let foreground_monitor = tokio::spawn(foreground::monitor(state.clone(), stopping.clone()));
                 let mut maintenance=tokio::time::interval(Duration::from_secs(1));
                 loop {
                     tokio::select! {
@@ -266,6 +270,7 @@ impl NetworkService {
                 drop(publisher);
                 let _=policy_stop.send(true);
                 monitor.abort();
+                foreground_monitor.abort();
                 // Persist suspension before publishing the stopped listener. This
                 // also covers accept failures and a cancelled profile monitor.
                 let _=state.receiver.network_lost().await;
@@ -783,7 +788,9 @@ async fn authenticated(
 ) -> Result<()> {
     let mut notifications = shared.receiver.subscribe().await?;
     let initial = shared.receiver.snapshot().await?;
-    let control = initial.control.clone();
+    let mut control = initial.control.clone();
+    let mut foreground = shared.foreground.subscribe();
+    let mut display = foreground::Display::default();
     let image_binding = image_channel::ControlBinding::new(shared, &session)?;
     send(socket,&json!({"v":2,"t":"welcome","session_id":session.id(),"host_id":shared.identity.host_id,
         "device_id":session.device(),"active_device_id":control.active_device_id,"state_rev":control.state_rev,
@@ -791,7 +798,11 @@ async fn authenticated(
         "image_channel":image_binding.description(),
         "capabilities":if shared.receiver.image_store().is_some() {vec!["text","key_enter","control","query","image"]} else {vec!["text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
             "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536}})).await?;
-    let mut revision = control.state_rev;
+    let sample = foreground.borrow_and_update().clone();
+    display
+        .update(socket, &shared.receiver, &session, &sample, &control, true)
+        .await?;
+    let mut revision = control.state_rev.clone();
     let mut tracked = HashMap::<String, Receipt>::new();
     let mut control_rate = Rate::new();
     let mut inbound_rate = Rate::new();
@@ -805,7 +816,8 @@ async fn authenticated(
                 let value=incoming?;last_inbound=Instant::now();
                 inbound_rate.take()?;
                 shared.receiver.check_session(session.clone()).await?;
-                let result=dispatch(shared,socket,&session,&value,&mut tracked,&mut control_rate).await;
+                let sample = foreground.borrow().clone();
+                let result=dispatch(shared,socket,&session,&value,&mut tracked,&mut control_rate, (&display, &sample, &control)).await;
                 if let Err(error)=result {
                     let code=match error {Error::Protocol(code)=>code,Error::Receiver(voicelink_receiver::Error::Protocol(code))=>code,_=>"SERVICE_UNAVAILABLE"};
                     send(socket,&json!({"v":2,"t":"err","session_id":session.id(),"code":code,"ref":value.get("id")})).await?;
@@ -813,13 +825,22 @@ async fn authenticated(
             },
             _=watchdog.tick()=>{
                 shared.receiver.check_session(session.clone()).await?;
+                let sample = foreground.borrow().clone();
+                display.update(socket, &shared.receiver, &session, &sample, &control, false).await?;
                 if last_inbound.elapsed()>Duration::from_secs(65){return Err(Error::Protocol("IDLE_TIMEOUT"));}
+            },
+            _=foreground.changed()=>{
+                let sample = foreground.borrow_and_update().clone();
+                display.update(socket, &shared.receiver, &session, &sample, &control, false).await?;
             },
             notification=notifications.next()=>{
                 if notification.is_none(){return Err(Error::Protocol("SERVICE_UNAVAILABLE"));}
                 shared.receiver.check_session(session.clone()).await?;
-                let control=shared.receiver.state().await?;
-                if revision!=control.state_rev {revision=control.state_rev.clone();send_state(socket,&session,&control).await?;}
+                control=shared.receiver.state().await?;
+                if revision!=control.state_rev {revision=control.state_rev.clone();send_state(socket,&session,&control).await?;
+                    let sample = foreground.borrow().clone();
+                    display.update(socket, &shared.receiver, &session, &sample, &control, false).await?;
+                }
                 for id in tracked.keys().cloned().collect::<Vec<_>>() {
                     if let Some(receipt)=shared.receiver.query(session.clone(),id.clone()).await? {
                         if tracked.get(&id).is_none_or(|old| old.st!=receipt.st || old.reason!=receipt.reason) {
@@ -850,6 +871,7 @@ async fn dispatch(
     value: &Value,
     tracked: &mut HashMap<String, Receipt>,
     rate: &mut Rate,
+    foreground: (&foreground::Display, &foreground::Sample, &ControlState),
 ) -> Result<()> {
     if value.get("v").and_then(Value::as_u64) != Some(2)
         || field(value, "session_id")? != session.id()
@@ -877,7 +899,7 @@ async fn dispatch(
         }
         return send(
             socket,
-            &json!({"v":2,"t":"pong","session_id":session.id(),"nonce":nonce}),
+            &json!({"v":2,"t":"pong","session_id":session.id(),"nonce":nonce,"foreground_seq":foreground.0.confirmation(foreground.1,foreground.2,session)}),
         )
         .await;
     }

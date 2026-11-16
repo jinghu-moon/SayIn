@@ -1,0 +1,267 @@
+{
+  "idle": {
+    "duration_ms": 18006,
+    "rx_bytes": 432,
+    "tx_bytes": 498,
+    "display_changes": 0
+  },
+  "clock": {
+    "offset_ms": 407.5,
+    "half_rtt_ms": 40.5
+  },
+  "switches": [
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758440965
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758442527
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758444039
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758445553
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758447074
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758448602
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758450114
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758451631
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758453146
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758454694
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758456215
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758457735
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758459294
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758460807
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758462325
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758463841
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758465353
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758466871
+    },
+    {
+      "name": "PowerShell",
+      "switched_at_ms": 1794758468392
+    },
+    {
+      "name": "Windows PowerShell",
+      "switched_at_ms": 1794758469903
+    }
+  ],
+  "p95_ms": 489.5,
+  "scope": "Windows native foreground -> pinned TLS via adb reverse -> Redmi K40 Compose frame; isolated identities; no input",
+  "p50_ms": 303.5,
+  "latencies_ms": [
+    258.5,
+    183.5,
+    177.5,
+    171.5,
+    141.5,
+    111.5,
+    109.5,
+    97.5,
+    63.5,
+    527.5,
+    489.5,
+    468.5,
+    416.5,
+    407.5,
+    362.5,
+    379.5,
+    373.5,
+    363.5,
+    333.5,
+    303.5
+  ],
+  "observations": [
+    {
+      "name": null,
+      "displayed_at_ms": 1794758420025,
+      "connection": "OFFLINE"
+    },
+    {
+      "name": null,
+      "displayed_at_ms": 1794758420113,
+      "connection": "PAIRING"
+    },
+    {
+      "name": null,
+      "displayed_at_ms": 1794758420204,
+      "connection": "APPROVAL"
+    },
+    {
+      "name": null,
+      "displayed_at_ms": 1794758420247,
+      "connection": "CONNECTING"
+    },
+    {
+      "name": null,
+      "displayed_at_ms": 1794758420300,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "AstraGram",
+      "displayed_at_ms": 1794758420577,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758441631,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758443118,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758444624,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758446132,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758447623,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758449121,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758450631,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758452136,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758453617,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758455629,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758457112,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "AstraGram",
+      "displayed_at_ms": 1794758457615,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758458611,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758460118,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758461622,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758463095,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758464628,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758466134,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758467642,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "PowerShell",
+      "displayed_at_ms": 1794758469133,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "AstraGram",
+      "displayed_at_ms": 1794758470127,
+      "connection": "ONLINE"
+    },
+    {
+      "name": "Windows PowerShell",
+      "displayed_at_ms": 1794758470614,
+      "connection": "ONLINE"
+    },
+    {
+      "name": null,
+      "displayed_at_ms": 1794758477342,
+      "connection": "OFFLINE"
+    }
+  ],
+  "samples": 20
+}

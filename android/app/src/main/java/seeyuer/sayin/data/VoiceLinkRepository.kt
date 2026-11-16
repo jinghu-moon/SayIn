@@ -41,6 +41,7 @@ internal data class ClientState(
     val paused: Boolean = true,
     val pauseReason: String? = null,
     val target: String? = null,
+    val foregroundApplication: ForegroundApplication? = null,
     val active: Boolean = false,
     val revision: String? = null,
     val issue: ClientIssue? = null,
@@ -99,6 +100,12 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private var heartbeat: Job? = null
     private var deadline: Job? = null
     private var lastInbound = 0L
+    private var foregroundHint = ForegroundApplicationHint()
+    private var foregroundDisplay: ForegroundApplication? = null
+    private var foregroundObservation = 0L
+    private var foregroundExpiry: Job? = null
+    private var pingNonce: String? = null
+    private var pingSentAt = 0L
     private val queries = mutableMapOf<String, Set<String>>()
     private var lastDraftId: String? = null
     private var reconnectJob: Job? = null
@@ -153,6 +160,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class Open(val generation: Long, val socket: WebSocket) : Event
         data class Message(val generation: Long, val value: String) : Event
         data class Closed(val generation: Long) : Event
+        data class ForegroundExpired(val generation: Long, val observed: Long) : Event
         data class Tick(val generation: Long) : Event
         data class Timeout(val generation: Long) : Event
         data class Send(val text: String, val draftId: String, val expectedScope: ReceptionScope?) : Event
@@ -166,7 +174,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private fun enqueue(event: Event) {
         if (!events.trySend(event).isSuccess) {
             socket?.cancel() // Overflow never drops an acknowledgement silently.
-            mutable.update { it.copy(connection = Connection.OFFLINE, issue = ClientIssue.CONNECTION) }
+            mutable.update { it.copy(connection = Connection.OFFLINE, foregroundApplication = null, issue = ClientIssue.CONNECTION) }
         }
     }
     fun foreground(active: Boolean) = enqueue(Event.Foreground(active))
@@ -275,9 +283,16 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             is Event.Message -> if (event.generation == generation) receive(strictJson(event.value))
             is Event.Closed -> if (event.generation == generation) fail(ClientIssue.CONNECTION)
             is Event.Timeout -> if (event.generation == generation) fail(ClientIssue.CONNECTION)
+            is Event.ForegroundExpired -> if (event.generation == generation && event.observed == foregroundObservation) {
+                mutable.update { it.copy(foregroundApplication = null) }
+            }
             is Event.Tick -> if (event.generation == generation && session != null) {
                 if (SystemClock.elapsedRealtime() - lastInbound > 25000) fail(ClientIssue.CONNECTION)
-                else sendFrame(base("ping").put("nonce", UUID.randomUUID().toString()))
+                else {
+                    pingNonce = UUID.randomUUID().toString()
+                    pingSentAt = SystemClock.elapsedRealtime()
+                    sendFrame(base("ping").put("nonce", pingNonce))
+                }
             }
             is Event.Send -> saveAndSend(event)
             is Event.Action -> historyAction(event.id, event.action)
@@ -367,6 +382,9 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private fun disconnect() {
         imageInput?.invalidate()
         generation++
+        foregroundHint = ForegroundApplicationHint(); foregroundDisplay = null; foregroundObservation = 0L
+        pingNonce = null; pingSentAt = 0L
+        foregroundExpiry?.cancel(); foregroundExpiry = null
         discoveryJob?.cancel(); discoveryJob = null
         connectingHost = null
         session = null
@@ -377,7 +395,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         reconnectJob?.cancel(); reconnectJob = null
         socket?.cancel(); socket = null
         client?.close(); client = null
-        mutable.update { it.copy(connection = Connection.OFFLINE, discovering = false, connectionEpoch = generation, paused = true, active = false, target = null, revision = null, recovering = false) }
+        mutable.update { it.copy(connection = Connection.OFFLINE, discovering = false, connectionEpoch = generation, paused = true, active = false, target = null, foregroundApplication = null, revision = null, recovering = false) }
     }
     private fun fail(issue: ClientIssue) {
         val candidateFailed = discoveredRound && connectingHost != null && session == null
@@ -462,7 +480,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         require(refs.isEmpty())
                         mutable.update { it.copy(recovering = queries.isNotEmpty()) }
                     }
-                    "pong" -> Unit
+                    "foreground" -> applyForeground(value)
+                    "pong" -> confirmForeground(value)
                     "err" -> {
                         // Keep payload/id intact; query on reconnect before any retry.
                         mutable.update { it.copy(issue = ClientIssue.PROTOCOL) }
@@ -479,8 +498,36 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         val pauseReason = value.optString("pause_reason").takeIf { !value.isNull("pause_reason") && it.isNotEmpty() }
             ?.also { require(it.length <= 128) }
         mutable.update { it.copy(paused = value.getBoolean("paused"), pauseReason = pauseReason, target = target, revision = revision,
-            active = value.optString("active_device_id") == host?.deviceId) }
+            active = value.optString("active_device_id") == host?.deviceId,
+            foregroundApplication = it.foregroundApplication.takeIf { _ -> !value.getBoolean("paused") && value.optString("active_device_id") == host?.deviceId }) }
         imageInput?.scopeChanged()
+    }
+    // Display metadata is never fed into receptionScope, persistence or request identity.
+    // Malformed metadata clears only this hint, leaving authenticated control intact.
+    private fun applyForeground(value: JSONObject) {
+        val next = foregroundHint.receive(value)
+        if (next == foregroundHint) return
+        foregroundHint = next
+        foregroundDisplay = ForegroundApplication.from(next)
+        mutable.update { it.copy(foregroundApplication = foregroundDisplay.takeIf { _ -> it.connection == Connection.ONLINE && it.active && !it.paused }) }
+        refreshForeground()
+    }
+    private fun confirmForeground(value: JSONObject) {
+        // A buffered/late pong cannot renew a stale foreground observation.
+        if (pingNonce == null || value.optString("nonce") != pingNonce || SystemClock.elapsedRealtime() - pingSentAt >= 8000) return
+        pingNonce = null
+        if (foregroundHint.confirmed(value)) {
+            mutable.update { it.copy(foregroundApplication = foregroundDisplay.takeIf { _ -> it.connection == Connection.ONLINE && it.active && !it.paused }) }
+            refreshForeground()
+        }
+        else mutable.update { it.copy(foregroundApplication = null) }
+    }
+    private fun refreshForeground() {
+        foregroundObservation++
+        val observed = foregroundObservation
+        val owner = generation
+        foregroundExpiry?.cancel()
+        foregroundExpiry = scope.launch { delay(20_000); enqueue(Event.ForegroundExpired(owner, observed)) }
     }
     private suspend fun saveStatus(value: JSONObject) {
         val id = validId(value.getString("id"))

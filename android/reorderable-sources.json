@@ -1,0 +1,42 @@
+{
+  "project": "https://github.com/Calvin-LL/Reorderable",
+  "version": "3.1.0",
+  "source": "refer/Reorderable-main/reorderable/src/commonMain/kotlin/sh/calvin/reorderable",
+  "license": "Apache-2.0",
+  "local_changes": {
+    "Scroller.kt": "Enqueue before launch; restart completed edge-scroll jobs.",
+    "ReorderableLazyList.kt": "Remove unused deprecated LazyColumn/LazyRow forwarding aliases; remember the two derived orientation states (Compose Lint UnrememberedMutableState)."
+  },
+  "files": [
+    {
+      "file": "ReorderableLazyList.kt",
+      "upstream_sha256": "2124d6a6d267373268ec938c0c3e26dca88bd1d536376d68eeb59c1031f9ac62",
+      "vendored_sha256": "0192915983528bc47fb81998507a882c8149c7315ad52796a33e0d45e7088ac1"
+    },
+    {
+      "file": "ReorderableLazyCollection.kt",
+      "upstream_sha256": "dd8cd9eb1a53453cee71aa647cd174fdc8a4f8b0402466fe9493f063f80776a0",
+      "vendored_sha256": "dd8cd9eb1a53453cee71aa647cd174fdc8a4f8b0402466fe9493f063f80776a0"
+    },
+    {
+      "file": "Scroller.kt",
+      "upstream_sha256": "b9fa6f8bfb20e61fe6831ebf45470b6245c45601b66c5f5b1af00851ad8d2f9b",
+      "vendored_sha256": "3edae34eb93f4889f8cda28989b278e6f8abaf509956ea9351e23f59e133dcfc"
+    },
+    {
+      "file": "DragGestureDetector.kt",
+      "upstream_sha256": "cf45e2ebafcca2488a6910a025c70af20d8987900426240126f242142749b46c",
+      "vendored_sha256": "cf45e2ebafcca2488a6910a025c70af20d8987900426240126f242142749b46c"
+    },
+    {
+      "file": "draggable.kt",
+      "upstream_sha256": "eee33f889a295da5a4dc197f382f2ecb5c03120317576f73d847a81449cccaaa",
+      "vendored_sha256": "eee33f889a295da5a4dc197f382f2ecb5c03120317576f73d847a81449cccaaa"
+    },
+    {
+      "file": "util.kt",
+      "upstream_sha256": "eaf599e3ca11a4f97452d51e1f501b07f71fd84a61dd73f61ed01b83624b4663",
+      "vendored_sha256": "eaf599e3ca11a4f97452d51e1f501b07f71fd84a61dd73f61ed01b83624b4663"
+    }
+  ]
+}

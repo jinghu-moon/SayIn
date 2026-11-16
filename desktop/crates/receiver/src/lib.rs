@@ -1,4 +1,6 @@
 //! Durable receiver boundary. No GPUI, network transport or localized text.
+pub mod application_icon;
+pub mod application_name;
 pub mod gate;
 pub mod images;
 pub mod ledger;

@@ -211,4 +211,47 @@ class TranslationSessionInstrumentedTest {
             } finally { main { session.close() } }
         }
     }
+    @Test fun translationButtonReusesEditedCacheAndNeverReauthorizesAutomaticSend() {
+        val engine = Engine(); lateinit var session: SpeakSession
+        main { session = session(engine); session.changeSendMode(SpeakSendMode.Automatic); session.toggleTranslation() }
+        try {
+            waitFor { engine.calls == 1 }
+            engine.partial("partial")
+            main { assertEquals("原文", session.displayedDraft.text); assertFalse(session.translationShown) }
+            engine.result.complete(TranslationResult(TranslationEnd.Complete, "English"))
+            waitFor { session.translation.complete }
+            main {
+                session.changeDisplayedDraft(TextFieldValue("Edited English"))
+                repeat(3) {
+                    session.toggleTranslation(); assertEquals("原文", session.displayedDraft.text)
+                    session.toggleTranslation(); assertEquals("Edited English", session.displayedDraft.text)
+                    assertNull(session.interaction.countdown)
+                }
+                assertEquals(1, engine.calls)
+                session.toggleTranslation(); session.changeDraft(TextFieldValue("new source"))
+                assertNull(session.translation.ticket); assertFalse(session.translationShown)
+            }
+        } finally { main { session.close() } }
+    }
+
+    @Test fun cancelDiscardsPartialAndLateSuccessfulResultCannotSwitchBackToTranslation() {
+        val engine = Engine(); lateinit var session: SpeakSession
+        main { session = session(engine); session.toggleTranslation() }
+        try {
+            waitFor { engine.calls == 1 }
+            engine.partial("partial English")
+            main {
+                session.toggleTranslation()
+                assertFalse(session.translationShown); assertEquals("原文", session.displayedDraft.text)
+                assertTrue(session.translation.value.text.isEmpty()); assertNull(session.translation.ticket)
+            }
+            engine.result.complete(TranslationResult(TranslationEnd.Complete, "obsolete English"))
+            waitFor { !session.translationStopping }
+            main {
+                assertEquals("原文", session.displayedDraft.text); assertFalse(session.translationShown)
+                assertTrue(session.translation.value.text.isEmpty()); assertNull(session.interaction.countdown)
+            }
+        } finally { main { session.close() } }
+    }
+
 }
