@@ -105,13 +105,6 @@ internal fun RootClipboardTab(
     }
 
     Column(Modifier.fillMaxSize()) {
-        if (snapshot != null || notice != null) Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(if (snapshot != null) R.string.root_clipboard_history else R.string.root_clipboard_current),
-                Modifier.weight(1f), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-            TextButton(stringResource(R.string.root_clipboard_refresh),
-                { if (!busy) { notice = null; refresh++ } },
-                Modifier.heightIn(min = 48.dp).testTag("root-clipboard-refresh"), minHeight = 48.dp)
-        }
         val current = snapshot
         if (!resolved && current == null) Box(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-loading"), contentAlignment = Alignment.Center) {
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
@@ -140,8 +133,17 @@ internal fun RootClipboardTab(
                 }
             }
         }
-        notice?.let { Text(stringResource(it), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .testTag("root-clipboard-notice"), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary) }
+        notice?.let { message ->
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(message), Modifier.weight(1f).testTag("root-clipboard-notice"),
+                    fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                if (message != R.string.root_clipboard_cleared && !busy) {
+                    TextButton(stringResource(R.string.assist_retry),
+                        { notice = null; refresh++ },
+                        Modifier.heightIn(min = 48.dp).testTag("root-clipboard-retry"), minHeight = 48.dp)
+                }
+            }
+        }
         if (current != null) AssistClearAction(!busy && current.entries.isNotEmpty(), "root-clipboard-clear") {
             if (!busy) pendingClear = current
         }

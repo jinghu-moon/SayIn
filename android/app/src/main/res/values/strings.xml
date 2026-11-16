@@ -431,9 +431,6 @@
     <string name="assist_reading_clipboard">Reading clipboard…</string>
 
     <!-- Independent Root module clipboard history -->
-    <string name="root_clipboard_history">Module clipboard history</string>
-    <string name="root_clipboard_current">Current clipboard</string>
-    <string name="root_clipboard_refresh">Refresh</string>
     <string name="root_clipboard_paused">Collection is off or paused. Saved records remain available; use module Action to change collection.</string>
     <string name="root_clipboard_empty">No history yet. Newly copied text will appear here.</string>
     <string name="root_clipboard_clear_title">Clear module history?</string>

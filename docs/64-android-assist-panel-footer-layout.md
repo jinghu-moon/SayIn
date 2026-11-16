@@ -53,3 +53,11 @@ adb -s dc39c31d shell am instrument -w -e class seeyuer.sayin.ui.AssistPanelLayo
 这六项涉及生成剪贴板内容，执行前临时 `stop` 日常采集，保留 enabled 偏好和历史；完成后通过正式 service 恢复 `running=true / enabled=true / capture_ready=true`。未读取日常模块记录，未触碰日常配对或发送。
 
 交付：独立源码最终 debug APK 已通过 `pm install -r` 覆盖安装到 K40，无卸载或清数据；手机安装 APK 的 SHA-256 为 `063ef93243082fa5256c97de5412adfcd136477285b5704304ee43a4e1a3f136`，与构建产物一致。隔离 App 已停止，日常 SayIn 已重新打开。自动断言成绩见 [evidence.json](ui-verification/64-assist-footer/evidence.json)；实际界面观感由用户检查，本轮没有截图或替用户作视觉验收。
+
+## 后续简化：移除重复刷新入口
+
+用户确认面板打开及从常用语切换到剪贴板时已有自动加载，因此移除常驻的「模块剪贴板记录」说明行与「刷新」按钮，正常情况下直接展示列表。首次加载、切页重新加载、回前台加载及复制后的更新继续沿用原逻辑，不新增定时轮询。错误说明旁才显示「重试」，清空成功提示不显示重试；底部固定操作区保持不变。删除已无引用的三项双语文案。
+
+用户明确要求这次不用测试，因此本次不运行 JVM、仪器化测试、Lint 或 i18n 检查；上文的测试成绩属于前一次布局修复，不能作为本次改动的验证成绩。
+
+本次仅执行独立源码目录的 `scripts/gradle.ps1 :app:assembleDebug`，构建成功；已通过 `pm install -r` 覆盖安装到 Redmi K40，保留应用数据，无需重启。未截图，实际 UI 由用户查看。

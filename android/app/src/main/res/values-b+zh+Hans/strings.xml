@@ -427,9 +427,6 @@
     <string name="assist_reading_clipboard">正在读取剪贴板…</string>
 
     <!-- Independent Root module clipboard history -->
-    <string name="root_clipboard_history">模块剪贴板记录</string>
-    <string name="root_clipboard_current">当前剪贴板</string>
-    <string name="root_clipboard_refresh">刷新</string>
     <string name="root_clipboard_paused">采集已关闭或暂停，仍可查看已保存记录；可在模块 Action 中启停采集。</string>
     <string name="root_clipboard_empty">还没有记录。新复制的文字会显示在这里。</string>
     <string name="root_clipboard_clear_title">清空模块记录？</string>
