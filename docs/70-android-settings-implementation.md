@@ -78,3 +78,10 @@ JVM 测试：`:app:testDebugUnitTest` 通过。
 - 旧仪器化测试中依赖设置页旧分段控件（`input-source-*`）的两项已更新为新的识别方式下拉与路由；本轮设备套件已通过。
 - 设置页未引入独立 Navigation 组件；进程内路由与滚动已满足当前使用，跨进程恢复和复杂深链不在本轮范围。
 - 开源许可、诊断、存储、外观与模块采集控制按设计保持禁用，不作为已实现功能记录。
+
+## 6. 本轮交付物
+
+- Debug APK：`android/app/build/outputs/apk/debug/app-debug.apk`
+- SHA-256：`1a054542c9d0fcb72864cf4a41953940a70ba1ef386098bd0fb7d4bebd9a8ec7`
+- 日常包安装：已通过 Root 覆盖安装到 `seeyuer.sayin`，保留既有配对、草稿与历史；未替换用户数据。
+- 隔离验证包：`seeyuer.sayin.imagetest`，与日常包独立；完整设备套件只在隔离包运行。
