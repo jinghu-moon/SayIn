@@ -130,6 +130,14 @@ internal fun SettingsHost(
     }
     DisposableEffect(Unit) { onDispose { onSubpageChange(false) } }
     BackHandler(enabled = route != SettingsRoute.Root) { requestBack() }
+    val baseTextStyles = MiuixTheme.textStyles
+    val settingsTextStyles = remember(baseTextStyles) {
+        baseTextStyles.copy(
+            headline1 = baseTextStyles.headline1.copy(fontSize = 13.sp),
+            body2 = baseTextStyles.body2.copy(fontSize = 13.sp),
+        )
+    }
+    MiuixTheme(colors = MiuixTheme.colorScheme, textStyles = settingsTextStyles) {
     Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
         if (route == SettingsRoute.Root) RootTopBar()
         else SettingsTopBar(stringResource(route.titleRes()), onBack = ::requestBack, actions = {
@@ -193,6 +201,7 @@ internal fun SettingsHost(
                 leave()
             }, modifier = Modifier.weight(1f).testTag("settings-discard-changes"))
         }
+    }
     }
 }
 
