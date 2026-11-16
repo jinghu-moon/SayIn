@@ -6,7 +6,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class VoiceLinkIcon {
     Input, Computer, Send, Microphone, History, Settings, Scan, Wifi, Check, Alert, Shield, Close, Stop, Clear, ChevronRight, ChevronDown, Cloud, Phone, More, Undo, Redo, Translate, Photo, Copy, Automatic, ArrowUp, Retry, Clipboard, Plus, ArrowLeft, GripVertical,
     DeviceDesktopCheck, DeviceDesktopMinus, DeviceDesktopPlus, DeviceDesktopPause,
-    DeviceDesktopExclamation, DeviceDesktopX, ArrowsLeftRight, Loader2, Radar, Dots, Hourglass;
+    DeviceDesktopExclamation, DeviceDesktopX, ArrowsLeftRight, Loader2, Radar, Dots, Hourglass, Eye, EyeOff;
 
     val vector: ImageVector
         get() = when (this) {
@@ -52,5 +52,7 @@ enum class VoiceLinkIcon {
             Radar -> TablerVectors.Radar
             Dots -> TablerVectors.Dots
             Hourglass -> TablerVectors.Hourglass
+            Eye -> TablerVectors.Eye
+            EyeOff -> TablerVectors.EyeOff
         }
 }

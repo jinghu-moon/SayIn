@@ -688,8 +688,12 @@ private fun VoiceWaveform(level: Float, listening: Boolean, color: Color) {
 }
 
 @Composable
-internal fun plainTextButtonColors() = ButtonDefaults.textButtonColors(color = Color.Transparent,
-    textColor = MiuixTheme.colorScheme.primary)
+internal fun plainTextButtonColors() = ButtonDefaults.textButtonColors(
+    color = Color.Transparent,
+    disabledColor = Color.Transparent,
+    textColor = MiuixTheme.colorScheme.primary,
+    disabledTextColor = MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = .45f),
+)
 
 private fun recognitionIssueText(issue: RecognitionIssue): Int = when (issue) {
     RecognitionIssue.Permission -> R.string.asr_permission_denied

@@ -47,7 +47,9 @@
     "dots": "798ff2bd35fdb045535872ed5d5e93e39a289c6fd0faaf01639ae84180e54dae",
     "hourglass": "b333ab6a3b67eb408b13f00150bb75f04b510e87cef94336faff293f9868522b",
     "loader-2": "82639ca5a04efc951caef3d274c9e302f1c09dcdaa9a1b8e094c16890bfd1d41",
-    "radar": "b261bb1323a7bccb20bee6a99e8496f7c0c5fbe8d6ab36d3fe3dcf6dee3da0ad"
+    "radar": "b261bb1323a7bccb20bee6a99e8496f7c0c5fbe8d6ab36d3fe3dcf6dee3da0ad",
+    "eye": "45bdbd35bb18e9997a86dad8db6eb90931d1d53884484baf2c65e34d6f6e4f93",
+    "eye-off": "7fd56939026b76c23b64597bab2ad0b6aab824eef4e0edd772626126b8b20433"
   },
   "license_sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db"
 }

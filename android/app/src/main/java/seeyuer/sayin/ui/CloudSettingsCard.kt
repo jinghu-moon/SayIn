@@ -126,9 +126,14 @@ internal fun CloudSettingsCard(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                         visualTransformation = transformation,
                         trailingIcon = {
-                            TextButton(stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
-                                onClick = { editor.reveal = !editor.reveal }, minHeight = 40.dp,
-                                colors = plainTextButtonColors(), modifier = Modifier.testTag("cloud-reveal"))
+                            IconButton(onClick = { editor.reveal = !editor.reveal },
+                                modifier = Modifier.size(48.dp).testTag("cloud-reveal")) {
+                                Icon(
+                                    (if (editor.reveal) VoiceLinkIcon.EyeOff else VoiceLinkIcon.Eye).vector,
+                                    stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
+                                    Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                                )
+                            }
                         })
                 } else {
                     Spacer(Modifier.height(12.dp))
@@ -144,9 +149,14 @@ internal fun CloudSettingsCard(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
                         visualTransformation = transformation,
                         trailingIcon = {
-                            TextButton(stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
-                                onClick = { editor.reveal = !editor.reveal }, minHeight = 40.dp,
-                                colors = plainTextButtonColors(), modifier = Modifier.testTag("cloud-reveal"))
+                            IconButton(onClick = { editor.reveal = !editor.reveal },
+                                modifier = Modifier.size(48.dp).testTag("cloud-reveal")) {
+                                Icon(
+                                    (if (editor.reveal) VoiceLinkIcon.EyeOff else VoiceLinkIcon.Eye).vector,
+                                    stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
+                                    Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                                )
+                            }
                         })
                 }
                 val message = state.issue?.let(::cloudIssueText) ?: when (state.status) {

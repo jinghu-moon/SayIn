@@ -56,6 +56,8 @@ ICONS = {
     "Radar": "radar",
     "Dots": "dots",
     "Hourglass": "hourglass",
+    "Eye": "eye",
+    "EyeOff": "eye-off",
 }
 
 

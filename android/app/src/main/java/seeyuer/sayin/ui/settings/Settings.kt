@@ -63,6 +63,7 @@ import seeyuer.sayin.ui.SpeakSendMode
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.CloudEditorState
 import seeyuer.sayin.ui.CloudSettingsCard
+import seeyuer.sayin.ui.plainTextButtonColors
 import seeyuer.sayin.ui.localization.AppLanguage
 import seeyuer.sayin.ui.localization.AppLanguages
 import top.yukonga.miuix.kmp.basic.*
@@ -134,10 +135,11 @@ internal fun SettingsHost(
         else SettingsTopBar(stringResource(route.titleRes()), onBack = ::requestBack, actions = {
             when (route) {
                 SettingsRoute.Cloud -> TextButton(
-                    stringResource(R.string.cloud_save),
+                    stringResource(R.string.settings_hotwords_save),
                     onClick = { cloudEditor.save(cloudSettings) },
                     enabled = !cloudState.busy && cloudEditor.dirty && cloudEditor.filled,
                     minHeight = 40.dp,
+                    colors = plainTextButtonColors(),
                 )
                 SettingsRoute.Hotwords -> cloudState.config?.let { config ->
                     TextButton(
@@ -145,6 +147,7 @@ internal fun SettingsHost(
                         onClick = { cloudSettings.save(config.auth, config.appKey, config.appId, config.accessToken, hotwordsDraft.text) },
                         enabled = !cloudState.busy && hotwordsDraft.dirty,
                         minHeight = 40.dp,
+                        colors = plainTextButtonColors(),
                     )
                 }
                 else -> Unit
