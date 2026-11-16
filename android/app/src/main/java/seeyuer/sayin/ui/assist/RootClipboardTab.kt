@@ -113,7 +113,6 @@ internal fun RootClipboardTab(
         else {
             if (!current.captureReady) Text(stringResource(R.string.root_clipboard_paused),
                 Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)
-            if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-list"), contentPadding = PaddingValues(8.dp)) {
                 if (current.entries.isEmpty()) item {
                     Text(stringResource(R.string.root_clipboard_empty), Modifier.padding(16.dp).testTag("root-clipboard-empty"))
