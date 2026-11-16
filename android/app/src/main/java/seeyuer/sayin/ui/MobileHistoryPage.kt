@@ -6,11 +6,13 @@ import android.graphics.Bitmap
 import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
@@ -24,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
@@ -81,9 +84,12 @@ internal fun MobileHistoryPage(state: ClientState, action: (String, String) -> U
         item("filters") {
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 HistoryFilter.entries.forEach { item ->
-                    TextButton(stringResource(item.label), { filter = item }, Modifier.testTag("history-filter-${item.name}"), minHeight = 48.dp,
-                        colors = ButtonDefaults.textButtonColors(color = if (filter == item) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer,
-                            textColor = if (filter == item) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface))
+                    HistoryFilterChip(
+                        label = stringResource(item.label),
+                        selected = filter == item,
+                        onClick = { filter = item },
+                        modifier = Modifier.testTag("history-filter-${item.name}"),
+                    )
                 }
             }
         }
@@ -252,4 +258,23 @@ private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (Strin
     if (item.state == "held" && item.kind != "image") Action(R.string.release_request, state.ready) { action(item.id, "release") }
     if (item.state in setOf("held", "accepted")) Action(R.string.cancel_request, state.connection == Connection.ONLINE) { action(item.id, "cancel") }
     if (item.state == "uncertain") Notice(stringResource(R.string.uncertain_warning), VoiceLinkIcon.Alert)
+}
+
+/** Pill-sized filter with tab selection semantics, not just color feedback. */
+@Composable
+private fun HistoryFilterChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val dark = MiuixTheme.colorScheme.background.luminance() < .5f
+    val shape = RoundedCornerShape(24.dp)
+    val borderColor = if (dark) YuePalette.Neutral600 else YuePalette.Neutral400
+    Box(
+        modifier.height(40.dp).clip(shape)
+            .background(if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.surfaceContainer)
+            .then(if (selected) Modifier else Modifier.border(1.dp, borderColor, shape))
+            .selectable(selected = selected, role = Role.Tab, onClick = onClick)
+            .padding(horizontal = 15.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(label, color = if (selected) MiuixTheme.colorScheme.onPrimary else MiuixTheme.colorScheme.onSurface,
+            fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
+    }
 }

@@ -36,7 +36,18 @@
     "clipboard-text": "1d1b34197245aacb2e503ae55d67e1dc082b17a1bb2204f115c7acd98253d542",
     "plus": "9cc497d4cc1eb38cf9daae18f41ffdc1a5e2a8431d70247b0854978f303f28d6",
     "arrow-left": "12af90f1bb49b7ae62792ecf38d2fa8b39daa4753e39ebc3520d07482a90704f",
-    "grip-vertical": "d26d200e02c6d18fce0932230220d1988ab2fdea3f99342c7044e05ca34267a6"
+    "grip-vertical": "d26d200e02c6d18fce0932230220d1988ab2fdea3f99342c7044e05ca34267a6",
+    "arrows-left-right": "1530a257f97b6d15d7391db8be839ffc6314d583ca8f7188c7f85f20a850bc12",
+    "device-desktop-check": "6cc355dd3ef5ef806a26dc3c662b1e8c6c8a9936d623b48611e8358313a7d94e",
+    "device-desktop-exclamation": "bbd7ca818938304adceb93965c319815428a24f3fa0d5df050b16dbe2c6ffaab",
+    "device-desktop-minus": "3267d34c206d87bda583862894b10ff047bfea7cc0f232e8cd3adb8b90ad2da4",
+    "device-desktop-pause": "5133792f215aee53d387461f0f05d6e7a0d1539f1f7f0f60bfab0aa9fbc8a1dc",
+    "device-desktop-plus": "be431901e3e19f3dd60103ed49d99f237b15b4fedfa7e00db5a69d752d18b67f",
+    "device-desktop-x": "0698676a847a2c6f8df5d268682f6fb1e5c0a5d3a0448b6b9a1a043e39891f9e",
+    "dots": "798ff2bd35fdb045535872ed5d5e93e39a289c6fd0faaf01639ae84180e54dae",
+    "hourglass": "b333ab6a3b67eb408b13f00150bb75f04b510e87cef94336faff293f9868522b",
+    "loader-2": "82639ca5a04efc951caef3d274c9e302f1c09dcdaa9a1b8e094c16890bfd1d41",
+    "radar": "b261bb1323a7bccb20bee6a99e8496f7c0c5fbe8d6ab36d3fe3dcf6dee3da0ad"
   },
   "license_sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db"
 }

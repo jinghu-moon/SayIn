@@ -47,6 +47,24 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MobileShellInstrumentedTest {
+    @Test fun horizontalSwipeAndTabClickShareThePageTransition() {
+        val state = ready()
+        setTestContent { VoiceLinkTheme { TestVoiceLinkContent(state, TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
+        compose.onNodeWithTag("page-Speak").assertExists()
+        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("page-History").assertExists()
+        compose.onRoot().performTouchInput { swipeRight() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("page-Speak").assertExists()
+        compose.onNodeWithTag("nav-Connection").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("page-Connection").assertExists()
+        compose.onNodeWithTag("nav-Speak").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("page-Speak").assertExists()
+    }
+
     @Test fun historyUsesOriginalApplicationAndSupportsSearchCopyAndLocalHide() {
         val id = java.util.UUID.randomUUID().toString()
         var state by mutableStateOf(ready().copy(history = listOf(item("injected", id)),
@@ -75,6 +93,28 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithTag("history-text-$id").assertDoesNotExist()
         assertEquals(listOf(id to "delete"), actions)
         assertEquals("injected", state.history.single().state)
+    }
+
+    @Test fun historyFiltersExposeSelectionStateAndFilterRows() {
+        val submitted = java.util.UUID.randomUUID().toString()
+        val review = java.util.UUID.randomUUID().toString()
+        val state = ready().copy(history = listOf(item("injected", submitted), item("saved", review)),
+            historyText = mapOf(submitted to "Submitted words", review to "Review words"))
+        setTestContent { VoiceLinkTheme { Scaffold {
+            MobileHistoryPage(state, action = { _, _ -> })
+        } } }
+        compose.onNodeWithTag("history-filter-All").assertIsSelected()
+        compose.onNodeWithTag("history-filter-Submitted").assertIsNotSelected()
+        compose.onNodeWithTag("history-text-$review").assertExists()
+        compose.onNodeWithTag("history-filter-Submitted").performClick()
+        compose.onNodeWithTag("history-filter-Submitted").assertIsSelected()
+        compose.onNodeWithTag("history-filter-All").assertIsNotSelected()
+        compose.onNodeWithTag("history-text-$submitted").assertExists()
+        compose.onNodeWithTag("history-text-$review").assertDoesNotExist()
+        compose.onNodeWithTag("history-filter-Review").performClick()
+        compose.onNodeWithTag("history-filter-Review").assertIsSelected()
+        compose.onNodeWithTag("history-text-$review").assertExists()
+        compose.onNodeWithTag("history-text-$submitted").assertDoesNotExist()
     }
 
     @Test fun historyImageFitsCardAndOpensLargerPreviewWithoutSending() {

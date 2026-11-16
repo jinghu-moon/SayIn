@@ -27,49 +27,6 @@ import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
-internal fun ConnectionChip(state: ClientState, onClick: () -> Unit, modifier: Modifier = Modifier, compact: Boolean = false) {
-    val description = stringResource(connectionChipText(state.connectionPresentation))
-    Button(onClick, modifier.heightIn(min = 48.dp).testTag("speak-connect-action").semantics { contentDescription = description },
-        colors = ButtonDefaults.buttonColors(color = MiuixTheme.colorScheme.surfaceContainer,
-            contentColor = MiuixTheme.colorScheme.onSurface),
-        cornerRadius = 24.dp, insideMargin = PaddingValues(horizontal = 12.dp, vertical = 8.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            val working = state.busy || state.recovering || state.discovering
-            val dotColor = if (state.ready) {
-                if (MiuixTheme.colorScheme.background.luminance() < 0.5f) YuePalette.SuccessDark else YuePalette.SuccessLight
-            } else if (working) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
-            if (compact) Box(Modifier.size(24.dp)) {
-                Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(22.dp).align(Alignment.Center))
-                if (working) CircularProgressIndicator(Modifier.align(Alignment.TopEnd), size = 9.dp, strokeWidth = 1.5.dp)
-                else Box(Modifier.size(8.dp).align(Alignment.TopEnd).background(dotColor, CircleShape))
-            } else if (working) CircularProgressIndicator(size = 12.dp, strokeWidth = 2.dp)
-            else Box(Modifier.size(8.dp).background(dotColor, CircleShape))
-            if (!compact || !state.ready && !state.busy && !state.recovering && !state.discovering) Text(stringResource(if (state.discovering) R.string.discovering_computer else connectionChipText(state.connectionPresentation)), Modifier.weight(1f, fill = false),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, fontSize = 13.sp)
-            if (!compact) Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(16.dp))
-        }
-    }
-}
-
-/** Non-interactive summary on the connection page; the speaking chip remains an entry point. */
-@Composable
-internal fun ConnectionBadge(state: ClientState) {
-    val text = when (state.connectionPresentation) {
-        ConnectionPresentation.First, ConnectionPresentation.Offline, ConnectionPresentation.Permission -> R.string.connect_not_connected
-        ConnectionPresentation.Ready -> R.string.connected
-        else -> connectionChipText(state.connectionPresentation)
-    }
-    val color = connectionTone(state)
-    Row(Modifier.background(color.copy(alpha = .10f), RoundedCornerShape(20.dp))
-        .padding(horizontal = 10.dp, vertical = 6.dp).testTag("connection-badge")
-        .semantics { liveRegion = LiveRegionMode.Polite },
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Box(Modifier.size(6.dp).background(color, CircleShape))
-        Text(stringResource(text), color = color, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
 private fun connectionTone(state: ClientState): androidx.compose.ui.graphics.Color {
     val dark = MiuixTheme.colorScheme.background.luminance() < .5f
     return when (state.connectionPresentation) {
@@ -181,3 +138,4 @@ internal fun connectionHelpText(state: ConnectionPresentation): Int = when (stat
     ConnectionPresentation.Paused -> R.string.connection_paused_help
     ConnectionPresentation.Ready -> R.string.connection_ready_help
 }
+

@@ -7,8 +7,6 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
@@ -23,6 +21,7 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.graphics.StrokeCap
 import seeyuer.sayin.designsystem.YuePalette
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -37,6 +36,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.*
 import androidx.compose.ui.res.pluralStringResource
@@ -82,6 +82,7 @@ internal fun SpeakPage(
     onDismiss: () -> Unit = {},
     onRequestAction: (String, String) -> Unit = { _, _ -> },
     onImage: () -> Unit = {},
+    pageActive: Boolean = true,
 ) {
     val focus = remember { FocusRequester() }
     val focusManager = LocalFocusManager.current
@@ -128,8 +129,8 @@ internal fun SpeakPage(
             kotlinx.coroutines.delay(250)
         }
     }
-    DisposableEffect(lifecycle, session, connectionOpen) {
-        fun update() { resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED); session.setVisible(owner, resumed && !connectionOpen) }
+    DisposableEffect(lifecycle, session, connectionOpen, pageActive) {
+        fun update() { resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED); session.setVisible(owner, resumed && !connectionOpen && pageActive) }
         val observer = LifecycleEventObserver { _, _ -> update() }
         lifecycle.addObserver(observer); update()
         onDispose { lifecycle.removeObserver(observer); session.setVisible(owner, false) }
@@ -281,7 +282,7 @@ internal fun SpeakPage(
         val inlineEditingActions = maxHeight < 144.dp * fontScale
         val controlSize = if (minimal) 48.dp else 56.dp
         val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-        val showHeader = !imeOpen && maxHeight >= 260.dp * fontScale
+        val showHeader = maxHeight >= 260.dp * fontScale
         val showTools = maxHeight >= 240.dp * fontScale
         SideEffect { toolsShown = showTools }
         val busy = session.busy
@@ -303,21 +304,30 @@ internal fun SpeakPage(
                 }))
             if (quick) add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
         }
-        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp)) {
-            if (showHeader) Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(R.drawable.sayin_brand), null, Modifier.size(28.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.app_name), Modifier.weight(1f), fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
-                    .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(),
-                    onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
-                    minHeight = 48.dp, minWidth = 48.dp) {
-                    Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
-                }
-                ConnectionChip(state, ::connect, Modifier.widthIn(max = 160.dp), compact = true)
-                if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
-            }
-            Column(Modifier.weight(1f).fillMaxWidth().padding(vertical = if (minimal) 0.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
+        Column(Modifier.fillMaxSize()) {
+            if (showHeader) SmallTopAppBar(
+                title = "",
+                navigationIcon = {
+                    Text(stringResource(R.string.nav_speak), style = MiuixTheme.textStyles.title3,
+                        fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                },
+                actions = {
+                    WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
+                        .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(),
+                        onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
+                        minHeight = 48.dp, minWidth = 48.dp) {
+                        Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
+                    }
+                    ConnectionStatusButton(state, ::connect)
+                    if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
+                },
+                color = MiuixTheme.colorScheme.background,
+                defaultWindowInsetsPadding = false,
+                titlePadding = 8.dp,
+                navigationIconPadding = 20.dp,
+                actionIconPadding = 20.dp,
+            )
+            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = if (minimal) 0.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (!inlineEditingActions) DraftInformation(state, draft, session.sendMode == SpeakSendMode.Automatic) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
@@ -411,7 +421,7 @@ internal fun SpeakPage(
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (inlineEditingActions) 0.dp else 10.dp)) {
                 if (inlineEditingActions) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)

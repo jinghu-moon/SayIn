@@ -54,8 +54,9 @@ class ConnectionPageInstrumentedTest {
     @Test fun firstConnectionShowsThreeStepsAndOnlyExplicitPairClickSubmits() {
         var requests = 0
         compose.setContent { VoiceLinkTheme { Column {
-            ConnectionDetails(ClientState(connection = Connection.OFFLINE), {}, {
-                ConnectionActions(ClientState(connection = Connection.OFFLINE), {}, { _, _, _ -> requests++ }, {}, { _, _ -> }, {})
+            val state = ClientState(connection = Connection.OFFLINE)
+            ConnectionDetails(state, {}, {
+                ConnectionActions(state, {}, { _, _, _ -> requests++ }, {}, { _, _ -> }, {})
             })
         } } }
         compose.onNodeWithText(text(R.string.connect_step_open)).assertIsDisplayed()
@@ -72,9 +73,11 @@ class ConnectionPageInstrumentedTest {
     @Test fun approvalHasCancelAndNeverPromisesReadiness() {
         var cancels = 0
         val state = ClientState(connection = Connection.APPROVAL)
-        compose.setContent { VoiceLinkTheme { ConnectionDetails(state, {}, {
-            ConnectionActions(state, {}, { _, _, _ -> }, { cancels++ }, { _, _ -> }, {})
-        }) } }
+        compose.setContent { VoiceLinkTheme {
+            ConnectionDetails(state, {}, {
+                ConnectionActions(state, {}, { _, _, _ -> }, { cancels++ }, { _, _ -> }, {})
+            })
+        } }
         compose.onNodeWithText(text(R.string.waiting_approval)).assertIsDisplayed()
         compose.onNodeWithText(text(R.string.connect_ready)).assertDoesNotExist()
         compose.onNodeWithText(text(R.string.scan_qr)).assertDoesNotExist()
@@ -121,20 +124,22 @@ class ConnectionPageInstrumentedTest {
         var updated: Pair<String, String>? = null
         var forgotten = 0
         compose.setContent { VoiceLinkTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-            ConnectionActions(state, {}, { _, _, _ -> error("Must not pair") }, {}, { address, port -> updated = address to port }, { forgotten++ })
+            ConnectionDetails(state, {}, {
+                ConnectionActions(state, {}, { _, _, _ -> error("Must not pair") }, {},
+                    { address, port -> updated = address to port }, { forgotten++ })
+            })
         } } }
-        compose.onNodeWithTag("connection-help").performClick()
         compose.onNodeWithText(text(R.string.connection_update_address)).performClick()
         compose.onNodeWithTag("computer-address").performTextReplacement("192.168.1.21:8899")
         assertNull(updated)
         compose.onNodeWithText(text(R.string.connection_save_address)).performScrollTo().performClick()
         assertEquals("192.168.1.21" to "8899", updated)
-        compose.onNodeWithText(text(R.string.forget_computer)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.unpair_computer)).performScrollTo().performClick()
         assertEquals(0, forgotten)
-        compose.onNodeWithText(text(R.string.keep_computer)).performScrollTo().performClick()
+        compose.onNodeWithTag("unpair-cancel").performClick()
         assertEquals(0, forgotten)
-        compose.onNodeWithText(text(R.string.forget_computer)).performScrollTo().performClick()
-        compose.onNodeWithText(text(R.string.confirm_forget)).performScrollTo().performClick()
+        compose.onNodeWithText(text(R.string.unpair_computer)).performScrollTo().performClick()
+        compose.onNodeWithTag("unpair-confirm").performClick()
         assertEquals(1, forgotten)
     }
 
@@ -152,7 +157,7 @@ class ConnectionPageInstrumentedTest {
         compose.onNodeWithText(text(R.string.scan_qr)).assertDoesNotExist()
     }
 
-    @Test fun connectionTabHasPassiveBadgeAndSharesSheetWithoutLosingDraft() {
+    @Test fun connectionTabHasNoDuplicateEntryAndSharesSheetWithoutLosingDraft() {
         compose.setContent {
             val isolated = remember { object : ContextWrapper(compose.activity) {
                 override fun getSharedPreferences(name: String, mode: Int) = context.getSharedPreferences("connection-refactor-$name", mode)
@@ -164,7 +169,8 @@ class ConnectionPageInstrumentedTest {
             }
         }
         compose.onNodeWithTag("nav-Connection").performClick()
-        compose.onNodeWithTag("connection-badge").assertIsDisplayed().assertHasNoClickAction()
+        compose.onNodeWithTag("connection-badge").assertDoesNotExist()
+        compose.onNodeWithTag("speak-connect-action").assertDoesNotExist()
         compose.onNodeWithTag("connection-sheet").assertDoesNotExist()
         compose.onNodeWithTag("nav-Speak").performClick()
         compose.onNodeWithTag("draft").assertTextContains("Keep this draft")
@@ -209,15 +215,16 @@ class ConnectionPageInstrumentedTest {
                 LocalDensity provides Density(density.density, 1.5f)) {
                 VoiceLinkTheme { Box(Modifier.width(320.dp).fillMaxHeight()) {
                     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
-                        Panel { ConnectionDetails(ready().copy(connection = Connection.OFFLINE), {}, {
-                            ConnectionActions(ready().copy(connection = Connection.OFFLINE), {}, { _, _, _ -> }, {}, { _, _ -> }, {})
+                        val state = ready().copy(connection = Connection.OFFLINE)
+                        Panel { ConnectionDetails(state, {}, {
+                            ConnectionActions(state, {}, { _, _, _ -> }, {}, { _, _ -> }, {})
                         }) }
                     }
                 } }
             }
         }
         val card = compose.onNodeWithTag("connection-details").fetchSemanticsNode().boundsInRoot
-        for (tag in listOf("connection-computer-name", "connection-receive-status", "connection-retry", "connection-help")) {
+        for (tag in listOf("connection-computer-name", "connection-receive-status", "connection-retry")) {
             val bounds = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
             assertTrue("$tag left", bounds.left >= card.left - 1)
             assertTrue("$tag right", bounds.right <= card.right + 1)

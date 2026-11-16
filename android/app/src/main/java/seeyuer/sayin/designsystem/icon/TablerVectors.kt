@@ -258,6 +258,105 @@ internal object TablerVectors {
         )
     }
 
+    val DeviceDesktopCheck: ImageVector by lazy {
+        outline("Tabler.device-desktop-check",
+            "M12 16h-8a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v8",
+            "M15 19l2 2l4 -4",
+            "M7 20h4",
+            "M9 16v4"
+        )
+    }
+
+    val DeviceDesktopMinus: ImageVector by lazy {
+        outline("Tabler.device-desktop-minus",
+            "M13.5 16h-9.5a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v10",
+            "M7 20h5",
+            "M9 16v4",
+            "M16 19h6"
+        )
+    }
+
+    val DeviceDesktopPlus: ImageVector by lazy {
+        outline("Tabler.device-desktop-plus",
+            "M13.5 16h-9.5a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v7.5",
+            "M7 20h5",
+            "M9 16v4",
+            "M16 19h6",
+            "M19 16v6"
+        )
+    }
+
+    val DeviceDesktopPause: ImageVector by lazy {
+        outline("Tabler.device-desktop-pause",
+            "M13 16h-9a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v8",
+            "M17 17v5",
+            "M21 17v5",
+            "M7 20h6",
+            "M9 16v4"
+        )
+    }
+
+    val DeviceDesktopExclamation: ImageVector by lazy {
+        outline("Tabler.device-desktop-exclamation",
+            "M15 16h-11a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v7",
+            "M7 20h8",
+            "M9 16v4",
+            "M15 16v4",
+            "M19 16v3",
+            "M19 22v.01"
+        )
+    }
+
+    val DeviceDesktopX: ImageVector by lazy {
+        outline("Tabler.device-desktop-x",
+            "M13 16h-9a1 1 0 0 1 -1 -1v-10a1 1 0 0 1 1 -1h16a1 1 0 0 1 1 1v8",
+            "M7 20h6.5",
+            "M9 16v4",
+            "M22 22l-5 -5",
+            "M17 22l5 -5"
+        )
+    }
+
+    val ArrowsLeftRight: ImageVector by lazy {
+        outline("Tabler.arrows-left-right",
+            "M21 17l-18 0",
+            "M6 10l-3 -3l3 -3",
+            "M3 7l18 0",
+            "M18 20l3 -3l-3 -3"
+        )
+    }
+
+    val Loader2: ImageVector by lazy {
+        outline("Tabler.loader-2",
+            "M12 3a9 9 0 1 0 9 9"
+        )
+    }
+
+    val Radar: ImageVector by lazy {
+        outline("Tabler.radar",
+            "M21 12h-8a1 1 0 1 0 -1 1v8a9 9 0 0 0 9 -9",
+            "M16 9a5 5 0 1 0 -7 7",
+            "M20.486 9a9 9 0 1 0 -11.482 11.495"
+        )
+    }
+
+    val Dots: ImageVector by lazy {
+        outline("Tabler.dots",
+            "M4 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M11 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0",
+            "M18 12a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"
+        )
+    }
+
+    val Hourglass: ImageVector by lazy {
+        outline("Tabler.hourglass",
+            "M6.5 7h11",
+            "M6.5 17h11",
+            "M6 20v-2a6 6 0 1 1 12 0v2a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1",
+            "M6 4v2a6 6 0 1 0 12 0v-2a1 1 0 0 0 -1 -1h-10a1 1 0 0 0 -1 1"
+        )
+    }
+
     private fun outline(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { path ->

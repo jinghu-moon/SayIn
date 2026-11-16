@@ -45,6 +45,17 @@ ICONS = {
     "Plus": "plus",
     "ArrowLeft": "arrow-left",
     "GripVertical": "grip-vertical",
+    "DeviceDesktopCheck": "device-desktop-check",
+    "DeviceDesktopMinus": "device-desktop-minus",
+    "DeviceDesktopPlus": "device-desktop-plus",
+    "DeviceDesktopPause": "device-desktop-pause",
+    "DeviceDesktopExclamation": "device-desktop-exclamation",
+    "DeviceDesktopX": "device-desktop-x",
+    "ArrowsLeftRight": "arrows-left-right",
+    "Loader2": "loader-2",
+    "Radar": "radar",
+    "Dots": "dots",
+    "Hourglass": "hourglass",
 }
 
 

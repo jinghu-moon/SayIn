@@ -1,5 +1,7 @@
 package seeyuer.sayin.ui
 
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -39,17 +41,19 @@ import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.PhraseLibrary
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.ui.localization.AppLanguagePicker
+import top.yukonga.miuix.kmp.utils.PagerNavigationSpringSpec
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
-private enum class MobilePage(val label: Int, val title: Int, val subtitle: Int, val icon: VoiceLinkIcon) {
-    Speak(R.string.nav_speak, R.string.app_name, R.string.app_tagline, VoiceLinkIcon.Microphone),
-    History(R.string.nav_history, R.string.mobile_history_title, R.string.mobile_history_subtitle, VoiceLinkIcon.History),
-    Connection(R.string.nav_connection, R.string.nav_connection, R.string.mobile_connection_subtitle, VoiceLinkIcon.Computer),
-    Settings(R.string.nav_settings, R.string.mobile_settings_title, R.string.mobile_settings_subtitle, VoiceLinkIcon.Settings),
+private enum class MobilePage(val label: Int, val icon: VoiceLinkIcon) {
+    Speak(R.string.nav_speak, VoiceLinkIcon.Microphone),
+    History(R.string.nav_history, VoiceLinkIcon.History),
+    Connection(R.string.nav_connection, VoiceLinkIcon.Computer),
+    Settings(R.string.nav_settings, VoiceLinkIcon.Settings),
 }
 
 /** Presentation has no repository ownership: changing tabs never sends or reconnects. */
@@ -75,7 +79,15 @@ internal fun VoiceLinkContent(
     loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
-    val page = MobilePage.valueOf(pageName)
+    val pagerState = rememberPagerState(initialPage = MobilePage.valueOf(pageName).ordinal) { MobilePage.entries.size }
+    val page = MobilePage.entries[pagerState.currentPage]
+    val scope = rememberCoroutineScope()
+    fun goTo(target: MobilePage) {
+        scope.launch {
+            session.cancelAutoSend()
+            pagerState.animateScrollToPage(target.ordinal, animationSpec = PagerNavigationSpringSpec)
+        }
+    }
     var showConnection by remember { mutableStateOf(false) }
     var showImage by remember { mutableStateOf(false) }
     val context = LocalContext.current
@@ -83,7 +95,14 @@ internal fun VoiceLinkContent(
     val cloudState by cloudSettings.state.collectAsStateWithLifecycle()
     val source = session.source
     val sendMode = session.sendMode
-    LaunchedEffect(entryVersion) { pageName = if (openSettings) MobilePage.Settings.name else MobilePage.Speak.name }
+    LaunchedEffect(pagerState.currentPage) {
+        pageName = page.name
+        session.cancelAutoSend()
+    }
+    LaunchedEffect(entryVersion) {
+        pagerState.animateScrollToPage((if (openSettings) MobilePage.Settings else MobilePage.Speak).ordinal,
+            animationSpec = PagerNavigationSpringSpec)
+    }
     LaunchedEffect(quick) { session.cancelAutoSend() }
     SideEffect { session.updateReceiver(state) }
     var keepAwake by remember { mutableStateOf(preferences.getBoolean("keep_awake", false)) }
@@ -92,94 +111,97 @@ internal fun VoiceLinkContent(
     // Read the raw IME inset before the Scaffold's imePadding consumes it: the input-assist sheet
     // renders in an overlay window that receives no IME insets of its own.
     val imeBottom = with(LocalDensity.current) { WindowInsets.ime.getBottom(this).toDp() }
-    val editing = page == MobilePage.Speak && imeBottom > 0.dp
     DisposableEffect(view, keepAwake) {
         val previous = view.keepScreenOn
         view.keepScreenOn = keepAwake
         onDispose { view.keepScreenOn = previous }
     }
     Scaffold(
-        modifier = Modifier.imePadding(),
-        containerColor = if (page == MobilePage.Speak) MiuixTheme.colorScheme.background else MiuixTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxSize(),
+        // A constant background keeps the canvas stable while pages slide; each page paints itself.
+        containerColor = MiuixTheme.colorScheme.background,
         topBar = {
-            if (!quick && !editing && page == MobilePage.Speak) Spacer(Modifier.statusBarsPadding())
-            if (!quick && !editing && page != MobilePage.Speak) Row(Modifier.fillMaxWidth().background(if (page == MobilePage.Speak) MiuixTheme.colorScheme.background else MiuixTheme.colorScheme.surface)
-                .statusBarsPadding().padding(horizontal = 20.dp, vertical = if (page == MobilePage.Speak) 4.dp else 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                if (page == MobilePage.Speak) {
-                    Image(painterResource(R.drawable.sayin_brand), null, Modifier.size(30.dp))
-                } else Box(Modifier.size(42.dp).background(MiuixTheme.colorScheme.primary, RoundedCornerShape(13.dp)),
-                    contentAlignment = Alignment.Center) {
-                    Icon(page.icon.vector, null, Modifier.size(24.dp), tint = MiuixTheme.colorScheme.onPrimary)
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(stringResource(page.title), fontSize = 22.sp, fontWeight = FontWeight.SemiBold)
-                    if (page != MobilePage.Speak) Caption(stringResource(page.subtitle))
-                }
-                if (page == MobilePage.Connection) Box(Modifier.widthIn(max = 110.dp)) { ConnectionBadge(state) }
-                else ConnectionChip(state, { showConnection = true }, Modifier.widthIn(max = 180.dp))
-            }
+            // Same status-bar spacer on every page and while the IME is open: the bar itself lives
+            // inside each pager page, so its height never changes and typing cannot push it away.
+            if (!quick) Spacer(Modifier.statusBarsPadding())
         },
         bottomBar = {
-            val navigationLine = if (MiuixTheme.colorScheme.background == YuePalette.Neutral100) YuePalette.Neutral200 else YuePalette.Neutral850
-            if (!quick && !editing) Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
-                .drawBehind { drawLine(navigationLine, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
-                .navigationBarsPadding().padding(top = 6.dp, bottom = 8.dp)) {
-                MobilePage.entries.forEach { item ->
-                    val selected = page == item
-                    Column(Modifier.weight(1f).heightIn(min = 52.dp).selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab,
-                        onClick = { session.cancelAutoSend(); pageName = item.name }).testTag("nav-${item.name}"),
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        val tint = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
-                        Icon(item.icon.vector, null, Modifier.size(23.dp), tint = tint)
-                        Text(stringResource(item.label), fontSize = 11.sp, color = tint, maxLines = 1)
+            // Keep the bar composed at the window bottom. The IME window slides over it instead of
+            // the layout removing it, so the page never has to jump to make room.
+            if (!quick) {
+                val navigationLine = if (MiuixTheme.colorScheme.background == YuePalette.Neutral100) YuePalette.Neutral200 else YuePalette.Neutral850
+                Row(Modifier.fillMaxWidth().background(MiuixTheme.colorScheme.background)
+                    .drawBehind { drawLine(navigationLine, androidx.compose.ui.geometry.Offset.Zero, androidx.compose.ui.geometry.Offset(size.width, 0f), 1.dp.toPx()) }
+                    .navigationBarsPadding().padding(top = 6.dp, bottom = 8.dp)) {
+                    MobilePage.entries.forEach { item ->
+                        val selected = page == item
+                        Column(Modifier.weight(1f).heightIn(min = 52.dp).selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab,
+                            onClick = { goTo(item) }).testTag("nav-${item.name}"),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                            val tint = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
+                            Icon(item.icon.vector, null, Modifier.size(23.dp), tint = tint)
+                            Text(stringResource(item.label), fontSize = 11.sp, color = tint, maxLines = 1)
+                        }
                     }
                 }
             }
         },
     ) { insets ->
-        // Each page retains its own scroll position and the draft stays above page content.
-        val historyScroll = rememberScrollState()
         val connectionScroll = rememberScrollState()
         val settingsScroll = rememberScrollState()
-        val scroll = when (page) {
-            MobilePage.Speak -> null
-            MobilePage.History -> historyScroll
-            MobilePage.Connection -> connectionScroll
-            MobilePage.Settings -> settingsScroll
-        }
-        Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
-            if (page == MobilePage.Speak) {
-                SpeakPage(state, session, phrases, onSend,
-                    cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
-                    onConfigureCloud = { if (quick) onExpand(true) else pageName = MobilePage.Settings.name },
-                    onConnect = { showConnection = true },
-                    connectionOpen = showConnection || showImage,
-                    onImage = { session.cancelAutoSend(); showImage = true },
-                    quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
-                    onRequestAction = onHistoryAction)
-            } else if (page == MobilePage.History) {
-                Box(Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("page-History")) {
-                    MobileHistoryPage(state, onHistoryAction, loadHistoryImage)
-                }
-            } else Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(requireNotNull(scroll))
-                .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-${page.name}"),
-                verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                when (page) {
-                    MobilePage.Speak -> Unit
-                    MobilePage.History -> Unit
-                    MobilePage.Connection -> {
-                        if (!state.paired && state.connectionPresentation == ConnectionPresentation.First) {
-                            ConnectionDetails(state, onReconnect, connectionActions)
-                        } else Panel { ConnectionDetails(state, onReconnect, connectionActions) }
+        val extraImeBottom = (imeBottom - insets.calculateBottomPadding()).coerceAtLeast(0.dp)
+        Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
+            .then(if (extraImeBottom > 0.dp) Modifier.padding(bottom = extraImeBottom) else Modifier)) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+                userScrollEnabled = !quick,
+            ) { index ->
+                when (MobilePage.entries[index]) {
+                    MobilePage.Speak -> SpeakPage(state, session, phrases, onSend,
+                        cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
+                        onConfigureCloud = { if (quick) onExpand(true) else goTo(MobilePage.Settings) },
+                        onConnect = { showConnection = true },
+                        connectionOpen = showConnection || showImage,
+                        onImage = { session.cancelAutoSend(); showImage = true },
+                        quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
+                        onRequestAction = onHistoryAction, pageActive = pagerState.settledPage == index)
+                    MobilePage.History -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+                        PageTopBar(MobilePage.History)
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            Box(Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("page-History")) {
+                                MobileHistoryPage(state, onHistoryAction, loadHistoryImage)
+                            }
+                        }
                     }
-                    MobilePage.Settings -> SettingsPage(keepAwake, source, sendMode, cloudSettings, cloudState) {
-                        keepAwake = it
-                        preferences.edit().putBoolean("keep_awake", it).apply()
+                    MobilePage.Connection -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+                        PageTopBar(MobilePage.Connection)
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(connectionScroll)
+                                .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-Connection"),
+                                verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                if (!state.paired && state.connectionPresentation == ConnectionPresentation.First) {
+                                    ConnectionDetails(state, onReconnect, connectionActions)
+                                } else Panel { ConnectionDetails(state, onReconnect, connectionActions) }
+                                Spacer(Modifier.height(4.dp))
+                            }
+                        }
+                    }
+                    MobilePage.Settings -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
+                        PageTopBar(MobilePage.Settings)
+                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                            Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(settingsScroll)
+                                .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-Settings"),
+                                verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                                SettingsPage(keepAwake, source, sendMode, cloudSettings, cloudState) {
+                                    keepAwake = it
+                                    preferences.edit().putBoolean("keep_awake", it).apply()
+                                }
+                                Spacer(Modifier.height(4.dp))
+                            }
+                        }
                     }
                 }
-                Spacer(Modifier.height(4.dp))
             }
         }
         ImageInputSheet(showImage, state, !session.busy && !session.requestLocked,
@@ -200,6 +222,22 @@ internal fun VoiceLinkContent(
             }
         }
     }
+}
+
+@Composable
+private fun PageTopBar(page: MobilePage) {
+    SmallTopAppBar(
+        title = "",
+        modifier = Modifier.fillMaxWidth(),
+        navigationIcon = {
+            Text(stringResource(page.label), style = MiuixTheme.textStyles.title3,
+                fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        },
+        navigationIconPadding = 20.dp,
+        actionIconPadding = 20.dp,
+        defaultWindowInsetsPadding = false,
+        color = MiuixTheme.colorScheme.surface,
+    )
 }
 
 @Composable
