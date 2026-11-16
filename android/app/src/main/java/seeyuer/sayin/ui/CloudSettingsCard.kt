@@ -75,7 +75,7 @@ internal fun CloudSettingsCard(
                 title = stringResource(R.string.settings_cloud_service_name),
                 summary = stringResource(R.string.settings_cloud_service_sub),
                 startAction = { Icon(VoiceLinkIcon.Cloud.vector, null, Modifier.size(24.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary) },
-                endActions = { Text(status.first, fontSize = 12.sp, color = status.second) },
+                endActions = { Text(status.first, fontSize = 13.sp, color = status.second) },
             )
         }
 
@@ -197,7 +197,7 @@ internal fun CloudSettingsCard(
                         Text(
                             if (config != null) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
                             else stringResource(R.string.settings_engine_cloud_missing_short),
-                            fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         )
                         Spacer(Modifier.width(4.dp))
                         Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),

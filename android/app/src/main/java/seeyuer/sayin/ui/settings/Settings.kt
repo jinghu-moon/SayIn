@@ -421,7 +421,7 @@ private fun settingsSwitchColors() = SwitchDefaults.switchColors(
 @Composable
 private fun GroupHeader(title: Int) {
     Text(stringResource(title), modifier = Modifier.padding(start = 8.dp, top = 12.dp, bottom = 2.dp),
-        fontSize = 13.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        fontSize = 17.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceSecondary)
 }
 
 @Composable
@@ -497,7 +497,7 @@ private fun RecognitionPage(
                 summary = stringResource(R.string.settings_offline_model_sub),
                 startAction = startIcon(VoiceLinkIcon.Computer),
                 endActions = {
-                    Text(modelStatus(session), fontSize = 12.sp, color = modelStatusColor(session))
+                    Text(modelStatus(session), fontSize = 13.sp, color = modelStatusColor(session))
                 },
             )
         }
@@ -510,7 +510,7 @@ private fun RecognitionPage(
                     summary = stringResource(R.string.settings_cloud_service_sub),
                     startAction = startIcon(VoiceLinkIcon.Cloud),
                     endActions = {
-                        Text(cloudStatusText(cloudState), fontSize = 12.sp, color = cloudStatusColor(cloudState))
+                        Text(cloudStatusText(cloudState), fontSize = 13.sp, color = cloudStatusColor(cloudState))
                         Spacer(Modifier.width(4.dp))
                         Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
                             tint = MiuixTheme.colorScheme.onSurfaceSecondary)
@@ -525,7 +525,7 @@ private fun RecognitionPage(
                         Text(
                             if (cloudConfigured) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
                             else stringResource(R.string.settings_engine_cloud_missing_short),
-                            fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         )
                         Spacer(Modifier.width(4.dp))
                         Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
