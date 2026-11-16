@@ -108,6 +108,55 @@ class EngineeringTest(unittest.TestCase):
                 result = subprocess.run([bash, "-n"], input=(self.repo / "root-helper/module" / name).read_bytes(), capture_output=True)
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def boot_service(self, mode):
+        bash = find_bash()
+        if not bash: self.skipTest("host Bash unavailable")
+        module = self.repo / ("boot-" + mode)
+        (module / "bin").mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / "root-helper/module/service.sh", module / "service.sh")
+        helper = module / "bin/sayin-helper"
+        helper.write_text('#!/bin/sh\necho "native $*"\nexit 69\n', newline='\n')
+        helper.chmod(0o755)
+        # Source the actual service with simulated boot property/time only.
+        # Native exit 69 must propagate once, never trigger a restart loop.
+        script = '''
+mode="$1"
+reads=0
+getprop() {
+    if [ -f reads ]; then IFS= read -r reads < reads; else reads=0; fi
+    reads=$((reads + 1)); echo "$reads" > reads
+    if [ "$mode" = ready ] || { [ "$mode" = delayed ] && [ "$reads" -ge 3 ]; }; then echo 1; else echo 0; fi
+}
+sleep() {
+    echo wait >> waits
+    case "$mode" in disable) touch disable ;; remove) touch remove ;; esac
+}
+[ "$mode" != disabled ] || touch disable
+[ "$mode" != removed ] || touch remove
+. ./service.sh
+'''
+        result = subprocess.run([bash, '-c', script, './service.sh', mode], cwd=module,
+                                capture_output=True, text=True, timeout=10)
+        waits = (module / 'waits').read_text().count('wait') if (module / 'waits').exists() else 0
+        return result, waits
+
+    def test_boot_service_waits_before_single_launch(self):
+        for mode, waits in (('ready', 0), ('delayed', 2)):
+            with self.subTest(mode=mode):
+                result, count = self.boot_service(mode)
+                self.assertEqual(result.returncode, 69, result.stderr)
+                self.assertEqual(result.stdout.count('native run --module-dir'), 1)
+                self.assertEqual(count, waits)
+
+    def test_boot_service_timeout_and_module_cancellation(self):
+        for mode, code, waits in (('timeout', 1, 120), ('disable', 0, 1), ('remove', 0, 1),
+                                  ('disabled', 0, 0), ('removed', 0, 0)):
+            with self.subTest(mode=mode):
+                result, count = self.boot_service(mode)
+                self.assertEqual(result.returncode, code, result.stderr)
+                self.assertNotIn('native ', result.stdout)
+                self.assertEqual(count, waits)
+
     def install(self, api="33", arch="arm64", bootmode="true", corrupt=False):
         bash = find_bash()
         if not bash: self.skipTest("host Bash unavailable")

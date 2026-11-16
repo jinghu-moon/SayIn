@@ -65,3 +65,21 @@ Android 以基线加本次文件导出到独立源码目录构建，不把其它
 本轮真机仅 Redmi K40/API 33；API 37 新布局仅有主机解析覆盖，未执行新版 API 37 真机回归。实际带格式文本仍不采集。锁屏/解锁门禁未修改，已有回归继续通过；本轮没有新做真实锁屏人工验收。保留快速复制合并、同毫秒和时钟回拨漏采，以及原生 Binder 非稳定 ABI 的既有边界。
 
 格式依据：AOSP `android-13.0.0_r1` 的 `ClipData.writeToParcel`、`TextUtils.writeToParcel`、`TextLinks` 和 `EntityConfidence`。不根据观察猜测未知 padding，不宣称通用 ROM 支持。
+
+## 0.4.1 正式安装复验与启动时序调整（2026-11-16）
+
+用户安装并重启后，K40 的正式目录为 `0.4.1-dev / versionCode=6`；13 个文件摘要匹配交付 ZIP（排除管理器正常删除的 `customize.sh`），日常 App 摘要也与上述交付一致。
+
+但本次真实开机发现 `running=false / enabled=true`，固定诊断状态为 `last_exit=capture_fault`，accepted/dropped 均为零。系统启动完成后，相同正式 ELF 的三秒限时运行正常退出；其 15 组隔离真机采集回归全部通过，包括空 span 包装及 TextLinks。因此不把“安装版本正确”当成开机采集已成功。
+
+旧 `service.sh` 在 Magisk late_start 阶段立即执行一次 native。native 使用非等待的 `AServiceManager_checkService` 查找 clipboard/trust/activity/window/power，启动依赖缺少 Android 框架就绪门禁。此次状态未保留具体 Binder 子错误，不能证明究竟哪项服务在失败时未就绪；已确认的是早期开机失败、完整启动后成功及启动脚本缺失阶段约束。
+
+0.4.2 只修改开机包装：等待 `sys.boot_completed=1`，最多 120 次一秒等待；等待前/中/后检查模块 disable/remove。随后 `exec` 一次 native，native 退出不再拉起。不等待用户解锁，锁屏仍由原生门禁暂停；不调用 `enable`，不修改偏好、历史、权限或 App 保活。首次关闭仍启动只读实例。ELF 与 0.4.1 完全相同。
+
+构建和包检查通过：2,511 项 CTest 断言、11 项工程测试。新增工程测试包含已就绪、延迟就绪、超时、等待中停用/移除、启动前停用/移除七种情形，并验证 native 故障退出只启动一次。这七种脚本行为也在 K40 的 Android shell 执行通过；使用模拟的启动属性/时间及假 native，**不等于真实开机通过**。初次主机测试因 Windows 外部 cat 调用开销超过测试预算而失败，改用 shell 内建读取计数并隔离每个用例目录后全数通过，未降低断言或生产等待上限。
+
+0.4.2 模块 ZIP SHA-256：`4ff415201a6a6bafd8e117235a4b80e3def9b035582615176b2cb2f54092e354`。实际重新开机、锁屏待机至解锁及 API 37 启动验证尚待完成，不能以模拟启动属性的脚本成绩替代。
+
+正式来源 App 桥接回归发生 UI 启动超时，未完整通过。隔离进程的 LifecycleMonitor 显示脚本预先启动的 ComponentActivity 在测试规则启动时被销毁，前台回到 MIUI 桌面；尝试恢复裸 component 又被 ActivityScenario 以 Intent 不匹配拒绝。临时尝试匹配 MAIN/LAUNCHER/flags 的有界恢复后，仍遇到测试退出时 ActivityScenario 等待 DESTROYED 失败。已撤回这些前台恢复尝试，验证脚本保持原提交内容；不修改权限、不删除用例或弱化断言。前次失败证据单独保留。此前修复交付的 9 组桥接/UI 与 21 项普通回归仍是此前成绩，本次重启复验不能重复声称通过这些检查。
+
+本轮结束时已停止隔离 App，通过正式 `service.sh` 恢复原日常采集器，确认 `running=true / enabled=true / capture_ready=true`，重新打开日常 SayIn；不改变 enabled 偏好，不向日常端点发送 LIST/GET/CLEAR。0.4.2 已传到手机 `Download/sayin-helper-0.4.2-dev-arm64.zip`，手机摘要匹配上文；仅修改开机等待脚本/版本，当前正式模块仍为 0.4.1，需用户管理器安装后再次重启。Android 产品源码和 APK 本轮未修改，桌面及其它任务未提交内容保持原样。

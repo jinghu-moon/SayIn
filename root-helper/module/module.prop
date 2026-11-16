@@ -1,6 +1,6 @@
 id=sayin_helper
 name=SayIn Helper
-version=0.4.1-dev
-versionCode=6
+version=0.4.2-dev
+versionCode=7
 author=SayIn contributors
 description=Native clipboard collector for Android 13/17 arm64. Opt-in via Action. Encrypted bounded history. Signature-authenticated SayIn panel access. App keepalive is not implemented.
