@@ -294,13 +294,10 @@ impl ForegroundApplication {
                     .map_err(platform)?;
                     let path = String::from_utf16(&path[..length as usize])
                         .map_err(|_| Error::Protocol("INVALID_PROCESS_PATH"))?;
+                    // Live draft hint and execution history use the same
+                    // display extraction. Their observation times stay separate.
                     self.application =
-                        crate::application_name::display_name(Path::new(&path)).map(|name| {
-                            crate::application_icon::ApplicationDisplay {
-                                name,
-                                icon_png: crate::application_icon::png(Path::new(&path)),
-                            }
-                        });
+                        crate::application_icon::ApplicationDisplay::capture(Path::new(&path));
                     self.identity = Some(identity);
                 }
                 let mut current_pid = 0;

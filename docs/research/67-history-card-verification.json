@@ -51,12 +51,32 @@
     "Phone visual review belongs to user; no phone screenshots reviewed",
     "No new real LAN or real target-application input acceptance in this change",
     "Granted clipboard URI compatibility with arbitrary third-party apps not manually verified",
-    "Existing records lacking execution display remain unknown",
-    "Running daily desktop process remains the previous binary until a normal restart with this build"
+    "Existing records lacking execution display remain unknown"
   ],
   "failed_intermediate_runs": [
     "Missing Scaffold in newly added isolated overlay tests; fixed without weakening assertions",
     "MIUI UiAutomation stderr/EOF capture unsuitable for denial assertion; replaced with real URI permission checks plus separate external shell denial probe",
     "App/test APK mismatch after shared Compose signature changes; installed both current APKs and reran full suite successfully"
-  ]
+  ],
+  "follow_up": {
+    "issue": "Live foreground label present but history application missing",
+    "root_cause": "Daily desktop remained old binary started 2026-11-16 00:29 +08:00; no historical status.application support",
+    "change": "Shared ApplicationDisplay.capture for live and execution extraction; independent observation timing preserved",
+    "checks": {
+      "rust_workspace_tests": 146,
+      "failures": 0,
+      "clippy_all_targets_D_warnings": "passed",
+      "package_fmt_check": "passed",
+      "workspace_build": "passed",
+      "desktop_dependencies": "passed"
+    },
+    "runtime_update": {
+      "at": "2026-11-16 18:07 +08:00",
+      "result": "Normal tray exit confirmed by user; original daily executable replaced and restarted; process remained alive",
+      "sha256": "040468a5a98a760691f109f308d8ef28548f1f17ca0f01b59894e3241b3fd95c",
+      "data": "Original default directory retained; no pairing or history files touched",
+      "limit": "No test content injected into daily target; real new-record display pending normal user use"
+    },
+    "evidence_directory": "root-helper/build/history-refactor"
+  }
 }

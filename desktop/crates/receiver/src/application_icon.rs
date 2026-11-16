@@ -142,6 +142,15 @@ mod tests {
     #[test]
     fn real_executable_icon_is_bounded_and_decodable_with_alpha() {
         let path = std::env::var("WINDIR").unwrap() + r"\explorer.exe";
+        let display = ApplicationDisplay::capture(Path::new(&path)).unwrap();
+        assert!(display.valid());
+        assert!(!display.name.is_empty() && !display.name.ends_with(".exe"));
+        assert!(display.icon_png.is_some());
+        let encoded = serde_json::to_vec(&display).unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ApplicationDisplay>(&encoded).unwrap(),
+            display,
+        );
         let bytes = png(Path::new(&path)).unwrap();
         assert!(bytes.len() <= MAX_ICON_BYTES);
         let image = image::load_from_memory(&bytes).unwrap().into_rgba8();
