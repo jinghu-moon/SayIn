@@ -532,9 +532,8 @@ class MobileShellInstrumentedTest {
     }
 
     private fun selectRecognitionEngine(source: SpeakInputSource) {
-        compose.onNode(hasText(context.getString(R.string.settings_recognition_method)) and hasClickAction()).performClick()
         val label = if (source == SpeakInputSource.Cloud) R.string.settings_engine_cloud else R.string.settings_engine_local
-        compose.onNodeWithText(context.getString(label)).performClick()
+        compose.onNode(hasText(context.getString(label)) and hasClickAction()).performClick()
     }
 
     private lateinit var currentTestSession: SpeakSession

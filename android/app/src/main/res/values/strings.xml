@@ -585,4 +585,23 @@
     <string name="settings_unsaved_message">Your edits have not been saved.</string>
     <string name="settings_keep_editing">Keep editing</string>
     <string name="settings_discard_changes">Discard</string>
+    <string name="settings_section_local">Offline</string>
+    <string name="settings_section_cloud">Cloud</string>
+    <string name="settings_offline_model_sub">Chinese and English</string>
+    <string name="settings_cloud_service_name">Doubao recognition</string>
+    <string name="settings_cloud_service_sub">Volcengine · streaming</string>
+    <string name="settings_cloud_upload_note">Voice is uploaded to Volcengine servers</string>
+    <string name="settings_local_private_note">Processed on device; voice is not uploaded</string>
+    <string name="settings_cloud_need_config">Voice is uploaded to Volcengine; configure credentials first</string>
+    <string name="settings_engine_cloud_configured_short">Configured</string>
+    <string name="settings_engine_cloud_missing_short">Not configured</string>
+    <string name="settings_hotwords_count_only">%1$d</string>
+    <string name="settings_recognition_short_note">Switching engines never sends the draft</string>
+    <string name="settings_cloud_credentials_note">Credentials are encrypted on this device</string>
+    <string name="settings_cloud_auth_method">Authentication</string>
+    <string name="settings_cloud_auth_token">APP ID + Token</string>
+    <string name="settings_verify_title">Verify connection</string>
+    <string name="settings_verify_sub">Sends 1 second of silence; may be billed</string>
+    <string name="settings_verify_action">Verify</string>
+    <string name="settings_cloud_dirty">Unsaved</string>
 </resources>

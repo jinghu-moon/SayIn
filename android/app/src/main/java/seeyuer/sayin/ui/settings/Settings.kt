@@ -13,6 +13,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -22,9 +23,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,6 +52,7 @@ import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
 import seeyuer.sayin.data.RootClipboardClient
+import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.quick.QuickActivity
 import seeyuer.sayin.quick.QuickEntryService
@@ -157,7 +162,9 @@ internal fun SettingsHost(
                     onOpenHotwords = { route = SettingsRoute.Hotwords }, modifier = pageModifier,
                     scroll = scrollFor(SettingsRoute.Recognition),
                 )
-                SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
+                SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState,
+                    onOpenHotwords = { route = SettingsRoute.Hotwords },
+                    modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
                 SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                 SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
                 SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
@@ -417,64 +424,155 @@ private fun RecognitionPage(
     scroll: androidx.compose.foundation.ScrollState,
 ) {
     val engine = session.lastVoiceSource
-    val engineOptions = listOf(
-        stringResource(R.string.settings_engine_local),
-        stringResource(R.string.settings_engine_cloud),
-    )
+    val cloudConfigured = cloudState.config != null
+    val cloudError = cloudState.issue == CloudIssue.Storage
     val canChangeEngine = !session.busy && !session.requestLocked && !session.translation.running &&
         !session.translationStopping && !session.translationPreparing
-    val cloudSummary = when {
-        cloudState.issue == CloudIssue.Storage -> stringResource(R.string.settings_engine_cloud_read_error)
-        cloudState.config != null -> stringResource(R.string.settings_engine_cloud_configured)
-        else -> stringResource(R.string.settings_engine_cloud_missing)
+    val cloud = engine == SpeakInputSource.Cloud
+    val note = when {
+        cloud && cloudError -> stringResource(R.string.settings_engine_cloud_read_error)
+        cloud && !cloudConfigured -> stringResource(R.string.settings_cloud_need_config)
+        cloud -> stringResource(R.string.settings_cloud_upload_note)
+        else -> stringResource(R.string.settings_local_private_note)
     }
+    val warning = cloud && (cloudError || !cloudConfigured)
+    val noteColor = if (warning) warningColor() else MiuixTheme.colorScheme.onSurfaceSecondary
     val hotwordCount = cloudState.config?.hotwords?.size ?: 0
     Column(
         modifier = modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        SettingsCard {
-            WindowDropdownPreference(
-                title = stringResource(R.string.settings_recognition_method),
-                items = engineOptions,
-                selectedIndex = if (engine == SpeakInputSource.Cloud) 1 else 0,
-                enabled = canChangeEngine,
-                onSelectedIndexChange = { session.selectSource(if (it == 1) SpeakInputSource.Cloud else SpeakInputSource.Local) },
+        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                TabRowWithContour(
+                    tabs = listOf(
+                        stringResource(R.string.settings_engine_local),
+                        stringResource(R.string.settings_engine_cloud),
+                    ),
+                    selectedTabIndex = if (cloud) 1 else 0,
+                    onTabSelected = {
+                        if (canChangeEngine) session.selectSource(if (it == 1) SpeakInputSource.Cloud else SpeakInputSource.Local)
+                    },
+                    colors = TabRowDefaults.tabRowColors(
+                        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
+                        contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        selectedBackgroundColor = MiuixTheme.colorScheme.surface,
+                        selectedContentColor = MiuixTheme.colorScheme.primary,
+                    ),
+                    modifier = Modifier.fillMaxWidth().alpha(if (canChangeEngine) 1f else .5f).testTag("settings-recognition-engine"),
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 11.dp, start = 3.dp, end = 3.dp), verticalAlignment = Alignment.Top) {
+                    Icon((if (cloud) VoiceLinkIcon.Cloud else VoiceLinkIcon.Shield).vector, null, Modifier.size(14.dp), tint = noteColor)
+                    Spacer(Modifier.width(7.dp))
+                    Text(note, fontSize = 11.5.sp, lineHeight = 17.sp, color = noteColor)
+                }
+            }
+        }
+
+        SectionLabel(stringResource(R.string.settings_section_local), Modifier.padding(top = 10.dp, start = 4.dp, bottom = 6.dp))
+        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            BasicComponent(
+                title = stringResource(R.string.settings_offline_model),
+                summary = stringResource(R.string.settings_offline_model_sub),
+                startAction = startIcon(VoiceLinkIcon.Computer),
+                endActions = {
+                    Text(modelStatus(session), fontSize = 12.sp, color = modelStatusColor(session))
+                },
             )
-            ArrowPreference(title = stringResource(R.string.settings_offline_model),
-                summary = modelStatus(session), startAction = startIcon(VoiceLinkIcon.Computer), enabled = false, onClick = {})
         }
-        SettingsCard {
-            ArrowPreference(title = stringResource(R.string.settings_cloud_service),
-                summary = stringResource(R.string.settings_cloud_service_summary, cloudSummary),
-                startAction = startIcon(VoiceLinkIcon.Cloud), onClick = onOpenCloud)
-            ArrowPreference(title = stringResource(R.string.settings_hotwords),
-                summary = if (cloudState.config == null) stringResource(R.string.settings_hotwords_configure_first)
-                else stringResource(R.string.settings_hotwords_summary, hotwordCount),
-                startAction = startIcon(VoiceLinkIcon.Input),
-                enabled = cloudState.config != null && !cloudState.busy,
-                onClick = onOpenHotwords)
+
+        SectionLabel(stringResource(R.string.settings_section_cloud), Modifier.padding(top = 14.dp, start = 4.dp, bottom = 6.dp))
+        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            Column {
+                BasicComponent(
+                    title = stringResource(R.string.settings_cloud_service_name),
+                    summary = stringResource(R.string.settings_cloud_service_sub),
+                    startAction = startIcon(VoiceLinkIcon.Cloud),
+                    endActions = {
+                        Text(cloudStatusText(cloudState), fontSize = 12.sp, color = cloudStatusColor(cloudState))
+                        Spacer(Modifier.width(4.dp))
+                        Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    },
+                    onClick = onOpenCloud,
+                )
+                HorizontalDivider()
+                BasicComponent(
+                    title = stringResource(R.string.settings_hotwords),
+                    startAction = startIcon(VoiceLinkIcon.Input),
+                    endActions = {
+                        Text(
+                            if (cloudConfigured) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
+                            else stringResource(R.string.settings_engine_cloud_missing_short),
+                            fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    },
+                    enabled = cloudConfigured && !cloudState.busy,
+                    onClick = onOpenHotwords,
+                )
+            }
         }
-        NoticeText(stringResource(R.string.settings_recognition_note))
+
+        Text(stringResource(R.string.settings_recognition_short_note), Modifier.padding(top = 12.dp, start = 4.dp),
+            fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
     }
 }
 
 @Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(text, modifier, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+}
+
+@Composable
+private fun warningColor(): Color = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.WarningDark else YuePalette.WarningLight
+
+@Composable
+private fun successColor(): Color = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.SuccessDark else YuePalette.SuccessLight
+
+@Composable
 private fun modelStatus(session: SpeakSession): String = when {
-    session.modelPreparation != null -> stringResource(R.string.settings_translation_progress,
-        (session.modelPreparation!!.bytes * 100 / session.modelPreparation!!.total.coerceAtLeast(1)).toInt())
-    session.modelPreparationFailed -> stringResource(R.string.settings_offline_model_failed)
+    session.modelPreparation != null -> stringResource(R.string.settings_offline_model_loading)
+    session.modelPreparationFailed || session.model == seeyuer.sayin.asr.LocalModelPhase.Failed -> stringResource(R.string.settings_offline_model_failed)
     session.model == seeyuer.sayin.asr.LocalModelPhase.Ready -> stringResource(R.string.settings_offline_model_ready)
     session.model == seeyuer.sayin.asr.LocalModelPhase.Loading -> stringResource(R.string.settings_offline_model_loading)
     session.model == seeyuer.sayin.asr.LocalModelPhase.Warming -> stringResource(R.string.settings_offline_model_warming)
-    session.model == seeyuer.sayin.asr.LocalModelPhase.Failed -> stringResource(R.string.settings_offline_model_failed)
     else -> stringResource(R.string.settings_offline_model_idle)
 }
 
 @Composable
-private fun CloudPage(editor: CloudEditorState, settings: CloudSettings, state: CloudSettingsState, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+private fun modelStatusColor(session: SpeakSession): Color = when {
+    session.modelPreparation != null || session.model == seeyuer.sayin.asr.LocalModelPhase.Loading ||
+        session.model == seeyuer.sayin.asr.LocalModelPhase.Warming -> MiuixTheme.colorScheme.primary
+    session.modelPreparationFailed || session.model == seeyuer.sayin.asr.LocalModelPhase.Failed -> MiuixTheme.colorScheme.error
+    session.model == seeyuer.sayin.asr.LocalModelPhase.Ready -> successColor()
+    else -> MiuixTheme.colorScheme.onSurfaceSecondary
+}
+
+@Composable
+private fun cloudStatusText(state: CloudSettingsState): String = when {
+    state.issue == CloudIssue.Storage -> stringResource(R.string.settings_engine_cloud_read_error)
+    state.busy -> stringResource(R.string.cloud_saving)
+    state.config != null -> stringResource(R.string.settings_engine_cloud_configured_short)
+    else -> stringResource(R.string.settings_engine_cloud_missing_short)
+}
+
+@Composable
+private fun cloudStatusColor(state: CloudSettingsState): Color = when {
+    state.issue == CloudIssue.Storage -> MiuixTheme.colorScheme.error
+    state.busy -> MiuixTheme.colorScheme.primary
+    state.config != null -> successColor()
+    else -> warningColor()
+}
+
+@Composable
+private fun CloudPage(editor: CloudEditorState, settings: CloudSettings, state: CloudSettingsState,
+    onOpenHotwords: () -> Unit, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp)) {
-        CloudSettingsCard(editor, settings, state, showHotwords = false, showSave = false)
+        CloudSettingsCard(editor, settings, state, onOpenHotwords = onOpenHotwords,
+            hotwordCount = state.config?.hotwords?.size ?: 0)
     }
 }
 

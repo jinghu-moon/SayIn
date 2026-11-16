@@ -85,3 +85,13 @@ JVM 测试：`:app:testDebugUnitTest` 通过。
 - SHA-256：`1a054542c9d0fcb72864cf4a41953940a70ba1ef386098bd0fb7d4bebd9a8ec7`
 - 日常包安装：已通过 Root 覆盖安装到 `seeyuer.sayin`，保留既有配对、草稿与历史；未替换用户数据。
 - 隔离验证包：`seeyuer.sayin.imagetest`，与日常包独立；完整设备套件只在隔离包运行。
+
+## 7. 识别与云端页二次视觉重构
+
+参考 `refer/sayin-recognition-settings-demo.html`、`refer/sayin-cloud-config-demo.html` 重构，但实现只组合 Miuix 已有组件，不复制 demo 的自定义分段/状态胶囊：
+
+- 语音识别页：`TabRowWithContour` 切换离线/云端；`BasicComponent` 显示离线模型、豆包、热词；状态用文字颜色表达；云端选择时明确“语音会上传至火山引擎服务器”。
+- 豆包配置页：`BasicComponent` 承载服务身份、验证与移除；`TabRowWithContour` 切换鉴权方式；Miuix `TextField` + `trailingIcon` 显示/隐藏；`Card` 承载隐私说明与表单；顶栏保存、热词入口与未保存确认保持原行为。
+- 删除临时的 `SettingsPrimitives.kt`（自定义分段控件、状态胶囊、图标容器），页面只使用 Miuix 组件、Compose 布局和现有设计系统颜色。
+
+验证：`MobileShellInstrumentedTest` 19 项通过；隔离包完整套件 117 项文字/UI + 4 项图片共 121 项通过；i18n 与 lint 通过。

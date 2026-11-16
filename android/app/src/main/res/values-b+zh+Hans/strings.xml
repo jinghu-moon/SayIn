@@ -581,4 +581,23 @@
     <string name="settings_unsaved_message">当前编辑内容尚未保存。</string>
     <string name="settings_keep_editing">继续编辑</string>
     <string name="settings_discard_changes">放弃修改</string>
+    <string name="settings_section_local">离线</string>
+    <string name="settings_section_cloud">云端</string>
+    <string name="settings_offline_model_sub">中英识别</string>
+    <string name="settings_cloud_service_name">豆包语音识别</string>
+    <string name="settings_cloud_service_sub">火山引擎 · 流式</string>
+    <string name="settings_cloud_upload_note">语音会上传至火山引擎服务器</string>
+    <string name="settings_local_private_note">本机处理，语音不会上传</string>
+    <string name="settings_cloud_need_config">语音会上传至火山引擎；请先配置凭据</string>
+    <string name="settings_engine_cloud_configured_short">已配置</string>
+    <string name="settings_engine_cloud_missing_short">未配置</string>
+    <string name="settings_hotwords_count_only">%1$d 个</string>
+    <string name="settings_recognition_short_note">切换识别方式不会发送当前草稿</string>
+    <string name="settings_cloud_credentials_note">凭据仅加密保存在本机</string>
+    <string name="settings_cloud_auth_method">鉴权方式</string>
+    <string name="settings_cloud_auth_token">APP ID + Token</string>
+    <string name="settings_verify_title">验证连接</string>
+    <string name="settings_verify_sub">发送 1 秒静音，可能计费</string>
+    <string name="settings_verify_action">验证</string>
+    <string name="settings_cloud_dirty">待保存</string>
 </resources>
