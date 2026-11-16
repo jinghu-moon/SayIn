@@ -126,7 +126,7 @@
     <string name="speak_source_keyboard">输入法</string>
     <string name="speak_draft_placeholder">文字会显示在这里，可编辑或继续补充。</string>
     <string name="speak_preview_title">发送预览</string>
-    <string name="speak_preview">预览</string>
+    <string name="speak_preview">发送预览</string>
     <string name="speak_edit">编辑</string>
     <string name="speak_finish_input">完成输入</string>
     <string name="speak_start_local">开始说话</string>

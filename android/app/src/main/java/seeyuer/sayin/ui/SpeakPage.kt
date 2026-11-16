@@ -394,12 +394,10 @@ internal fun SpeakPage(
                 }
                 if (!minimal) {
                     val translationToggle = session.translation.ticket != null
-                    val normalizationAvailable = normalized != null && normalized != draft.text && !busy && !translationToggle
-                    val normalizationButton = normalizationAvailable && availableWidth >= 360.dp
                     // Five bottom tools must keep 48dp targets. On a 320dp page the count/translation
-                    // selector moves to its own line and the optional normalization toggle stays in the
-                    // overflow menu, so the five tools never get squeezed.
-                    val stackedTools = availableWidth < 360.dp || translationToggle || normalizationButton && availableWidth < 390.dp
+                    // selector moves to its own line. Send preview is available only in the overflow
+                    // menu, so draft content changes never add a sixth toolbar button.
+                    val stackedTools = availableWidth < 360.dp || translationToggle
                     if (stackedTools) Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (draft.text.isEmpty()) "" else draft.text.codePointCount(0, draft.text.length).toString(),
                             Modifier.weight(1f), fontSize = 13.sp, color = color.onSurfaceSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -410,10 +408,6 @@ internal fun SpeakPage(
                     }
                     Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (!stackedTools && translationToggle) TranslationToggle(session)
-                        if (normalizationButton) DraftIcon(VoiceLinkIcon.Input,
-                            if (showPreview) R.string.speak_edit else R.string.speak_preview, "normalization-toggle") {
-                            session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
-                        }
                         DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist",
                             session.assistEditable && !busy && !locked,
                             modifier = Modifier.focusRequester(assistEntryFocus)

@@ -130,7 +130,7 @@
     <string name="speak_source_keyboard">Keyboard</string>
     <string name="speak_draft_placeholder">Your words appear here. You can edit or add more before sending.</string>
     <string name="speak_preview_title">Text to send</string>
-    <string name="speak_preview">Preview</string>
+    <string name="speak_preview">Preview before sending</string>
     <string name="speak_edit">Edit</string>
     <string name="speak_finish_input">Finish input</string>
     <string name="speak_start_local">Start speaking</string>
