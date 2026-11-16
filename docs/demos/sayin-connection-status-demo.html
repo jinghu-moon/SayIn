@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SayIn · 连接状态按钮 Demo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./sayin-demo-tokens.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.50.0/dist/tabler-icons.min.css">
+<style>
+  :root{
+    --page: var(--neutral-100); --surface: var(--neutral-0); --fg: var(--neutral-900);
+    --mute: var(--neutral-600); --faint: var(--neutral-500); --line: var(--neutral-300);
+    --chip: var(--neutral-200); --field: var(--neutral-50);
+    --ink-mix:#000; --ink-pct:70%;
+  }
+  [data-theme="dark"]{
+    --page: var(--neutral-950); --surface: var(--neutral-900); --fg: var(--neutral-100);
+    --mute: var(--neutral-400); --faint: var(--neutral-500); --line: var(--neutral-800);
+    --chip: var(--neutral-850); --field: var(--neutral-925);
+    --ink-mix:#fff; --ink-pct:78%;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  html,body{margin:0;background:var(--page);color:var(--fg)}
+  body{font:14px/1.55 "Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;padding:28px 20px 40px}
+  .wrap{max-width:1040px;margin:0 auto;display:grid;grid-template-columns:minmax(320px,390px) minmax(300px,1fr);gap:32px;align-items:start;justify-content:center}
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px;min-width:0;width:100%}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:center;font-size:12px;color:var(--mute)}
+  .controls button{border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:6px 12px;font:inherit;font-size:12px;cursor:pointer;min-height:32px}
+  .controls button.on{border-color:var(--brand);color:var(--brand)}
+  .switch{display:flex;align-items:center;gap:6px;cursor:pointer}
+  .switch input{width:16px;height:16px;accent-color:var(--brand)}
+
+  .phone{width:390px;max-width:100%;height:780px;border-radius:40px;background:var(--neutral-900);padding:8px;box-shadow:0 24px 60px rgba(0,0,0,.22);flex:none}
+  [data-theme="dark"] .phone{background:var(--neutral-800)}
+  .screen{position:relative;width:100%;height:100%;border-radius:33px;background:var(--surface);overflow:hidden;display:flex;flex-direction:column}
+  .statusbar{height:42px;display:flex;align-items:center;justify-content:space-between;padding:0 22px;font-size:12px;font-weight:650;flex:none}
+  .statusbar .right{display:flex;gap:6px;align-items:center}
+  .statusbar svg{width:15px;height:15px}
+  .appbar{flex:none;height:52px;display:flex;align-items:center;gap:12px;padding:0 18px 0 20px}
+  .brand{width:28px;height:28px;border-radius:8px;background:var(--neutral-900);display:grid;place-items:center;color:#fff;flex:none}
+  .brand svg{width:18px;height:18px}
+  .appbar .title{font-size:24px;line-height:1;font-weight:700;letter-spacing:.01em;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* 触摸热区 48dp，视觉胶囊 36dp */
+  .hit{display:flex;align-items:center;min-height:48px;flex:none;cursor:pointer;outline:0;-webkit-tap-highlight-color:transparent}
+  .hit.static{cursor:default}
+  .show-hit .hit{outline:1px dashed var(--brand);outline-offset:-1px}
+
+  .pill{--ink:color-mix(in srgb,var(--tone,var(--mute)) var(--ink-pct),var(--ink-mix));
+    position:relative;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:36px;min-width:96px;max-width:132px;
+    padding:0 12px;border-radius:18px;font-size:12px;font-weight:600;line-height:1;white-space:nowrap;overflow:hidden;flex:none;
+    color:var(--ink);background:color-mix(in srgb,var(--tone,var(--mute)) var(--fill,12%),transparent);
+    box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tone,var(--mute)) var(--edge,0%),transparent);
+    transition:background-color .2s,color .2s,box-shadow .2s,transform .1s,width var(--wt,.24s) cubic-bezier(.2,0,0,1)}
+  .pill::before{content:"";position:absolute;inset:0;background:var(--tone,var(--mute));opacity:0;transition:opacity .12s}
+  .pill>*{position:relative}
+  .pill.interactive:hover::before{opacity:.07}
+  .pill.interactive:active::before{opacity:.13}
+  .hit:active .pill.interactive{transform:scale(.97)}
+  .hit:focus-visible .pill{outline:2px solid var(--brand);outline-offset:2px}
+  .icon{width:18px;height:18px;flex:none;display:grid;place-items:center}
+  .icon svg{width:18px;height:18px}
+  .label{overflow:hidden;text-overflow:ellipsis}
+  .label.swap{animation:up .18s ease-out}
+  .chevron{display:none;width:14px;height:14px;flex:none;opacity:.75}
+  .pill.interactive .chevron{display:block}
+  .big .pill{font-size:15.6px;max-width:172px}
+  .big .pill .chevron{display:none}
+
+  /* 层级：就绪最安静，需注意/异常逐级加重 */
+  .tone-ok{--tone:var(--success);--fill:6%}
+  .tone-primary{--tone:var(--brand);--fill:12%}
+  .tone-warn{--tone:var(--warning);--fill:15%}
+  .tone-error{--tone:var(--error);--fill:17%;--edge:32%}
+  .tone-neutral{--tone:var(--mute);--fill:10%}
+
+  /* 图标：Tabler webfont。动效只用来表达“正在进行” */
+  .ic{display:block;width:18px;height:18px;font-size:18px;line-height:18px}
+  .sp{animation:spin .9s linear infinite}
+  .rd{position:relative;display:block;width:18px;height:18px}
+  .rd::before,.rd::after{content:"";position:absolute;inset:-1px;border:1.5px solid currentColor;border-radius:50%;opacity:0;animation:rad 1.8s ease-out infinite}
+  .rd::after{animation-delay:.9s}
+  .settle .pp{animation:pop .34s cubic-bezier(.2,1.7,.4,1)}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes rad{from{transform:scale(.55);opacity:.55}to{transform:scale(1.4);opacity:0}}
+  @keyframes pop{from{transform:scale(.2)}to{transform:none}}
+  @keyframes up{from{transform:translateY(7px);opacity:0}to{transform:none;opacity:1}}
+
+  .content{flex:1;min-height:0;overflow-y:auto;padding:10px 20px 20px}
+  .content::-webkit-scrollbar{width:0}
+  .section{font-size:12px;letter-spacing:.06em;font-weight:700;color:var(--faint);margin:4px 0 2px}
+  .grp{font-size:11px;font-weight:700;color:var(--faint);margin:12px 0 2px}
+  .state-row{display:flex;align-items:center;gap:10px;padding:5px 8px;margin:0 -8px;cursor:pointer;border-radius:12px}
+  .state-row:hover{background:var(--field)}
+  .state-row.on{background:var(--field);box-shadow:inset 0 0 0 1px var(--line)}
+  .state-row .pill{pointer-events:none}
+  .state-row .meta{font-size:11.5px;line-height:1.4;color:var(--mute);min-width:0}
+  .note{font-size:11.5px;color:var(--faint);margin:14px 0 0;line-height:1.6}
+
+  .tag{font-size:10.5px;color:var(--faint);border:1px solid var(--line);border-radius:6px;padding:0 5px;margin-left:6px;white-space:nowrap}
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,.34);z-index:5}
+  .sheet{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;flex-direction:column;max-height:calc(100% - 48px);min-height:0;background:var(--surface);border-radius:24px 24px 0 0;padding:12px 20px max(20px,env(safe-area-inset-bottom));box-shadow:0 -10px 32px rgba(0,0,0,.2);animation:sheet .22s cubic-bezier(.2,0,0,1)}
+  @keyframes sheet{from{transform:translateY(28px);opacity:0}}
+  .sh-top{display:flex;align-items:center;justify-content:space-between;flex:none;min-height:48px}
+  .sh-top .x{border:0;background:radial-gradient(circle,var(--chip) 0 16px,transparent 16px);color:var(--fg);width:48px;height:48px;flex:none;border-radius:50%;font-size:15px;cursor:pointer}
+  #shbody{min-height:0;overflow-y:auto;overscroll-behavior:contain;overflow-wrap:anywhere;padding-bottom:4px}
+  .big .sh-v{font-size:17.55px}.big .sh-foot{font-size:14.95px}.big .sh-k{font-size:14.3px}
+  .sh-k{margin:14px 0 2px;font-size:11px;font-weight:700;color:var(--faint)}
+  .sh-v{margin:0;font-size:13.5px}
+  .sh-foot{margin:16px 0 0;font-size:11.5px;color:var(--faint);line-height:1.6}
+  .act{margin-top:14px;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:999px;padding:8px 16px;min-height:48px;font:inherit;font-size:13px;cursor:pointer}
+  .rec{border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin:0 0 10px;background:var(--field)}
+  .rec-h{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--mute)}
+  .rec-h b{color:var(--fg);flex:none}
+  .rec-n{margin:6px 0 0;font-size:12px;color:var(--mute);line-height:1.5}
+  .rec-n:empty{display:none}
+  .rec .act{margin-top:8px;font-size:12px}
+  .notes{min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:18px;padding:18px 20px}
+  .notes h3{margin:0 0 10px;font-size:15px}
+  .notes h4{margin:16px 0 6px;font-size:13px}
+  .notes ul{margin:0;padding-left:20px;color:var(--mute);font-size:13px}
+  .notes li{margin:0 0 6px}
+  .notes b{color:var(--fg);font-weight:650}
+  .table{width:100%;border-collapse:collapse;font-size:12px;color:var(--mute);margin-top:6px}
+  .table th,.table td{text-align:left;padding:5px 6px;border-bottom:1px solid var(--line);vertical-align:top}
+  .table th{color:var(--fg);font-weight:650}
+  .capsule{display:inline-flex;align-items:center;height:22px;padding:0 8px;border-radius:11px;font-size:11px;font-weight:600;color:var(--tone);background:color-mix(in srgb,var(--tone) 12%,transparent)}
+  .demo-note{font-size:11.5px;color:var(--faint);margin:0}
+  .caption{font-size:12px;color:var(--faint);text-align:center;max-width:390px;margin:0;min-height:2.8em}
+  @media (max-width:860px){.wrap{grid-template-columns:minmax(0,1fr);justify-items:center}.notes{width:100%;max-width:390px}}
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition-duration:.001ms!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage">
+    <div class="controls">
+      <label class="switch"><input type="checkbox" id="interactive" checked>可点击</label>
+      <label class="switch"><input type="checkbox" id="hitbox">48dp 热区</label>
+      <label class="switch"><input type="checkbox" id="big">字体 1.3×</label>
+      <button id="theme-toggle" type="button">深色</button>
+    </div>
+    <div class="controls">
+      <button type="button" data-flow="first">▶ 首次配对</button>
+      <button type="button" data-flow="cold">▶ 冷启动</button>
+      <button type="button" data-flow="retry">▶ 断线重连</button>
+      <button type="button" data-flow="stash">▶ 重连后旧记录仍暂存</button>
+      <button type="button" data-flow="uncertain">▶ 重连后结果待核对</button>
+    </div>
+    <div class="controls">
+      <label class="switch"><input type="checkbox" id="stale">已保存地址失效</label>
+      <label class="switch"><input type="checkbox" id="old">有旧请求</label>
+    </div>
+    <div class="controls" id="branch" hidden><span id="bl">电脑实际状态：</span>
+      <button type="button" data-to="ready">已连接</button>
+      <button type="button" data-to="paused">已暂停</button>
+      <button type="button" data-to="inactive">未选中</button>
+      <button type="button" data-to="review">待核对</button>
+    </div>
+
+    <div class="phone" aria-label="SayIn 顶部连接状态按钮预览">
+      <div class="screen">
+        <div class="statusbar" aria-hidden="true">
+          <span>16:55</span>
+          <span class="right">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><path d="M12 20h.01"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="10" rx="2"/><path d="M7 18v2M17 18v2"/></svg>
+          </span>
+        </div>
+        <div class="appbar">
+          <div class="brand" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+          </div>
+          <div class="title">首页</div>
+          <div class="hit" id="hit"><span class="pill" id="pill"><span class="icon" id="ico"></span><span class="label" id="lbl"></span><svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span></div>
+        </div>
+        <div class="content" id="content">
+          <div class="rec" id="rec" hidden>
+            <div class="rec-h"><span>示例记录 · “把登录页的校验改一下”</span><b id="recs"></b></div>
+            <p class="rec-n" id="recn"></p>
+            <button type="button" class="act" id="recb" hidden></button>
+          </div>
+          <p class="section">状态一览 · 点选切换顶部</p>
+          <div id="grid"></div>
+          <p class="note">点顶栏胶囊（需勾选“可点击”）查看连接面板示意；连接页同一外观但只读、不显示箭头；状态变化通过 live region 播报。</p>
+        </div>
+        <div class="scrim" id="scrim" hidden></div>
+        <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="连接面板" hidden>
+          <div class="sh-top"><span class="pill" id="shpill"></span><button type="button" class="x" id="shx" aria-label="关闭">✕</button></div>
+          <div id="shbody"></div>
+        </div>
+      </div>
+    </div>
+    <p class="caption" id="log" role="status" aria-live="polite">示例数据：只描述状态，不连接真实电脑、不读取真实连接状态。</p>
+  </div>
+
+  <aside class="notes">
+    <h3>统一后的连接状态按钮</h3>
+    <ul>
+      <li><b>结构：</b>状态图标 + 2–4 字；36dp 高、18dp 圆角，热区 48dp。连接页只读（role=status、无箭头），说话页点按打开面板（箭头朝下）。</li>
+      <li><b>图标：</b>统一用单层 Tabler 图标：device-desktop-check / pause / exclamation / x / minus / plus、arrows-left-right、loader-2、radar、refresh、dots、hourglass；不再用“电脑底座 + 右下角角标”叠加，避免 18dp 下两层线条互相干扰。</li>
+      <li><b>层级与颜色：</b>就绪最安静；进行中蓝；可恢复的问题（含需要授权）琥珀；红色只给不会自愈、需用户处理的数据或安全问题；灰色是离线 / 初始化 / 首次入口。</li>
+      <li><b>动效：</b>只表达“正在进行”：初始化 / 连接 / 配对共用轻量旋转，查找用雷达涟漪，核对状态用双向箭头，待批准是静态沙漏。</li>
+      <li><b>恢复顺序：</b>先连保存的地址；失败才查找电脑，再连候选地址。只有存在旧请求才出现“核对状态”。末尾按电脑实际状态展示（已连接 / 已暂停 / 未选中 / 待核对），不固定落到已连接。左侧勾选“已保存地址失效”“有旧请求”对比。</li>
+      <li><b>已暂停：</b>仅 pause_reason=paused 时才说电脑已暂停、请在电脑恢复。启动准备、网络恢复、接收范围变化等自动处理阶段，顶栏跟随真实恢复任务，不引导用户去电脑点击；outcome_review_required 一律归入待核对。</li>
+      <li><b>核对与受阻并存：</b>已确认的具体阻断（存储异常、待核对、已暂停、未选中）作主状态，面板补一句“正在核对此前发送结果”；没有明确阻断但查询未完成，显示“核对状态”；不因顶栏显示已暂停就提前结束旧请求查询；全部满足才显示绿色已连接。不新增组合状态。</li>
+      <li><b>连接恢复 ≠ 旧请求已处理：</b>断线只表示结果待确认，查询后才能确定是否暂存。held 表示暂存、未执行，接收条件满足后顶栏可为已连接；uncertain 表示结果不确定，电脑核对闸门未解除时顶栏必须为待核对。两条演示分别展示，不混成一种状态；记录卡片只提供“查看记录”。文字暂存可在手机详情明确释放或取消，图片暂存不支持释放，不确定结果需在电脑核对。</li>
+      <li><b>暂不可用：</b>只是兜底，面板必须按真实原因给下一步。草稿顶部应用图标缺失只是实时提示，不是接收授权，不触发它。</li>
+      <li><b>初始化 / 无局域网 / 重连：</b>初始化只对应真实加载，结束即离开；无局域网时顶栏仍为“未连接”，面板写“网络恢复后自动连接”，不播查找动画（没有互联网不等于局域网不可用）；顶栏跟随真实连接任务的结束与退避，不设 UI 倒计时，也不要求手动重试。</li>
+      <li><b>不放顶栏：</b>配对码过期、配对被拒、未发现电脑、地址连接失败（配对表单 / 连接面板）；发送中、图片上传中（发送区域）。</li>
+      <li><b>大字号与无障碍：</b>放大后先隐藏箭头再放宽最大宽度；状态变化走 polite live region，颜色与角标只是冗余提示。</li>
+    </ul>
+    <h4>状态映射</h4>
+    <table class="table">
+      <thead><tr><th>状态</th><th>按钮文字</th><th>颜色</th><th>图标 / 动效</th></tr></thead>
+      <tbody>
+        <tr><td>正常就绪</td><td>已连接</td><td><span class="capsule tone-ok">绿</span></td><td>对勾</td></tr>
+        <tr><td>读取配对与账本</td><td>初始化</td><td><span class="capsule tone-neutral">灰</span></td><td>loader-2 旋转</td></tr>
+        <tr><td>连接 / 配对 / 核对</td><td>连接中 / 配对中 / 核对状态</td><td><span class="capsule tone-primary">蓝</span></td><td>loader-2 旋转 / 双向箭头</td></tr>
+        <tr><td>查找 / 等人批准</td><td>查找电脑 / 待批准</td><td><span class="capsule tone-primary">蓝</span></td><td>radar 涟漪 / hourglass</td></tr>
+        <tr><td>在线但需注意；本机权限</td><td>待核对 / 已暂停 / 未选中 / 暂不可用 / 需要授权</td><td><span class="capsule tone-warn">琥珀</span></td><td>desktop-exclamation / pause / dots / minus / x</td></tr>
+        <tr><td>不自愈的数据或安全问题</td><td>存储异常 / 授权失效 / 无法验证</td><td><span class="capsule tone-error">红</span></td><td>desktop-x / desktop-x / desktop-exclamation</td></tr>
+        <tr><td>已配对离线 / 无局域网 / 首次</td><td>未连接 / 未连接 / 连接电脑</td><td><span class="capsule tone-neutral">灰</span></td><td>refresh / desktop-minus / desktop-plus</td></tr>
+      </tbody>
+    </table>
+    <h4>受阻状态：双端各自做什么</h4>
+    <table class="table">
+      <thead><tr><th>手机显示</th><th>电脑实际情况</th><th>手机面板告诉用户</th></tr></thead>
+      <tbody id="dual"></tbody>
+    </table>
+    <p class="demo-note" style="margin-top:8px">手机负责展示和引导；恢复接收、选择设备和核对结果在电脑上完成。手机不为这些状态提供通用“修复 / 恢复”按钮。</p>
+    <h4>仍缺双端数据支撑（列表里标了“需双端数据”）</h4>
+    <ul>
+      <li><b>电脑存储异常：</b>现有 welcome/state 没带 storage_healthy，不能由普通断线推断。</li>
+      <li><b>授权失效：</b>手机目前分不清撤销授权与普通连接失败，需要可靠的认证错误处理。</li>
+      <li><b>无法验证：</b>仅在实际发生证书或身份校验失败时说明“发现的地址未通过身份验证”；没有候选、超时或拒绝连接仍为未连接，不能因所有候选连接失败就推断身份异常。单个候选不符时继续其他候选，不据此断言原电脑身份已变化，不引导换证书或自动重新配对。</li>
+    </ul>
+    <h4>优先级（按有效事实判断）</h4>
+    <p class="demo-note"><b>尚未认证在线：</b>已确认存储异常（手机端）&gt; 初始化 &gt; 需要授权 &gt; 授权失效 / 无法验证 &gt; 配对中 / 待批准 &gt; 查找电脑 / 连接中 &gt; 未连接 / 连接电脑。加载中一旦确认存储或密钥异常，立即结束初始化并显示异常。</p>
+    <p class="demo-note" style="margin-top:8px"><b>认证在线且状态有效：</b>存储异常（电脑端）&gt; 待核对 &gt; 已暂停 &gt; 未选中 &gt; 核对状态 &gt; 暂不可用（兜底）&gt; 已连接</p>
+    <p class="demo-note" style="margin-top:8px">断线后不沿用旧会话的“已暂停 / 未选中”。</p>
+  </aside>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const S = (id,label,tone,ctx,o) => Object.assign({id,label,tone,ctx},o);
+  const A='启动与进行中', W='需注意', E='异常', N='离线 / 首次';
+  const states = [
+    S('ready','已连接','ok','认证在线且状态有效',{c:'device-desktop-check',g:'就绪'}),
+    S('init','初始化','neutral','读取配对与账本期间；加载一结束就离开，不人为延长',{m:'sp',g:A}),
+    S('discovering','查找电脑','primary','保存的地址连不上后才查找；已配对，正在局域网查找',{m:'rd',g:A}),
+    S('connecting','连接中','primary','先连保存的地址；查找后连候选地址',{m:'sp',g:A}),
+    S('pairing','配对中','primary','首次配对',{m:'sp',g:A}),
+    S('approval','待批准','primary','等人在电脑上批准，静态沙漏不转',{m:'hg',g:A}),
+    S('checking','核对状态','primary','仅在有旧请求时出现；手机查询旧请求结果，不自动重发',{c:'arrows-left-right',g:A}),
+    S('review','待核对','warn','在线；上次输入结果不确定（含 outcome_review_required）',{c:'device-desktop-exclamation',g:W}),
+    S('paused','已暂停','warn','在线；仅 pause_reason=paused：电脑已暂停接收',{c:'device-desktop-pause',g:W}),
+    S('inactive','未选中','warn','在线；本机不是电脑当前选用的设备',{c:'dots',g:W}),
+    S('unavailable','暂不可用','warn','兜底；按真实原因给下一步，不能只有“请重试”',{c:'device-desktop-minus',g:W}),
+    S('permission','需要授权','warn','局域网权限缺失，可恢复',{c:'device-desktop-x',g:W}),
+    S('storage','存储异常','error','手机或电脑存储受阻；面板写明是哪一端',{c:'device-desktop-x',g:E,d:1}),
+    S('revoked','授权失效','error','收到明确的撤销授权才显示，需重新配对',{c:'device-desktop-x',g:E,d:1}),
+    S('unverified','无法验证','error','实际发生身份校验失败，且本轮未找到可信端点；面板说明失败地址不代表原电脑。普通超时、无候选仍为未连接',{c:'device-desktop-exclamation',g:E,d:1}),
+    S('offline','未连接','neutral','已配对，暂时连不上，自动重连',{c:'refresh',g:N}),
+    S('nolan','未连接','neutral','无可用局域网：面板写“网络恢复后自动连接”，不播查找动画',{c:'device-desktop-minus',g:N}),
+    S('first','连接电脑','neutral','全新手机，点按进入配对',{c:'device-desktop-plus',g:N}),
+  ];
+  const by = Object.fromEntries(states.map(s => [s.id,s]));
+
+  const ti = (n,c) => '<i class="ti ti-' + n + ' ic' + (c ? ' ' + c : '') + '"></i>';
+  const busy = {sp: ti('loader-2','sp'), rd: '<span class="rd">' + ti('radar') + '</span>', hg: ti('hourglass')};
+  // 每个状态只用一个 Tabler 图标；设备类图标本身就带对勾 / 暂停 / × 等角标。
+  const icon = s => s.m ? busy[s.m] : ti(s.c,'pp');
+
+  const hit = $('hit'), pill = $('pill'), ico = $('ico'), lbl = $('lbl'), logEl = $('log'), grid = $('grid'), br = $('branch');
+  let cur = states[0], interactive = true, flowT = 0, flow = '', mt = 0;
+  const say = t => { logEl.textContent = t; };
+
+  const rows = {};
+  let g = '';
+  states.forEach(s => {
+    if (s.g !== g) { g = s.g; const h = document.createElement('p'); h.className = 'grp'; h.textContent = g; grid.appendChild(h); }
+    const row = document.createElement('div'); row.className = 'state-row';
+    const p = document.createElement('span'); p.className = 'pill tone-' + s.tone;
+    p.innerHTML = '<span class="icon">' + icon(s) + '</span><span class="label">' + s.label + '</span>';
+    const m = document.createElement('span'); m.className = 'meta'; m.textContent = s.ctx;
+    if (s.d) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = '需双端数据'; m.appendChild(t); }
+    row.append(p, m);
+    row.addEventListener('click', () => { stopFlow(); select(s); });
+    grid.appendChild(row); rows[s.id] = row;
+  });
+
+  function setMode(){
+    hit.className = 'hit' + (interactive ? '' : ' static');
+    if (interactive) { hit.setAttribute('role','button'); hit.tabIndex = 0; }
+    else { hit.setAttribute('role','status'); hit.removeAttribute('tabindex'); }
+  }
+  function morph(w0){
+    pill.style.setProperty('--wt','0s');
+    pill.style.width = 'auto'; const w1 = pill.offsetWidth;
+    pill.style.width = w0 + 'px'; void pill.offsetWidth;
+    pill.style.removeProperty('--wt'); pill.style.width = w1 + 'px';
+    clearTimeout(mt); mt = setTimeout(() => { pill.style.width = ''; }, 320);
+  }
+  function paint(s, anim){
+    const w0 = pill.offsetWidth;
+    pill.className = 'pill tone-' + s.tone + (interactive ? ' interactive' : '') + (anim && !s.m ? ' settle' : '');
+    ico.innerHTML = icon(s);
+    lbl.textContent = s.label;
+    hit.setAttribute('aria-label','连接状态：' + s.label + (interactive ? '，点按打开连接面板' : ''));
+    if (anim) {
+      lbl.classList.remove('swap'); void lbl.offsetWidth; lbl.classList.add('swap');
+      morph(w0);
+      setTimeout(() => pill.classList.remove('settle'), 500);
+    }
+    states.forEach(x => rows[x.id].classList.toggle('on', x === s));
+  }
+  function select(s){ cur = s; paint(s, true); say('连接状态：' + s.label + '，' + s.ctx); if (!sheet.hidden) renderSheet(); }
+
+  // 受阻状态：电脑实际情况 / 手机面板该说什么（手机只展示与引导，不提供通用“修复”）
+  const dual = {
+    approval:['有待处理的配对申请','请在电脑 SayIn 核对手机名称并批准；手机可取消'],
+    paused:['电脑暂停接收','连接正常，请在电脑接收页恢复接收'],
+    inactive:['本机不是活动设备','请在电脑接收页选择这台手机'],
+    review:['上次输入结果不确定','先检查目标软件，再到电脑 SayIn 核对处理'],
+    checking:['手机查询旧请求结果','正在确认此前发送结果，不会自动重发'],
+    unavailable:['接收条件尚未满足','根据真实原因给出下一步，不能只有“请重试”'],
+    storage:['手机或电脑存储受阻','明确异常发生在哪一端，在对应端处理']
+  };
+  $('dual').innerHTML = Object.keys(dual).map(id => '<tr><td>' + by[id].label + '</td><td>' + dual[id][0] + '</td><td>' + dual[id][1] + '</td></tr>').join('');
+
+  const sheet = $('sheet'), scrim = $('scrim'), shb = $('shbody'), shp = $('shpill');
+  let sheetRecord = false, activeRecord = null, returnFocus = null;
+  const acts = {approval:'取消配对', first:'开始配对'};
+  function renderSheet(){
+    if (sheetRecord && activeRecord) {
+      sheet.setAttribute('aria-label','记录详情');
+      shp.className = 'pill tone-warn';
+      shp.innerHTML = '<span class="icon">' + ti('history') + '</span><span class="label">记录详情</span>';
+      shb.innerHTML = '<p class="sh-k">请求结果</p><p class="sh-v">' + activeRecord[0] + '</p><p class="sh-k">处理方式</p><p class="sh-v">' + activeRecord[3] + '</p><p class="sh-foot">此处仅演示说明，不执行释放、重发、取消或电脑核对。</p>';
+      return;
+    }
+    sheet.setAttribute('aria-label','连接面板');
+    const d = dual[cur.id];
+    shp.className = 'pill tone-' + cur.tone;
+    shp.innerHTML = '<span class="icon">' + icon(cur) + '</span><span class="label">' + cur.label + '</span>';
+    shb.innerHTML = (d ? '<p class="sh-k">电脑实际情况</p><p class="sh-v">' + d[0] + '</p><p class="sh-k">手机面板告诉用户</p><p class="sh-v">' + d[1] + '</p>'
+                       : '<p class="sh-k">说明</p><p class="sh-v">' + (cur.id === 'unverified' ? '发现的地址未通过身份验证，原配对已保留。该地址可能不是你的电脑；请检查电脑 SayIn 与网络，不能据此认定原电脑身份已变化。不会接受新证书或自动重新配对。' : cur.ctx) + '</p>')
+      + (acts[cur.id] ? '<button type="button" class="act" id="shact">' + acts[cur.id] + '</button>' : '')
+      + '<p class="sh-foot">手机负责展示和引导；恢复接收、选择设备、核对结果在电脑上完成，这里没有通用的“修复”按钮。</p>';
+  }
+  const background = [$('content'), document.querySelector('.appbar'), document.querySelector('.statusbar')];
+  function openSheet(recordMode = false){
+    if (sheet.hidden) returnFocus = document.activeElement;
+    sheetRecord = recordMode; renderSheet(); sheet.hidden = scrim.hidden = false;
+    background.forEach(el => { el.inert = true; });
+    $('shx').focus();
+  }
+  function closeSheet(){
+    sheet.hidden = scrim.hidden = true;
+    background.forEach(el => { el.inert = false; });
+    if (returnFocus && returnFocus.isConnected && !returnFocus.closest('[hidden]')) returnFocus.focus();
+  }
+
+  // 旧记录卡：连接恢复不等于旧请求已处理
+  const rec = $('rec');
+  function showRec(r){
+    activeRecord = r;
+    rec.hidden = !r; if (!r) return;
+    $('recs').textContent = r[0]; $('recn').textContent = r[1];
+    const b = $('recb'); b.hidden = !r[2]; b.textContent = r[2];
+  }
+  const beforeQuery = [
+    ['等待回执','请求已提交，尚未取得最终结果',''],
+    ['结果待确认','连接中断，尚不能确定是否已输入；保留原请求，不自动重发',''],
+    ['结果待确认','正在恢复连接；尚未收到旧请求查询结果',''],
+    ['核对状态','正在查询此前发送结果，不会自动重发','']
+  ];
+  const STASH = beforeQuery.concat([['暂存 · 未执行','查询确认旧请求已暂存。当前连接与接收条件已恢复，旧请求仍不会自动执行。','查看记录','文字暂存可在手机记录详情明确选择释放或取消；不会因重连自动释放。图片暂存不支持释放，可取消后重新选图。']]);
+  const UNCERTAIN = beforeQuery.concat([['结果待核对','查询确认输入结果不确定。电脑仍需本地核对，顶栏保持“待核对”。','查看记录','先检查目标软件实际输入情况，再到电脑 SayIn 核对处理。手机不能解除核对闸门，也不会自动重发。']]);
+
+  // 流程回放：先连保存地址，失败才查找；有旧请求才核对；末尾由电脑实际状态决定
+  function plan(n){
+    const mid = ($('stale').checked ? ['discovering','connecting'] : []).concat($('old').checked ? ['checking'] : []);
+    return {
+      first:{ids:['first','pairing','approval'],bl:'电脑批准后：'},
+      cold:{ids:['init','connecting'].concat(mid),bl:'电脑实际状态：'},
+      retry:{ids:['ready','offline','connecting'].concat(mid),bl:'电脑实际状态：'},
+      stash:{ids:['ready','offline','connecting','checking','ready'],records:STASH},
+      uncertain:{ids:['ready','offline','connecting','checking','review'],records:UNCERTAIN}
+    }[n];
+  }
+  function stopFlow(keep){
+    clearTimeout(flowT); flow = ''; br.hidden = true;
+    document.querySelectorAll('[data-flow]').forEach(b => b.classList.remove('on'));
+    if (!keep) showRec(null);
+  }
+  function play(n){
+    closeSheet();
+    const was = flow === n; stopFlow(); if (was) return;
+    flow = n; document.querySelector('[data-flow="' + n + '"]').classList.add('on');
+    const f = plan(n); let i = 0;
+    (function step(){
+      const s = by[f.ids[i]]; select(s); if (f.records) showRec(f.records[i]);
+      say('流程 ' + (i + 1) + '/' + f.ids.length + '：' + s.label + '，' + s.ctx);
+      i++;
+      if (i < f.ids.length) flowT = setTimeout(step, s.m ? 1800 : 1400);
+      else if (f.bl) { $('bl').textContent = f.bl; br.hidden = false; say('电脑实际情况不同，手机显示也不同——点选看看。'); }
+      else { say(n === 'uncertain' ? '连接已恢复，但电脑核对闸门尚未解除：顶栏与记录均为待核对。' : '连接和接收条件已恢复，旧请求仍为暂存，不自动执行。'); flowT = setTimeout(() => stopFlow(true), 1600); }
+    })();
+  }
+  document.querySelectorAll('[data-flow]').forEach(b => b.addEventListener('click', () => play(b.dataset.flow)));
+  br.querySelectorAll('[data-to]').forEach(b => b.addEventListener('click', () => { stopFlow(); select(by[b.dataset.to]); }));
+
+  hit.addEventListener('click', () => { if (interactive) openSheet(); });
+  hit.addEventListener('keydown', e => { if (interactive && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openSheet(); } });
+  scrim.addEventListener('click', closeSheet); $('shx').addEventListener('click', closeSheet);
+  document.addEventListener('keydown', e => {
+    if (sheet.hidden) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeSheet(); }
+    if (e.key === 'Tab') {
+      const buttons = Array.from(sheet.querySelectorAll('button:not([disabled])'));
+      const first = buttons[0], last = buttons[buttons.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
+  shb.addEventListener('click', e => { if (e.target.id === 'shact') { say('（Demo）' + e.target.textContent); closeSheet(); } });
+  $('recb').addEventListener('click', () => openSheet(true));
+  $('interactive').addEventListener('change', e => { interactive = e.target.checked; setMode(); paint(cur, false); });
+  $('hitbox').addEventListener('change', e => document.body.classList.toggle('show-hit', e.target.checked));
+  $('big').addEventListener('change', e => $('content').closest('.screen').classList.toggle('big', e.target.checked));
+  $('theme-toggle').addEventListener('click', e => {
+    const dark = document.documentElement.dataset.theme === 'dark';
+    document.documentElement.dataset.theme = dark ? 'light' : 'dark';
+    e.currentTarget.textContent = dark ? '深色' : '浅色';
+  });
+
+  const q = new URLSearchParams(location.search);
+  if (q.get('theme') === 'dark') { document.documentElement.dataset.theme = 'dark'; $('theme-toggle').textContent = '浅色'; }
+  if (by[q.get('state')]) cur = by[q.get('state')];
+  if (q.get('interactive') === '0') { interactive = false; $('interactive').checked = false; }
+  setMode(); paint(cur, false);
+})();
+</script>
+</body>
+</html>
