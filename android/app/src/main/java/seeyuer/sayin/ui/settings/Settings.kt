@@ -133,7 +133,6 @@ internal fun SettingsHost(
     val baseTextStyles = MiuixTheme.textStyles
     val settingsTextStyles = remember(baseTextStyles) {
         baseTextStyles.copy(
-            headline1 = baseTextStyles.headline1.copy(fontSize = 13.sp),
             body2 = baseTextStyles.body2.copy(fontSize = 13.sp),
         )
     }
