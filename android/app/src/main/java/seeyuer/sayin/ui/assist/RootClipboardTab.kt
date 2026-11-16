@@ -1,6 +1,7 @@
 package seeyuer.sayin.ui.assist
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.*
@@ -28,6 +29,19 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal val LocalRootClipboardClient = staticCompositionLocalOf<RootClipboardAccess> { RootClipboardClient() }
 
+/** Owned by the open panel, so viewer/editor navigation does not discard the loaded list. */
+@Stable
+internal class RootClipboardState {
+    var snapshot by mutableStateOf<RootClips?>(null)
+    var resolved by mutableStateOf(false)
+    val listState = LazyListState()
+
+    fun clear() {
+        snapshot = null
+        resolved = false
+    }
+}
+
 /** A visible-window data source only. Full page and quick card use the same draft callbacks. */
 @Composable
 internal fun RootClipboardTab(
@@ -38,14 +52,13 @@ internal fun RootClipboardTab(
     onPaste: (String) -> Unit,
     onSaveAsPhrase: (String) -> Unit,
     onView: (String) -> Unit,
+    state: RootClipboardState = remember { RootClipboardState() },
     ordinary: @Composable () -> Unit,
 ) {
     val client = LocalRootClipboardClient.current
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
-    var snapshot by remember { mutableStateOf<RootClips?>(null) }
-    var resolved by remember { mutableStateOf(false) }
     var pendingClear by remember { mutableStateOf<RootClips?>(null) }
     var busy by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -54,66 +67,66 @@ internal fun RootClipboardTab(
     var epoch by remember { mutableIntStateOf(0) }
     val availableCallback by rememberUpdatedState(onAvailable)
     val modalCallback by rememberUpdatedState(onModal)
-    SideEffect { availableCallback(snapshot != null || !resolved); modalCallback(pendingClear != null) }
+    SideEffect { availableCallback(state.snapshot != null || !state.resolved); modalCallback(pendingClear != null) }
 
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) resumed = true
             if (event == Lifecycle.Event.ON_PAUSE || event == Lifecycle.Event.ON_STOP) {
                 resumed = false; epoch++; operation?.cancel(); operation = null
-                snapshot = null; resolved = false; pendingClear = null; busy = false
+                state.snapshot = null; state.resolved = false; pendingClear = null; busy = false
             }
         }
         lifecycle.addObserver(observer)
         onDispose {
-            epoch++; operation?.cancel(); snapshot = null; pendingClear = null
-            availableCallback(false); modalCallback(false); lifecycle.removeObserver(observer)
+            epoch++; operation?.cancel(); pendingClear = null
+            modalCallback(false); lifecycle.removeObserver(observer)
         }
     }
 
     LaunchedEffect(resumed, refresh) {
-        if (!resumed) return@LaunchedEffect
+        if (!resumed || state.resolved && refresh == 0) return@LaunchedEffect
         busy = true
         val generation = epoch
         try {
             val latest = client.list()
-            if (resumed && generation == epoch) snapshot = latest
+            if (resumed && generation == epoch) state.snapshot = latest
         } catch (failure: Exception) {
             if (failure is CancellationException) throw failure
             if (generation == epoch) {
-                val wasAvailable = snapshot != null
-                snapshot = null
+                val wasAvailable = state.snapshot != null
+                state.snapshot = null
                 if (wasAvailable || refresh > 0 || failure is RootClipboardFailure) notice = rootClipboardMessage(failure)
             }
-        } finally { if (generation == epoch) { resolved = true; busy = false } }
+        } finally { if (generation == epoch) { state.resolved = true; busy = false } }
     }
 
     fun textAction(entry: RootClip, action: (String) -> Unit) {
-        val current = snapshot ?: return
+        val current = state.snapshot ?: return
         if (busy || !resumed) return
         busy = true
         val generation = epoch
         operation = scope.launch {
             try {
                 val text = client.get(current, entry.id)
-                if (resumed && generation == epoch && snapshot == current) action(text)
+                if (resumed && generation == epoch && state.snapshot == current) action(text)
             } catch (failure: Exception) {
                 if (failure is CancellationException) throw failure
-                if (generation == epoch) { snapshot = null; notice = rootClipboardMessage(failure) }
+                if (generation == epoch) { state.snapshot = null; notice = rootClipboardMessage(failure) }
             } finally { if (generation == epoch) busy = false }
         }
     }
 
     Column(Modifier.fillMaxSize()) {
-        val current = snapshot
-        if (!resolved && current == null) Box(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-loading"), contentAlignment = Alignment.Center) {
+        val current = state.snapshot
+        if (!state.resolved && current == null) Box(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-loading"), contentAlignment = Alignment.Center) {
             LinearProgressIndicator(Modifier.fillMaxWidth().padding(horizontal = 16.dp))
         }
         else if (current == null) Box(Modifier.weight(1f)) { ordinary() }
         else {
             if (!current.captureReady) Text(stringResource(R.string.root_clipboard_paused),
                 Modifier.padding(horizontal = 16.dp), fontSize = 12.sp)
-            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-list"), contentPadding = PaddingValues(8.dp)) {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("root-clipboard-list"), state = state.listState, contentPadding = PaddingValues(8.dp)) {
                 if (current.entries.isEmpty()) item {
                     Text(stringResource(R.string.root_clipboard_empty), Modifier.padding(16.dp).testTag("root-clipboard-empty"))
                 }
@@ -156,10 +169,10 @@ internal fun RootClipboardTab(
                 operation = scope.launch {
                     try {
                         client.clear(confirmed)
-                        if (generation == epoch && resumed) { snapshot = confirmed.copy(entries = emptyList()); notice = R.string.root_clipboard_cleared; refresh++ }
+                        if (generation == epoch && resumed) { state.snapshot = confirmed.copy(entries = emptyList()); notice = R.string.root_clipboard_cleared; refresh++ }
                     } catch (failure: Exception) {
                         if (failure is CancellationException) throw failure
-                        if (generation == epoch) { snapshot = null; notice = rootClipboardMessage(failure) }
+                        if (generation == epoch) { state.snapshot = null; notice = rootClipboardMessage(failure) }
                     } finally { if (generation == epoch) busy = false }
                 }
             }

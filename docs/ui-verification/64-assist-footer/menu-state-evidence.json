@@ -1,0 +1,44 @@
+{
+  "baseline": "278e3a2",
+  "device": "Redmi K40 / Android 13 API 33",
+  "test_package": "seeyuer.sayin.imagetest",
+  "module_backend": "counted fake with generated records, production panel UI",
+  "screenshots_taken": false,
+  "baseline_cases": {
+    "pasteKeepsTheLoadedList": true,
+    "viewerBackKeepsTheLoadedList": false,
+    "editorBackKeepsTheLoadedList": false
+  },
+  "baseline_failure": "Viewer/editor return expected 1 LIST, actual 2 LISTs; paste already remained at 1.",
+  "final_cases": {
+    "pasteKeepsTheLoadedList": true,
+    "viewerBackKeepsTheLoadedList": true,
+    "editorBackKeepsTheLoadedList": true,
+    "copyRefreshKeepsTheVisibleListWhileLoading": true,
+    "switchingTabsStillReloadsTheModule": true,
+    "closingAndReopeningThePanelReadsFreshRecords": true,
+    "backgroundingTheViewerClearsTheCachedList": true,
+    "seeyuer.sayin.ui.RootClipboardUiInstrumentedTest#resolvingModuleDoesNotFlashCurrentClipboard": true,
+    "seeyuer.sayin.ui.RootClipboardUiInstrumentedTest#absentModuleFallsBackAfterResolution": true,
+    "seeyuer.sayin.ui.RootClipboardUiInstrumentedTest#lateResolutionAfterClosingPanelHasNoUiEffect": true
+  },
+  "jvm": {
+    "tests": 87,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "debug_build": "passed",
+  "lint": "passed",
+  "imageTest_and_test_build": "passed",
+  "i18n": "passed",
+  "daily_collector_restored": {
+    "running": true,
+    "enabled": true,
+    "capture_ready": true
+  },
+  "daily_module_history_read_or_cleared": false,
+  "apk_sha256": "b84ee2a5559c61f1ebdeb8a6d0bae9a1209d95ca390222d071d7199dc1dd4708",
+  "limitations": "Generated module replies isolate UI lifetime. No visual screenshots or claim of testing all ROMs; daily module history was not inspected.",
+  "daily_app_installed_and_digest_verified": true
+}

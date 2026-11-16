@@ -227,6 +227,7 @@ private fun AssistPanelContent(
     val movedTemplate = stringResource(R.string.assist_moved)
 
     var tab by remember { mutableStateOf(initialTab) }
+    val rootClipboard = remember(tab) { RootClipboardState() }
     var mode by remember { mutableStateOf(AssistMode.List) }
     var editor by remember { mutableStateOf<EditorDraft?>(null) }
     var viewerText by remember { mutableStateOf("") }
@@ -261,7 +262,7 @@ private fun AssistPanelContent(
     var settling by remember { mutableStateOf<Pair<String, Float>?>(null) }
 
     SideEffect { onModalChange(mode != AssistMode.List || drag != null || moduleModal) }
-    DisposableEffect(lifecycle) {
+    DisposableEffect(lifecycle, rootClipboard) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> resumed = true
@@ -269,6 +270,7 @@ private fun AssistPanelContent(
                     resumed = false
                     readGeneration++
                     clipboardRead = null
+                    rootClipboard.clear()
                     viewerText = ""
                     if (mode == AssistMode.Viewer) mode = AssistMode.List
                     revealed = false
@@ -279,7 +281,7 @@ private fun AssistPanelContent(
             }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
+        onDispose { rootClipboard.clear(); lifecycle.removeObserver(observer) }
     }
     DisposableEffect(Unit) {
         onDispose {
@@ -713,6 +715,7 @@ private fun AssistPanelContent(
                     when (mode) {
                         AssistMode.List -> when (tab) {
                             AssistTab.Clipboard -> RootClipboardTab(
+                                state = rootClipboard,
                                 onAvailable = { moduleHistory = it },
                                 onModal = { moduleModal = it },
                                 onInsert = { insert(it, closeOnSuccess = true) },

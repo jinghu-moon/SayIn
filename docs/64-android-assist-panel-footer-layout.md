@@ -67,3 +67,17 @@ adb -s dc39c31d shell am instrument -w -e class seeyuer.sayin.ui.AssistPanelLayo
 用户发现更多菜单的各项操作都会显示加载动画。根因是读取条目全文、清空、列表读取共用 `busy` 互斥标记，而已加载列表上方的进度条也使用了该标记；读取全文并不等于重新加载列表。移除已加载列表上方的进度条，仅在尚无列表的初次读取阶段显示原有加载占位。保留 `busy` 的防重复操作语义，以及复制后的后台列表更新，不引入新状态；菜单操作和后台更新不再插入进度条挤动列表。
 
 延续用户本轮 UI 微调不运行测试的要求，不运行测试或截图。独立源码目录的 `scripts/gradle.ps1 :app:assembleDebug` 构建成功；通过 `pm install -r` 覆盖安装到 Redmi K40，保留应用数据，无需重启。实际菜单交互由用户查看。
+
+## 根因复核：内部页面切换销毁了列表状态
+
+用户反馈上次修改后仍有加载动画。上一次只移除了 `busy` 对应的进度条，未验证完整菜单路径，不能算完成根因修复。本次在生产 `AssistPanel` 宿主上使用生成记录及计数的假模块做设备复现，不截图、不连接日常模块 socket。
+
+基线为 `278e3a2`。粘贴后读取次数维持 1 次；但「查看全文 → 返回」「保存常用语 → 放弃编辑 → 返回」均由 1 次变成 2 次，原断言明确失败。原因是 `AssistMode.List` 分支移除 `RootClipboardTab` 后，原本由它 `remember` 的快照、解析完成标记和默认列表滚动状态一起丢失。返回重新组成组件，必然走首次读取，原先去掉忙碌进度条无法解决它。
+
+将这三项状态收归外层面板的 `RootClipboardState`，内部全文/编辑页面切换复用同一个实例。列表操作仍由可见列表组件发起、互斥并按代次取消；读取全文依然按 ID 请求，不增加正文缓存、常驻 socket 或后台采集。返回已有解析结果时不重复 LIST，滚动位置保留；复制后的原有后台更新不清空当前列表。切换标签、关闭面板和 Activity 暂停显式清理；即使后台发生在全文/编辑页，父级生命周期也会清理快照，恢复后重新读取。
+
+本次为解决复现失败补充针对性设备验证，覆盖菜单与缓存生命周期，不将前两次免测构建当成本次验收证据。新增 `RootClipboardPanelStateInstrumentedTest`（`RootHelperDeviceTest`，独立 imageTest 包）检查粘贴、复制期间保留列表、全文返回与滚动位置、编辑返回、标签切换、面板关闭重开、全文页进后台恢复。复制用例只写生成文字并恢复原剪贴板；期间临时停止日常采集，保留 enabled 偏好，结束恢复，不读取或清空日常模块历史。设备操作串行并持有原有命名互斥锁。实际完成成绩与最终安装信息见后续交付记录。
+
+最终结果：上述 7 项新增设备用例和既有 `RootClipboardUiInstrumentedTest` 的 3 项加载/无模块回退/迟到响应回归全部通过。最终源码执行 `scripts/gradle.ps1 :app:testDebugUnitTest :app:assembleDebug :app:lintDebug`（87 项 JVM，无失败/跳过）、独立 imageTest 产品/测试 APK 构建及 `python scripts/check_i18n.py` 均通过，保留既有弃用警告。设备测试逐方法使用 `am instrument -w -e class seeyuer.sayin.ui.RootClipboardPanelStateInstrumentedTest#方法名 seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner`；基线失败与最终逐项结果见 [menu-state-evidence.json](ui-verification/64-assist-footer/menu-state-evidence.json)。
+
+最后补充了父级销毁时显式清理，并对最终构建重新执行上述 10 项设备检查。日常模块恢复为 `running=true / enabled=true / capture_ready=true`；隔离 App 已停止。最终 debug APK 已覆盖安装到 K40并重新打开，安装包摘要与构建文件一致，配对和数据保留，无需重启。实际界面观感由用户查看；此证据针对生产面板与生成模块数据，不代表其它 ROM、真实模块内容或所有输入法组合均已验收。
