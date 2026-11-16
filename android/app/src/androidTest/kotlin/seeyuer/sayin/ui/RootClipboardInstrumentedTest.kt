@@ -17,6 +17,17 @@ annotation class RootHelperDeviceTest
 @RunWith(AndroidJUnit4::class)
 class RootClipboardInstrumentedTest {
     @RootHelperDeviceTest
+    @Test fun bootIdleEndpointWithoutHistory() = runBlocking {
+        assumeTrue(InstrumentationRegistry.getArguments().getString("verifyBootIdle") == "true")
+        require(InstrumentationRegistry.getInstrumentation().targetContext.packageName == "seeyuer.sayin.imagetest")
+        // Harness checks the installed owner is disabled and has no key/history
+        // before invoking this read-only LIST. Never GET or CLEAR the daily store.
+        val snapshot = RootClipboardClient().list()
+        assertFalse(snapshot.captureReady)
+        assertTrue(snapshot.entries.isEmpty())
+    }
+
+    @RootHelperDeviceTest
     @Test fun disabledHistoryIsReadable() = runBlocking {
         val socket = InstrumentationRegistry.getArguments().getString("helperSocket").orEmpty()
         assumeTrue(socket.startsWith("SAYIN_TEST_"))

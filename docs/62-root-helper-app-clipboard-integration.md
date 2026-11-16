@@ -82,10 +82,29 @@
 
 ## 安装与剩余边界
 
-本次 0.4.0 新增 App IPC，0.3.1 无此能力；不能只更新 App。已提供 `sayin-helper-0.4.0-dev-arm64.zip` 并传到 K40 的 `Download/`，手机文件摘要与上述 ZIP 一致。模块由用户通过管理器安装并重启，不能自动安装 Root 模块。正式安装后的 Action/开机只读实例需要另行核对，临时 ELF/隔离 App 测试不等于完成正式路径验收。
+本次 0.4.0 新增 App IPC，0.3.1 无此能力；不能只更新 App。已提供 `sayin-helper-0.4.0-dev-arm64.zip` 并传到 K40 的 `Download/`，手机文件摘要与上述 ZIP 一致。模块由用户通过管理器安装并重启，不能自动安装 Root 模块。用户已完成 K40 更新与重启；正式开机只读实例的复验见下节，实际 Action 切换仍待验收。临时 ELF/隔离 App 测试不能代替正式路径证据。
 
-配套日常 debug APK 使用上述独立源码构建，与模块固定签名匹配；已通过 `pm install -r` 在 K40 更新成功，没有卸载 `seeyuer.sayin` 或清除其数据。正式模块仍为 0.3.1 时，App 继续单条模式；模块升级后重新打开组合面板才能使用模块记录。采集维持原偏好，不自动开启；本轮没有真实锁屏期间 App IPC 的专项验证。
+配套日常 debug APK 使用上述独立源码构建，与模块固定签名匹配；已通过 `pm install -r` 在 K40 更新成功，没有卸载 `seeyuer.sayin` 或清除其数据。K40 配套 App 与正式模块均已更新，重新打开组合面板即可访问模块记录。采集维持原偏好，不自动开启；本轮没有真实锁屏期间 App IPC 的专项验证。
 
 API 37 本次未连接设备，不能引用此前 0.3.1 的 API 37 成绩作为 0.4.0 App IPC 真机通过。其它 ROM、签名轮换/正式签名、长期资源和功耗仍未验收。保留 0.3.1 已记录的原生非稳定 Binder ABI、快速复制合并、同毫秒/时钟回拨漏采边界。
 
 官方源码核对：AOSP `platform/tools/apksig` 的 `V2SchemeSigner.java`（2026-11-16），以及 Android `LocalSocket` 的 `getPeerCredentials`、`setSoTimeout`、关闭流即关闭 socket 文档。平台 API 可用不等于 ROM 自动验收。
+
+## K40 正式安装与重启复验（2026-11-16）
+
+用户通过管理器安装 0.4.0 并重启，ADB 核对版本为 `0.4.0-dev` / `versionCode=5`，API 33、SELinux Enforcing。安装目录的 13 个清单文件摘要全部匹配 ZIP；管理器已删除的 `customize.sh` 按规则排除，不把正常安装行为判为篡改。ELF 摘要与上述交付一致。日常 `seeyuer.sayin` 安装 APK 的完整摘要也与前次交付的独立源码 debug APK 一致。
+
+开机唯一正式实例为 `run --module-dir /data/adb/modules/sayin_helper`。启动时 `enabled=false`、`capture_ready=false`、`accepted=0`、`entries=0`，真实 abstract socket 已存在；Root 私有目录只有实例锁和控制 socket，没有历史、密钥或采集子进程。读取空列表前后仍未创建密钥/历史，不因 App 访问偷偷开启采集。
+
+新增可重复的 `--installed` 模式：直接使用正式目录 ELF，但采集数据、控制 socket 和 App socket 均仍隔离到随机测试路径，不替换、停止或清空日常实例。无采集子进程检查同时匹配 ELF 与精确的 `--data-dir` 参数，避免把使用相同程序的正式开机实例计入隔离实例。显式的 `--verify-boot-idle` 仅在正式实例运行、采集关闭、条目为零且密钥/历史均不存在时，允许签名匹配的隔离 App 向真实开机端点执行一次只读 LIST；永远不向日常历史发送 GET/CLEAR。
+
+| 命令/检查 | 结果 |
+| --- | --- |
+| `python root-helper/tests/verify_device.py --serial dc39c31d --allow-synthetic-clipboard-writes --installed` | 正式目录 ELF 的 14 组隔离采集回归通过 |
+| `python root-helper/tests/verify_app_bridge.py --serial dc39c31d --allow-synthetic-clipboard-writes --installed --verify-boot-idle` | 9 组通过：真实开机空列表只读、未知包拒绝、完整页/快捷卡粘贴不发送、清空取消/确认、关闭采集仍可读取、读正文/清空/过期修订拒绝、只读实例无采集子进程、同包错误签名拒绝 |
+| 独立源码 `:app:assembleImageTest :app:assembleImageTestAndroidTest`（`sayin.instrumentationBuildType=imageTest`）与 `:app:lintDebug` | 新增开机端点只读仪器化用例构建与 Lint 通过；未重装/改动日常 App |
+| `python -m unittest discover -s root-helper/tests -p 'test_*.py' -v` | 9 项工程测试通过 |
+
+测试后再次核对：只有原开机正式实例存活，`enabled=false`、`capture_ready=false`、`accepted=0`、`entries=0`，仍无密钥/历史文件；所有临时桥接数据已清理，恢复打开日常 App。机器证据另存 `app-bridge-installed-api33-dc39c31d.json`，不覆盖前次临时 ELF 的桥接成绩。
+
+正式路径证据仅覆盖本机本版。真实 Action 开关、采集启用后的重启恢复、卸载清理、锁屏 App IPC、API 37 的新版 App 集成仍未验证；不得把隔离目录模拟的停用/恢复当成这些项目已通过。已有 21 项普通面板/草稿回归见前表，本轮只增加正式来源与开机端点验证，不修改产品代码或复用其它任务的未提交改动。
