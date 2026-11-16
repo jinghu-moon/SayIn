@@ -89,7 +89,7 @@ internal fun SettingsHost(
     initialRoute: SettingsRoute = SettingsRoute.Root,
 ) {
     var route by rememberSaveable { mutableStateOf(initialRoute) }
-    LaunchedEffect(initialRoute) { if (initialRoute != SettingsRoute.Root) route = initialRoute }
+    LaunchedEffect(initialRoute) { route = initialRoute }
     val rootList = rememberLazyListState()
     val scrollStates = remember { mutableMapOf<SettingsRoute, androidx.compose.foundation.ScrollState>() }
     fun scrollFor(value: SettingsRoute) = scrollStates.getOrPut(value) { androidx.compose.foundation.ScrollState(0) }
@@ -105,7 +105,7 @@ internal fun SettingsHost(
     Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
         if (route == SettingsRoute.Root) RootTopBar()
         else SettingsTopBar(stringResource(route.titleRes()), onBack = { route = route.parent ?: SettingsRoute.Root })
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+        Box(Modifier.weight(1f).fillMaxWidth().testTag("settings-page-${route.name}"), contentAlignment = Alignment.TopCenter) {
             val pageModifier = Modifier.widthIn(max = 600.dp).fillMaxHeight()
             when (route) {
                 SettingsRoute.Root -> RootPage(

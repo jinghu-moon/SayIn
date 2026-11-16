@@ -139,7 +139,7 @@ internal fun VoiceLinkContent(
                     MobilePage.entries.forEach { item ->
                         val selected = page == item
                         Column(Modifier.weight(1f).heightIn(min = 52.dp).selectable(selected = selected, role = androidx.compose.ui.semantics.Role.Tab,
-                            onClick = { goTo(item) }).testTag("nav-${item.name}"),
+                            onClick = { if (item == MobilePage.Settings) settingsEntry = SettingsRoute.Root; goTo(item) }).testTag("nav-${item.name}"),
                             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                             val tint = if (selected) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary
                             Icon(item.icon.vector, null, Modifier.size(23.dp), tint = tint)

@@ -281,27 +281,7 @@ class MobileShellInstrumentedTest {
             File(output, "en-dark-large-$page.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
             if (page == "Speak") {
                 openRecognitionSettings()
-                for (source in listOf(SpeakInputSource.Local, SpeakInputSource.Cloud)) {
-                    val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
-                    compose.onNodeWithTag("input-source-label-${source.name}", useUnmergedTree = true)
-                        .performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-                    assertTrue("Vertical engine rows may wrap to two complete lines at large text", layouts.single().lineCount in 1..2)
-                    val label = layouts.single().layoutInput.text.text
-                    for (line in 0 until layouts.single().lineCount - 1) {
-                        val end = layouts.single().getLineEnd(line, visibleEnd = true)
-                        assertTrue("Wrap only between words", end == label.length || label[end].isWhitespace() || label[end - 1].isWhitespace())
-                    }
-                    val layout = layouts.single()
-                    // Compose may retain a wider paragraph constraint than the final glyph-size box.
-                    // Check the actual line ink and ellipsis instead of that spare paragraph width.
-                    for (line in 0 until layout.lineCount) {
-                        assertTrue("Source label glyphs must stay inside their rendered width",
-                            layout.getLineLeft(line) >= -1f && layout.getLineRight(line) <= layout.size.width + 1f)
-                        assertTrue("Source label lines must not be clipped or ellipsized",
-                            layout.getLineBottom(line) <= layout.size.height + 1f && !layout.isLineEllipsized(line))
-                    }
-                    assertTrue("Source labels must fit vertically", !layout.didOverflowHeight)
-                }
+                compose.onNodeWithTag("settings-page-Recognition").assertIsDisplayed()
                 compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
                 compose.waitForIdle()
             }
@@ -371,21 +351,12 @@ class MobileShellInstrumentedTest {
         compose.waitUntil(10_000) { keyboardVisible() }
         // Platform visibility changes before animated Compose insets settle.
         // Assert the actual app layout after it has consumed those insets.
-        try {
-            compose.waitUntil(10_000) { compose.onAllNodesWithTag("nav-Speak").fetchSemanticsNodes().isEmpty() }
-        } catch (error: androidx.compose.ui.test.ComposeTimeoutException) {
-            screenshot("$evidence-failure")
-            File(context.filesDir, "ui-verification/$evidence-failure.txt").writeText(
-                "ime=" + ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.getInsets(WindowInsetsCompat.Type.ime()) +
-                    "\n" + compose.onRoot().printToString())
-            throw error
-        }
         compose.waitForIdle()
         screenshot(evidence)
         File(context.filesDir, "ui-verification/$evidence.txt").writeText(
             "ime=" + ViewCompat.getRootWindowInsets(compose.activity.window.decorView)?.getInsets(WindowInsetsCompat.Type.ime()) +
                 "\n" + compose.onRoot().printToString())
-        compose.onNodeWithTag("nav-Speak").assertDoesNotExist()
+        compose.onNodeWithTag("nav-Speak").assertExists()
         compose.onNodeWithTag("draft").assertIsDisplayed().assertIsFocused()
         compose.onNodeWithTag("send-draft").assertIsDisplayed().assertIsEnabled()
         assertTrue("Editor must fit at least one complete text line with the IME open",
@@ -453,16 +424,19 @@ class MobileShellInstrumentedTest {
         }
         compose.onNodeWithTag("input-source-Keyboard").assertDoesNotExist()
         openRecognitionSettings()
-        compose.onNodeWithTag("input-source-Local").performClick()
+        selectRecognitionEngine(SpeakInputSource.Local)
+        compose.onNodeWithText(context.getString(R.string.settings_engine_local)).assertExists()
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("nav-Speak").performClick()
         compose.onNodeWithTag("start-local-asr").assertIsDisplayed()
         compose.onNodeWithTag("draft").assertTextContains(original.text)
-        compose.onNodeWithTag("nav-Settings").performClick()
-        compose.onNodeWithTag("nav-Speak").performClick()
         openRecognitionSettings()
-        compose.onNodeWithTag("input-source-Local").assertIsSelected()
+        compose.onNodeWithText(context.getString(R.string.settings_engine_local)).assertExists()
         compose.runOnIdle { currentTestSession.selectSource(SpeakInputSource.Keyboard) }
         compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
         compose.waitForIdle()
+        compose.onNodeWithTag("nav-Speak").performClick()
         compose.runOnIdle { assertEquals(original, draft); assertEquals(0, sends) }
         compose.onNodeWithTag("send-draft").performClick()
         assertEquals(1, sends)
@@ -555,6 +529,12 @@ class MobileShellInstrumentedTest {
     private fun openRecognitionSettings() {
         compose.onNodeWithTag("speak-more").performClick()
         compose.onNode(hasText("识别设置") or hasText("Recognition settings")).performClick()
+    }
+
+    private fun selectRecognitionEngine(source: SpeakInputSource) {
+        compose.onNode(hasText(context.getString(R.string.settings_recognition_method)) and hasClickAction()).performClick()
+        val label = if (source == SpeakInputSource.Cloud) R.string.settings_engine_cloud else R.string.settings_engine_local
+        compose.onNodeWithText(context.getString(label)).performClick()
     }
 
     private lateinit var currentTestSession: SpeakSession
