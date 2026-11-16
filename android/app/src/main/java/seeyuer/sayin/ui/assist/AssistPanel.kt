@@ -671,6 +671,7 @@ private fun AssistPanelContent(
         }
         Column(
             Modifier.fillMaxWidth().then(heightModifier).heightIn(min = minHeight)
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                 .testTag("assist-panel").semantics { paneTitle = panelTitle },
         ) {
             AssistHeader(
@@ -696,79 +697,93 @@ private fun AssistPanelContent(
                 },
             )
             HorizontalDivider()
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (mode) {
-                    AssistMode.List -> when (tab) {
-                        AssistTab.Clipboard -> RootClipboardTab(
-                            onAvailable = { moduleHistory = it },
-                            onModal = { moduleModal = it },
-                            onInsert = { insert(it, closeOnSuccess = true) },
-                            onCopy = { copy(it) },
-                            onPaste = { insert(it, closeOnSuccess = false) },
-                            onSaveAsPhrase = { openEditor(null, it, "") },
-                            onView = { viewerText = it; mode = AssistMode.Viewer },
-                        ) { ClipboardTab(
-                            read = clipboardRead,
-                            loading = clipboardLoading,
-                            revealed = revealed,
-                            onReveal = { revealed = true },
-                            onRetry = { readAttempt++ },
-                            onInsert = { insert(it, closeOnSuccess = true) },
-                            onCopy = { copy(it) },
-                            onPaste = { insert(it, closeOnSuccess = false) },
-                            onSaveAsPhrase = { openEditor(null, it, "") },
-                            onView = { viewerText = it; mode = AssistMode.Viewer },
-                        ) }
-                        AssistTab.Phrases -> PhraseTab(
-                            phrases = working,
-                            ready = libraryReady,
-                            issue = libraryIssue,
-                            emptyAction = { openEditor(null, "", "") },
-                            listState = phraseList,
-                            settling = settling,
-                            drag = drag,
-                            dragEpoch = dragEpoch,
-                            onAdd = { openEditor(null, "", "") },
-                            onInsert = { insert(it, closeOnSuccess = true) },
-                            onCopy = { copy(it.text) },
-                            onPaste = { insert(it.text, closeOnSuccess = false) },
-                            onView = { viewerText = it.text; mode = AssistMode.Viewer },
-                            onEdit = { openEditor(it.id, it.text, it.text) },
-                            onDelete = { phrase ->
-                                val index = working.indexOfFirst { it.id == phrase.id }
-                                if (index >= 0) deletePhrase(phrase, index)
-                            },
-                            onGripDown = { id, y -> startDrag(id, y) },
-                            onGripDrag = { amount -> dragBy(amount) },
-                            onGripEnd = { finishDrag(true) },
-                            onGripCancel = {
-                                finishDrag(false)
-                                dragEpoch++
-                            },
-                            onGripKey = { id, delta -> moveGrip(id, delta) },
-                            onGripFocuser = { id, requester -> gripFocusers[id] = requester },
-                            onRowBounds = { id, rect -> rowBounds[id] = rect },
-                            onListBounds = { listBounds = it },
-                        )
+            Column(Modifier.weight(1f).fillMaxWidth()) {
+                notice?.let { message ->
+                    Text(
+                        stringResource(message),
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                            .testTag("assist-notice").semantics { liveRegion = LiveRegionMode.Polite },
+                        fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    when (mode) {
+                        AssistMode.List -> when (tab) {
+                            AssistTab.Clipboard -> RootClipboardTab(
+                                onAvailable = { moduleHistory = it },
+                                onModal = { moduleModal = it },
+                                onInsert = { insert(it, closeOnSuccess = true) },
+                                onCopy = { copy(it) },
+                                onPaste = { insert(it, closeOnSuccess = false) },
+                                onSaveAsPhrase = { openEditor(null, it, "") },
+                                onView = { viewerText = it; mode = AssistMode.Viewer },
+                            ) { ClipboardTab(
+                                read = clipboardRead,
+                                loading = clipboardLoading,
+                                revealed = revealed,
+                                onReveal = { revealed = true },
+                                onRetry = { readAttempt++ },
+                                onInsert = { insert(it, closeOnSuccess = true) },
+                                onCopy = { copy(it) },
+                                onPaste = { insert(it, closeOnSuccess = false) },
+                                onSaveAsPhrase = { openEditor(null, it, "") },
+                                onView = { viewerText = it; mode = AssistMode.Viewer },
+                            ) }
+                            AssistTab.Phrases -> PhraseTab(
+                                phrases = working,
+                                ready = libraryReady,
+                                issue = libraryIssue,
+                                emptyAction = { openEditor(null, "", "") },
+                                listState = phraseList,
+                                settling = settling,
+                                drag = drag,
+                                dragEpoch = dragEpoch,
+                                onAdd = { openEditor(null, "", "") },
+                                onInsert = { insert(it, closeOnSuccess = true) },
+                                onCopy = { copy(it.text) },
+                                onPaste = { insert(it.text, closeOnSuccess = false) },
+                                onView = { viewerText = it.text; mode = AssistMode.Viewer },
+                                onEdit = { openEditor(it.id, it.text, it.text) },
+                                onDelete = { phrase ->
+                                    val index = working.indexOfFirst { it.id == phrase.id }
+                                    if (index >= 0) deletePhrase(phrase, index)
+                                },
+                                onGripDown = { id, y -> startDrag(id, y) },
+                                onGripDrag = { amount -> dragBy(amount) },
+                                onGripEnd = { finishDrag(true) },
+                                onGripCancel = {
+                                    finishDrag(false)
+                                    dragEpoch++
+                                },
+                                onGripKey = { id, delta -> moveGrip(id, delta) },
+                                onGripFocuser = { id, requester -> gripFocusers[id] = requester },
+                                onRowBounds = { id, rect -> rowBounds[id] = rect },
+                                onListBounds = { listBounds = it },
+                            )
+                        }
+                        AssistMode.Editor -> {
+                            val draft = editor
+                            if (draft != null) EditorBody(
+                                draft = draft,
+                                error = validateEditor(draft),
+                                rejection = editorRejection,
+                                saving = saving,
+                                focus = editorFocus,
+                                onText = { text ->
+                                    editorRejection = null
+                                    editor = draft.copy(text = text)
+                                },
+                                onSave = { saveEditor() },
+                            )
+                        }
+                        AssistMode.Viewer -> ViewerBody(viewerText)
                     }
-                    AssistMode.Editor -> {
-                        val draft = editor
-                        if (draft != null) EditorBody(
-                            draft = draft,
-                            error = validateEditor(draft),
-                            rejection = editorRejection,
-                            saving = saving,
-                            focus = editorFocus,
-                            onText = { text ->
-                                editorRejection = null
-                                editor = draft.copy(text = text)
-                            },
-                            onSave = { saveEditor() },
-                        )
-                    }
-                    AssistMode.Viewer -> ViewerBody(viewerText)
                 }
             }
+
             if (mode == AssistMode.List && (tab != AssistTab.Clipboard || !moduleHistory)) {
                 AssistFooter(
                     tab = tab,
@@ -802,17 +817,6 @@ private fun AssistPanelContent(
                         colors = ButtonDefaults.buttonColorsPrimary(),
                     ) { Text(stringResource(R.string.assist_save)) }
                 }
-            }
-            notice?.let { message ->
-                Text(
-                    stringResource(message),
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                        .testTag("assist-notice").semantics { liveRegion = LiveRegionMode.Polite },
-                    fontSize = 13.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceSecondary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
     }
@@ -1356,9 +1360,9 @@ private fun AssistFooter(
     onUndo: () -> Unit,
     onClear: () -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 11.dp, bottom = 32.dp)) {
+    Column(Modifier.fillMaxWidth()) {
         undo?.let {
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp).heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     stringResource(R.string.assist_deleted),
                     Modifier.weight(1f).testTag("assist-undo-notice"),
@@ -1378,17 +1382,7 @@ private fun AssistFooter(
             AssistTab.Clipboard -> clipboardRead is ClipboardRead.Text || clipboardRead == ClipboardRead.NoText
             AssistTab.Phrases -> ready && !issue && phraseCount > 0
         }
-        Button(
-            onClear,
-            Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("assist-clear"),
-            enabled = enabled,
-            cornerRadius = 24.dp,
-            insideMargin = PaddingValues(0.dp),
-            colors = ButtonDefaults.buttonColors(
-                color = MiuixTheme.colorScheme.surface,
-                contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
-            ),
-        ) { Text(stringResource(R.string.assist_clear_all), fontWeight = FontWeight.SemiBold) }
+        AssistClearAction(enabled, "assist-clear", onClear)
     }
 }
 

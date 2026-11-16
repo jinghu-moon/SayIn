@@ -1,0 +1,35 @@
+{
+  "serial": "dc39c31d",
+  "api": 33,
+  "app_sha256": "063ef93243082fa5256c97de5412adfcd136477285b5704304ee43a4e1a3f136",
+  "baseline": {
+    "moduleFooterStaysAboveNavigationWhileListScrolls": false,
+    "moduleAndPhraseFootersSharePositionAtLargeFont": false
+  },
+  "layout": {
+    "moduleFooterStaysAboveNavigationWhileListScrolls": true,
+    "moduleAndPhraseFootersSharePositionAtLargeFont": true,
+    "ordinaryAndPhraseFootersStayInsideSafeArea": true,
+    "narrowPanelKeepsBothFootersFullyVisible": true
+  },
+  "existing_operations": {
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardClearConfirmCancelAndConfirmStaysInPanel": true,
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#copyKeepsPanelAndDoesNotTouchDraft": true,
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#pasteKeepsPanelAndEachPasteIsOneUndoStep": true,
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#phraseAddDuplicateEditDeleteUndoAndClearAll": true,
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#narrowAndLargeFontLayoutKeepsControlsReachable": true,
+    "seeyuer.sayin.ui.AssistPanelInstrumentedTest#quickCardUsesTheSamePanel": true
+  },
+  "daily_collector_restored": {
+    "running": true,
+    "enabled": true,
+    "capture_ready": true
+  },
+  "screenshots_taken": false,
+  "jvm": {
+    "tests": 87,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  }
+}

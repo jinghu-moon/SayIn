@@ -139,14 +139,12 @@ internal fun RootClipboardTab(
                     )
                 }
             }
-            Button(
-                { if (!busy) pendingClear = current },
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp).heightIn(min = 48.dp).testTag("root-clipboard-clear"),
-                enabled = !busy && current.entries.isNotEmpty(), cornerRadius = 24.dp,
-            ) { Text(stringResource(R.string.assist_clear_all)) }
         }
         notice?.let { Text(stringResource(it), Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
             .testTag("root-clipboard-notice"), fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary) }
+        if (current != null) AssistClearAction(!busy && current.entries.isNotEmpty(), "root-clipboard-clear") {
+            if (!busy) pendingClear = current
+        }
     }
     pendingClear?.let { confirmed ->
         RootClearConfirmation(confirmed.entries.size, onCancel = { pendingClear = null }) {
