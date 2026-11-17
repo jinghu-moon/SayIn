@@ -35,6 +35,16 @@ class QuickActivity : AppCompatActivity() {
         super.onNewIntent(intent)
         (application as SayInApplication).model.speaking.cancelAutoSend()
     }
+    override fun onStart() {
+        super.onStart()
+        QuickEntryService.setQuickWindowVisible(true)
+    }
+
+    override fun onStop() {
+        QuickEntryService.setQuickWindowVisible(false)
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
@@ -54,11 +64,15 @@ class QuickActivity : AppCompatActivity() {
                 Box(Modifier.fillMaxWidth().height(cardHeight)
                     .clip(RoundedCornerShape(28.dp)).background(MiuixTheme.colorScheme.background)) {
                     VoiceLinkApp(quick = true, onExpand = { settings ->
+                        QuickEntryService.startIfEnabled(this@QuickActivity)
                         startActivity(Intent(this@QuickActivity, MainActivity::class.java)
                             .putExtra(MainActivity.OPEN_SETTINGS, settings)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                         finish()
-                    }, onDismiss = ::finish)
+                    }, onDismiss = {
+                        QuickEntryService.startIfEnabled(this@QuickActivity)
+                        finish()
+                    })
                 }
             }
         }

@@ -62,7 +62,8 @@
             android:taskAffinity="" android:excludeFromRecents="true"
             android:windowSoftInputMode="adjustResize" />
         <service android:name=".quick.RecordingService" android:exported="false" android:foregroundServiceType="microphone" />
-        <service android:name=".quick.QuickEntryService" android:exported="false" android:foregroundServiceType="specialUse">
+        <service android:name=".quick.QuickEntryService" android:exported="false"
+            android:stopWithTask="false" android:foregroundServiceType="specialUse">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="User-enabled movable overlay that opens the current voice draft; no idle microphone use" />
         </service>

@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.view.*
 import android.widget.ImageView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.app.ServiceCompat
 import seeyuer.sayin.R
 import kotlin.math.abs
@@ -63,11 +64,19 @@ class QuickEntryService : Service() {
                         windows.updateViewLayout(v, params)
                     }; true
                 }
-                MotionEvent.ACTION_UP -> { if (!moved) v.performClick(); true }
+                MotionEvent.ACTION_UP -> {
+                    if (moved) {
+                        params.x = if (params.x < (resources.displayMetrics.widthPixels - params.width) / 2) {
+                            0
+                        } else resources.displayMetrics.widthPixels - params.width
+                        windows.updateViewLayout(v, params)
+                    } else v.performClick()
+                    true
+                }
                 else -> true
             }
         }
-        try { windows.addView(view, params); ball = view; enabled(this, true) }
+        try { windows.addView(view, params); ball = view; active = this; enabled(this, true) }
         catch (_: Exception) { stopSelf() }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -75,11 +84,24 @@ class QuickEntryService : Service() {
         return START_NOT_STICKY
     }
     override fun onDestroy() {
+        if (active === this) active = null
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
         enabled(this, false); super.onDestroy()
     }
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
+        private var active: QuickEntryService? = null
+
+        /** Hide the overlay while the quick card owns the screen; show it again on close. */
+        fun setQuickWindowVisible(visible: Boolean) {
+            active?.ball?.visibility = if (visible) View.GONE else View.VISIBLE
+        }
         fun enabled(context: Context, value: Boolean) { context.getSharedPreferences("presentation", 0).edit().putBoolean("quick_ball", value).apply() }
+        fun startIfEnabled(context: Context) {
+            val enabled = context.getSharedPreferences("presentation", 0).getBoolean("quick_ball", false)
+            if (enabled && Settings.canDrawOverlays(context)) {
+                ContextCompat.startForegroundService(context, Intent(context, QuickEntryService::class.java))
+            }
+        }
     }
 }
