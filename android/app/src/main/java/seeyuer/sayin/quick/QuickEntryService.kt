@@ -42,7 +42,7 @@ class QuickEntryService : Service() {
         val ballSize = (52 * dp).toInt()
         val peek = (24 * dp).toInt()
         val params = WindowManager.LayoutParams(ballSize, ballSize, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply {
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
                 gravity = Gravity.TOP or Gravity.START
                 x = resources.displayMetrics.widthPixels - peek
                 y = (300 * dp).toInt()
