@@ -165,7 +165,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
         "saved", "uploading", "accepted", "held", "executing" -> if (dark) YuePalette.WarningContainerDark else YuePalette.WarningContainerLight
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
-    Panel(insideMargin = PaddingValues(16.dp)) {
+    Panel(insideMargin = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
             Row(Modifier.clip(RoundedCornerShape(12.dp)).background(toneBackground).padding(8.dp, 5.dp),
@@ -219,7 +219,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
 @Composable
 private fun HistoryApplicationRow(application: ForegroundApplication?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+        Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (application?.icon != null) Image(application.icon.asImageBitmap(), null, Modifier.size(20.dp), contentScale = ContentScale.Fit)
         Text(application?.name ?: stringResource(R.string.history_target_unknown), fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
