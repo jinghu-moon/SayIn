@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -101,19 +102,18 @@ internal fun ConnectionStatusBadge(state: ClientState, modifier: Modifier = Modi
         contentAlignment = Alignment.Center,
     ) {
         Row(
-            Modifier.height(36.dp).widthIn(max = 148.dp).clip(RoundedCornerShape(18.dp))
-                .background(tone.copy(alpha = .12f)).padding(horizontal = 12.dp),
+            Modifier.padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
             if (visual.busy) {
-                CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp,
+                CircularProgressIndicator(size = 10.dp, strokeWidth = 1.5.dp,
                     colors = ProgressIndicatorDefaults.progressIndicatorColors(
                         foregroundColor = tone, backgroundColor = Color.Transparent))
             } else {
-                Icon(visual.icon.vector, null, Modifier.size(18.dp), tint = tone)
+                Box(Modifier.size(6.dp).background(tone, CircleShape))
             }
-            Text(label, color = tone, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            Text(label, color = tone, fontSize = 11.5.sp, fontWeight = FontWeight.Medium,
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

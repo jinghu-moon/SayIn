@@ -58,6 +58,7 @@ ICONS = {
     "Hourglass": "hourglass",
     "Eye": "eye",
     "EyeOff": "eye-off",
+    "ArrowsDiagonal": "arrows-diagonal",
 }
 
 

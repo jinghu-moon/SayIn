@@ -307,8 +307,11 @@ internal fun SpeakPage(
             if (showHeader) SmallTopAppBar(
                 title = "",
                 navigationIcon = {
-                    Text(stringResource(R.string.nav_speak), style = MiuixTheme.textStyles.title3,
-                        fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(if (quick) stringResource(R.string.app_name) else stringResource(R.string.nav_speak),
+                        style = MiuixTheme.textStyles.title3,
+                        fontSize = if (quick) 20.sp else 30.sp,
+                        fontWeight = if (quick) FontWeight.SemiBold else FontWeight.Bold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 actions = {
                     if (!quick) {
@@ -321,10 +324,10 @@ internal fun SpeakPage(
                         ConnectionStatusButton(state, ::connect)
                     } else {
                         ConnectionStatusBadge(state)
-                        DraftIcon(VoiceLinkIcon.ArrowUp, R.string.quick_expand, "expand-quick") {
+                        DraftIcon(VoiceLinkIcon.ArrowsDiagonal, R.string.quick_expand, "expand-quick") {
                             session.cancelAutoSend(); onExpand()
                         }
-                        DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") {
+                        DraftIcon(VoiceLinkIcon.Close, R.string.quick_collapse, "collapse-quick") {
                             session.cancelAutoSend(); onDismiss()
                         }
                     }
@@ -335,7 +338,7 @@ internal fun SpeakPage(
                 navigationIconPadding = 20.dp,
                 actionIconPadding = 20.dp,
             )
-            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = if (minimal) 0.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
+            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = if (minimal) 0.dp else if (quick) 8.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (!inlineEditingActions) DraftInformation(state, draft, session.sendMode == SpeakSendMode.Automatic) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)

@@ -372,6 +372,15 @@ internal object TablerVectors {
         )
     }
 
+    val ArrowsDiagonal: ImageVector by lazy {
+        outline("Tabler.arrows-diagonal",
+            "M16 4l4 0l0 4",
+            "M14 10l6 -6",
+            "M8 20l-4 0l0 -4",
+            "M4 20l6 -6"
+        )
+    }
+
     private fun outline(name: String, vararg paths: String): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
             paths.forEach { path ->
