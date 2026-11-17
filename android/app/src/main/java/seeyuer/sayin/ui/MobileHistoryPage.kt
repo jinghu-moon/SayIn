@@ -219,8 +219,8 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
 @Composable
 private fun HistoryApplicationRow(application: ForegroundApplication?) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (application?.icon != null) Image(application.icon.asImageBitmap(), null, Modifier.size(20.dp), contentScale = ContentScale.Fit)
-        else Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
         Text(application?.name ?: stringResource(R.string.history_target_unknown), fontSize = 12.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
