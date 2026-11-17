@@ -69,11 +69,11 @@ class QuickEntryService : Service() {
     private class HalfBallView(context: Context, private val iconRes: Int) : View(context) {
         private val density = resources.displayMetrics.density
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xF22B2B2B.toInt()
+            color = 0xF2F3F3F1.toInt()
             style = Paint.Style.FILL
         }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0x4DFFFFFF
+            color = 0x33000000
             style = Paint.Style.STROKE
             strokeWidth = 1.5f * density
         }
