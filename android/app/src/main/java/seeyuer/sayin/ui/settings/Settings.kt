@@ -10,6 +10,13 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -137,51 +144,62 @@ internal fun SettingsHost(
         )
     }
     MiuixTheme(colors = MiuixTheme.colorScheme, textStyles = settingsTextStyles) {
-    Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
-        if (route == SettingsRoute.Root) RootTopBar()
-        else SettingsTopBar(stringResource(route.titleRes()), onBack = ::requestBack, actions = {
-            when (route) {
-                SettingsRoute.Cloud -> TextButton(
-                    stringResource(R.string.settings_hotwords_save),
-                    onClick = { cloudEditor.save(cloudSettings) },
-                    enabled = !cloudState.busy && cloudEditor.dirty && cloudEditor.filled,
-                    minHeight = 40.dp,
-                    colors = plainTextButtonColors(),
-                )
-                SettingsRoute.Hotwords -> cloudState.config?.let { config ->
-                    TextButton(
+    AnimatedContent(
+        targetState = route,
+        transitionSpec = {
+            val backwards = targetState == initialState.parent || targetState.depth() < initialState.depth()
+            val direction = if (backwards) -1 else 1
+            (slideInHorizontally(animationSpec = tween(260)) { width -> direction * width } + fadeIn(tween(180))) togetherWith
+                (slideOutHorizontally(animationSpec = tween(220)) { width -> -direction * width / 4 } + fadeOut(tween(150)))
+        },
+        label = "settings-route",
+    ) { currentRoute ->
+        Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
+            if (currentRoute == SettingsRoute.Root) RootTopBar()
+            else SettingsTopBar(stringResource(currentRoute.titleRes()), onBack = ::requestBack, actions = {
+                when (currentRoute) {
+                    SettingsRoute.Cloud -> TextButton(
                         stringResource(R.string.settings_hotwords_save),
-                        onClick = { cloudSettings.save(config.auth, config.appKey, config.appId, config.accessToken, hotwordsDraft.text) },
-                        enabled = !cloudState.busy && hotwordsDraft.dirty,
+                        onClick = { cloudEditor.save(cloudSettings) },
+                        enabled = !cloudState.busy && cloudEditor.dirty && cloudEditor.filled,
                         minHeight = 40.dp,
                         colors = plainTextButtonColors(),
                     )
+                    SettingsRoute.Hotwords -> cloudState.config?.let { config ->
+                        TextButton(
+                            stringResource(R.string.settings_hotwords_save),
+                            onClick = { cloudSettings.save(config.auth, config.appKey, config.appId, config.accessToken, hotwordsDraft.text) },
+                            enabled = !cloudState.busy && hotwordsDraft.dirty,
+                            minHeight = 40.dp,
+                            colors = plainTextButtonColors(),
+                        )
+                    }
+                    else -> Unit
                 }
-                else -> Unit
-            }
-        })
-        Box(Modifier.weight(1f).fillMaxWidth().testTag("settings-page-${route.name}"), contentAlignment = Alignment.TopCenter) {
-            val pageModifier = Modifier.widthIn(max = 600.dp).fillMaxHeight()
-            when (route) {
-                SettingsRoute.Root -> RootPage(
-                    session, cloudState, keepAwake, onKeepAwake, language,
-                    onOpen = { route = it }, modifier = pageModifier, listState = rootList,
-                )
-                SettingsRoute.Recognition -> RecognitionPage(
-                    session, cloudState, onOpenCloud = { route = SettingsRoute.Cloud },
-                    onOpenHotwords = { route = SettingsRoute.Hotwords }, modifier = pageModifier,
-                    scroll = scrollFor(SettingsRoute.Recognition),
-                )
-                SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState,
-                    onOpenHotwords = { route = SettingsRoute.Hotwords },
-                    modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
-                SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
-                SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
-                SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
-                SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
-                SettingsRoute.Privacy -> PrivacyPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Privacy))
-                SettingsRoute.About -> AboutPage(onOpenHelp = { route = SettingsRoute.Help }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.About))
-                SettingsRoute.Help -> HelpPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Help))
+            })
+            Box(Modifier.weight(1f).fillMaxWidth().testTag("settings-page-${currentRoute.name}"), contentAlignment = Alignment.TopCenter) {
+                val pageModifier = Modifier.widthIn(max = 600.dp).fillMaxHeight()
+                when (currentRoute) {
+                    SettingsRoute.Root -> RootPage(
+                        session, cloudState, keepAwake, onKeepAwake, language,
+                        onOpen = { route = it }, modifier = pageModifier, listState = rootList,
+                    )
+                    SettingsRoute.Recognition -> RecognitionPage(
+                        session, cloudState, onOpenCloud = { route = SettingsRoute.Cloud },
+                        onOpenHotwords = { route = SettingsRoute.Hotwords }, modifier = pageModifier,
+                        scroll = scrollFor(SettingsRoute.Recognition),
+                    )
+                    SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState,
+                        onOpenHotwords = { route = SettingsRoute.Hotwords },
+                        modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
+                    SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
+                    SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
+                    SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
+                    SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
+                    SettingsRoute.Privacy -> PrivacyPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Privacy))
+                    SettingsRoute.About -> AboutPage(onOpenHelp = { route = SettingsRoute.Help }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.About))
+                    SettingsRoute.Help -> HelpPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Help))
+                }
             }
         }
     }
@@ -203,6 +221,8 @@ internal fun SettingsHost(
     }
     }
 }
+
+private fun SettingsRoute.depth(): Int = parent?.let { it.depth() + 1 } ?: 0
 
 private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Root -> R.string.settings_title
