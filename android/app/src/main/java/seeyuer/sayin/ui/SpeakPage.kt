@@ -338,7 +338,11 @@ internal fun SpeakPage(
                 navigationIconPadding = 20.dp,
                 actionIconPadding = 20.dp,
             )
-            Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 20.dp, vertical = if (minimal) 0.dp else if (quick) 8.dp else 16.dp).clip(RoundedCornerShape(28.dp)).background(color.surface)
+            Column(Modifier.weight(1f).fillMaxWidth()
+                .padding(start = 20.dp, end = 20.dp,
+                    top = if (minimal) 0.dp else if (quick) 0.dp else 16.dp,
+                    bottom = if (minimal) 0.dp else if (quick) 16.dp else 16.dp)
+                .clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (!inlineEditingActions) DraftInformation(state, draft, session.sendMode == SpeakSendMode.Automatic) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
