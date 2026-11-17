@@ -124,7 +124,7 @@ class QuickEntryService : Service() {
         catch (_: Exception) { stopSelf() }
     }
 
-    private fun peekWidth(): Int = (26 * resources.displayMetrics.density).toInt()
+    private fun peekWidth(): Int = (24 * resources.displayMetrics.density).toInt()
 
     private fun fullX(): Int = if (edgeLeft) 0 else resources.displayMetrics.widthPixels - (ball?.width ?: 0)
 
@@ -180,7 +180,7 @@ class QuickEntryService : Service() {
             strokeWidth = 1.5f * density
         }
         private val icon = context.getDrawable(iconRes)
-        private val peekWidth = (26 * density).toInt()
+        private val peekWidth = (24 * density).toInt()
         private var peekAtLeft = false
         private var expanded = false
 
