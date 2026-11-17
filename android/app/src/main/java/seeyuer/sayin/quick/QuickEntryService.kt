@@ -55,13 +55,13 @@ class QuickEntryService : Service() {
         val shape = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadii = floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
-            setColor(0xCC5B99E3.toInt())
+            setColor(0xF2252525.toInt())
+            setStroke((1 * dp).toInt(), 0x33FFFFFF)
         }
         val view = ImageView(this).apply {
-            setImageResource(R.drawable.ic_stat_microphone)
-            setColorFilter(Color.WHITE)
-            scaleType = ImageView.ScaleType.CENTER
-            setPadding(touchWidth - hiddenWidth, 0, 0, 0)
+            setImageResource(R.drawable.ic_launcher_foreground)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            setPadding(touchWidth - hiddenWidth, (14 * dp).toInt(), 0, (14 * dp).toInt())
             background = android.graphics.drawable.InsetDrawable(shape, touchWidth - hiddenWidth, 0, 0, 0)
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
