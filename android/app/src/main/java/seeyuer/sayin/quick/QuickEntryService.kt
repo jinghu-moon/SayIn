@@ -205,7 +205,7 @@ class QuickEntryService : Service() {
             val centerY = height / 2f
             canvas.drawCircle(centerX, centerY, radius, fill)
             canvas.drawCircle(centerX, centerY, radius, edge)
-            val iconSize = (36 * density).toInt()
+            val iconSize = ((if (expanded) 36f else 32.4f) * density).toInt()
             val iconCenterX = when {
                 expanded -> centerX
                 peekAtLeft -> width - peekWidth / 2f
