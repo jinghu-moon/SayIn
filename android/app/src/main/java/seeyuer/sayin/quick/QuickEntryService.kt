@@ -41,16 +41,22 @@ class QuickEntryService : Service() {
         } catch (_: Exception) { stopSelf(); return }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
-        val handleWidth = (48 * dp).toInt()
-        val handleHeight = (64 * dp).toInt()
-        val params = WindowManager.LayoutParams(handleWidth, handleHeight,
+        val ballSize = (52 * dp).toInt()
+        val params = WindowManager.LayoutParams(ballSize, ballSize,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = resources.displayMetrics.widthPixels - handleWidth
+            x = resources.displayMetrics.widthPixels - ballSize
             y = (300 * dp).toInt()
         }
-        val view = EdgeArcView(this).apply {
+        val view = ImageView(this).apply {
+            setImageResource(R.drawable.ic_stat_microphone)
+            setColorFilter(Color.WHITE)
+            setPadding((14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt())
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xCC5B99E3.toInt())
+            }
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
         }
@@ -66,32 +72,6 @@ class QuickEntryService : Service() {
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
         enabled(this, false); super.onDestroy()
     }
-    private class EdgeArcView(context: Context) : View(context) {
-        private val density = resources.displayMetrics.density
-        private val brand = 0xFF1F75DB.toInt()
-        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = brand
-            style = Paint.Style.STROKE
-            strokeWidth = 3.5f * density
-            strokeCap = Paint.Cap.ROUND
-        }
-        private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.argb(34, 31, 117, 219)
-            style = Paint.Style.STROKE
-            strokeWidth = 9f * density
-            strokeCap = Paint.Cap.ROUND
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            val visible = 10f * density
-            val radius = 30f * density
-            val centerX = width + radius - visible
-            val centerY = height / 2f
-            canvas.drawCircle(centerX, centerY, radius, glow)
-            canvas.drawCircle(centerX, centerY, radius, stroke)
-        }
-    }
-
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
         private var active: QuickEntryService? = null
