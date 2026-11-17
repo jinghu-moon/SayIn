@@ -165,7 +165,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
         "saved", "uploading", "accepted", "held", "executing" -> if (dark) YuePalette.WarningContainerDark else YuePalette.WarningContainerLight
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
-    Panel {
+    Panel(insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
             Row(Modifier.clip(RoundedCornerShape(12.dp)).background(toneBackground).padding(8.dp, 5.dp),
@@ -192,7 +192,6 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
         } else Text(state.historyText[item.id] ?: stringResource(R.string.history_text_unavailable), fontSize = 17.sp, lineHeight = 26.sp,
             maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("history-text-${item.id}"))
         if (item.state != "injected") HistoryRecovery(item, state, action)
-        HorizontalDivider()
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) { HistoryApplicationRow(state.historyApplications[item.id]) }
             val text = state.historyText[item.id]

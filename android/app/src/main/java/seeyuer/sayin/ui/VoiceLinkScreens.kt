@@ -250,8 +250,11 @@ internal fun Notice(text: String, icon: VoiceLinkIcon) {
 }
 
 @Composable
-internal fun Panel(content: @Composable ColumnScope.() -> Unit) {
-    Card(Modifier.fillMaxWidth().border(1.dp, MiuixTheme.colorScheme.outline.copy(alpha = 0.55f), RoundedCornerShape(20.dp)), cornerRadius = 20.dp, insideMargin = PaddingValues(16.dp)) {
+internal fun Panel(
+    insideMargin: PaddingValues = PaddingValues(16.dp),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Card(Modifier.fillMaxWidth().border(1.dp, MiuixTheme.colorScheme.outline.copy(alpha = 0.55f), RoundedCornerShape(20.dp)), cornerRadius = 20.dp, insideMargin = insideMargin) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
     }
 }
