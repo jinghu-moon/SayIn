@@ -311,14 +311,23 @@ internal fun SpeakPage(
                         fontSize = 30.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 },
                 actions = {
-                    WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
-                        .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(),
-                        onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
-                        minHeight = 48.dp, minWidth = 48.dp) {
-                        Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
+                    if (!quick) {
+                        WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
+                            .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(),
+                            onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
+                            minHeight = 48.dp, minWidth = 48.dp) {
+                            Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
+                        }
+                        ConnectionStatusButton(state, ::connect)
+                    } else {
+                        ConnectionStatusBadge(state)
+                        DraftIcon(VoiceLinkIcon.ArrowUp, R.string.quick_expand, "expand-quick") {
+                            session.cancelAutoSend(); onExpand()
+                        }
+                        DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") {
+                            session.cancelAutoSend(); onDismiss()
+                        }
                     }
-                    ConnectionStatusButton(state, ::connect)
-                    if (quick) DraftIcon(VoiceLinkIcon.ChevronDown, R.string.quick_collapse, "collapse-quick") { session.cancelAutoSend(); onDismiss() }
                 },
                 color = MiuixTheme.colorScheme.background,
                 defaultWindowInsetsPadding = false,
@@ -413,7 +422,7 @@ internal fun SpeakPage(
                             progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
                             when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
                         }
-                        DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
+                        if (!quick) DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
                             session.cancelAutoSend(); uiScope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("", draft.text))) }
                         }
                         DraftIcon(VoiceLinkIcon.Clear, R.string.speak_clear_draft, "clear-draft", toolsEnabled && draft.text.isNotEmpty()) { session.clearDraft() }
@@ -545,7 +554,7 @@ internal fun SpeakPage(
                         }
                     }
                 }
-                if ((minimal || !showHeader) && !imeOpen && availableHeight >= 120.dp) WindowIconDropdownMenu(DropdownEntry(menu),
+                if (!quick && (minimal || !showHeader) && !imeOpen && availableHeight >= 120.dp) WindowIconDropdownMenu(DropdownEntry(menu),
                     Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
                         .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(), onExpandedChange = { if (it) session.cancelAutoSend() }) {
                     Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more))

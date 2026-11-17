@@ -89,6 +89,36 @@ internal fun ConnectionStatusButton(state: ClientState, onClick: () -> Unit, mod
     }
 }
 
+/** Read-only connection state for the floating quick card: no panel entry, no chevron. */
+@Composable
+internal fun ConnectionStatusBadge(state: ClientState, modifier: Modifier = Modifier) {
+    val visual = connectionStatusVisual(state)
+    val tone = statusToneColor(visual.tone)
+    val label = stringResource(visual.label)
+    Box(
+        modifier.heightIn(min = 48.dp).testTag("quick-connect-status")
+            .semantics { liveRegion = LiveRegionMode.Polite },
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            Modifier.height(36.dp).widthIn(max = 148.dp).clip(RoundedCornerShape(18.dp))
+                .background(tone.copy(alpha = .12f)).padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (visual.busy) {
+                CircularProgressIndicator(size = 14.dp, strokeWidth = 2.dp,
+                    colors = ProgressIndicatorDefaults.progressIndicatorColors(
+                        foregroundColor = tone, backgroundColor = Color.Transparent))
+            } else {
+                Icon(visual.icon.vector, null, Modifier.size(18.dp), tint = tone)
+            }
+            Text(label, color = tone, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
 private fun connectionStatusVisual(state: ClientState): StatusVisual = when {
     state.connectionPresentation == ConnectionPresentation.Storage ->
         StatusVisual(VoiceLinkIcon.DeviceDesktopExclamation, R.string.connection_status_storage, StatusTone.Error)
