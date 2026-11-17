@@ -65,6 +65,7 @@ class QuickEntryService : Service() {
         val view = BallView(this, R.drawable.ic_sayin_brand_fyan_mark).apply {
             contentDescription = getString(R.string.quick_open)
             setPeekAtLeft(edgeLeft)
+            alpha = PEEK_ALPHA
         }
         view.setOnTouchListener { v, event ->
             when (event.actionMasked) {
@@ -133,6 +134,7 @@ class QuickEntryService : Service() {
     private fun expandBall() {
         expanded = true
         ball?.setExpanded(true)
+        ball?.alpha = 1f
         val p = params ?: return
         p.x = fullX()
         windows.updateViewLayout(ball ?: return, p)
@@ -141,6 +143,7 @@ class QuickEntryService : Service() {
     private fun collapseToPeek() {
         expanded = false
         ball?.setExpanded(false)
+        ball?.alpha = PEEK_ALPHA
         val p = params ?: return
         p.x = peekX()
         windows.updateViewLayout(ball ?: return, p)
@@ -171,7 +174,7 @@ class QuickEntryService : Service() {
     private class BallView(context: Context, private val iconRes: Int) : View(context) {
         private val density = resources.displayMetrics.density
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = 0xF2D2D5D8.toInt()
+            color = 0xF2F3F3F1.toInt()
             style = Paint.Style.FILL
         }
         private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -191,8 +194,8 @@ class QuickEntryService : Service() {
 
         fun setExpanded(value: Boolean) {
             expanded = value
-            fill.color = if (value) 0xF2F3F3F1.toInt() else 0xF2D2D5D8.toInt()
-            icon?.alpha = if (value) 255 else 190
+            fill.color = 0xF2F3F3F1.toInt()
+            icon?.alpha = 255
             invalidate()
         }
 
@@ -216,6 +219,7 @@ class QuickEntryService : Service() {
 
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
+        private const val PEEK_ALPHA = 0.5f
         private var active: QuickEntryService? = null
 
         /** Hide the overlay while the quick card owns the screen; show it again on close. */
