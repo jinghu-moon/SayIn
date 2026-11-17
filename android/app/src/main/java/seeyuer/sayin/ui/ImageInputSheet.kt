@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -67,7 +68,10 @@ internal fun ImageInputSheet(
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); if (show) latestCancel() }
     }
-    OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
+    OverlayBottomSheet(
+        show = show, onDismissRequest = onDismiss,
+        insideMargin = DpSize(0.dp, 0.dp),
+    ) {
         if (show) {
             val draft = state.imageDraft
             val preview by produceState<ImageBitmap?>(null, draft) {
