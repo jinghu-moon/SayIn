@@ -50,7 +50,7 @@ class QuickEntryService : Service() {
             x = resources.displayMetrics.widthPixels - touchWidth
             y = (300 * dp).toInt()
         }
-        val view = HalfBallView(this, R.drawable.ic_sayin_brand_fyan).apply {
+        val view = HalfBallView(this, R.drawable.ic_sayin_brand_fyan_mark).apply {
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
         }
