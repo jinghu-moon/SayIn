@@ -4,7 +4,9 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
@@ -20,7 +22,7 @@ import kotlin.math.abs
 
 /** Explicitly enabled optional overlay; idle service never records or sends. */
 class QuickEntryService : Service() {
-    private var ball: ImageView? = null
+    private var ball: View? = null
     private lateinit var windows: WindowManager
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -39,45 +41,18 @@ class QuickEntryService : Service() {
         } catch (_: Exception) { stopSelf(); return }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
-        val ballSize = (52 * dp).toInt()
-        val peek = (24 * dp).toInt()
-        val params = WindowManager.LayoutParams(ballSize, ballSize, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, PixelFormat.TRANSLUCENT).apply {
-                gravity = Gravity.TOP or Gravity.START
-                x = resources.displayMetrics.widthPixels - peek
-                y = (300 * dp).toInt()
-            }
-        val view = ImageView(this).apply {
-            setImageResource(R.drawable.ic_stat_microphone); setColorFilter(Color.WHITE)
-            setPadding((14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt())
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFF1F75DB.toInt()) }
+        val handleWidth = (48 * dp).toInt()
+        val handleHeight = (64 * dp).toInt()
+        val params = WindowManager.LayoutParams(handleWidth, handleHeight,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = resources.displayMetrics.widthPixels - handleWidth
+            y = (300 * dp).toInt()
+        }
+        val view = EdgeArcView(this).apply {
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
-        }
-        var downX = 0f; var downY = 0f; var startX = 0; var startY = 0; var moved = false
-        val slop = ViewConfiguration.get(this).scaledTouchSlop
-        view.setOnTouchListener { v, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = event.rawX; downY = event.rawY; startX = params.x; startY = params.y; moved = false; true }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX; val dy = event.rawY - downY
-                    if (abs(dx) > slop || abs(dy) > slop) moved = true
-                    if (moved) {
-                        params.x = (startX + dx.toInt()).coerceIn(-(params.width - peek), resources.displayMetrics.widthPixels - peek)
-                        params.y = (startY + dy.toInt()).coerceIn(0, resources.displayMetrics.heightPixels - params.height)
-                        windows.updateViewLayout(v, params)
-                    }; true
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (moved) {
-                        val width = resources.displayMetrics.widthPixels
-                        params.x = if (params.x + params.width / 2 < width / 2) -(params.width - peek) else width - peek
-                        windows.updateViewLayout(v, params)
-                    } else v.performClick()
-                    true
-                }
-                else -> true
-            }
         }
         try { windows.addView(view, params); ball = view; active = this; enabled(this, true) }
         catch (_: Exception) { stopSelf() }
@@ -91,6 +66,32 @@ class QuickEntryService : Service() {
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
         enabled(this, false); super.onDestroy()
     }
+    private class EdgeArcView(context: Context) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val brand = 0xFF1F75DB.toInt()
+        private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = brand
+            style = Paint.Style.STROKE
+            strokeWidth = 3.5f * density
+            strokeCap = Paint.Cap.ROUND
+        }
+        private val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.argb(34, 31, 117, 219)
+            style = Paint.Style.STROKE
+            strokeWidth = 9f * density
+            strokeCap = Paint.Cap.ROUND
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val visible = 10f * density
+            val radius = 30f * density
+            val centerX = width + radius - visible
+            val centerY = height / 2f
+            canvas.drawCircle(centerX, centerY, radius, glow)
+            canvas.drawCircle(centerX, centerY, radius, stroke)
+        }
+    }
+
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
         private var active: QuickEntryService? = null
