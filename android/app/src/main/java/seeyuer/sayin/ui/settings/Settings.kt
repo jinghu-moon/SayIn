@@ -11,6 +11,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -146,15 +147,18 @@ internal fun SettingsHost(
     MiuixTheme(colors = MiuixTheme.colorScheme, textStyles = settingsTextStyles) {
     AnimatedContent(
         targetState = route,
+        modifier = Modifier.fillMaxSize(),
         transitionSpec = {
             val backwards = targetState == initialState.parent || targetState.depth() < initialState.depth()
             val direction = if (backwards) -1 else 1
-            (slideInHorizontally(animationSpec = tween(260)) { width -> direction * width } + fadeIn(tween(180))) togetherWith
-                (slideOutHorizontally(animationSpec = tween(220)) { width -> -direction * width / 4 } + fadeOut(tween(150)))
+            ((slideInHorizontally(animationSpec = tween(260)) { width -> direction * width } + fadeIn(tween(180))) togetherWith
+                (slideOutHorizontally(animationSpec = tween(220)) { width -> -direction * width / 4 } + fadeOut(tween(150))))
+                .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(0) }))
         },
         label = "settings-route",
     ) { currentRoute ->
         Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
+            Box(Modifier.fillMaxWidth().height(52.dp)) {
             if (currentRoute == SettingsRoute.Root) RootTopBar()
             else SettingsTopBar(stringResource(currentRoute.titleRes()), onBack = ::requestBack, actions = {
                 when (currentRoute) {
@@ -177,6 +181,7 @@ internal fun SettingsHost(
                     else -> Unit
                 }
             })
+            }
             Box(Modifier.weight(1f).fillMaxWidth().testTag("settings-page-${currentRoute.name}"), contentAlignment = Alignment.TopCenter) {
                 val pageModifier = Modifier.widthIn(max = 600.dp).fillMaxHeight()
                 when (currentRoute) {
