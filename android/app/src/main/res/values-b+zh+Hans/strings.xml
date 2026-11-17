@@ -607,4 +607,6 @@
     <string name="image_ready_status">准备发送</string>
     <string name="image_ready_sub">发送后会替换电脑剪贴板</string>
     <string name="image_dimensions">%1$d × %2$d</string>
+    <string name="image_clipboard_paste">从剪贴板粘贴</string>
+    <string name="image_preview_failed">无法加载预览</string>
 </resources>

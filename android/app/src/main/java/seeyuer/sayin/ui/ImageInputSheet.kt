@@ -1,11 +1,14 @@
 package seeyuer.sayin.ui
 
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -18,11 +21,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +38,8 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -52,7 +62,7 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 internal fun ImageInputSheet(
     show: Boolean, state: ClientState, inputAvailable: Boolean,
     onDismiss: () -> Unit, onSelect: (Uri) -> Unit, onSend: (String) -> Unit,
-    onCancel: () -> Unit, onClear: () -> Unit,
+    onCancel: () -> Unit, onClear: () -> Unit, onPreview: (String) -> Unit = {},
 ) {
     val latestCancel by rememberUpdatedState(onCancel)
     val latestSelect by rememberUpdatedState(onSelect)
@@ -80,6 +90,11 @@ internal fun ImageInputSheet(
                 }
             }
             var showInfo by remember { mutableStateOf(false) }
+
+            val context = LocalContext.current
+            var clipboardImage by remember { mutableStateOf<Uri?>(null) }
+            LaunchedEffect(show) { if (show) clipboardImage = clipboardImageUri(context) }
+
             val metadata = draft?.image?.metadata
             val kb = metadata?.let { (it.bytes + 1023) / 1024 } ?: 0
             val mimeLabel = metadata?.mime?.wire?.substringAfter('/')?.uppercase().orEmpty()
@@ -110,9 +125,11 @@ internal fun ImageInputSheet(
                         horizontalArrangement = Arrangement.spacedBy(14.dp),
                     ) {
                         if (preview != null) {
-                            Image(preview!!, stringResource(R.string.image_preview),
-                                Modifier.width(frameWidth.dp).height(frameHeight.dp).clip(RoundedCornerShape(12.dp)),
-                                contentScale = ContentScale.Crop)
+                            Box(Modifier.width(frameWidth.dp).height(frameHeight.dp).clip(RoundedCornerShape(12.dp))
+                                .clickable { onPreview(draft.image.resourceId) }.testTag("image-preview-open")) {
+                                Image(preview!!, stringResource(R.string.image_preview), Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop)
+                            }
                         } else {
                             Box(Modifier.width(frameWidth.dp).height(frameHeight.dp).clip(RoundedCornerShape(12.dp))
                                 .background(MiuixTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
@@ -213,6 +230,13 @@ internal fun ImageInputSheet(
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.image_choose), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
+                    clipboardImage?.let { uri ->
+                        TextButton(
+                            stringResource(R.string.image_clipboard_paste), onClick = { onSelect(uri) },
+                            enabled = !state.imageBusy && !state.imagePreparing,
+                            minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                 } else {
                     Button(
                         onClick = { onSend(draft.image.resourceId) },
@@ -253,9 +277,63 @@ internal fun ImageInputSheet(
                     }
                 }
             }
+
         }
     }
 }
+
+@Composable
+internal fun ImagePreviewDialog(
+    imageId: String,
+    loadImage: suspend (String, Int) -> android.graphics.Bitmap?,
+    onDismiss: () -> Unit,
+) {
+    var image by remember(imageId) { mutableStateOf<ImageBitmap?>(null) }
+    var failed by remember(imageId) { mutableStateOf(false) }
+    LaunchedEffect(imageId) {
+        val loaded = withContext(Dispatchers.Default) { loadImage(imageId, 1600) }
+        image = loaded?.asImageBitmap()
+        failed = loaded == null
+    }
+    var scale by remember { mutableFloatStateOf(1f) }
+    var offset by remember { mutableStateOf(Offset.Zero) }
+    Dialog(onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val screen = LocalConfiguration.current
+        Box(Modifier.requiredSize(screen.screenWidthDp.dp, screen.screenHeightDp.dp)
+            .background(Color.Black).testTag("image-preview-dialog")) {
+            val shown = image
+            if (shown == null) {
+                if (failed) Text(stringResource(R.string.image_preview_failed), Modifier.align(Alignment.Center),
+                    color = Color.White, fontSize = 13.sp)
+                else CircularProgressIndicator(Modifier.align(Alignment.Center), size = 28.dp, strokeWidth = 2.dp)
+            } else Image(shown, stringResource(R.string.image_preview),
+                Modifier.fillMaxSize()
+                    .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y)
+                    .pointerInput(Unit) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            val next = (scale * zoom).coerceIn(1f, 5f)
+                            scale = next
+                            offset = if (next == 1f) Offset.Zero else offset + pan
+                        }
+                    },
+                contentScale = ContentScale.Fit)
+            IconButton(onClick = onDismiss,
+                modifier = Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp).size(48.dp)) {
+                Icon(VoiceLinkIcon.Close.vector, stringResource(R.string.image_close), Modifier.size(24.dp),
+                    tint = Color.White)
+            }
+        }
+    }
+}
+
+private fun clipboardImageUri(context: Context): Uri? = runCatching {
+    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
+    if (clip.itemCount == 0) return null
+    val item = clip.getItemAt(0)
+    val uri = item.uri ?: item.intent?.data ?: return null
+    uri.takeIf { context.contentResolver.getType(it)?.startsWith("image/") == true }
+}.getOrNull()
 
 @Composable
 private fun ImageStatus(icon: VoiceLinkIcon, text: String, color: Color, modifier: Modifier = Modifier, sub: String? = null) {

@@ -49,7 +49,10 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.basic.TextField
 
 @Composable
-fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDismiss: () -> Unit = {}, openSettings: Boolean = false, entryVersion: Int = 0) {
+fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDismiss: () -> Unit = {},
+    openSettings: Boolean = false, entryVersion: Int = 0,
+    sharedImage: android.net.Uri? = null, shareVersion: Int = 0,
+) {
     val context = LocalContext.current
     val application = context.applicationContext as seeyuer.sayin.SayInApplication
     val model = application.model
@@ -111,9 +114,11 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         onSend = model::send,
         cloudSettings = application.cloudSettings,
         quick = quick, onExpand = onExpand, onDismiss = onDismiss, openSettings = openSettings, entryVersion = entryVersion,
+        sharedImage = sharedImage, shareVersion = shareVersion,
         onReconnect = { withNetwork(repository::connect) },
         onHistoryAction = repository::action,
         loadHistoryImage = repository::historyImage,
+        loadDraftImage = repository::draftImage,
         onSelectImage = repository::selectImage,
         onSendImage = { repository.sendImage(it, state.receptionScope) },
         onCancelImage = repository::cancelImage,

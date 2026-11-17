@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.currentCoroutineContext
@@ -15,6 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -229,6 +231,24 @@ internal class ImageInput(
         current.stop(); run = null
         state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = null) }
     }
+    suspend fun preview(resourceId: String, edge: Int): Bitmap? = withContext(Dispatchers.IO) {
+        val saved = host() ?: return@withContext null
+        val draft = dao.imageDraft(saved.hostId, saved.deviceId) ?: return@withContext null
+        if (draft.resourceId != resourceId) return@withContext null
+        val image = runCatching { decodeReference(draft.reference) }.getOrNull() ?: return@withContext null
+        val bytes = runCatching { files.read(saved.hostId, saved.deviceId, image) }.getOrNull() ?: return@withContext null
+        try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@withContext null
+            val maxEdge = edge.coerceIn(256, 1600)
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxEdge) sample *= 2
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size,
+                BitmapFactory.Options().apply { inSampleSize = sample })
+        } finally { bytes.fill(0) }
+    }
+
     suspend fun cleanup(ids: List<String>) { for (id in ids) if (!dao.imageReferenced(id)) files.remove(id) }
     suspend fun abandon(event: ImageEvent) {
         if (event is ImageEvent.Prepared && !dao.imageReferenced(event.image.resourceId)) files.remove(event.image.resourceId)

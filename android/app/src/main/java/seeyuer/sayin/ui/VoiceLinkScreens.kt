@@ -73,10 +73,13 @@ internal fun VoiceLinkContent(
     onDismiss: () -> Unit = {},
     openSettings: Boolean = false,
     entryVersion: Int = 0,
+    sharedImage: android.net.Uri? = null,
+    shareVersion: Int = 0,
     onSelectImage: (android.net.Uri) -> Unit = {},
     onSendImage: (String) -> Unit = {},
     onCancelImage: () -> Unit = {},
     onClearImage: () -> Unit = {},
+    loadDraftImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
     loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
@@ -91,6 +94,7 @@ internal fun VoiceLinkContent(
     }
     var showConnection by remember { mutableStateOf(false) }
     var showImage by remember { mutableStateOf(false) }
+    var previewImageId by remember { mutableStateOf<String?>(null) }
     var settingsSubpage by remember { mutableStateOf(false) }
     var settingsEntry by remember { mutableStateOf(SettingsRoute.Root) }
     val context = LocalContext.current
@@ -107,6 +111,14 @@ internal fun VoiceLinkContent(
             animationSpec = PagerNavigationSpringSpec)
     }
     LaunchedEffect(quick) { session.cancelAutoSend() }
+    LaunchedEffect(sharedImage, shareVersion) {
+        sharedImage?.let {
+            session.cancelAutoSend()
+            showConnection = false
+            onSelectImage(it)
+            showImage = true
+        }
+    }
     SideEffect { session.updateReceiver(state) }
     var keepAwake by remember { mutableStateOf(preferences.getBoolean("keep_awake", false)) }
     RefreshImeInsetsAfterLayout()
@@ -205,7 +217,9 @@ internal fun VoiceLinkContent(
             }
         }
         ImageInputSheet(showImage, state, !session.busy && !session.requestLocked,
-            onDismiss = { onCancelImage(); showImage = false }, onSelectImage, onSendImage, onCancelImage, onClearImage)
+            onDismiss = { onCancelImage(); showImage = false }, onSelectImage, onSendImage, onCancelImage, onClearImage,
+            onPreview = { previewImageId = it })
+        previewImageId?.let { id -> ImagePreviewDialog(id, loadDraftImage) { previewImageId = null } }
         OverlayBottomSheet(show = showConnection, onDismissRequest = { showConnection = false }) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("connection-sheet")) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,

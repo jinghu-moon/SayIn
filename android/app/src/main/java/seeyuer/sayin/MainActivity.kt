@@ -1,5 +1,7 @@
 package seeyuer.sayin
 
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.content.Intent
 import androidx.compose.runtime.getValue
@@ -14,12 +16,18 @@ import seeyuer.sayin.ui.VoiceLinkApp
 class MainActivity : AppCompatActivity() {
     private var settingsRequested by mutableStateOf(false)
     private var entryVersion by mutableStateOf(0)
+    private var sharedImage by mutableStateOf<Uri?>(null)
+    private var shareVersion by mutableStateOf(0)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         settingsRequested = intent.getBooleanExtra(OPEN_SETTINGS, false)
+        sharedImage = intent.imageUri()
         setContent {
-            VoiceLinkTheme { VoiceLinkApp(openSettings = settingsRequested, entryVersion = entryVersion) }
+            VoiceLinkTheme {
+                VoiceLinkApp(openSettings = settingsRequested, entryVersion = entryVersion,
+                    sharedImage = sharedImage, shareVersion = shareVersion)
+            }
         }
     }
     override fun onNewIntent(intent: Intent) {
@@ -27,7 +35,22 @@ class MainActivity : AppCompatActivity() {
         setIntent(intent)
         (application as SayInApplication).model.speaking.cancelAutoSend()
         settingsRequested = intent.getBooleanExtra(OPEN_SETTINGS, false)
+        sharedImage = intent.imageUri()
+        shareVersion++
         entryVersion++
     }
+
+    private fun Intent.imageUri(): Uri? {
+        if (action != Intent.ACTION_SEND) return null
+        @Suppress("DEPRECATION")
+        val direct = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else getParcelableExtra(Intent.EXTRA_STREAM)
+        val item = clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+        val candidate = direct ?: data ?: item?.uri ?: item?.intent?.data ?: return null
+        val mime = contentResolver.getType(candidate) ?: type
+        return candidate.takeIf { mime?.startsWith("image/") == true }
+    }
+
     companion object { const val OPEN_SETTINGS = "open_settings" }
 }

@@ -632,6 +632,9 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         }
     }
 
+    suspend fun draftImage(resourceId: String, edge: Int): android.graphics.Bitmap? =
+        imageInput?.preview(resourceId, edge)
+
     suspend fun historyImage(id: String, edge: Int): android.graphics.Bitmap? = kotlinx.coroutines.withContext(Dispatchers.IO) {
         if (!::store.isInitialized || edge !in setOf(256, 1600)) return@withContext null
         runCatching { dao.visible(validId(id))?.let { HistoryImages.read(app, store, it, edge) } }.getOrNull()
