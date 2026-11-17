@@ -94,6 +94,11 @@ internal fun ImageInputSheet(
                 }
 
                 if (draft != null) {
+                    val ratio = metadata!!.width.toFloat() / metadata.height
+                    val maxWidth = 156f
+                    val maxHeight = 104f
+                    val frameWidth = if (ratio >= maxWidth / maxHeight) maxWidth else maxHeight * ratio
+                    val frameHeight = if (ratio >= maxWidth / maxHeight) maxWidth / ratio else maxHeight
                     Row(
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp))
                             .background(MiuixTheme.colorScheme.surfaceContainerHigh).padding(12.dp),
@@ -102,10 +107,10 @@ internal fun ImageInputSheet(
                     ) {
                         if (preview != null) {
                             Image(preview!!, stringResource(R.string.image_preview),
-                                Modifier.width(72.dp).height(104.dp).clip(RoundedCornerShape(12.dp)),
+                                Modifier.width(frameWidth.dp).height(frameHeight.dp).clip(RoundedCornerShape(12.dp)),
                                 contentScale = ContentScale.Crop)
                         } else {
-                            Box(Modifier.width(72.dp).height(104.dp).clip(RoundedCornerShape(12.dp))
+                            Box(Modifier.width(frameWidth.dp).height(frameHeight.dp).clip(RoundedCornerShape(12.dp))
                                 .background(MiuixTheme.colorScheme.surfaceContainer), contentAlignment = Alignment.Center) {
                                 CircularProgressIndicator(size = 20.dp, strokeWidth = 2.dp)
                             }
