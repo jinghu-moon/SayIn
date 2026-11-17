@@ -297,7 +297,7 @@
     <string name="image_choose">选择图片…</string>
     <string name="image_preview">图片预览</string>
     <string name="image_metadata">%1$d × %2$d · %3$d KiB</string>
-    <string name="image_normalization">支持静态 PNG/JPEG，最大 10 MiB、1600 万像素。自动校正方向并清除元数据，JPEG 以质量 92 重新编码。</string>
+    <string name="image_normalization">支持 PNG/JPEG，最大 10 MiB、1600 万像素；自动校正方向并移除元数据，JPEG 以质量 92 重编码。</string>
     <string name="image_clipboard_notice">粘贴会替换电脑剪贴板，不会按下回车。请在目标应用确认结果。</string>
     <string name="image_preparing">正在准备图片</string>
     <string name="image_awaiting_receipt">正在等待电脑回执</string>
@@ -600,4 +600,11 @@
     <string name="settings_verify_sub">发送 1 秒静音，可能计费</string>
     <string name="settings_verify_action">验证</string>
     <string name="settings_cloud_dirty">待保存</string>
+    <string name="image_format_toggle">格式与限制</string>
+    <string name="image_empty_hint">PNG / JPEG · 最大 10 MiB</string>
+    <string name="image_size_mime">%1$d KiB · %2$s</string>
+    <string name="image_change">更换图片</string>
+    <string name="image_ready_status">准备发送</string>
+    <string name="image_ready_sub">发送后会替换电脑剪贴板</string>
+    <string name="image_dimensions">%1$d × %2$d</string>
 </resources>

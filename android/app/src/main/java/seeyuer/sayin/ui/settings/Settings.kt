@@ -155,7 +155,6 @@ internal fun SettingsHost(
                 (slideOutHorizontally(animationSpec = tween(220)) { width -> -direction * width / 4 } + fadeOut(tween(150))))
                 .using(SizeTransform(clip = false, sizeAnimationSpec = { _, _ -> tween(0) }))
         },
-        label = "settings-route",
     ) { currentRoute ->
         Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.background)) {
             Box(Modifier.fillMaxWidth().height(52.dp)) {

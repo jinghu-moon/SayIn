@@ -301,7 +301,7 @@
     <string name="image_choose">Choose image…</string>
     <string name="image_preview">Image preview</string>
     <string name="image_metadata">%1$d × %2$d · %3$d KiB</string>
-    <string name="image_normalization">Static PNG or JPEG, up to 10 MiB and 16 megapixels. Orientation is applied and metadata removed. JPEG is re-encoded at quality 92.</string>
+    <string name="image_normalization">Supports PNG/JPEG, up to 10 MiB and 16 megapixels; orientation is corrected and metadata removed, JPEG is re-encoded at quality 92.</string>
     <string name="image_clipboard_notice">Pasting replaces the computer clipboard. No Enter is sent; check the target app yourself.</string>
     <string name="image_preparing">Preparing image</string>
     <string name="image_awaiting_receipt">Waiting for the computer receipt</string>
@@ -604,4 +604,11 @@
     <string name="settings_verify_sub">Sends 1 second of silence; may be billed</string>
     <string name="settings_verify_action">Verify</string>
     <string name="settings_cloud_dirty">Unsaved</string>
+    <string name="image_format_toggle">Format and limits</string>
+    <string name="image_empty_hint">PNG / JPEG · up to 10 MiB</string>
+    <string name="image_size_mime">%1$d KiB · %2$s</string>
+    <string name="image_change">Change image</string>
+    <string name="image_ready_status">Ready to send</string>
+    <string name="image_ready_sub">Sending replaces the computer clipboard</string>
+    <string name="image_dimensions">%1$d × %2$d</string>
 </resources>

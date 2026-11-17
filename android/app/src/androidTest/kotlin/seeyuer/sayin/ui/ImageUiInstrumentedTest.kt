@@ -55,7 +55,7 @@ class ImageUiInstrumentedTest {
         assertEquals(1,sends)
         compose.runOnIdle { state=state.copy(paused=true) }
         compose.onNode(send).assertIsNotEnabled()
-        compose.onNodeWithText(context.getString(R.string.image_close)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(context.getString(R.string.image_close)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue(cancels>=1);assertEquals(1,sends)
         assertEquals(image,state.imageDraft!!.image)
@@ -94,7 +94,7 @@ class ImageUiInstrumentedTest {
             val resources=context.createConfigurationContext(Configuration(context.resources.configuration).apply {setLocales(LocaleList.forLanguageTags(locale))})
             compose.onNode(hasText(resources.getString(R.string.image_choose)) and hasClickAction()).performScrollTo().assertIsDisplayed()
             compose.onNodeWithText(resources.getString(R.string.image_invalid)).assertExists()
-            compose.onNode(hasText(resources.getString(R.string.image_close)) and hasClickAction()).performScrollTo().assertIsDisplayed()
+            compose.onNode(hasContentDescription(resources.getString(R.string.image_close)) and hasClickAction()).performScrollTo().assertIsDisplayed()
             val screenshot=compose.onRoot().captureToImage().asAndroidBitmap()
             File(context.getExternalFilesDir(null),"image-sheet-$locale.png").outputStream().use {assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG,100,it))}
         }
