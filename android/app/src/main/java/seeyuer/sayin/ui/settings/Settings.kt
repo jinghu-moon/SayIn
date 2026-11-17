@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +61,8 @@ import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
 import seeyuer.sayin.data.RootClipboardClient
+import seeyuer.sayin.designsystem.Appearance
+import seeyuer.sayin.designsystem.AppearanceMode
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.quick.QuickActivity
@@ -389,9 +392,15 @@ private fun RootPage(
         item { GroupHeader(R.string.settings_group_experience) }
         item {
             SettingsCard {
-                ArrowPreference(title = stringResource(R.string.settings_appearance),
-                    summary = stringResource(R.string.settings_appearance_summary),
-                    startAction = startIcon(VoiceLinkIcon.Settings), enabled = false, onClick = {})
+                val appearance by Appearance.mode.collectAsStateWithLifecycle()
+                val appearanceModes = AppearanceMode.entries
+                WindowDropdownPreference(
+                    title = stringResource(R.string.settings_appearance),
+                    items = appearanceModes.map { stringResource(it.labelRes) },
+                    selectedIndex = appearanceModes.indexOf(appearance).coerceAtLeast(0),
+                    startAction = startIcon(VoiceLinkIcon.Automatic),
+                    onSelectedIndexChange = { Appearance.set(context, appearanceModes[it]) },
+                )
                 val languages = AppLanguage.entries
                 WindowDropdownPreference(
                     title = stringResource(R.string.settings_app_language),

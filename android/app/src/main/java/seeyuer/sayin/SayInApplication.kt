@@ -11,6 +11,7 @@ import seeyuer.sayin.ui.VoiceLinkViewModel
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.data.EncryptedPhraseStorage
 import seeyuer.sayin.data.PhraseLibrary
+import seeyuer.sayin.designsystem.Appearance
 
 /** Main and quick Activities share exactly one repository, draft and microphone owner. */
 class SayInApplication : Application(), ViewModelStoreOwner {
@@ -27,6 +28,7 @@ class SayInApplication : Application(), ViewModelStoreOwner {
 
     override fun onCreate() {
         super.onCreate()
+        Appearance.init(this)
         phrases = PhraseLibrary(EncryptedPhraseStorage(this), phraseScope).apply { start() }
     }
 

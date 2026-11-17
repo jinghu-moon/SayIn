@@ -8,13 +8,18 @@ import android.view.Gravity
 import android.view.WindowManager
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.runtime.getValue
 import seeyuer.sayin.MainActivity
 import seeyuer.sayin.SayInApplication
+import seeyuer.sayin.designsystem.Appearance
+import seeyuer.sayin.designsystem.AppearanceMode
 import seeyuer.sayin.designsystem.VoiceLinkTheme
 import seeyuer.sayin.ui.VoiceLinkApp
 
@@ -32,7 +37,13 @@ class QuickActivity : AppCompatActivity() {
         val cardHeight = (resources.displayMetrics.heightPixels / resources.displayMetrics.density * 0.70f).dp
         setContent {
             Box(Modifier.fillMaxWidth().heightIn(max = cardHeight)) {
-                VoiceLinkTheme {
+                val mode by Appearance.mode.collectAsStateWithLifecycle()
+                val dark = when (mode) {
+                    AppearanceMode.LIGHT -> false
+                    AppearanceMode.DARK -> true
+                    AppearanceMode.SYSTEM -> isSystemInDarkTheme()
+                }
+                VoiceLinkTheme(dark = dark) {
                     VoiceLinkApp(quick = true, onExpand = { settings ->
                         startActivity(Intent(this@QuickActivity, MainActivity::class.java)
                             .putExtra(MainActivity.OPEN_SETTINGS, settings)
