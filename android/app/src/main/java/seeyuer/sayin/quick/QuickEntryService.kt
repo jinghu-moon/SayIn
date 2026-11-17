@@ -41,7 +41,6 @@ class QuickEntryService : Service() {
         } catch (_: Exception) { stopSelf(); return }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
-        val hiddenWidth = (28 * dp).toInt()
         val touchWidth = (48 * dp).toInt()
         val height = (56 * dp).toInt()
         val params = WindowManager.LayoutParams(touchWidth, height,
@@ -51,18 +50,7 @@ class QuickEntryService : Service() {
             x = resources.displayMetrics.widthPixels - touchWidth
             y = (300 * dp).toInt()
         }
-        val radius = hiddenWidth.toFloat()
-        val shape = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadii = floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
-            setColor(0xF2252525.toInt())
-            setStroke((1 * dp).toInt(), 0x33FFFFFF)
-        }
-        val view = ImageView(this).apply {
-            setImageResource(R.drawable.ic_launcher_foreground)
-            scaleType = ImageView.ScaleType.CENTER_INSIDE
-            setPadding(touchWidth - hiddenWidth, (14 * dp).toInt(), 0, (14 * dp).toInt())
-            background = android.graphics.drawable.InsetDrawable(shape, touchWidth - hiddenWidth, 0, 0, 0)
+        val view = HalfBallView(this, R.drawable.ic_launcher_foreground).apply {
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
         }
@@ -78,6 +66,33 @@ class QuickEntryService : Service() {
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
         enabled(this, false); super.onDestroy()
     }
+    private class HalfBallView(context: Context, private val iconRes: Int) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0xF22B2B2B.toInt()
+            style = Paint.Style.FILL
+        }
+        private val edge = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x4DFFFFFF
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f * density
+        }
+        private val icon = context.getDrawable(iconRes)
+
+        override fun onDraw(canvas: Canvas) {
+            val radius = height / 2f
+            val centerX = width.toFloat()
+            val centerY = height / 2f
+            canvas.drawCircle(centerX, centerY, radius, fill)
+            canvas.drawCircle(centerX, centerY, radius, edge)
+            val iconSize = (30 * density).toInt()
+            val iconCenter = width - 9f * density
+            icon?.setBounds((iconCenter - iconSize / 2).toInt(), (height - iconSize) / 2,
+                (iconCenter + iconSize / 2).toInt(), (height + iconSize) / 2)
+            icon?.draw(canvas)
+        }
+    }
+
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
         private var active: QuickEntryService? = null
