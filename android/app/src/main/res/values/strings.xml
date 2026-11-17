@@ -611,6 +611,6 @@
     <string name="image_ready_status">Ready to send</string>
     <string name="image_ready_sub">Sending replaces the computer clipboard</string>
     <string name="image_dimensions">%1$d × %2$d</string>
-    <string name="image_clipboard_paste">Paste from clipboard</string>
+    <string name="image_use_screenshot">Use latest screenshot</string>
     <string name="image_preview_failed">Preview unavailable</string>
 </resources>

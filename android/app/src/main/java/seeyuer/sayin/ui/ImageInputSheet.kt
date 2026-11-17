@@ -1,11 +1,15 @@
 package seeyuer.sayin.ui
 
-import android.content.ClipboardManager
+import android.content.ContentUris
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.os.Build
+import android.provider.MediaStore
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
+import androidx.core.content.ContextCompat
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -46,6 +50,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientState
@@ -92,8 +97,26 @@ internal fun ImageInputSheet(
             var showInfo by remember { mutableStateOf(false) }
 
             val context = LocalContext.current
-            var clipboardImage by remember { mutableStateOf<Uri?>(null) }
-            LaunchedEffect(show) { if (show) clipboardImage = clipboardImageUri(context) }
+            val scope = rememberCoroutineScope()
+            var canReadScreenshots by remember { mutableStateOf(hasScreenshotPermission(context)) }
+            var latestShot by remember { mutableStateOf<Uri?>(null) }
+            fun loadScreenshot(select: Boolean = false) {
+                scope.launch {
+                    val shot = withContext(Dispatchers.IO) { latestScreenshot(context) }
+                    latestShot = shot
+                    if (select && shot != null) onSelect(shot)
+                }
+            }
+            val screenshotPermission = rememberLauncherForActivityResult(
+                ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                canReadScreenshots = granted
+                if (granted) loadScreenshot(select = true)
+            }
+            LaunchedEffect(show, canReadScreenshots) {
+                if (show && canReadScreenshots) loadScreenshot()
+                if (!show) latestShot = null
+            }
 
             val metadata = draft?.image?.metadata
             val kb = metadata?.let { (it.bytes + 1023) / 1024 } ?: 0
@@ -230,9 +253,22 @@ internal fun ImageInputSheet(
                         Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.image_choose), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
-                    clipboardImage?.let { uri ->
+                    val shot = latestShot
+                    if (shot != null) {
                         TextButton(
-                            stringResource(R.string.image_clipboard_paste), onClick = { onSelect(uri) },
+                            stringResource(R.string.image_use_screenshot), onClick = { onSelect(shot) },
+                            enabled = !state.imageBusy && !state.imagePreparing,
+                            minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else if (!canReadScreenshots) {
+                        TextButton(
+                            stringResource(R.string.image_use_screenshot),
+                            onClick = {
+                                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    android.Manifest.permission.READ_MEDIA_IMAGES
+                                } else android.Manifest.permission.READ_EXTERNAL_STORAGE
+                                screenshotPermission.launch(permission)
+                            },
                             enabled = !state.imageBusy && !state.imagePreparing,
                             minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth(),
                         )
@@ -327,12 +363,36 @@ internal fun ImagePreviewDialog(
     }
 }
 
-private fun clipboardImageUri(context: Context): Uri? = runCatching {
-    val clip = context.getSystemService(ClipboardManager::class.java)?.primaryClip ?: return null
-    if (clip.itemCount == 0) return null
-    val item = clip.getItemAt(0)
-    val uri = item.uri ?: item.intent?.data ?: return null
-    uri.takeIf { context.contentResolver.getType(it)?.startsWith("image/") == true }
+private fun hasScreenshotPermission(context: Context): Boolean {
+    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        android.Manifest.permission.READ_MEDIA_IMAGES
+    } else android.Manifest.permission.READ_EXTERNAL_STORAGE
+    return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun latestScreenshot(context: Context): Uri? = runCatching {
+    val collection = MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    val projection = arrayOf(
+        MediaStore.Images.Media._ID,
+        MediaStore.Images.Media.DISPLAY_NAME,
+        MediaStore.Images.Media.RELATIVE_PATH,
+        MediaStore.Images.Media.DATE_ADDED,
+    )
+    context.contentResolver.query(
+        collection, projection, null, null, "${MediaStore.Images.Media.DATE_ADDED} DESC",
+    )?.use { cursor ->
+        var scanned = 0
+        while (cursor.moveToNext() && scanned < 80) {
+            scanned++
+            val name = cursor.getString(1).orEmpty()
+            val path = cursor.getString(2).orEmpty()
+            val haystack = "$name $path".lowercase()
+            if ("screenshot" in haystack || "screencap" in haystack || "截屏" in haystack || "截图" in haystack) {
+                return@use ContentUris.withAppendedId(collection, cursor.getLong(0))
+            }
+        }
+        null
+    }
 }.getOrNull()
 
 @Composable
