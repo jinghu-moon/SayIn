@@ -41,22 +41,28 @@ class QuickEntryService : Service() {
         } catch (_: Exception) { stopSelf(); return }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
-        val ballSize = (52 * dp).toInt()
-        val params = WindowManager.LayoutParams(ballSize, ballSize,
+        val hiddenWidth = (28 * dp).toInt()
+        val touchWidth = (48 * dp).toInt()
+        val height = (56 * dp).toInt()
+        val params = WindowManager.LayoutParams(touchWidth, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = resources.displayMetrics.widthPixels - ballSize
+            x = resources.displayMetrics.widthPixels - touchWidth
             y = (300 * dp).toInt()
+        }
+        val radius = hiddenWidth.toFloat()
+        val shape = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadii = floatArrayOf(radius, radius, 0f, 0f, 0f, 0f, radius, radius)
+            setColor(0xCC5B99E3.toInt())
         }
         val view = ImageView(this).apply {
             setImageResource(R.drawable.ic_stat_microphone)
             setColorFilter(Color.WHITE)
-            setPadding((14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt(), (14 * dp).toInt())
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(0xCC5B99E3.toInt())
-            }
+            scaleType = ImageView.ScaleType.CENTER
+            setPadding(touchWidth - hiddenWidth, 0, 0, 0)
+            background = android.graphics.drawable.InsetDrawable(shape, touchWidth - hiddenWidth, 0, 0, 0)
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
         }
