@@ -41,7 +41,7 @@ class QuickActivity : AppCompatActivity() {
         window.attributes = window.attributes.apply { dimAmount = 0.22f }
         setFinishOnTouchOutside(true)
         val density = resources.displayMetrics.density
-        val cardHeight = (resources.displayMetrics.heightPixels / density * 0.66f).coerceAtMost(560f).dp
+        val cardHeight = (resources.displayMetrics.heightPixels / density * 0.66f).coerceAtMost(500f).dp
         val windowWidth = (resources.displayMetrics.widthPixels - 24 * density).toInt()
         setContent {
             val mode by Appearance.mode.collectAsStateWithLifecycle()
