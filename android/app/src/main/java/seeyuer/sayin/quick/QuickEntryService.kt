@@ -39,9 +39,13 @@ class QuickEntryService : Service() {
         } catch (_: Exception) { stopSelf(); return }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
-        val params = WindowManager.LayoutParams((52 * dp).toInt(), (52 * dp).toInt(), WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        val ballSize = (52 * dp).toInt()
+        val peek = (24 * dp).toInt()
+        val params = WindowManager.LayoutParams(ballSize, ballSize, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE, PixelFormat.TRANSLUCENT).apply {
-                gravity = Gravity.TOP or Gravity.START; x = resources.displayMetrics.widthPixels - width; y = (300 * dp).toInt()
+                gravity = Gravity.TOP or Gravity.START
+                x = resources.displayMetrics.widthPixels - peek
+                y = (300 * dp).toInt()
             }
         val view = ImageView(this).apply {
             setImageResource(R.drawable.ic_stat_microphone); setColorFilter(Color.WHITE)
@@ -59,16 +63,15 @@ class QuickEntryService : Service() {
                     val dx = event.rawX - downX; val dy = event.rawY - downY
                     if (abs(dx) > slop || abs(dy) > slop) moved = true
                     if (moved) {
-                        params.x = (startX + dx.toInt()).coerceIn(0, resources.displayMetrics.widthPixels - params.width)
+                        params.x = (startX + dx.toInt()).coerceIn(-(params.width - peek), resources.displayMetrics.widthPixels - peek)
                         params.y = (startY + dy.toInt()).coerceIn(0, resources.displayMetrics.heightPixels - params.height)
                         windows.updateViewLayout(v, params)
                     }; true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (moved) {
-                        params.x = if (params.x < (resources.displayMetrics.widthPixels - params.width) / 2) {
-                            0
-                        } else resources.displayMetrics.widthPixels - params.width
+                        val width = resources.displayMetrics.widthPixels
+                        params.x = if (params.x + params.width / 2 < width / 2) -(params.width - peek) else width - peek
                         windows.updateViewLayout(v, params)
                     } else v.performClick()
                     true
