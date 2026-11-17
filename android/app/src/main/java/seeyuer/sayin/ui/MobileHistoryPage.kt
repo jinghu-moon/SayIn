@@ -165,7 +165,11 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
         "saved", "uploading", "accepted", "held", "executing" -> if (dark) YuePalette.WarningContainerDark else YuePalette.WarningContainerLight
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
-    Panel(insideMargin = PaddingValues(horizontal = 16.dp, vertical = 12.dp)) {
+    val hasFooterAction = item.kind == "image" || state.historyText[item.id] != null
+    Panel(insideMargin = PaddingValues(
+        start = 16.dp, end = 16.dp, top = 12.dp,
+        bottom = if (hasFooterAction) 0.dp else 12.dp,
+    )) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
             Row(Modifier.clip(RoundedCornerShape(12.dp)).background(toneBackground).padding(8.dp, 5.dp),
