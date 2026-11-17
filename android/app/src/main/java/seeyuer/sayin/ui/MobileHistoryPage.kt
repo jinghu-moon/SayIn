@@ -179,7 +179,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
             WindowIconDropdownMenu(DropdownEntry(listOf(
                 DropdownItem(stringResource(R.string.history_details), onClick = onDetails),
                 DropdownItem(stringResource(R.string.history_delete), onClick = onDelete))),
-                Modifier.size(48.dp).testTag("history-more-${item.id}"), minHeight = 48.dp, minWidth = 48.dp) {
+                Modifier.size(48.dp).offset(x = 14.dp).testTag("history-more-${item.id}"), minHeight = 48.dp, minWidth = 48.dp) {
                 Icon(VoiceLinkIcon.More.vector, stringResource(R.string.history_details), Modifier.size(20.dp))
             }
         }
@@ -208,7 +208,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
                     } else Toast.makeText(context, R.string.history_image_unavailable, Toast.LENGTH_SHORT).show()
                     copying = false
                 }
-            }, modifier = Modifier.size(48.dp).testTag("history-copy-${item.id}")) {
+            }, modifier = Modifier.size(48.dp).offset(x = 14.dp).testTag("history-copy-${item.id}")) {
                 Icon((if (copied) VoiceLinkIcon.Check else VoiceLinkIcon.Copy).vector,
                     stringResource(if (copied) R.string.history_copied else R.string.history_copy), Modifier.size(20.dp))
             }
