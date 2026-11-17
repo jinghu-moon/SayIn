@@ -50,7 +50,7 @@ class QuickEntryService : Service() {
             x = resources.displayMetrics.widthPixels - touchWidth
             y = (300 * dp).toInt()
         }
-        val view = HalfBallView(this, R.drawable.ic_launcher_foreground).apply {
+        val view = HalfBallView(this, R.drawable.ic_sayin_brand_fyan).apply {
             contentDescription = getString(R.string.quick_open)
             setOnClickListener { startActivity(QuickActivity.intent(this@QuickEntryService)) }
         }
@@ -85,8 +85,8 @@ class QuickEntryService : Service() {
             val centerY = height / 2f
             canvas.drawCircle(centerX, centerY, radius, fill)
             canvas.drawCircle(centerX, centerY, radius, edge)
-            val iconSize = (30 * density).toInt()
-            val iconCenter = width - 9f * density
+            val iconSize = (36 * density).toInt()
+            val iconCenter = width - 8f * density
             icon?.setBounds((iconCenter - iconSize / 2).toInt(), (height - iconSize) / 2,
                 (iconCenter + iconSize / 2).toInt(), (height + iconSize) / 2)
             icon?.draw(canvas)
