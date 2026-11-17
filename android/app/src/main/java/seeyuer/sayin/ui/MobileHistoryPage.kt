@@ -165,7 +165,7 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
         "saved", "uploading", "accepted", "held", "executing" -> if (dark) YuePalette.WarningContainerDark else YuePalette.WarningContainerLight
         else -> MiuixTheme.colorScheme.surfaceContainer
     }
-    Panel(insideMargin = PaddingValues(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 14.dp)) {
+    Panel(insideMargin = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.weight(1f)) {
             Row(Modifier.clip(RoundedCornerShape(12.dp)).background(toneBackground).padding(8.dp, 5.dp),
