@@ -16,7 +16,15 @@ import android.view.*
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import seeyuer.sayin.R
+import seeyuer.sayin.SayInApplication
+import seeyuer.sayin.data.ClientState
+import seeyuer.sayin.data.Connection
 import kotlin.math.abs
 
 /** Explicitly enabled optional overlay; idle service never records or sends. */
@@ -26,6 +34,8 @@ class QuickEntryService : Service() {
     private var edgeLeft = false
     private var expanded = false
     private lateinit var windows: WindowManager
+    private lateinit var notificationManager: NotificationManager
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val handler = Handler(Looper.getMainLooper())
     private var longPress: Runnable? = null
     private var downRawX = 0f
@@ -41,17 +51,17 @@ class QuickEntryService : Service() {
     override fun onCreate() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
-        val notifications = getSystemService(NotificationManager::class.java)
-        notifications.createNotificationChannel(NotificationChannel("quick_entry", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_LOW))
-        val notification = NotificationCompat.Builder(this, "quick_entry").setSmallIcon(R.drawable.ic_stat_microphone)
-            .setContentTitle(getString(R.string.app_name)).setContentText(getString(R.string.quick_entry_notification))
-            .setContentIntent(QuickActivity.pendingIntent(this)).setOngoing(true).setSilent(true)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-            .addAction(0, getString(R.string.quick_disable), PendingIntent.getService(this, 44,
-                Intent(this, QuickEntryService::class.java).setAction(STOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)).build()
-        try { ServiceCompat.startForeground(this, 44, notification,
+        notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager.createNotificationChannel(NotificationChannel("quick_entry", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_LOW))
+        val repository = (application as SayInApplication).model.repository
+        try { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(repository.state.value),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         } catch (_: Exception) { stopSelf(); return }
+        scope.launch {
+            repository.state.collect { state ->
+                notificationManager.notify(NOTIFICATION_ID, notification(state))
+            }
+        }
         windows = getSystemService(WindowManager::class.java)
         val dp = resources.displayMetrics.density
         val size = (56 * dp).toInt()
@@ -159,12 +169,48 @@ class QuickEntryService : Service() {
         startActivity(QuickActivity.intent(this))
     }
 
+    private fun notification(state: ClientState): Notification {
+        val target = state.foregroundApplication?.name?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.speak_computer_unknown)
+        val computer = state.address.takeIf { it.isNotBlank() }?.let {
+            getString(R.string.quick_notification_computer, it)
+        } ?: getString(R.string.quick_notification_public)
+        val title = when {
+            state.ready -> getString(R.string.quick_notification_connected, target)
+            state.paused -> getString(R.string.quick_notification_paused)
+            state.connection == Connection.ONLINE -> getString(R.string.quick_notification_connecting)
+            else -> getString(R.string.quick_notification_offline)
+        }
+        val open = QuickActivity.pendingIntent(this)
+        val clear = PendingIntent.getService(this, 44,
+            Intent(this, QuickEntryService::class.java).setAction(STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val public = NotificationCompat.Builder(this, "quick_entry")
+            .setSmallIcon(R.drawable.ic_stat_microphone)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText(getString(R.string.quick_notification_public))
+            .setContentIntent(open).setOngoing(true).setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+        return NotificationCompat.Builder(this, "quick_entry")
+            .setSmallIcon(R.drawable.ic_stat_microphone)
+            .setContentTitle(title).setContentText(computer)
+            .setContentIntent(open).setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(public)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(0, getString(R.string.quick_notification_open), open)
+            .addAction(0, getString(R.string.quick_disable), clear)
+            .build()
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == STOP) stopSelf()
         return START_NOT_STICKY
     }
 
     override fun onDestroy() {
+        scope.cancel()
         if (active === this) active = null
         handler.removeCallbacksAndMessages(null)
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
@@ -219,6 +265,7 @@ class QuickEntryService : Service() {
 
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
+        private const val NOTIFICATION_ID = 44
         private const val PEEK_ALPHA = 0.5f
         private var active: QuickEntryService? = null
 

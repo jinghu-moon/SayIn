@@ -616,4 +616,11 @@
     <string name="appearance_light">Light</string>
     <string name="appearance_dark">Dark</string>
     <string name="appearance_system">Follow system</string>
+    <string name="quick_notification_connected">Connected · %1$s</string>
+    <string name="quick_notification_paused">Connection paused</string>
+    <string name="quick_notification_connecting">Connecting</string>
+    <string name="quick_notification_offline">Computer offline</string>
+    <string name="quick_notification_computer">Computer %1$s</string>
+    <string name="quick_notification_public">Tap to view</string>
+    <string name="quick_notification_open">Open quick draft</string>
 </resources>
