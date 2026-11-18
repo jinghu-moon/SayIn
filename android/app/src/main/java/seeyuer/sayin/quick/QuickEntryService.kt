@@ -4,9 +4,7 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.content.res.Configuration
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.os.Build
@@ -15,7 +13,6 @@ import android.os.IBinder
 import android.os.Looper
 import android.provider.Settings
 import android.view.*
-import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -230,25 +227,7 @@ class QuickEntryService : Service() {
         val toggle = PendingIntent.getService(this, 45,
             Intent(this, QuickEntryService::class.java).setAction(if (ball == null) SHOW_BALL else HIDE_BALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val night = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
-        val titleColor = if (night) Color.rgb(245, 245, 245) else Color.rgb(31, 31, 31)
-        val subtitleColor = if (night) Color.rgb(184, 184, 184) else Color.rgb(115, 115, 115)
-        val actionColor = if (night) Color.rgb(156, 195, 255) else Color.rgb(31, 117, 219)
-        val compact = RemoteViews(packageName, R.layout.notification_quick_compact).apply {
-            setTextViewText(R.id.notification_title, title)
-            setTextViewText(R.id.notification_subtitle, computer)
-            setTextViewText(R.id.notification_open, getString(R.string.quick_action_open))
-            setTextViewText(R.id.notification_toggle, getString(if (ball == null) R.string.quick_action_show else R.string.quick_action_hide))
-            setTextColor(R.id.notification_title, titleColor)
-            setTextColor(R.id.notification_subtitle, subtitleColor)
-            setTextColor(R.id.notification_open, actionColor)
-            setTextColor(R.id.notification_toggle, actionColor)
-            setContentDescription(R.id.notification_open, getString(R.string.quick_notification_open))
-            setContentDescription(R.id.notification_toggle, getString(if (ball == null) R.string.quick_show else R.string.quick_disable))
-            setOnClickPendingIntent(R.id.notification_open, open)
-            setOnClickPendingIntent(R.id.notification_toggle, toggle)
-        }
+        val expanded = computer + "\n" + getString(R.string.quick_notification_expanded)
         val public = NotificationCompat.Builder(this, "quick_entry_visible")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(getString(R.string.app_name))
@@ -259,12 +238,13 @@ class QuickEntryService : Service() {
         return NotificationCompat.Builder(this, "quick_entry_visible")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(title).setContentText(computer)
-            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-            .setCustomContentView(compact)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(expanded))
             .setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .addAction(0, getString(R.string.quick_notification_open), open)
+            .addAction(0, getString(if (ball == null) R.string.quick_show else R.string.quick_disable), toggle)
             .build()
     }
 
