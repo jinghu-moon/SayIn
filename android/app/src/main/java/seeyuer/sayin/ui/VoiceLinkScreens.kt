@@ -1,8 +1,10 @@
 package seeyuer.sayin.ui
 
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.selection.selectable
@@ -23,7 +25,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import seeyuer.sayin.R
@@ -46,11 +48,9 @@ import seeyuer.sayin.data.PhraseLibrary
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.ui.settings.SettingsHost
 import seeyuer.sayin.ui.settings.SettingsRoute
-import top.yukonga.miuix.kmp.utils.PagerNavigationSpringSpec
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
-import kotlinx.coroutines.launch
 import java.text.DateFormat
 import java.util.Date
 
@@ -87,31 +87,10 @@ internal fun VoiceLinkContent(
     loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
-    val pagerState = rememberPagerState(initialPage = MobilePage.valueOf(pageName).ordinal) { MobilePage.entries.size }
-    val page = MobilePage.entries[pagerState.currentPage]
-    val scope = rememberCoroutineScope()
-    val jumpProgress = remember { Animatable(1f) }
-    var jumpDirection by remember { mutableIntStateOf(0) }
-    suspend fun moveTo(target: MobilePage) {
-        val distance = kotlin.math.abs(target.ordinal - pagerState.currentPage)
-        if (distance <= 1) {
-            // Neighboring tabs keep the normal pager spring.
-            jumpProgress.snapTo(1f)
-            pagerState.animateScrollToPage(target.ordinal, animationSpec = PagerNavigationSpringSpec)
-        } else {
-            // A non-adjacent pager animation would show every intermediate page.
-            // Switch directly, then play a short directional entrance for the new page.
-            jumpDirection = if (target.ordinal > pagerState.currentPage) 1 else -1
-            jumpProgress.snapTo(0f)
-            pagerState.scrollToPage(target.ordinal)
-            jumpProgress.animateTo(1f, animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow))
-        }
-    }
+    val page = MobilePage.valueOf(pageName)
     fun goTo(target: MobilePage) {
-        scope.launch {
-            session.cancelAutoSend()
-            moveTo(target)
-        }
+        session.cancelAutoSend()
+        pageName = target.name
     }
     var showConnection by remember { mutableStateOf(false) }
     var showImage by remember { mutableStateOf(false) }
@@ -123,15 +102,11 @@ internal fun VoiceLinkContent(
     val cloudState by cloudSettings.state.collectAsStateWithLifecycle()
     val source = session.source
     val sendMode = session.sendMode
-    val jumpValue = jumpProgress.value
-    val jumpScreenWidth = LocalContext.current.resources.displayMetrics.widthPixels.toFloat()
-    val jumpOffset = (if (jumpDirection >= 0) jumpScreenWidth else -jumpScreenWidth) * (1f - jumpValue)
-    LaunchedEffect(pagerState.currentPage) {
-        pageName = page.name
+    LaunchedEffect(page) {
         session.cancelAutoSend()
     }
     LaunchedEffect(entryVersion) {
-        moveTo(if (openSettings) MobilePage.Settings else MobilePage.Speak)
+        pageName = (if (openSettings) MobilePage.Settings else MobilePage.Speak).name
     }
     LaunchedEffect(quick) { session.cancelAutoSend() }
     LaunchedEffect(sharedImage, shareVersion) {
@@ -160,7 +135,7 @@ internal fun VoiceLinkContent(
         containerColor = MiuixTheme.colorScheme.background,
         topBar = {
             // Same status-bar spacer on every page and while the IME is open: the bar itself lives
-            // inside each pager page, so its height never changes and typing cannot push it away.
+            // inside each page, so its height never changes and typing cannot push it away.
             if (!quick) Spacer(Modifier.statusBarsPadding())
         },
         bottomBar = {
@@ -189,15 +164,21 @@ internal fun VoiceLinkContent(
         val extraImeBottom = (imeBottom - insets.calculateBottomPadding()).coerceAtLeast(0.dp)
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)
             .then(if (extraImeBottom > 0.dp) Modifier.padding(bottom = extraImeBottom) else Modifier)) {
-            HorizontalPager(
-                state = pagerState,
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    translationX = jumpOffset
-                    alpha = 0.85f + 0.15f * jumpValue
+            AnimatedContent(
+                targetState = page,
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val forward = targetState.ordinal > initialState.ordinal
+                    val slideSpec = spring<IntOffset>(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow)
+                    (slideInHorizontally(animationSpec = slideSpec) { width ->
+                        if (forward) width else -width
+                    } togetherWith slideOutHorizontally(animationSpec = slideSpec) { width ->
+                        if (forward) -width else width
+                    }).using(SizeTransform(clip = false))
                 },
-                userScrollEnabled = !quick && !settingsSubpage,
-            ) { index ->
-                when (MobilePage.entries[index]) {
+                label = "root-page-transition",
+            ) { currentPage ->
+                when (currentPage) {
                     MobilePage.Speak -> SpeakPage(state, session, phrases, onSend,
                         cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                         onConfigureCloud = { if (quick) onExpand(true) else { settingsEntry = SettingsRoute.Recognition; goTo(MobilePage.Settings) } },
@@ -205,7 +186,7 @@ internal fun VoiceLinkContent(
                         connectionOpen = showConnection || showImage,
                         onImage = { session.cancelAutoSend(); showImage = true },
                         quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
-                        onRequestAction = onHistoryAction, pageActive = pagerState.settledPage == index)
+                        onRequestAction = onHistoryAction, pageActive = currentPage == MobilePage.Speak)
                     MobilePage.History -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
                         PageTopBar(MobilePage.History)
                         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
