@@ -623,4 +623,5 @@
     <string name="quick_notification_computer">Computer %1$s</string>
     <string name="quick_notification_public">Tap to view</string>
     <string name="quick_notification_open">Open quick draft</string>
+    <string name="quick_show">Show floating button</string>
 </resources>

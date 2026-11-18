@@ -33,6 +33,7 @@ class QuickEntryService : Service() {
     private var params: WindowManager.LayoutParams? = null
     private var edgeLeft = false
     private var expanded = false
+    private var latestState: ClientState? = null
     private lateinit var windows: WindowManager
     private lateinit var notificationManager: NotificationManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -54,24 +55,31 @@ class QuickEntryService : Service() {
         notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(NotificationChannel("quick_entry", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_LOW))
         val repository = (application as SayInApplication).model.repository
+        latestState = repository.state.value
         try { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(repository.state.value),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
         } catch (_: Exception) { stopSelf(); return }
         scope.launch {
             repository.state.collect { state ->
-                notificationManager.notify(NOTIFICATION_ID, notification(state))
+                latestState = state
+                updateNotification()
             }
         }
         windows = getSystemService(WindowManager::class.java)
+        showBall()
+    }
+
+    private fun showBall() {
+        if (ball != null || !Settings.canDrawOverlays(this)) return
         val dp = resources.displayMetrics.density
         val size = (56 * dp).toInt()
-        params = WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+        val p = params ?: WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = resources.displayMetrics.widthPixels - peekWidth()
             y = (300 * dp).toInt()
-        }
+        }.also { params = it }
+        p.x = peekX()
         val view = BallView(this, R.drawable.ic_sayin_brand_fyan_mark).apply {
             contentDescription = getString(R.string.quick_open)
             setPeekAtLeft(edgeLeft)
@@ -102,12 +110,12 @@ class QuickEntryService : Service() {
                         }
                     } else {
                         dragging = true
-                        val p = params ?: return@setOnTouchListener true
-                        p.x = (startX + dx.toInt()).coerceIn(0,
-                            resources.displayMetrics.widthPixels - p.width)
-                        p.y = (startY + dy.toInt()).coerceIn(0,
-                            resources.displayMetrics.heightPixels - p.height)
-                        windows.updateViewLayout(v, p)
+                        val layout = params ?: return@setOnTouchListener true
+                        layout.x = (startX + dx.toInt()).coerceIn(0,
+                            resources.displayMetrics.widthPixels - layout.width)
+                        layout.y = (startY + dy.toInt()).coerceIn(0,
+                            resources.displayMetrics.heightPixels - layout.height)
+                        windows.updateViewLayout(v, layout)
                     }
                     true
                 }
@@ -131,8 +139,31 @@ class QuickEntryService : Service() {
                 else -> false
             }
         }
-        try { windows.addView(view, params); ball = view; active = this; enabled(this, true) }
-        catch (_: Exception) { stopSelf() }
+        try {
+            windows.addView(view, p)
+            ball = view
+            active = this
+            enabled(this, true)
+            updateNotification()
+        } catch (_: Exception) {
+            enabled(this, false)
+            stopSelf()
+        }
+    }
+
+    private fun hideBall() {
+        handler.removeCallbacksAndMessages(null)
+        longPress = null
+        expanded = false
+        ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }
+        ball = null
+        enabled(this, false)
+        updateNotification()
+    }
+
+    private fun updateNotification() {
+        val state = latestState ?: return
+        notificationManager.notify(NOTIFICATION_ID, notification(state))
     }
 
     private fun peekWidth(): Int = (23 * resources.displayMetrics.density).toInt()
@@ -182,8 +213,8 @@ class QuickEntryService : Service() {
             else -> getString(R.string.quick_notification_offline)
         }
         val open = QuickActivity.pendingIntent(this)
-        val clear = PendingIntent.getService(this, 44,
-            Intent(this, QuickEntryService::class.java).setAction(STOP),
+        val toggle = PendingIntent.getService(this, 45,
+            Intent(this, QuickEntryService::class.java).setAction(if (ball == null) SHOW_BALL else HIDE_BALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val public = NotificationCompat.Builder(this, "quick_entry")
             .setSmallIcon(R.drawable.ic_stat_microphone)
@@ -200,12 +231,17 @@ class QuickEntryService : Service() {
             .setPublicVersion(public)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(0, getString(R.string.quick_notification_open), open)
-            .addAction(0, getString(R.string.quick_disable), clear)
+            .addAction(0, getString(if (ball == null) R.string.quick_show else R.string.quick_disable), toggle)
             .build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == STOP) stopSelf()
+        when (intent?.action) {
+            HIDE_BALL -> hideBall()
+            SHOW_BALL -> showBall()
+            STOP -> stopSelf()
+            else -> showBall()
+        }
         return START_NOT_STICKY
     }
 
@@ -265,6 +301,8 @@ class QuickEntryService : Service() {
 
     companion object {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
+        private const val HIDE_BALL = "seeyuer.sayin.HIDE_QUICK_ENTRY"
+        private const val SHOW_BALL = "seeyuer.sayin.SHOW_QUICK_ENTRY"
         private const val NOTIFICATION_ID = 44
         private const val PEEK_ALPHA = 0.5f
         private var active: QuickEntryService? = null
@@ -274,7 +312,7 @@ class QuickEntryService : Service() {
             active?.let { service ->
                 if (visible) {
                     service.ball?.visibility = View.GONE
-                } else {
+                } else if (service.ball != null) {
                     service.collapseToPeek()
                     service.ball?.visibility = View.VISIBLE
                 }

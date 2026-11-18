@@ -619,4 +619,5 @@
     <string name="quick_notification_computer">电脑 %1$s</string>
     <string name="quick_notification_public">点击查看</string>
     <string name="quick_notification_open">打开速记</string>
+    <string name="quick_show">显示悬浮球</string>
 </resources>
