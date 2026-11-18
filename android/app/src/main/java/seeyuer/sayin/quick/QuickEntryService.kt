@@ -25,6 +25,7 @@ import seeyuer.sayin.R
 import seeyuer.sayin.SayInApplication
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.ui.VoiceLinkViewModel
 import kotlin.math.abs
 
 /** Explicitly enabled optional overlay; idle service never records or sends. */
@@ -34,6 +35,7 @@ class QuickEntryService : Service() {
     private var edgeLeft = false
     private var expanded = false
     private var latestState: ClientState? = null
+    private var model: VoiceLinkViewModel? = null
     private lateinit var windows: WindowManager
     private lateinit var notificationManager: NotificationManager
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -54,7 +56,8 @@ class QuickEntryService : Service() {
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
         notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.createNotificationChannel(NotificationChannel("quick_entry", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_LOW))
-        val repository = (application as SayInApplication).model.repository
+        model = (application as SayInApplication).model
+        val repository = model!!.repository
         latestState = repository.state.value
         try { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(repository.state.value),
             if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0)
@@ -143,6 +146,7 @@ class QuickEntryService : Service() {
             windows.addView(view, p)
             ball = view
             active = this
+            model?.foreground(this, true)
             enabled(this, true)
             updateNotification()
         } catch (_: Exception) {
@@ -157,6 +161,7 @@ class QuickEntryService : Service() {
         expanded = false
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }
         ball = null
+        model?.foreground(this, false)
         enabled(this, false)
         updateNotification()
     }
@@ -217,14 +222,14 @@ class QuickEntryService : Service() {
             Intent(this, QuickEntryService::class.java).setAction(if (ball == null) SHOW_BALL else HIDE_BALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val public = NotificationCompat.Builder(this, "quick_entry")
-            .setSmallIcon(R.drawable.ic_stat_microphone)
+            .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.quick_notification_public))
             .setContentIntent(open).setOngoing(true).setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
         return NotificationCompat.Builder(this, "quick_entry")
-            .setSmallIcon(R.drawable.ic_stat_microphone)
+            .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(title).setContentText(computer)
             .setContentIntent(open).setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -250,6 +255,7 @@ class QuickEntryService : Service() {
         if (active === this) active = null
         handler.removeCallbacksAndMessages(null)
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
+        model?.foreground(this, false)
         enabled(this, false); super.onDestroy()
     }
 

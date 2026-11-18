@@ -344,7 +344,7 @@ internal fun SpeakPage(
                     bottom = if (minimal) 0.dp else if (quick) 16.dp else 16.dp)
                 .clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
-                if (!inlineEditingActions) DraftInformation(state, draft, session.sendMode == SpeakSendMode.Automatic) {
+                if (!inlineEditingActions) DraftInformation(state, draft) {
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
                     DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
                 }
@@ -602,7 +602,7 @@ internal fun SpeakPage(
 
 @Composable
 private fun DraftInformation(state: ClientState, draft: androidx.compose.ui.text.input.TextFieldValue,
-                             automatic: Boolean, actions: @Composable RowScope.() -> Unit) {
+                             actions: @Composable RowScope.() -> Unit) {
     val color = MiuixTheme.colorScheme
     val connected = state.connection == Connection.ONLINE && !state.paused && state.active
     // The card header identifies the computer with the device-desktop icon; the user-visible text
@@ -637,8 +637,7 @@ private fun DraftInformation(state: ClientState, draft: androidx.compose.ui.text
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val applicationIcon = state.foregroundApplication?.icon.takeIf { connected }
         val leadingWidth = 18.dp + 6.dp +
-            (if (applicationIcon != null) 18.dp + 6.dp else 0.dp) +
-            (if (automatic) 24.dp else 0.dp)
+            (if (applicationIcon != null) 18.dp + 6.dp else 0.dp)
         val showCount = countWorthShowing &&
             maxWidth >= 96.dp + leadingWidth + 112.dp * density.fontScale + countWidth
         val fullLabel = maxWidth - 96.dp - leadingWidth - (if (showCount) countWidth else 0.dp) >= 112.dp * density.fontScale
@@ -654,8 +653,6 @@ private fun DraftInformation(state: ClientState, draft: androidx.compose.ui.text
                 Image(applicationIcon.asImageBitmap(), null, Modifier.size(18.dp).testTag("foreground-application-icon"))
                 Spacer(Modifier.width(6.dp))
             }
-            if (automatic) Icon(VoiceLinkIcon.Automatic.vector, stringResource(R.string.speak_auto_send),
-                Modifier.size(24.dp).testTag("auto-send-indicator"), tint = color.primary)
             Text(if (fullLabel) visibleName else generic, Modifier.weight(1f).testTag("foreground-application")
                 .clearAndSetSemantics { contentDescription = description; liveRegion = LiveRegionMode.Polite },
                 fontSize = 12.sp, color = color.onSurfaceSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
