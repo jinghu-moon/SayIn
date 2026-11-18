@@ -2,6 +2,9 @@ package seeyuer.sayin.ui
 
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -20,6 +23,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -86,13 +90,21 @@ internal fun VoiceLinkContent(
     val pagerState = rememberPagerState(initialPage = MobilePage.valueOf(pageName).ordinal) { MobilePage.entries.size }
     val page = MobilePage.entries[pagerState.currentPage]
     val scope = rememberCoroutineScope()
+    val jumpProgress = remember { Animatable(1f) }
+    var jumpDirection by remember { mutableIntStateOf(0) }
     suspend fun moveTo(target: MobilePage) {
-        // Animating a non-adjacent jump makes every intermediate page visible.
-        // Keep the spring transition only for neighboring tabs.
-        if (kotlin.math.abs(target.ordinal - pagerState.currentPage) <= 1) {
+        val distance = kotlin.math.abs(target.ordinal - pagerState.currentPage)
+        if (distance <= 1) {
+            // Neighboring tabs keep the normal pager spring.
+            jumpProgress.snapTo(1f)
             pagerState.animateScrollToPage(target.ordinal, animationSpec = PagerNavigationSpringSpec)
         } else {
+            // A non-adjacent pager animation would show every intermediate page.
+            // Switch directly, then play a short directional entrance for the new page.
+            jumpDirection = if (target.ordinal > pagerState.currentPage) 1 else -1
+            jumpProgress.snapTo(0f)
             pagerState.scrollToPage(target.ordinal)
+            jumpProgress.animateTo(1f, animationSpec = tween(240, easing = FastOutSlowInEasing))
         }
     }
     fun goTo(target: MobilePage) {
@@ -111,6 +123,10 @@ internal fun VoiceLinkContent(
     val cloudState by cloudSettings.state.collectAsStateWithLifecycle()
     val source = session.source
     val sendMode = session.sendMode
+    val jumpValue = jumpProgress.value
+    val jumpOffset = with(LocalDensity.current) {
+        (if (jumpDirection >= 0) 32.dp else (-32).dp).toPx()
+    } * (1f - jumpValue)
     LaunchedEffect(pagerState.currentPage) {
         pageName = page.name
         session.cancelAutoSend()
@@ -176,7 +192,10 @@ internal fun VoiceLinkContent(
             .then(if (extraImeBottom > 0.dp) Modifier.padding(bottom = extraImeBottom) else Modifier)) {
             HorizontalPager(
                 state = pagerState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    translationX = jumpOffset
+                    alpha = 0.72f + 0.28f * jumpValue
+                },
                 userScrollEnabled = !quick && !settingsSubpage,
             ) { index ->
                 when (MobilePage.entries[index]) {
