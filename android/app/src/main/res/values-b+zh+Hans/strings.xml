@@ -621,6 +621,4 @@
     <string name="quick_notification_open">打开速记</string>
     <string name="quick_show">显示悬浮球</string>
     <string name="quick_notification_expanded">可打开速记或切换悬浮球</string>
-    <string name="quick_expand_details">展开</string>
-    <string name="quick_collapse_details">收起</string>
 </resources>
