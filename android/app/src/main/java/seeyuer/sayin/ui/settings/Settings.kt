@@ -1007,8 +1007,8 @@ private fun DiagnosticsPage(state: ClientState, modifier: Modifier, scroll: andr
         stringResource(R.string.settings_diagnostics_state) to state.connection.name,
         stringResource(R.string.settings_diagnostics_target) to target,
         stringResource(R.string.settings_diagnostics_computer) to computer,
-        stringResource(R.string.settings_diagnostics_active) to yesNo(state.active),
-        stringResource(R.string.settings_diagnostics_paused) to yesNo(state.paused),
+        stringResource(R.string.settings_diagnostics_active) to trueFalse(state.active),
+        stringResource(R.string.settings_diagnostics_paused) to trueFalse(state.paused),
         stringResource(R.string.settings_diagnostics_storage) to
             stringResource(if (state.storageHealthy) R.string.settings_diagnostics_healthy else R.string.settings_diagnostics_unhealthy),
     )
@@ -1053,6 +1053,10 @@ private fun DiagnosticsPage(state: ClientState, modifier: Modifier, scroll: andr
 @Composable
 private fun yesNo(value: Boolean): String =
     stringResource(if (value) R.string.settings_diagnostics_yes else R.string.settings_diagnostics_no)
+
+@Composable
+private fun trueFalse(value: Boolean): String =
+    stringResource(if (value) R.string.settings_diagnostics_true else R.string.settings_diagnostics_false)
 
 @Composable
 private fun DiagnosticRow(label: String, value: String) {

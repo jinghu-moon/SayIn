@@ -667,4 +667,6 @@
     <string name="settings_diagnostics_unhealthy">Blocked</string>
     <string name="settings_diagnostics_none">None</string>
     <string name="settings_diagnostics_na">N/A</string>
+    <string name="settings_diagnostics_true">Yes</string>
+    <string name="settings_diagnostics_false">No</string>
 </resources>
