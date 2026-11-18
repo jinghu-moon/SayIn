@@ -55,7 +55,13 @@ class QuickEntryService : Service() {
         super.onCreate()
         if (!Settings.canDrawOverlays(this)) { stopSelf(); return }
         notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.createNotificationChannel(NotificationChannel("quick_entry", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_LOW))
+        notificationManager.deleteNotificationChannel("quick_entry")
+        notificationManager.createNotificationChannel(NotificationChannel("quick_entry_visible", getString(R.string.quick_entry_title), NotificationManager.IMPORTANCE_DEFAULT).apply {
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        })
         model = (application as SayInApplication).model
         val repository = model!!.repository
         latestState = repository.state.value
@@ -222,14 +228,14 @@ class QuickEntryService : Service() {
             Intent(this, QuickEntryService::class.java).setAction(if (ball == null) SHOW_BALL else HIDE_BALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val expanded = computer + "\n" + getString(R.string.quick_notification_expanded)
-        val public = NotificationCompat.Builder(this, "quick_entry")
+        val public = NotificationCompat.Builder(this, "quick_entry_visible")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(getString(R.string.app_name))
             .setContentText(getString(R.string.quick_notification_public))
             .setContentIntent(open).setOngoing(true).setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        return NotificationCompat.Builder(this, "quick_entry")
+        return NotificationCompat.Builder(this, "quick_entry_visible")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(title).setContentText(computer)
             .setStyle(NotificationCompat.BigTextStyle().bigText(expanded))
