@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    alias(libs.plugins.aboutlibraries)
 }
 
 // Opt-in emulator ABI is limited to the isolated instrumentation variant.
@@ -97,6 +98,7 @@ dependencies {
     implementation(libs.androidx.core)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
+    implementation(libs.aboutlibraries.compose.core)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)

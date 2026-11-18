@@ -3,12 +3,15 @@ package seeyuer.sayin.ui.settings
 import android.Manifest
 import android.app.StatusBarManager
 import android.content.ComponentName
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -25,6 +28,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
@@ -43,11 +48,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -60,6 +67,8 @@ import seeyuer.sayin.asr.CloudIssue
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
+import seeyuer.sayin.data.ClientState
+import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.RootClipboardClient
 import seeyuer.sayin.designsystem.Appearance
 import seeyuer.sayin.designsystem.AppearanceMode
@@ -83,6 +92,7 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import com.mikepenz.aboutlibraries.ui.compose.android.produceLibraries
 
 internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
     var text by mutableStateOf(config?.hotwords?.joinToString("\n").orEmpty())
@@ -103,8 +113,11 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Background(Root),
     Clipboard(Root),
     Privacy(Root),
+    Storage(Privacy),
     About(Root),
     Help(About),
+    Licenses(About),
+    Diagnostics(About),
 }
 
 @Composable
@@ -112,6 +125,7 @@ internal fun SettingsHost(
     session: SpeakSession,
     cloudSettings: CloudSettings,
     cloudState: CloudSettingsState,
+    clientState: ClientState,
     keepAwake: Boolean,
     onKeepAwake: (Boolean) -> Unit,
     onSubpageChange: (Boolean) -> Unit,
@@ -204,8 +218,17 @@ internal fun SettingsHost(
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
                     SettingsRoute.Privacy -> PrivacyPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Privacy))
-                    SettingsRoute.About -> AboutPage(onOpenHelp = { route = SettingsRoute.Help }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.About))
+                    SettingsRoute.Storage -> StoragePage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Storage))
+                    SettingsRoute.About -> AboutPage(
+                        onOpenHelp = { route = SettingsRoute.Help },
+                        onOpenLicenses = { route = SettingsRoute.Licenses },
+                        onOpenDiagnostics = { route = SettingsRoute.Diagnostics },
+                        modifier = pageModifier,
+                        scroll = scrollFor(SettingsRoute.About),
+                    )
                     SettingsRoute.Help -> HelpPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Help))
+                    SettingsRoute.Licenses -> LicensesPage(pageModifier)
+                    SettingsRoute.Diagnostics -> DiagnosticsPage(clientState, pageModifier, scrollFor(SettingsRoute.Diagnostics))
                 }
             }
         }
@@ -240,8 +263,11 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title
     SettingsRoute.Privacy -> R.string.settings_privacy_title
+    SettingsRoute.Storage -> R.string.settings_storage_title
     SettingsRoute.About -> R.string.settings_about_title
     SettingsRoute.Help -> R.string.settings_help_title
+    SettingsRoute.Licenses -> R.string.settings_about_licenses
+    SettingsRoute.Diagnostics -> R.string.settings_diagnostics_title
 }
 
 @Composable
@@ -422,7 +448,7 @@ private fun RootPage(
             SettingsCard {
                 ArrowPreference(title = stringResource(R.string.settings_storage),
                     summary = stringResource(R.string.settings_storage_summary),
-                    startAction = startIcon(VoiceLinkIcon.History), enabled = false, onClick = {})
+                    startAction = startIcon(VoiceLinkIcon.History), onClick = { onOpen(SettingsRoute.Storage) })
                 ArrowPreference(title = stringResource(R.string.settings_clipboard),
                     summary = stringResource(R.string.settings_clipboard_summary),
                     startAction = startIcon(VoiceLinkIcon.Clipboard), onClick = { onOpen(SettingsRoute.Clipboard) })
@@ -782,7 +808,7 @@ private fun PrivacyCard(title: Int, body: Int) {
 }
 
 @Composable
-private fun AboutPage(onOpenHelp: () -> Unit, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+private fun AboutPage(onOpenHelp: () -> Unit, onOpenLicenses: () -> Unit, onOpenDiagnostics: () -> Unit, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     val context = LocalContext.current
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(modifier = Modifier.fillMaxWidth()) {
@@ -805,11 +831,234 @@ private fun AboutPage(onOpenHelp: () -> Unit, modifier: Modifier, scroll: androi
                 })
             ArrowPreference(title = stringResource(R.string.settings_about_licenses),
                 summary = stringResource(R.string.settings_about_licenses_summary),
-                startAction = startIcon(VoiceLinkIcon.Shield), enabled = false, onClick = {})
+                startAction = startIcon(VoiceLinkIcon.Shield), onClick = onOpenLicenses)
             ArrowPreference(title = stringResource(R.string.settings_about_diagnostics),
                 summary = stringResource(R.string.settings_about_diagnostics_summary),
-                startAction = startIcon(VoiceLinkIcon.Settings), enabled = false, onClick = {})
+                startAction = startIcon(VoiceLinkIcon.Settings), onClick = onOpenDiagnostics)
         }
+    }
+}
+
+@Composable
+private fun LicensesPage(modifier: Modifier) {
+    val context = LocalContext.current
+    val libs = produceLibraries(R.raw.aboutlibraries).value
+    if (libs == null) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(stringResource(R.string.settings_about_licenses_summary), fontSize = 13.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        }
+        return
+    }
+    val libraries = remember(libs) {
+        libs.libraries.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name ?: it.artifactId ?: "" })
+    }
+    LazyColumn(
+        modifier = modifier.fillMaxSize().testTag("settings-licenses"),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            Text(stringResource(R.string.settings_licenses_count, libraries.size),
+                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+        }
+        item {
+            NoticeText(stringResource(R.string.settings_licenses_note))
+        }
+        items(libraries, key = { it.uniqueId ?: it.name ?: it.hashCode().toString() }) { library ->
+            val licenses = library.licenses
+            var expanded by remember(library.uniqueId) { mutableStateOf(false) }
+            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+                Column(Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(library.name ?: library.artifactId ?: "Unknown", fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold, maxLines = 1)
+                            Text(
+                                listOfNotNull(library.artifactVersion, licenses.firstOrNull()?.spdxId)
+                                    .filter { it.isNotBlank() }.joinToString(" · "),
+                                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                                maxLines = 1,
+                            )
+                        }
+                        Icon(
+                            if (expanded) VoiceLinkIcon.ArrowUp.vector else VoiceLinkIcon.ChevronDown.vector,
+                            null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        )
+                    }
+                    if (expanded) {
+                        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            library.description?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                            }
+                            if (licenses.isEmpty()) {
+                                Text(stringResource(R.string.settings_licenses_no_content), fontSize = 12.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                            } else {
+                                licenses.forEach { license ->
+                                    Text(
+                                        listOfNotNull(license.name, license.spdxId).filter { it.isNotBlank() }
+                                            .joinToString(" · ").ifBlank { stringResource(R.string.settings_licenses_no_content) },
+                                        fontSize = 12.sp, fontWeight = FontWeight.Medium,
+                                    )
+                                    val text = license.licenseContent ?: license.url
+                                    if (!text.isNullOrBlank()) {
+                                        SelectionContainer {
+                                            Text(text, fontSize = 11.sp, lineHeight = 16.sp,
+                                                color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                                        }
+                                    }
+                                }
+                            }
+                            library.website?.takeIf { it.isNotBlank() }?.let { website ->
+                                TextButton(stringResource(R.string.settings_licenses_website), onClick = {
+                                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(website))) }
+                                }, minHeight = 40.dp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var sizes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var clearing by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) {
+        sizes = withContext(Dispatchers.IO) {
+            val data = fileSize(context.filesDir) + fileSize(context.noBackupFilesDir) +
+                fileSize(File(context.dataDir, "databases")) +
+                fileSize(File(context.dataDir, "shared_prefs"))
+            val cache = fileSize(context.cacheDir) + (context.externalCacheDir?.let(::fileSize) ?: 0L)
+            data to cache
+        }
+    }
+    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsCard {
+            DiagnosticRow(stringResource(R.string.settings_storage_data), sizes?.let { Formatter.formatFileSize(context, it.first) } ?: stringResource(R.string.settings_storage_calculating))
+            DiagnosticRow(stringResource(R.string.settings_storage_cache), sizes?.let { Formatter.formatFileSize(context, it.second) } ?: stringResource(R.string.settings_storage_calculating))
+            DiagnosticRow(stringResource(R.string.settings_storage_used), sizes?.let { Formatter.formatFileSize(context, it.first + it.second) } ?: stringResource(R.string.settings_storage_calculating))
+        }
+        NoticeText(stringResource(R.string.settings_storage_note))
+        TextButton(
+            stringResource(R.string.settings_storage_clear_cache),
+            onClick = {
+                if (clearing) return@TextButton
+                clearing = true
+                scope.launch {
+                    withContext(Dispatchers.IO) { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+                    clearing = false
+                    refresh++
+                }
+            },
+            enabled = !clearing && (sizes?.second ?: 0L) > 0L,
+            minHeight = 48.dp,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        TextButton(stringResource(R.string.settings_storage_refresh), onClick = { refresh++ }, minHeight = 44.dp,
+            modifier = Modifier.fillMaxWidth())
+        TextButton(stringResource(R.string.settings_storage_open_system), onClick = {
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}")))
+            }
+        }, minHeight = 44.dp, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+private fun fileSize(file: File): Long {
+    if (!file.exists()) return 0L
+    if (file.isFile) return file.length()
+    return file.listFiles()?.sumOf(::fileSize) ?: 0L
+}
+
+@Composable
+private fun DiagnosticsPage(state: ClientState, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val context = LocalContext.current
+    val copied = remember { mutableStateOf(false) }
+    val overlay = Settings.canDrawOverlays(context)
+    val notifications = NotificationManagerCompat.from(context).areNotificationsEnabled()
+    val localNetwork = ContextCompat.checkSelfPermission(context, "android.permission.ACCESS_LOCAL_NETWORK") ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    val target = state.foregroundApplication?.name?.takeIf { it.isNotBlank() }
+        ?: stringResource(R.string.settings_diagnostics_none)
+    val computer = state.address.takeIf { it.isNotBlank() } ?: stringResource(R.string.settings_diagnostics_none)
+    val rows = listOf(
+        stringResource(R.string.settings_diagnostics_version) to BuildConfig.VERSION_NAME,
+        stringResource(R.string.settings_diagnostics_build) to BuildConfig.BUILD_TYPE,
+        stringResource(R.string.settings_diagnostics_android) to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+        stringResource(R.string.settings_diagnostics_device) to "${Build.MANUFACTURER} ${Build.MODEL}",
+        stringResource(R.string.settings_diagnostics_locale) to Locale.getDefault().toLanguageTag(),
+    )
+    val connectionRows = listOf(
+        stringResource(R.string.settings_diagnostics_state) to state.connection.name,
+        stringResource(R.string.settings_diagnostics_target) to target,
+        stringResource(R.string.settings_diagnostics_computer) to computer,
+        stringResource(R.string.settings_diagnostics_active) to yesNo(state.active),
+        stringResource(R.string.settings_diagnostics_paused) to yesNo(state.paused),
+        stringResource(R.string.settings_diagnostics_storage) to
+            stringResource(if (state.storageHealthy) R.string.settings_diagnostics_healthy else R.string.settings_diagnostics_unhealthy),
+    )
+    val permissionRows = listOf(
+        stringResource(R.string.settings_diagnostics_overlay) to yesNo(overlay),
+        stringResource(R.string.settings_diagnostics_notification) to yesNo(notifications),
+        stringResource(R.string.settings_diagnostics_local_network) to yesNo(localNetwork),
+    )
+    val diagnostics = buildString {
+        rows.forEach { appendLine("${it.first}: ${it.second}") }
+        appendLine()
+        connectionRows.forEach { appendLine("${it.first}: ${it.second}") }
+        appendLine()
+        permissionRows.forEach { appendLine("${it.first}: ${it.second}") }
+    }
+    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionLabel(stringResource(R.string.settings_diagnostics_app), Modifier.padding(start = 4.dp))
+        SettingsCard { rows.forEach { DiagnosticRow(it.first, it.second) } }
+        SectionLabel(stringResource(R.string.settings_diagnostics_connection), Modifier.padding(start = 4.dp))
+        SettingsCard { connectionRows.forEach { DiagnosticRow(it.first, it.second) } }
+        SectionLabel(stringResource(R.string.settings_diagnostics_permissions), Modifier.padding(start = 4.dp))
+        SettingsCard { permissionRows.forEach { DiagnosticRow(it.first, it.second) } }
+        TextButton(
+            stringResource(if (copied.value) R.string.settings_diagnostics_copied else R.string.settings_diagnostics_copy),
+            onClick = {
+                context.getSystemService(ClipboardManager::class.java)
+                    ?.setPrimaryClip(ClipData.newPlainText("SayIn diagnostics", diagnostics))
+                copied.value = true
+            },
+            minHeight = 48.dp, modifier = Modifier.fillMaxWidth(),
+        )
+        TextButton(stringResource(R.string.settings_diagnostics_open_settings), onClick = {
+            runCatching {
+                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:${context.packageName}")))
+            }
+        }, minHeight = 44.dp, modifier = Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun yesNo(value: Boolean): String =
+    stringResource(if (value) R.string.settings_diagnostics_yes else R.string.settings_diagnostics_no)
+
+@Composable
+private fun DiagnosticRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary, modifier = Modifier.weight(1f))
+        Text(value, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 12.dp))
     }
 }
 

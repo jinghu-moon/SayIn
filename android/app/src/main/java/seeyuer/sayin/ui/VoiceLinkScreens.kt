@@ -205,6 +205,7 @@ internal fun VoiceLinkContent(
                         session = session,
                         cloudSettings = cloudSettings,
                         cloudState = cloudState,
+                        clientState = state,
                         keepAwake = keepAwake,
                         onKeepAwake = {
                             keepAwake = it
