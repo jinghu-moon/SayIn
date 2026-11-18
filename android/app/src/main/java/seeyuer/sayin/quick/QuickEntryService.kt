@@ -330,7 +330,9 @@ class QuickEntryService : Service() {
         fun startIfEnabled(context: Context) {
             val enabled = context.getSharedPreferences("presentation", 0).getBoolean("quick_ball", false)
             if (enabled && Settings.canDrawOverlays(context)) {
-                ContextCompat.startForegroundService(context, Intent(context, QuickEntryService::class.java))
+                runCatching {
+                    ContextCompat.startForegroundService(context, Intent(context, QuickEntryService::class.java))
+                }
             }
         }
     }
