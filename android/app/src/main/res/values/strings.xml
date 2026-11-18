@@ -624,4 +624,7 @@
     <string name="quick_notification_public">Tap to view</string>
     <string name="quick_notification_open">Open quick draft</string>
     <string name="quick_show">Show floating button</string>
+    <string name="quick_notification_expanded">Open quick draft or toggle the floating button</string>
+    <string name="quick_expand_details">Expand</string>
+    <string name="quick_collapse_details">Collapse</string>
 </resources>

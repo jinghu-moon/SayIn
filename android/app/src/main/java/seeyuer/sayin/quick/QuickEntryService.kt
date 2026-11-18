@@ -34,6 +34,7 @@ class QuickEntryService : Service() {
     private var params: WindowManager.LayoutParams? = null
     private var edgeLeft = false
     private var expanded = false
+    private var detailsExpanded = false
     private var latestState: ClientState? = null
     private var model: VoiceLinkViewModel? = null
     private lateinit var windows: WindowManager
@@ -218,9 +219,13 @@ class QuickEntryService : Service() {
             else -> getString(R.string.quick_notification_offline)
         }
         val open = QuickActivity.pendingIntent(this)
+        val details = PendingIntent.getService(this, 46,
+            Intent(this, QuickEntryService::class.java).setAction(TOGGLE_DETAILS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val toggle = PendingIntent.getService(this, 45,
             Intent(this, QuickEntryService::class.java).setAction(if (ball == null) SHOW_BALL else HIDE_BALL),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val expanded = computer + "\n" + getString(R.string.quick_notification_expanded)
         val public = NotificationCompat.Builder(this, "quick_entry")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(getString(R.string.app_name))
@@ -228,22 +233,32 @@ class QuickEntryService : Service() {
             .setContentIntent(open).setOngoing(true).setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
-        return NotificationCompat.Builder(this, "quick_entry")
+        val builder = NotificationCompat.Builder(this, "quick_entry")
             .setSmallIcon(R.drawable.ic_stat_sayin)
             .setContentTitle(title).setContentText(computer)
-            .setContentIntent(open).setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
+            .setOngoing(true).setSilent(true).setOnlyAlertOnce(true)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(public)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .addAction(0, getString(R.string.quick_notification_open), open)
-            .addAction(0, getString(if (ball == null) R.string.quick_show else R.string.quick_disable), toggle)
-            .build()
+        if (detailsExpanded) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(expanded))
+            builder.addAction(0, getString(if (ball == null) R.string.quick_show else R.string.quick_disable), toggle)
+            builder.addAction(0, getString(R.string.quick_collapse_details), details)
+        } else {
+            builder.addAction(0, getString(R.string.quick_expand_details), details)
+        }
+        return builder.build()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             HIDE_BALL -> hideBall()
             SHOW_BALL -> showBall()
+            TOGGLE_DETAILS -> {
+                detailsExpanded = !detailsExpanded
+                updateNotification()
+            }
             STOP -> stopSelf()
             else -> showBall()
         }
@@ -309,6 +324,7 @@ class QuickEntryService : Service() {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
         private const val HIDE_BALL = "seeyuer.sayin.HIDE_QUICK_ENTRY"
         private const val SHOW_BALL = "seeyuer.sayin.SHOW_QUICK_ENTRY"
+        private const val TOGGLE_DETAILS = "seeyuer.sayin.TOGGLE_QUICK_DETAILS"
         private const val NOTIFICATION_ID = 44
         private const val PEEK_ALPHA = 0.5f
         private var active: QuickEntryService? = null
