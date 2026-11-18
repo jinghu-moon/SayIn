@@ -3,8 +3,8 @@ package seeyuer.sayin.ui
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -104,7 +104,7 @@ internal fun VoiceLinkContent(
             jumpDirection = if (target.ordinal > pagerState.currentPage) 1 else -1
             jumpProgress.snapTo(0f)
             pagerState.scrollToPage(target.ordinal)
-            jumpProgress.animateTo(1f, animationSpec = tween(240, easing = FastOutSlowInEasing))
+            jumpProgress.animateTo(1f, animationSpec = spring(dampingRatio = 0.86f, stiffness = Spring.StiffnessMediumLow))
         }
     }
     fun goTo(target: MobilePage) {
@@ -124,9 +124,8 @@ internal fun VoiceLinkContent(
     val source = session.source
     val sendMode = session.sendMode
     val jumpValue = jumpProgress.value
-    val jumpOffset = with(LocalDensity.current) {
-        (if (jumpDirection >= 0) 32.dp else (-32).dp).toPx()
-    } * (1f - jumpValue)
+    val jumpScreenWidth = LocalContext.current.resources.displayMetrics.widthPixels.toFloat()
+    val jumpOffset = (if (jumpDirection >= 0) jumpScreenWidth else -jumpScreenWidth) * (1f - jumpValue)
     LaunchedEffect(pagerState.currentPage) {
         pageName = page.name
         session.cancelAutoSend()
@@ -194,7 +193,7 @@ internal fun VoiceLinkContent(
                 state = pagerState,
                 modifier = Modifier.fillMaxSize().graphicsLayer {
                     translationX = jumpOffset
-                    alpha = 0.72f + 0.28f * jumpValue
+                    alpha = 0.85f + 0.15f * jumpValue
                 },
                 userScrollEnabled = !quick && !settingsSubpage,
             ) { index ->
