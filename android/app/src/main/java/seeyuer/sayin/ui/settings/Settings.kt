@@ -879,13 +879,17 @@ private fun LicensesPage(modifier: Modifier) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                        verticalAlignment = Alignment.Top,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                             Text(library.name ?: library.artifactId ?: "Unknown", fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold, maxLines = 2)
-                            developer?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            val meta = listOfNotNull(
+                                developer?.takeIf { it.isNotBlank() },
+                                library.artifactVersion?.takeIf { it.isNotBlank() },
+                            ).joinToString(" · ")
+                            if (meta.isNotBlank()) {
+                                Text(meta, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                                     maxLines = 1)
                             }
                             primaryLicense?.let { license ->
@@ -904,17 +908,12 @@ private fun LicensesPage(modifier: Modifier) {
                                 }
                             }
                         }
-                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            library.artifactVersion?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                            }
-                            Icon(
-                                VoiceLinkIcon.ChevronDown.vector,
-                                null,
-                                Modifier.size(18.dp).rotate(if (expanded) 180f else 0f),
-                                tint = MiuixTheme.colorScheme.onSurfaceSecondary,
-                            )
-                        }
+                        Icon(
+                            VoiceLinkIcon.ChevronDown.vector,
+                            null,
+                            Modifier.padding(start = 12.dp).size(18.dp).rotate(if (expanded) 180f else 0f),
+                            tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        )
                     }
                     if (expanded) {
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
