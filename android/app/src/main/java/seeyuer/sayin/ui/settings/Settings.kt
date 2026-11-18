@@ -877,11 +877,20 @@ private fun LicensesPage(modifier: Modifier) {
             Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
                 Column(Modifier.fillMaxWidth()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
+                        modifier = Modifier.fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 14.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Column(
+                            modifier = Modifier.weight(1f).clickable {
+                                val website = library.website?.takeIf { it.isNotBlank() }
+                                if (website == null) expanded = !expanded
+                                else runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(website)))
+                                }
+                            },
+                            verticalArrangement = Arrangement.spacedBy(5.dp),
+                        ) {
                             Text(library.name ?: library.artifactId ?: "Unknown", fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold, maxLines = 2)
                             val meta = listOfNotNull(
@@ -908,12 +917,17 @@ private fun LicensesPage(modifier: Modifier) {
                                 }
                             }
                         }
-                        Icon(
-                            VoiceLinkIcon.ChevronDown.vector,
-                            null,
-                            Modifier.padding(start = 12.dp).size(18.dp).rotate(if (expanded) 180f else 0f),
-                            tint = MiuixTheme.colorScheme.onSurfaceSecondary,
-                        )
+                        Box(
+                            modifier = Modifier.size(44.dp).clickable { expanded = !expanded },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                VoiceLinkIcon.ChevronDown.vector,
+                                null,
+                                Modifier.size(18.dp).rotate(if (expanded) 180f else 0f),
+                                tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            )
+                        }
                     }
                     if (expanded) {
                         HorizontalDivider(Modifier.padding(horizontal = 16.dp))
