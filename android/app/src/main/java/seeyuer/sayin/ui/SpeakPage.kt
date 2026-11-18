@@ -63,7 +63,6 @@ import seeyuer.sayin.ui.assist.AssistDismissReason
 import seeyuer.sayin.ui.assist.AssistPanel
 import seeyuer.sayin.ui.assist.AssistTab
 import top.yukonga.miuix.kmp.basic.*
-import top.yukonga.miuix.kmp.menu.WindowIconDropdownMenu
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -100,9 +99,7 @@ internal fun SpeakPage(
     var assistWasOpen by remember { mutableStateOf(false) }
     var toolsShown by remember { mutableStateOf(true) }
     var assistEntryFocused by remember { mutableStateOf(false) }
-    var assistMoreFocused by remember { mutableStateOf(false) }
     val assistEntryFocus = remember { FocusRequester() }
-    val assistMoreFocus = remember { FocusRequester() }
     val presentation = remember(context) { context.getSharedPreferences("presentation", 0) }
     var focused by remember { mutableStateOf(false) }
     var permissionPending by remember { mutableStateOf(false) }
@@ -117,7 +114,6 @@ internal fun SpeakPage(
         !session.draftStorageIssue && session.canSendRepresentation
     val preparing = session.preparingToRecord || source == SpeakInputSource.Local && session.model in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
     val activeCountdown = session.interaction.countdown
-    val autoLabel = stringResource(R.string.speak_auto_send)
     val draftLabel = stringResource(R.string.mobile_draft)
     var recordingSeconds by remember { mutableIntStateOf(0) }
     var cancelArmed by remember { mutableStateOf(false) }
@@ -185,12 +181,13 @@ internal fun SpeakPage(
         if (!session.assistEditable) return@LaunchedEffect
         // The sheet is torn down in its own overlay window; the Activity regains input focus a few
         // frames later, so retry briefly instead of assuming one frame is enough.
+        if (!toolsShown) return@LaunchedEffect
         var attempts = 0
         while (attempts++ < 40) {
             withFrameNanos { }
-            if (if (toolsShown) assistEntryFocused else assistMoreFocused) return@LaunchedEffect
-            runCatching { if (toolsShown) assistEntryFocus.requestFocus() else assistMoreFocus.requestFocus() }
-            if (if (toolsShown) assistEntryFocused else assistMoreFocused) return@LaunchedEffect
+            if (assistEntryFocused) return@LaunchedEffect
+            runCatching { assistEntryFocus.requestFocus() }
+            if (assistEntryFocused) return@LaunchedEffect
             kotlinx.coroutines.delay(16)
         }
     }
@@ -288,21 +285,6 @@ internal fun SpeakPage(
         val locked = session.requestLocked || session.draftRestoring
         val toolsEnabled = !busy && !locked && !session.translation.running && !session.translationStopping && draft.composition == null
         val color = MiuixTheme.colorScheme
-        val menu = buildList {
-            add(DropdownItem(stringResource(R.string.speak_recognition_settings), enabled = !busy && !locked,
-                icon = { Icon(VoiceLinkIcon.Settings.vector, null, it.size(20.dp)) }, onClick = { onConfigureCloud() }))
-            add(DropdownItem(autoLabel, icon = { Icon(VoiceLinkIcon.Automatic.vector, null, it.size(20.dp)) }, selected = session.sendMode == SpeakSendMode.Automatic, enabled = !busy && !locked,
-                onClick = { session.changeSendMode(if (session.sendMode == SpeakSendMode.Automatic) SpeakSendMode.Manual else SpeakSendMode.Automatic) }))
-            if (!showTools || minimal) {
-                add(DropdownItem(stringResource(R.string.assist_open), enabled = session.assistEditable && !busy && !locked,
-                    icon = { Icon(VoiceLinkIcon.Clipboard.vector, null, it.size(20.dp)) }, onClick = { openAssist() }))
-            }
-            if (normalized != null && normalized != draft.text && !busy) add(DropdownItem(
-                stringResource(if (showPreview) R.string.speak_edit else R.string.speak_preview), onClick = {
-                    session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = !showPreview
-                }))
-            if (quick) add(DropdownItem(stringResource(R.string.quick_expand), onClick = { session.cancelAutoSend(); onExpand() }))
-        }
         Column(Modifier.fillMaxSize()) {
             if (showHeader) SmallTopAppBar(
                 title = "",
@@ -315,12 +297,6 @@ internal fun SpeakPage(
                 },
                 actions = {
                     if (!quick) {
-                        WindowIconDropdownMenu(DropdownEntry(menu), Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
-                            .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(),
-                            onExpandedChange = { if (it) { session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide() } },
-                            minHeight = 48.dp, minWidth = 48.dp) {
-                            Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more), Modifier.size(22.dp))
-                        }
                         ConnectionStatusButton(state, ::connect)
                     } else {
                         ConnectionStatusBadge(state)
@@ -560,11 +536,6 @@ internal fun SpeakPage(
                             }
                         }
                     }
-                }
-                if (!quick && (minimal || !showHeader) && !imeOpen && availableHeight >= 120.dp) WindowIconDropdownMenu(DropdownEntry(menu),
-                    Modifier.size(48.dp).testTag("speak-more").focusRequester(assistMoreFocus)
-                        .onFocusChanged { assistMoreFocused = it.isFocused }.focusable(), onExpandedChange = { if (it) session.cancelAutoSend() }) {
-                    Icon(VoiceLinkIcon.More.vector, stringResource(R.string.speak_more))
                 }
             }
         }
