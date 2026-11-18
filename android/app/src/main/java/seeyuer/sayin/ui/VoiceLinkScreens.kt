@@ -86,10 +86,19 @@ internal fun VoiceLinkContent(
     val pagerState = rememberPagerState(initialPage = MobilePage.valueOf(pageName).ordinal) { MobilePage.entries.size }
     val page = MobilePage.entries[pagerState.currentPage]
     val scope = rememberCoroutineScope()
+    suspend fun moveTo(target: MobilePage) {
+        // Animating a non-adjacent jump makes every intermediate page visible.
+        // Keep the spring transition only for neighboring tabs.
+        if (kotlin.math.abs(target.ordinal - pagerState.currentPage) <= 1) {
+            pagerState.animateScrollToPage(target.ordinal, animationSpec = PagerNavigationSpringSpec)
+        } else {
+            pagerState.scrollToPage(target.ordinal)
+        }
+    }
     fun goTo(target: MobilePage) {
         scope.launch {
             session.cancelAutoSend()
-            pagerState.animateScrollToPage(target.ordinal, animationSpec = PagerNavigationSpringSpec)
+            moveTo(target)
         }
     }
     var showConnection by remember { mutableStateOf(false) }
@@ -107,8 +116,7 @@ internal fun VoiceLinkContent(
         session.cancelAutoSend()
     }
     LaunchedEffect(entryVersion) {
-        pagerState.animateScrollToPage((if (openSettings) MobilePage.Settings else MobilePage.Speak).ordinal,
-            animationSpec = PagerNavigationSpringSpec)
+        moveTo(if (openSettings) MobilePage.Settings else MobilePage.Speak)
     }
     LaunchedEffect(quick) { session.cancelAutoSend() }
     LaunchedEffect(sharedImage, shareVersion) {
