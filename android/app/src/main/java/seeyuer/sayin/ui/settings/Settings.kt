@@ -24,6 +24,7 @@ import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +38,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -856,46 +858,71 @@ private fun LicensesPage(modifier: Modifier) {
     LazyColumn(
         modifier = modifier.fillMaxSize().testTag("settings-licenses"),
         contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
-            Text(stringResource(R.string.settings_licenses_count, libraries.size),
-                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
-        }
-        item {
-            NoticeText(stringResource(R.string.settings_licenses_note))
+            Column(Modifier.padding(horizontal = 4.dp, vertical = 2.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.settings_licenses_count, libraries.size),
+                    fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                Text(stringResource(R.string.settings_licenses_note), fontSize = 11.5.sp, lineHeight = 16.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
         }
         items(libraries, key = { it.uniqueId ?: it.name ?: it.hashCode().toString() }) { library ->
             val licenses = library.licenses
+            val primaryLicense = licenses.firstOrNull()
+            val developer = library.developers.firstOrNull()?.name
+                ?: library.organization?.name
             var expanded by remember(library.uniqueId) { mutableStateOf(false) }
             Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
                 Column(Modifier.fillMaxWidth()) {
                     Row(
                         modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(library.name ?: library.artifactId ?: "Unknown", fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold, maxLines = 1)
-                            Text(
-                                listOfNotNull(library.artifactVersion, licenses.firstOrNull()?.spdxId)
-                                    .filter { it.isNotBlank() }.joinToString(" · "),
-                                fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
-                                maxLines = 1,
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(library.name ?: library.artifactId ?: "Unknown", fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold, maxLines = 2)
+                            developer?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                                    maxLines = 1)
+                            }
+                            primaryLicense?.let { license ->
+                                val label = listOfNotNull(license.name, license.spdxId)
+                                    .filter { it.isNotBlank() }.joinToString(" · ")
+                                if (label.isNotBlank()) {
+                                    Box(
+                                        Modifier.background(
+                                            MiuixTheme.colorScheme.primary.copy(alpha = .12f),
+                                            RoundedCornerShape(50),
+                                        ).padding(horizontal = 8.dp, vertical = 3.dp),
+                                    ) {
+                                        Text(label, fontSize = 11.sp, color = MiuixTheme.colorScheme.primary,
+                                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                                    }
+                                }
+                            }
+                        }
+                        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            library.artifactVersion?.takeIf { it.isNotBlank() }?.let {
+                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                            }
+                            Icon(
+                                VoiceLinkIcon.ChevronDown.vector,
+                                null,
+                                Modifier.size(18.dp).rotate(if (expanded) 180f else 0f),
+                                tint = MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
                         }
-                        Icon(
-                            if (expanded) VoiceLinkIcon.ArrowUp.vector else VoiceLinkIcon.ChevronDown.vector,
-                            null, Modifier.size(18.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
-                        )
                     }
                     if (expanded) {
-                        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HorizontalDivider(Modifier.padding(horizontal = 16.dp))
+                        Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             library.description?.takeIf { it.isNotBlank() }?.let {
-                                Text(it, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                                Text(it, fontSize = 12.sp, lineHeight = 17.sp,
+                                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
                             }
                             if (licenses.isEmpty()) {
                                 Text(stringResource(R.string.settings_licenses_no_content), fontSize = 12.sp,
