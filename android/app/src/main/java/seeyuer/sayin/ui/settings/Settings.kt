@@ -919,7 +919,7 @@ private fun LicensesPage(modifier: Modifier) {
                             library.website?.takeIf { it.isNotBlank() }?.let { website ->
                                 TextButton(stringResource(R.string.settings_licenses_website), onClick = {
                                     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(website))) }
-                                }, minHeight = 40.dp)
+                                }, minHeight = 40.dp, colors = plainTextButtonColors())
                             }
                         }
                     }
@@ -953,29 +953,41 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
             DiagnosticRow(stringResource(R.string.settings_storage_used), sizes?.let { Formatter.formatFileSize(context, it.first + it.second) } ?: stringResource(R.string.settings_storage_calculating))
         }
         NoticeText(stringResource(R.string.settings_storage_note))
-        TextButton(
-            stringResource(R.string.settings_storage_clear_cache),
-            onClick = {
-                if (clearing) return@TextButton
-                clearing = true
-                scope.launch {
-                    withContext(Dispatchers.IO) { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
-                    clearing = false
-                    refresh++
-                }
-            },
-            enabled = !clearing && (sizes?.second ?: 0L) > 0L,
-            minHeight = 48.dp,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        TextButton(stringResource(R.string.settings_storage_refresh), onClick = { refresh++ }, minHeight = 44.dp,
-            modifier = Modifier.fillMaxWidth())
-        TextButton(stringResource(R.string.settings_storage_open_system), onClick = {
-            runCatching {
-                context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                    Uri.parse("package:${context.packageName}")))
+        if ((sizes?.second ?: 0L) > 0L) {
+            Button(
+                onClick = {
+                    if (clearing) return@Button
+                    clearing = true
+                    scope.launch {
+                        withContext(Dispatchers.IO) { context.cacheDir.listFiles()?.forEach { it.deleteRecursively() } }
+                        clearing = false
+                        refresh++
+                    }
+                },
+                enabled = !clearing,
+                minHeight = 48.dp,
+                cornerRadius = 16.dp,
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(VoiceLinkIcon.Clear.vector, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.settings_storage_clear_cache))
             }
-        }, minHeight = 44.dp, modifier = Modifier.fillMaxWidth())
+        } else if (sizes != null) {
+            NoticeText(stringResource(R.string.settings_storage_empty_cache))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TextButton(stringResource(R.string.settings_storage_refresh), onClick = { refresh++ },
+                minHeight = 44.dp, colors = plainTextButtonColors(),
+                modifier = Modifier.weight(1f))
+            TextButton(stringResource(R.string.settings_storage_open_system), onClick = {
+                runCatching {
+                    context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}")))
+                }
+            }, minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.weight(1f))
+        }
     }
 }
 
@@ -1032,21 +1044,27 @@ private fun DiagnosticsPage(state: ClientState, modifier: Modifier, scroll: andr
         SettingsCard { connectionRows.forEach { DiagnosticRow(it.first, it.second) } }
         SectionLabel(stringResource(R.string.settings_diagnostics_permissions), Modifier.padding(start = 4.dp))
         SettingsCard { permissionRows.forEach { DiagnosticRow(it.first, it.second) } }
-        TextButton(
-            stringResource(if (copied.value) R.string.settings_diagnostics_copied else R.string.settings_diagnostics_copy),
+        Button(
             onClick = {
                 context.getSystemService(ClipboardManager::class.java)
                     ?.setPrimaryClip(ClipData.newPlainText("SayIn diagnostics", diagnostics))
                 copied.value = true
             },
-            minHeight = 48.dp, modifier = Modifier.fillMaxWidth(),
-        )
+            minHeight = 48.dp,
+            cornerRadius = 16.dp,
+            colors = ButtonDefaults.buttonColorsPrimary(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(VoiceLinkIcon.Copy.vector, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(if (copied.value) R.string.settings_diagnostics_copied else R.string.settings_diagnostics_copy))
+        }
         TextButton(stringResource(R.string.settings_diagnostics_open_settings), onClick = {
             runCatching {
                 context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:${context.packageName}")))
             }
-        }, minHeight = 44.dp, modifier = Modifier.fillMaxWidth())
+        }, minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth())
     }
 }
 
