@@ -202,6 +202,13 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                     modifier = Modifier.testTag("polish-app-rules"),
                     onCheckedChange = { session.polish.updateAppRules(it) },
                 )
+                SwitchPreference(
+                    title = stringResource(R.string.polish_streaming),
+                    summary = stringResource(R.string.polish_streaming_summary),
+                    checked = session.polish.streamingPreview,
+                    modifier = Modifier.testTag("polish-streaming"),
+                    onCheckedChange = { session.polish.updateStreamingPreview(it) },
+                )
             }
         }
         var targetDraft by remember { mutableStateOf(session.polish.targetLanguage) }

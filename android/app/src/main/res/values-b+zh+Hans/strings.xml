@@ -919,7 +919,11 @@
     <string name="polish_compare_title">修改前后</string>
     <string name="polish_original">原文</string>
     <string name="polish_result">结果</string>
+    <string name="polish_preview">预览</string>
+    <string name="polish_streaming">流式预览</string>
+    <string name="polish_streaming_summary">生成过程中显示文本；只有响应完整并通过校验后才替换草稿。</string>
 </resources>
+
 
 
 

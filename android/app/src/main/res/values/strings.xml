@@ -924,7 +924,11 @@
     <string name="polish_compare_title">Before and after</string>
     <string name="polish_original">Original</string>
     <string name="polish_result">Result</string>
+    <string name="polish_preview">Preview</string>
+    <string name="polish_streaming">Streaming preview</string>
+    <string name="polish_streaming_summary">Show text while the model is generating. The draft is only replaced when the response completes and validates.</string>
 </resources>
+
 
 
 

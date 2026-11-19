@@ -564,19 +564,31 @@ internal class SpeakSession(
         )
         polishState = PolishState(ticket = ticket, running = true)
         polishCall = null
+        val useStreaming = polish.streamingPreview
         polishJob?.cancel()
         polishJob = scope.launch {
             val result = withContext(Dispatchers.IO) {
-                PolishClient(config).call(
-                    mode = mode,
-                    targetLanguage = language,
-                    appName = appName,
-                    scene = scene,
-                    customRewrite = custom,
-                    text = sourceText,
-                    hotwords = polish.hotwords,
-                    onCall = { polishCall = it },
-                )
+                val client = PolishClient(config)
+                if (useStreaming) {
+                    client.callStreaming(
+                        mode = mode, targetLanguage = language, appName = appName, scene = scene,
+                        customRewrite = custom, text = sourceText, hotwords = polish.hotwords,
+                        onCall = { polishCall = it },
+                        onPartial = { partial ->
+                            scope.launch {
+                                if (polishState.running && polishState.ticket?.id == ticket.id) {
+                                    polishState = polishState.copy(preview = partial)
+                                }
+                            }
+                        },
+                    )
+                } else {
+                    client.call(
+                        mode = mode, targetLanguage = language, appName = appName, scene = scene,
+                        customRewrite = custom, text = sourceText, hotwords = polish.hotwords,
+                        onCall = { polishCall = it },
+                    )
+                }
             }
             polishCall = null
             if (!isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch

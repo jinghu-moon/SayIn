@@ -145,6 +145,50 @@ class PolishClientTest {
         assertFailure(PolishFailure.InvalidResponse, base(PolishProvider.DeepSeek))
     }
 
+    @Test fun `streaming chat emits partials and validates the final reason`() {
+        val body = """
+            data: {"choices":[{"delta":{"content":"clean "},"finish_reason":null}]}
+            data: {"choices":[{"delta":{"content":"text"},"finish_reason":"stop"}]}
+            data: [DONE]
+        """.trimIndent()
+        server.enqueue(response(body = body))
+        val partials = mutableListOf<String>()
+        val result = client(base(PolishProvider.DeepSeek)).callStreaming(
+            PolishMode.Voice, text = "嗯那个", onPartial = { partials += it },
+        )
+        assertTrue(result is PolishCallResult.Success)
+        assertEquals("clean text", (result as PolishCallResult.Success).text)
+        assertEquals(listOf("clean ", "clean text"), partials)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun `streaming anthropic accepts text deltas and end turn`() {
+        val body = """
+            data: {"type":"content_block_start","content_block":{"type":"text","text":""}}
+            data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"译"}}
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
+            data: {"type":"message_stop"}
+        """.trimIndent()
+        server.enqueue(response(body = body))
+        val result = client(base(PolishProvider.Anthropic, PolishProtocol.Messages))
+            .callStreaming(PolishMode.Voice, text = "x")
+        assertTrue(result is PolishCallResult.Success)
+        assertEquals("译", (result as PolishCallResult.Success).text)
+    }
+
+    @Test fun `streaming truncation and tool blocks are rejected`() {
+        server.enqueue(response(body = """
+            data: {"choices":[{"delta":{"content":"half"},"finish_reason":"length"}]}
+            data: [DONE]
+        """.trimIndent()))
+        assertFailureStreaming(PolishFailure.Truncated, base(PolishProvider.DeepSeek))
+        server.enqueue(response(body = """
+            data: {"type":"content_block_start","content_block":{"type":"tool_use"}}
+            data: {"type":"message_stop"}
+        """.trimIndent()))
+        assertFailureStreaming(PolishFailure.InvalidResponse, base(PolishProvider.Anthropic, PolishProtocol.Messages))
+    }
+
     @Test fun `missing key is rejected before network`() {
         val result = client(base(PolishProvider.DeepSeek).copy(key = "")).call(PolishMode.Voice, text = "x")
         assertEquals(PolishFailure.MissingConfig, (result as PolishCallResult.Failure).kind)
@@ -153,6 +197,12 @@ class PolishClientTest {
 
     private fun assertFailure(expected: PolishFailure, config: PolishConfig) {
         val result = client(config).call(PolishMode.Voice, text = "test")
+        assertTrue(result is PolishCallResult.Failure)
+        assertEquals(expected, (result as PolishCallResult.Failure).kind)
+    }
+
+    private fun assertFailureStreaming(expected: PolishFailure, config: PolishConfig) {
+        val result = client(config).callStreaming(PolishMode.Voice, text = "test")
         assertTrue(result is PolishCallResult.Failure)
         assertEquals(expected, (result as PolishCallResult.Failure).kind)
     }

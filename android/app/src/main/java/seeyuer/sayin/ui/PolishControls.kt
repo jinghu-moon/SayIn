@@ -128,6 +128,10 @@ internal fun PolishStatus(session: SpeakSession) {
                 color = if (failure != null) MiuixTheme.colorScheme.error
                 else MiuixTheme.colorScheme.onSurfaceSecondary)
         }
+        state.preview?.takeIf { state.running && it.isNotBlank() }?.let {
+            Text(stringResource(R.string.polish_preview) + ": " + it, Modifier.fillMaxWidth().testTag("polish-preview"),
+                fontSize = 12.sp, maxLines = 3, color = MiuixTheme.colorScheme.primary)
+        }
         val original = state.originalText
         val result = state.resultText
         if (original != null && result != null && original != result && !state.running) {

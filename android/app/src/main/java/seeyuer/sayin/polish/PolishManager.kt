@@ -42,6 +42,8 @@ internal class PolishManager(context: Context) {
         private set
     var hotwords by mutableStateOf(preferences.getString("hotwords", "").orEmpty())
         private set
+    var streamingPreview by mutableStateOf(preferences.getBoolean("streaming_preview", false))
+        private set
     var autoPolish by mutableStateOf(false)
         private set
     private var autoFingerprint: String? = preferences.getString("auto_fingerprint", null)
@@ -78,6 +80,11 @@ internal class PolishManager(context: Context) {
     fun updateHotwords(value: String) {
         hotwords = value.take(1000)
         preferences.edit().putString("hotwords", hotwords).apply()
+    }
+
+    fun updateStreamingPreview(value: Boolean) {
+        streamingPreview = value
+        preferences.edit().putBoolean("streaming_preview", value).apply()
     }
 
     fun updateAutoPolish(value: Boolean) {
