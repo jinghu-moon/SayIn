@@ -84,6 +84,7 @@ internal fun SpeakPage(
     onDismiss: () -> Unit = {},
     onRequestAction: (String, String) -> Unit = { _, _ -> },
     onImage: () -> Unit = {},
+    onConfigurePolish: () -> Unit = {},
     pageActive: Boolean = true,
     autoRecordVersion: Int = 0,
 ) {
@@ -95,6 +96,7 @@ internal fun SpeakPage(
     val owner = remember { Any() }
     var showPreview by remember { mutableStateOf(false) }
     var showTranslationPreparation by remember { mutableStateOf(false) }
+    var showPolish by remember { mutableStateOf(false) }
     var showAssist by remember { mutableStateOf(false) }
     var assistGeneration by remember { mutableIntStateOf(0) }
     var assistTicket by remember { mutableStateOf<AssistInsertion?>(null) }
@@ -401,6 +403,7 @@ internal fun SpeakPage(
                 if (exceptional) Text(if (session.draftStorageIssue) stringResource(R.string.speak_draft_storage_issue) else hint,
                     Modifier.fillMaxWidth().testTag("draft-hint").semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 12.sp,
                     color = color.onSurfaceSecondary)
+                if (!compact) PolishStatus(session)
                 if (session.microphoneDenied && !compact) TextButton(stringResource(R.string.asr_open_settings), {
                     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                 }, minHeight = 48.dp, colors = plainTextButtonColors())
@@ -446,6 +449,10 @@ internal fun SpeakPage(
                             session.canTranslateDraft || session.translation.running || session.translationPreparing,
                             progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
                             when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
+                        }
+                        if (!quick) DraftIcon(VoiceLinkIcon.Automatic, R.string.polish_title, "polish-draft",
+                            session.canOpenPolish, progress = session.polishState.running) {
+                            session.cancelAutoSend(); showPolish = true
                         }
                         if (!quick) DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
                             session.cancelAutoSend(); uiScope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("", draft.text))) }
@@ -644,6 +651,7 @@ internal fun SpeakPage(
         }
     }
     TranslationPreparationSheet(session, showTranslationPreparation) { showTranslationPreparation = false }
+    PolishSheet(session, showPolish, { showPolish = false }, onConfigurePolish)
     AssistPanel(
         show = showAssist,
         openGeneration = assistGeneration,

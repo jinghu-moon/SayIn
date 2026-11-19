@@ -209,6 +209,7 @@ internal fun VoiceLinkContent(
                         autoRecordVersion = autoRecordVersion,
                         cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                         onConfigureCloud = { if (quick) onExpand(true) else { settingsEntry = SettingsRoute.Recognition; goTo(MobilePage.Settings) } },
+                        onConfigurePolish = { if (quick) onExpand(true) else { settingsEntry = SettingsRoute.Polish; goTo(MobilePage.Settings) } },
                         onConnect = { showConnection = true },
                         connectionOpen = showConnection || showImage,
                         onImage = { session.cancelAutoSend(); showImage = true },

@@ -816,4 +816,89 @@
     <string name="speak_countdown_number">%1$d</string>
 
     <string name="speak_finish_auto_send">Finish and auto-send</string>
+
+    <string name="settings_polish">AI polish</string>
+    <string name="settings_polish_summary_missing">Not configured · tap to set up</string>
+    <string name="settings_polish_summary_ready">%1$s · %2$s</string>
+    <string name="settings_polish_summary_corrupt">Configuration damaged · reconfigure</string>
+
+    <string name="polish_title">AI polish</string>
+    <string name="polish_sheet_description">Clean the current draft without changing its meaning. The result never sends automatically.</string>
+    <string name="polish_not_configured">Configure a service before using AI polish.</string>
+    <string name="polish_open_settings">Open AI polish settings</string>
+    <string name="polish_scope">Will process %1$d characters</string>
+    <string name="polish_mode_voice">Voice cleanup</string>
+    <string name="polish_mode_voice_summary">Remove fillers and fix obvious recognition errors</string>
+    <string name="polish_mode_text">Text proofread</string>
+    <string name="polish_mode_text_summary">Fix only clear errors; preserve code and formatting</string>
+    <string name="polish_run">Run AI polish</string>
+    <string name="polish_run_again">Run AI polish again</string>
+    <string name="polish_cancel">Cancel AI polish</string>
+    <string name="polish_done">Polished · undo is available</string>
+    <string name="polish_cancelled">AI polish cancelled</string>
+    <string name="polish_send_note">The polished draft waits for an explicit Send; it never enters the automatic countdown.</string>
+
+    <string name="polish_service">Service</string>
+    <string name="polish_provider">Provider</string>
+    <string name="polish_protocol">Protocol</string>
+    <string name="polish_base_url">API address</string>
+    <string name="polish_model">Model</string>
+    <string name="polish_key">API Key</string>
+    <string name="polish_show_key">Show key</string>
+    <string name="polish_hide_key">Hide key</string>
+    <string name="polish_save">Save</string>
+    <string name="polish_test">Test connection</string>
+    <string name="polish_clear">Remove configuration</string>
+    <string name="polish_confirm_clear">Remove the saved AI configuration and key?</string>
+    <string name="polish_cancel_action">Cancel</string>
+    <string name="polish_remove">Remove</string>
+    <string name="polish_upload_note">AI polish and AI translation send the current text to the configured cloud model. Local Chinese-to-English translation stays offline and never uploads.</string>
+    <string name="polish_key_binding_note">The key is bound to the endpoint, protocol and authentication method. Changing any of them requires entering the key again; changing only the model keeps it.</string>
+    <string name="polish_saved">Saved</string>
+    <string name="polish_saving">Saving…</string>
+    <string name="polish_testing">Testing…</string>
+    <string name="polish_test_ready">Connection successful · %1$d ms</string>
+    <string name="polish_test_failed">Connection failed: %1$s</string>
+    <string name="polish_config_missing">No AI service configured.</string>
+    <string name="polish_config_corrupt">The saved AI configuration cannot be read. Enter it again.</string>
+    <string name="polish_required">Enter the API key.</string>
+    <string name="polish_invalid_url">Use a complete HTTPS address.</string>
+    <string name="polish_invalid_model">Enter a model name.</string>
+    <string name="polish_stats">Local call statistics</string>
+    <string name="polish_stats_empty">No requests yet.</string>
+    <string name="polish_stats_clear">Clear statistics</string>
+    <string name="polish_stats_tokens">%1$s / %2$s tokens</string>
+    <string name="polish_stats_duration">%1$d ms</string>
+    <string name="polish_stats_cost_unknown">Cost: unknown (no price configured)</string>
+    <string name="polish_stats_outcome">Result: %1$s</string>
+    <string name="polish_error_missing">not configured</string>
+    <string name="polish_error_unauthorized">credentials rejected</string>
+    <string name="polish_error_rate">too many requests</string>
+    <string name="polish_error_timeout">request timed out</string>
+    <string name="polish_error_network">network unavailable</string>
+    <string name="polish_error_server">server error</string>
+    <string name="polish_error_invalid">invalid response</string>
+    <string name="polish_error_truncated">response truncated</string>
+    <string name="polish_error_refused">model refused the request</string>
+    <string name="polish_error_too_large">response too large</string>
+    <string name="polish_error_unknown">unknown error</string>
+    <string name="polish_provider_deepseek">DeepSeek</string>
+    <string name="polish_provider_qwen">Qwen</string>
+    <string name="polish_provider_openai">OpenAI</string>
+    <string name="polish_provider_anthropic">Claude</string>
+    <string name="polish_provider_custom">Custom</string>
+    <string name="polish_protocol_chat">OpenAI compatible</string>
+    <string name="polish_protocol_messages">Anthropic Messages</string>
+    <string name="polish_stats_success">success</string>
+    <string name="polish_stats_failure">failure</string>
+    <string name="polish_running">Polishing…</string>
+    <string name="polish_confirm_send">Polished · confirm before sending</string>
+    <string name="polish_failed">AI polish failed: %1$s</string>
+    <string name="polish_cancelled_short">AI polish cancelled</string>
+    <string name="polish_api_version">API version</string>
+    <string name="polish_stats_entry_title">%1\ · %2\</string>
 </resources>
+
+
+
+

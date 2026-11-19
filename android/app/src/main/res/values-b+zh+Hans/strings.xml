@@ -811,4 +811,89 @@
     <string name="speak_countdown_number">%1$d</string>
 
     <string name="speak_finish_auto_send">结束并自动发送</string>
+
+    <string name="settings_polish">AI 润色</string>
+    <string name="settings_polish_summary_missing">未配置 · 点此设置</string>
+    <string name="settings_polish_summary_ready">%1$s · %2$s</string>
+    <string name="settings_polish_summary_corrupt">配置损坏 · 请重新配置</string>
+
+    <string name="polish_title">AI 润色</string>
+    <string name="polish_sheet_description">在不改变原意的前提下整理当前草稿。结果不会自动发送。</string>
+    <string name="polish_not_configured">请先配置 AI 服务。</string>
+    <string name="polish_open_settings">打开 AI 润色设置</string>
+    <string name="polish_scope">将处理 %1$d 个字符</string>
+    <string name="polish_mode_voice">语音整理</string>
+    <string name="polish_mode_voice_summary">去口癖、修断句、纠明确听写错误</string>
+    <string name="polish_mode_text">文本校对</string>
+    <string name="polish_mode_text_summary">只改明确错误，保护代码和格式</string>
+    <string name="polish_run">开始 AI 润色</string>
+    <string name="polish_run_again">再次 AI 润色</string>
+    <string name="polish_cancel">取消 AI 润色</string>
+    <string name="polish_done">已润色 · 可撤销</string>
+    <string name="polish_cancelled">已取消 AI 润色</string>
+    <string name="polish_send_note">润色后的草稿必须显式点发送，不会重新进入自动倒计时。</string>
+
+    <string name="polish_service">服务</string>
+    <string name="polish_provider">服务商</string>
+    <string name="polish_protocol">协议</string>
+    <string name="polish_base_url">API 地址</string>
+    <string name="polish_model">模型</string>
+    <string name="polish_key">API Key</string>
+    <string name="polish_show_key">显示 Key</string>
+    <string name="polish_hide_key">隐藏 Key</string>
+    <string name="polish_save">保存</string>
+    <string name="polish_test">测试连接</string>
+    <string name="polish_clear">移除配置</string>
+    <string name="polish_confirm_clear">移除已保存的 AI 配置和 Key？</string>
+    <string name="polish_cancel_action">取消</string>
+    <string name="polish_remove">移除</string>
+    <string name="polish_upload_note">AI 润色和 AI 翻译会把当前文本发送到配置的云端模型。本地中译英仍离线运行，不上传。</string>
+    <string name="polish_key_binding_note">Key 绑定到当前地址、协议和鉴权方式；修改任意一项都需要重新输入 Key，仅修改模型可沿用。</string>
+    <string name="polish_saved">已保存</string>
+    <string name="polish_saving">正在保存…</string>
+    <string name="polish_testing">正在测试…</string>
+    <string name="polish_test_ready">连接成功 · %1$d ms</string>
+    <string name="polish_test_failed">连接失败：%1$s</string>
+    <string name="polish_config_missing">尚未配置 AI 服务。</string>
+    <string name="polish_config_corrupt">已保存的 AI 配置无法读取，请重新输入。</string>
+    <string name="polish_required">请输入 API Key。</string>
+    <string name="polish_invalid_url">请输入完整的 HTTPS 地址。</string>
+    <string name="polish_invalid_model">请输入模型名。</string>
+    <string name="polish_stats">本机调用统计</string>
+    <string name="polish_stats_empty">暂无调用。</string>
+    <string name="polish_stats_clear">清除统计</string>
+    <string name="polish_stats_tokens">%1$s / %2$s Token</string>
+    <string name="polish_stats_duration">%1$d ms</string>
+    <string name="polish_stats_cost_unknown">费用：未知（未配置单价）</string>
+    <string name="polish_stats_outcome">结果：%1$s</string>
+    <string name="polish_error_missing">未配置</string>
+    <string name="polish_error_unauthorized">凭据被拒绝</string>
+    <string name="polish_error_rate">请求过于频繁</string>
+    <string name="polish_error_timeout">请求超时</string>
+    <string name="polish_error_network">网络不可用</string>
+    <string name="polish_error_server">服务端错误</string>
+    <string name="polish_error_invalid">响应格式无效</string>
+    <string name="polish_error_truncated">响应被截断</string>
+    <string name="polish_error_refused">模型拒绝了请求</string>
+    <string name="polish_error_too_large">响应过长</string>
+    <string name="polish_error_unknown">未知错误</string>
+    <string name="polish_provider_deepseek">DeepSeek</string>
+    <string name="polish_provider_qwen">千问</string>
+    <string name="polish_provider_openai">OpenAI</string>
+    <string name="polish_provider_anthropic">Claude</string>
+    <string name="polish_provider_custom">自定义</string>
+    <string name="polish_protocol_chat">OpenAI 兼容</string>
+    <string name="polish_protocol_messages">Anthropic Messages</string>
+    <string name="polish_stats_success">成功</string>
+    <string name="polish_stats_failure">失败</string>
+    <string name="polish_running">正在润色…</string>
+    <string name="polish_confirm_send">已润色 · 需确认发送</string>
+    <string name="polish_failed">润色失败：%1$s</string>
+    <string name="polish_cancelled_short">已取消润色</string>
+    <string name="polish_api_version">API 版本</string>
+    <string name="polish_stats_entry_title">%1\ · %2\</string>
 </resources>
+
+
+
+

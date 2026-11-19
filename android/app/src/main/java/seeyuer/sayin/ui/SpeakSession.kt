@@ -20,9 +20,11 @@ import seeyuer.sayin.data.ReceptionScope
 import seeyuer.sayin.data.receptionScope
 import seeyuer.sayin.data.SavedSpeakingDraft
 import seeyuer.sayin.data.autoSendDestination
+import seeyuer.sayin.polish.*
 import seeyuer.sayin.translation.*
 import java.io.File
 import java.io.InputStream
+import okhttp3.Call
 
 /** One process-local speaking session, independent of any page, Activity or entry point.
  * A send ticket is deliberately ephemeral: changing visibility can never restore it.
@@ -42,6 +44,13 @@ internal class SpeakSession(
     private val preferences = context.getSharedPreferences("presentation", 0)
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    val polish = PolishManager(appContext)
+    var polishState by mutableStateOf(PolishState()); private set
+    private var polishJob: Job? = null
+    private var polishCall: Call? = null
+    private var voiceOrigin = false
+    private var typedSinceVoice = false
+    private var recordingStartedEmpty = false
     /** Selected model is a preference; artifacts stay on disk per model file. */
     var currentTranslationModel by mutableStateOf(translationModel); private set
     val translationModels get() = catalog.models
@@ -71,7 +80,8 @@ internal class SpeakSession(
     private var sendAfterFinal = false
     private var expectedRecognitionSession = 0L
     private val historyEnabled get() = !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
-        !translation.running && !translationStopping && !translationPreparing && displayedDraft.composition == null
+        !translation.running && !translationStopping && !translationPreparing && !polishState.running &&
+        displayedDraft.composition == null
     val canUndo get() = historyRevision.let { historyEnabled && history.canUndo }
     val canRedo get() = historyRevision.let { historyEnabled && history.canRedo }
     val recordingHasText get() = recognitionHadText && asr.transcript.isNotBlank()
@@ -107,14 +117,26 @@ internal class SpeakSession(
     val translationPreparing get() = modelPreparation != null
     val canTranslateDraft get() = !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
         draft.text.isNotBlank() && draft.composition == null && !translation.running && !translationStopping && !translationPreparing &&
-        model !in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
+        !polishState.running && model !in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
     val displayedDraft get() = if (translationShown) translation.value else draft
     val sendingTranslation get() = translationShown
-    val canSendRepresentation get() = !translationStopping && !translation.running && !translationPreparing &&
+
+    val canOpenPolish get() = visible && !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
+        !translation.running && !translationStopping && !translationPreparing && !polishState.running &&
+        displayedDraft.composition == null && displayedDraft.text.isNotBlank() && !translationShown
+    val canPolish get() = canOpenPolish && polish.ready
+    val polishConfirmationPending get() = polishState.confirmationPending
+    fun suggestedPolishMode(): PolishMode = when {
+        draft.selection.min != draft.selection.max -> PolishMode.Text
+        voiceOrigin && !typedSinceVoice -> PolishMode.Voice
+        else -> PolishMode.Text
+    }
+
+    val canSendRepresentation get() = !translationStopping && !translation.running && !translationPreparing && !polishState.running &&
         (!translationShown || translation.complete && translation.ticket!!.matches(draftId, interaction.version))
     /** One insertion may start now: draft editable, and no recorder, translation, restore or request contention. */
     val assistEditable get() = visible && !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
-        !translation.running && !translationStopping && !translationPreparing &&
+        !translation.running && !translationStopping && !translationPreparing && !polishState.running &&
         displayedDraft.composition == null && (!translationShown || translation.complete)
     private val assistRepresentation get() = if (translationShown) DraftRepresentation.Translation else DraftRepresentation.Original
     private fun assistRevision(value: DraftRepresentation) =
@@ -152,6 +174,8 @@ internal class SpeakSession(
         if (representation == DraftRepresentation.Original) {
             interaction = interaction.inputChanged()
             draftId = UUID.randomUUID().toString()
+            typedSinceVoice = true
+            voiceOrigin = false
             invalidateTranslation()
             draft = TextFieldValue(result, TextRange(caret))
             onDraftChanged(draft)
@@ -262,7 +286,9 @@ internal class SpeakSession(
                 backgroundRelease = scope.launch {
                     // Allows an Activity/quick-card handover to retain the same task owner.
                     delay(500)
-                    if (!visible) { stopTranslation(); preparationJob?.cancel(); translator.release() }
+                    if (!visible) {
+                        cancelPolish(); stopTranslation(); preparationJob?.cancel(); translator.release()
+                    }
                 }
             }
         }
@@ -301,6 +327,8 @@ internal class SpeakSession(
 
     fun restore(saved: SavedSpeakingDraft) {
         invalidateTranslation(); cancelAutoSend(); history.clear(); historyRevision++; draftId = saved.id
+        voiceOrigin = false; typedSinceVoice = saved.text.isNotBlank()
+        polishState = PolishState()
         draft = TextFieldValue(saved.text, TextRange(saved.start, saved.end))
         if (saved.translationText != null) {
             translation = DraftTranslation(TranslationTicket(UUID.randomUUID().toString(), draftId, interaction.version, draft.text,
@@ -321,7 +349,16 @@ internal class SpeakSession(
             record(snapshot(), if (composing) "composition" else if (value.text.length < draft.text.length) "delete" else "edit",
                 composing = draft.composition != null)
         }
-        if (value.text != draft.text) invalidateTranslation()
+        if (value.text != draft.text) {
+            invalidateTranslation()
+            if (fromRecognition && recordingStartedEmpty) {
+                voiceOrigin = true
+                typedSinceVoice = false
+            } else if (!fromRecognition) {
+                voiceOrigin = false
+                typedSinceVoice = true
+            }
+        }
         if (!fromRecognition) { cancelAutoSend(); if (asr.busy) cancelRecording(restore = false) }
         if (value.text != draft.text) {
             interaction = interaction.inputChanged()
@@ -408,7 +445,9 @@ internal class SpeakSession(
 
     fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {
         if (!visible || busy || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
+        cancelPolish()
         invalidateAssist()
+        recordingStartedEmpty = draft.text.isBlank()
         recordingSnapshot = snapshot()
         invalidateTranslation(); cancelAutoSend(); undoDraft = null; submitted = null; explicitFinish = false
         history.breakGroup(); recordingDurationBefore = recordingDurationMillis
@@ -470,15 +509,112 @@ internal class SpeakSession(
 
     fun clearDraft() {
         if (busy || requestLocked || draftRestoring) return
+        cancelPolish()
         val old = draft
         history.breakGroup()
         changeDraft(TextFieldValue()); recordingDurationMillis = 0L
         history.breakGroup(); undoDraft = old.takeIf { it.text.isNotEmpty() }; submitted = null
+        voiceOrigin = false; typedSinceVoice = false
+        polishState = PolishState()
         invalidateAssist()
     }
     fun undoClear() { if (undoDraft != null) undo() }
-    fun undo() { if (canUndo) history.undo(snapshot())?.let { restoreSnapshot(it); historyRevision++ } }
-    fun redo() { if (canRedo) history.redo(snapshot())?.let { restoreSnapshot(it); historyRevision++ } }
+    fun undo() {
+        if (canUndo) history.undo(snapshot())?.let {
+            restoreSnapshot(it); historyRevision++
+            polishState = polishState.copy(confirmationPending = false)
+        }
+    }
+    fun redo() {
+        if (canRedo) history.redo(snapshot())?.let {
+            restoreSnapshot(it); historyRevision++
+            polishState = polishState.copy(confirmationPending = false)
+        }
+    }
+    fun startPolish(mode: PolishMode, targetLanguage: String? = null) {
+        if (!canPolish) return
+        val config = polish.config ?: run {
+            polishState = PolishState(outcome = PolishOutcome.Failure(PolishFailure.MissingConfig))
+            return
+        }
+        if (mode == PolishMode.Translate && PolishPrompts.validateTargetLanguage(targetLanguage.orEmpty()) != null) {
+            polishState = PolishState(outcome = PolishOutcome.Failure(PolishFailure.InvalidResponse))
+            return
+        }
+        val selection = draft.selection
+        val selected = selection.min != selection.max
+        val start = if (selected) selection.min else 0
+        val end = if (selected) selection.max else draft.text.length
+        val sourceText = draft.text.substring(start, end)
+        if (sourceText.isBlank()) return
+        val appName = receiver.foregroundApplication?.name
+        val system = PolishPrompts.system(mode, targetLanguage, appName, scene = null)
+        val ticket = PolishTicket(
+            id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version,
+            start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = targetLanguage,
+            configFingerprint = config.fingerprint, promptHash = PolishPrompts.hash(system),
+        )
+        polishState = PolishState(ticket = ticket, running = true)
+        polishCall = null
+        polishJob?.cancel()
+        polishJob = scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                PolishClient(config).call(
+                    mode = mode,
+                    targetLanguage = targetLanguage,
+                    appName = appName,
+                    text = sourceText,
+                    onCall = { polishCall = it },
+                )
+            }
+            polishCall = null
+            if (!isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch
+            polish.record(config, result, mode.id)
+            when (result) {
+                is PolishCallResult.Success -> {
+                    if (draftId != ticket.draftId || interaction.version != ticket.version ||
+                        polish.config?.fingerprint != ticket.configFingerprint ||
+                        draft.text.substring(ticket.start, ticket.end) != ticket.sourceText) {
+                        polishState = PolishState(ticket = ticket, outcome = PolishOutcome.Cancelled)
+                        return@launch
+                    }
+                    val next = if (ticket.start == ticket.end) result.text
+                    else draft.text.replaceRange(ticket.start, ticket.end, result.text)
+                    if (next == draft.text) {
+                        polishState = PolishState(ticket = ticket, outcome = PolishOutcome.Success(mode, result.durationMillis))
+                        return@launch
+                    }
+                    val caret = if (ticket.start == ticket.end) result.text.length else ticket.start + result.text.length
+                    history.breakGroup()
+                    changeDraft(TextFieldValue(next, TextRange(caret)))
+                    history.breakGroup()
+                    polishState = PolishState(
+                        ticket = ticket, running = false,
+                        outcome = PolishOutcome.Success(mode, result.durationMillis),
+                        confirmationPending = true,
+                    )
+                }
+                is PolishCallResult.Failure -> {
+                    polishState = PolishState(
+                        ticket = ticket, running = false,
+                        outcome = PolishOutcome.Failure(result.kind),
+                        confirmationPending = polishState.confirmationPending,
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelPolish() {
+        if (!polishState.running) return
+        polishCall?.cancel()
+        polishCall = null
+        polishJob?.cancel()
+        polishJob = null
+        polishState = PolishState(ticket = polishState.ticket, outcome = PolishOutcome.Cancelled,
+            confirmationPending = polishState.confirmationPending)
+    }
+
     private fun snapshot() = SpeakingSnapshot(draft.copy(composition = null),
         translation.takeIf { it.complete }?.let { it.copy(value = it.value.copy(composition = null)) } ?: DraftTranslation(), translationShown && translation.complete, recordingDurationMillis)
     private fun record(value: SpeakingSnapshot, kind: String? = null, composing: Boolean = false) {
@@ -487,6 +623,8 @@ internal class SpeakSession(
     private fun restoreSnapshot(value: SpeakingSnapshot) {
         cancelAutoSend(); invalidateTranslation(); undoDraft = null
         interaction = interaction.inputChanged(); draftId = UUID.randomUUID().toString()
+        polishState = polishState.copy(confirmationPending = false)
+        voiceOrigin = false; typedSinceVoice = value.draft.text.isNotBlank()
         draft = value.draft; recordingDurationMillis = value.duration
         translation = value.translation.let { old -> old.copy(ticket = old.ticket?.copy(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version)) }
@@ -511,7 +649,7 @@ internal class SpeakSession(
     fun requestAutoSend() {
         cancelAutoSend()
         if (!visible || busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation ||
-            effectiveSendMode() != SpeakSendMode.Automatic) return
+            polishState.confirmationPending || effectiveSendMode() != SpeakSendMode.Automatic) return
         val destination = receiver.autoSendDestination
         if (displayedDraft.composition != null && destination != null) imeDestination = destination
         else completeInput(SpeakSendMode.Automatic, destination)
@@ -529,9 +667,12 @@ internal class SpeakSession(
         cancelAutoSend()
         if (!visible || busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation) return
         if (fromRecording && translationShown) return
+        // An AI-rewritten draft may be sent by an explicit user action, but must never
+        // re-enter the automatic countdown without that action.
+        val effectiveMode = if (mode == SpeakSendMode.Automatic && polishState.confirmationPending) SpeakSendMode.Manual else mode
         val value = displayedDraft
         val currentDestination = destination?.takeIf { it == receiver.autoSendDestination }
-        interaction = interaction.finish(value.text, value.composition != null, mode, currentDestination,
+        interaction = interaction.finish(value.text, value.composition != null, effectiveMode, currentDestination,
             SystemClock.elapsedRealtime(), autoSendSeconds * 1000L)
         invalidateAssist()
         val ticket = interaction.countdown ?: return
@@ -560,6 +701,7 @@ internal class SpeakSession(
         val value = displayedDraft
         if (busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation || !receiver.ready || value.text.isBlank() || value.composition != null ||
             runCatching { seeyuer.sayin.data.normalizedText(value.text) }.isFailure) return false
+        polishState = polishState.copy(confirmationPending = false)
         if (submitted != null) {
             draftId = UUID.randomUUID().toString()
             translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
@@ -727,10 +869,14 @@ internal class SpeakSession(
         submitted = null; changeDraft(TextFieldValue(), fromRecognition = true)
         recordingDurationMillis = 0L
         history.clear(); historyRevision++; undoDraft = null
+        voiceOrigin = false; typedSinceVoice = false
+        polishState = PolishState()
         invalidateAssist()
     }
 
-    override fun close() { cancelAutoSend(); translator.close(); recognition.close(); scope.cancel() }
+    override fun close() {
+        cancelAutoSend(); polishCall?.cancel(); translator.close(); recognition.close(); scope.cancel()
+    }
 }
 
 internal data class SubmittedDraft(

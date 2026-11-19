@@ -87,6 +87,7 @@ import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.quick.QuickActivity
 import seeyuer.sayin.quick.QuickEntryService
 import seeyuer.sayin.quick.SpeakTileService
+import seeyuer.sayin.polish.PolishConfigState
 import seeyuer.sayin.translation.ModelPreparationProgress
 import seeyuer.sayin.translation.ModelPreparationStage
 import seeyuer.sayin.ui.SpeakInputSource
@@ -126,6 +127,7 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Hotwords(Recognition),
     OfflineModel(Recognition),
     Translation(Root),
+    Polish(Root),
     Ball(Root),
     Background(Root),
     Clipboard(Root),
@@ -237,6 +239,7 @@ internal fun SettingsHost(
                         modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
                     SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                     SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
+                    SettingsRoute.Polish -> PolishSettingsPage(session, pageModifier, scrollFor(SettingsRoute.Polish))
                     SettingsRoute.Ball -> BallPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Ball))
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
@@ -285,6 +288,7 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Hotwords -> R.string.settings_hotwords_title
     SettingsRoute.OfflineModel -> R.string.settings_offline_model_title
     SettingsRoute.Translation -> R.string.settings_translation_title
+    SettingsRoute.Polish -> R.string.settings_polish
     SettingsRoute.Ball -> R.string.settings_floating_ball_settings
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title
@@ -575,6 +579,23 @@ private fun RootPage(
                 ArrowPreference(title = stringResource(R.string.settings_translation),
                     summary = stringResource(R.string.settings_translation_summary),
                     startAction = startIcon(VoiceLinkIcon.Translate), onClick = { onOpen(SettingsRoute.Translation) })
+                val polishState = session.polish.state
+                val polishSummary = when (polishState) {
+                    PolishConfigState.Missing -> stringResource(R.string.settings_polish_summary_missing)
+                    PolishConfigState.Corrupt, PolishConfigState.Unauthorized ->
+                        stringResource(R.string.settings_polish_summary_corrupt)
+                    is PolishConfigState.Ready -> stringResource(
+                        R.string.settings_polish_summary_ready,
+                        stringResource(providerLabel(polishState.config.provider)),
+                        polishState.config.model,
+                    )
+                }
+                ArrowPreference(
+                    title = stringResource(R.string.settings_polish),
+                    summary = polishSummary,
+                    startAction = startIcon(VoiceLinkIcon.Automatic),
+                    onClick = { onOpen(SettingsRoute.Polish) },
+                )
             }
         }
         item { GroupHeader(R.string.settings_group_quick_entry) }
