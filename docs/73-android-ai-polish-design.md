@@ -659,6 +659,8 @@ system = 选中的内置/自定义模式
 - 热词注入；
 - 结果对比视图。
 
+实施记录：[74 · Android AI 润色实施记录](74-android-ai-polish-implementation.md)。
+
 ## 12. 开放问题
 
 - 百炼的套餐/区域/工作空间地址如何在 UI 中减少选择（预设 + 可编辑地址，还是让用户粘贴完整 Base URL）。
