@@ -450,7 +450,7 @@ internal fun SpeakPage(
                             progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
                             when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
                         }
-                        if (!quick) DraftIcon(VoiceLinkIcon.Automatic, R.string.polish_title, "polish-draft",
+                        if (!quick) DraftIcon(VoiceLinkIcon.Ai, R.string.polish_title, "polish-draft",
                             session.canOpenPolish, progress = session.polishState.running) {
                             session.cancelAutoSend(); showPolish = true
                         }

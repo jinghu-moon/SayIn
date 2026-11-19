@@ -593,7 +593,7 @@ private fun RootPage(
                 ArrowPreference(
                     title = stringResource(R.string.settings_polish),
                     summary = polishSummary,
-                    startAction = startIcon(VoiceLinkIcon.Automatic),
+                    startAction = startIcon(VoiceLinkIcon.Ai),
                     onClick = { onOpen(SettingsRoute.Polish) },
                 )
             }

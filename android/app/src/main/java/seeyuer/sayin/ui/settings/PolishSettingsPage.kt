@@ -111,7 +111,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 title = stringResource(R.string.polish_provider),
                 items = providers.map { stringResource(providerLabel(it)) },
                 selectedIndex = providerIndex,
-                startAction = { Icon(VoiceLinkIcon.Automatic.vector, null, Modifier.size(22.dp)) },
+                startAction = { Icon(VoiceLinkIcon.Ai.vector, null, Modifier.size(22.dp)) },
                 onSelectedIndexChange = { editor.selectProvider(providers[it]) },
             )
             if (editor.provider == PolishProvider.Custom) {

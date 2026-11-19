@@ -220,6 +220,14 @@ internal object TablerVectors {
         )
     }
 
+    val Ai: ImageVector by lazy {
+        outline("Tabler.ai",
+            "M8 16v-6a2 2 0 1 1 4 0v6",
+            "M8 13h4",
+            "M16 8v8"
+        )
+    }
+
     val ArrowUp: ImageVector by lazy {
         outline("Tabler.arrow-up",
             "M12 5l0 14",
