@@ -66,4 +66,27 @@ class OutboxInstrumentedTest {
             assertEquals(16, dao.pendingCount())
         } finally { database.close() }
     }
+
+    @Test fun bulkHideAndAgeCleanupOnlyChangeHistoryPresentation() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, OutboxDatabase::class.java).build()
+        try {
+            val dao = database.outbox()
+            val host = UUID.randomUUID().toString()
+            val device = UUID.randomUUID().toString()
+            val old = OutboxItem(UUID.randomUUID().toString(), host, device, "scope", byteArrayOf(1), 1, "held", "1", "paused", 1_000, byteArrayOf(2))
+            val middle = OutboxItem(UUID.randomUUID().toString(), host, device, "scope", byteArrayOf(1), 1, "accepted", "2", null, 2_000, byteArrayOf(2))
+            val recent = OutboxItem(UUID.randomUUID().toString(), host, device, "scope", byteArrayOf(1), 1, "held", "3", "paused", 3_000, byteArrayOf(2))
+            listOf(old, middle, recent).forEach { dao.enqueue(it) }
+            dao.hideAll(listOf(old.id, middle.id))
+            assertNull(dao.visible(old.id))
+            assertNull(dao.visible(middle.id))
+            assertEquals(recent.id, dao.visible(recent.id)!!.id)
+            assertEquals(3, dao.pending(host, device).size)
+            assertEquals(1, dao.hideBefore(3_500))
+            assertNull(dao.visible(recent.id))
+            assertEquals(3, dao.pending(host, device).size)
+            assertEquals(3, dao.pendingCount())
+        } finally { database.close() }
+    }
 }

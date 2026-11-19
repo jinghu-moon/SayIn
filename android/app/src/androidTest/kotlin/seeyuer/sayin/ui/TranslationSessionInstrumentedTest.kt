@@ -171,6 +171,39 @@ class TranslationSessionInstrumentedTest {
         } finally { main { session.close() } }
     }
 
+    @Test fun selectingAnotherCatalogModelKeepsCompletedTranslationAndOnlyAffectsFutureRuns() {
+        val engine = Engine(); lateinit var session: SpeakSession
+        main { session = session(engine); session.translateDraft() }
+        try {
+            waitFor { engine.calls == 1 }
+            engine.result.complete(TranslationResult(TranslationEnd.Complete, "English"))
+            waitFor { session.translation.complete }
+            main {
+                val target = session.translationModels.first { it.id != session.currentTranslationModel.id }
+                assertTrue(session.selectTranslationModel(target.id))
+                assertEquals(target.id, session.currentTranslationModel.id)
+                assertEquals("English", session.displayedDraft.text)
+                assertTrue(session.canSendRepresentation)
+                assertEquals(1, engine.calls)
+                assertTrue(session.selectTranslationModel(target.id))
+                assertTrue(session.selectTranslationModel(session.translationModels.first { it.id != target.id }.id))
+            }
+        } finally { main { session.close() } }
+    }
+
+    @Test fun recordingPreventsModelSwitchAndDelete() {
+        val engine = Engine(); val recognition = Recognition(); lateinit var session: SpeakSession
+        main { session = session(engine, recognition); session.selectSource(SpeakInputSource.Local); session.start(null) }
+        try {
+            waitFor { recognition.starts == 1 }
+            main {
+                val target = session.translationModels.first { it.id != session.currentTranslationModel.id }
+                assertFalse(session.selectTranslationModel(target.id))
+                assertEquals(session.translationModels.first().id, session.currentTranslationModel.id)
+            }
+        } finally { main { session.close() } }
+    }
+
     @Test fun imeTransactionClearAndImmutableRequestDoNotResurrectSubmittedText() {
         val engine = Engine(); lateinit var session: SpeakSession
         main { session = session(engine) }

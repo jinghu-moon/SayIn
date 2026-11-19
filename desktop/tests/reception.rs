@@ -52,7 +52,8 @@ fn startup_failure_preserves_data_and_retry_uses_the_same_directory(cx: &mut Tes
     let directory = Directory::new();
     let target = directory.0.join("receiver");
     fs::write(&target, b"keep this existing file").unwrap();
-    let state = cx.update(|cx| cx.new(|cx| ReceptionState::new(target.clone(), cx)));
+    let state =
+        cx.update(|cx| cx.new(|cx| ReceptionState::new(target.clone(), Default::default(), cx)));
     await_phase(cx, &state, ReceptionPhase::Failed);
     assert_eq!(fs::read(&target).unwrap(), b"keep this existing file");
     fs::remove_file(&target).unwrap();
@@ -69,7 +70,8 @@ fn close_during_startup_waits_for_open_and_releases_the_ledger(cx: &mut TestAppC
     cx.executor().allow_parking();
     let directory = Directory::new();
     let target = directory.0.join("receiver");
-    let state = cx.update(|cx| cx.new(|cx| ReceptionState::new(target.clone(), cx)));
+    let state =
+        cx.update(|cx| cx.new(|cx| ReceptionState::new(target.clone(), Default::default(), cx)));
     state.update(cx, |s, cx| s.stop(cx));
     assert!(!state.read_with(cx, |s, _| s.is_stopped()));
     await_phase(cx, &state, ReceptionPhase::Stopped);

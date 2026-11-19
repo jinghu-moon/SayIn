@@ -1,6 +1,7 @@
 package seeyuer.sayin.translation
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -23,9 +24,33 @@ class ModelIntegrityException : Exception()
 
 /** Only public weights are downloaded; this object never receives user text or prompts. */
 class TranslationModelStore(context: Context, val model: TranslationModel, suffix: String = "") {
+    private val assets = context.assets
     private val directory = File(context.noBackupFilesDir, "translation$suffix")
     val file = File(directory, model.fileName)
+    private val bundledAsset = if (model.bundled && suffix.isEmpty()) "translation/${model.fileName}" else null
+    val bundled: Boolean by lazy {
+        val path = bundledAsset ?: return@lazy false
+        runCatching { assets.openFd(path).use { it.length == model.bytes } }.getOrDefault(false)
+    }
+    val ready get() = prepared || bundled
     val prepared get() = file.isFile && file.length() == model.bytes
+    val present get() = file.isFile
+    val downloadedBytes get() = when { file.isFile -> file.length(); bundled -> model.bytes; else -> 0L }
+
+    /** A directly loadable uncompressed asset; null if the build did not bundle this model. */
+    fun openBundled(): AssetFileDescriptor? {
+        val path = bundledAsset ?: return null
+        val descriptor = runCatching { assets.openFd(path) }.getOrNull() ?: return null
+        if (descriptor.length == model.bytes) return descriptor
+        runCatching { descriptor.close() }
+        return null
+    }
+
+    /** Removes only this model's artifact (and any interrupted pending copy). */
+    fun delete(): Boolean {
+        File(directory, model.fileName + ".pending").delete()
+        return !file.exists() || file.delete()
+    }
 
     suspend fun download(progress: (ModelPreparationProgress) -> Unit) = withContext(Dispatchers.IO) {
         val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(30, TimeUnit.SECONDS)

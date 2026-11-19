@@ -277,7 +277,9 @@ impl Ledger {
                 .transpose()?;
             if !search.is_empty() {
                 let text = match &operation {
-                    Some(Operation::Text { text, .. }) => text.as_str(),
+                    Some(Operation::Text { text, .. } | Operation::AutoText { text, .. }) => {
+                        text.as_str()
+                    }
                     _ => "",
                 };
                 if ![

@@ -24,6 +24,8 @@ import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -38,13 +40,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -60,6 +66,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -71,6 +78,7 @@ import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.ForegroundApplication
 import seeyuer.sayin.data.RootClipboardClient
 import seeyuer.sayin.designsystem.Appearance
 import seeyuer.sayin.designsystem.AppearanceMode
@@ -79,9 +87,12 @@ import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.quick.QuickActivity
 import seeyuer.sayin.quick.QuickEntryService
 import seeyuer.sayin.quick.SpeakTileService
+import seeyuer.sayin.translation.ModelPreparationProgress
 import seeyuer.sayin.translation.ModelPreparationStage
 import seeyuer.sayin.ui.SpeakInputSource
+import seeyuer.sayin.ui.SpeakInteraction
 import seeyuer.sayin.ui.SpeakSendMode
+import seeyuer.sayin.ui.AppSendPolicy
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.CloudEditorState
 import seeyuer.sayin.ui.CloudSettingsCard
@@ -90,6 +101,7 @@ import seeyuer.sayin.ui.localization.AppLanguage
 import seeyuer.sayin.ui.localization.AppLanguages
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SliderPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -108,10 +120,13 @@ internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
 
 internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Root(null),
+    SendPolicy(Root),
     Recognition(Root),
     Cloud(Recognition),
     Hotwords(Recognition),
+    OfflineModel(Recognition),
     Translation(Root),
+    Ball(Root),
     Background(Root),
     Clipboard(Root),
     Privacy(Root),
@@ -207,16 +222,22 @@ internal fun SettingsHost(
                         session, cloudState, keepAwake, onKeepAwake, language,
                         onOpen = { route = it }, modifier = pageModifier, listState = rootList,
                     )
+                    SettingsRoute.SendPolicy -> SendPolicyPage(
+                        session, clientState, pageModifier, scrollFor(SettingsRoute.SendPolicy),
+                    )
                     SettingsRoute.Recognition -> RecognitionPage(
                         session, cloudState, onOpenCloud = { route = SettingsRoute.Cloud },
-                        onOpenHotwords = { route = SettingsRoute.Hotwords }, modifier = pageModifier,
+                        onOpenHotwords = { route = SettingsRoute.Hotwords },
+                        onOpenModel = { route = SettingsRoute.OfflineModel }, modifier = pageModifier,
                         scroll = scrollFor(SettingsRoute.Recognition),
                     )
+                    SettingsRoute.OfflineModel -> OfflineModelPage(session, pageModifier, scrollFor(SettingsRoute.OfflineModel))
                     SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState,
                         onOpenHotwords = { route = SettingsRoute.Hotwords },
                         modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
                     SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                     SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
+                    SettingsRoute.Ball -> BallPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Ball))
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
                     SettingsRoute.Privacy -> PrivacyPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Privacy))
@@ -258,10 +279,13 @@ private fun SettingsRoute.depth(): Int = parent?.let { it.depth() + 1 } ?: 0
 
 private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Root -> R.string.settings_title
+    SettingsRoute.SendPolicy -> R.string.settings_send_policy
     SettingsRoute.Recognition -> R.string.settings_voice_recognition
     SettingsRoute.Cloud -> R.string.settings_cloud_title
     SettingsRoute.Hotwords -> R.string.settings_hotwords_title
+    SettingsRoute.OfflineModel -> R.string.settings_offline_model_title
     SettingsRoute.Translation -> R.string.settings_translation_title
+    SettingsRoute.Ball -> R.string.settings_floating_ball_settings
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title
     SettingsRoute.Privacy -> R.string.settings_privacy_title
@@ -306,6 +330,172 @@ private fun SettingsTopBar(title: String, onBack: () -> Unit, actions: @Composab
         defaultWindowInsetsPadding = false,
         color = MiuixTheme.colorScheme.background,
     )
+}
+
+@Composable
+private fun SendPolicyPage(
+    session: SpeakSession,
+    clientState: ClientState,
+    modifier: Modifier,
+    scroll: androidx.compose.foundation.ScrollState,
+) {
+    val current = clientState.foregroundApplication
+    val apps = remember(current, clientState.historyApplications, session.appSendPolicies) {
+        buildList {
+            current?.let { add(it) }
+            addAll(clientState.historyApplications.values)
+            session.appSendPolicies.keys.forEach { name ->
+                if (name.isNotBlank() && none { it.name == name }) add(ForegroundApplication(name))
+            }
+        }.filter { it.name.isNotBlank() }.distinctBy { it.name }.sortedBy { it.name.lowercase(Locale.ROOT) }
+    }
+    val automatic = session.sendMode == SpeakSendMode.Automatic
+    val canChange = !session.busy && !session.requestLocked && !session.translation.running && !session.translationStopping
+    /** Dragged value previews the wait time; only releasing commits it. */
+    var delayDraft by remember { mutableIntStateOf(session.autoSendSeconds) }
+    LaunchedEffect(session.autoSendSeconds) {
+        delayDraft = session.autoSendSeconds
+    }
+    val ruleOptions = remember { listOf(AppSendPolicy.Inherit, AppSendPolicy.Automatic, AppSendPolicy.Manual) }
+    val ruleLabels = listOf(
+        stringResource(R.string.settings_policy_inherit),
+        stringResource(R.string.settings_policy_auto),
+        stringResource(R.string.settings_policy_manual),
+    )
+    fun effective(appName: String?): AppSendPolicy {
+        val rule = appName?.let { session.appSendPolicies[it] } ?: AppSendPolicy.Inherit
+        return if (rule == AppSendPolicy.Inherit) {
+            if (automatic) AppSendPolicy.Automatic else AppSendPolicy.Manual
+        } else rule
+    }
+
+    Column(
+        modifier = modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (current != null) {
+                    PolicyAppIcon(current, 36.dp)
+                } else {
+                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(MiuixTheme.colorScheme.surfaceContainerHigh),
+                        contentAlignment = Alignment.Center) {
+                        Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(19.dp),
+                            tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    }
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(current?.name ?: stringResource(R.string.settings_send_policy_no_current),
+                        fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    if (current != null) {
+                        Text(stringResource(R.string.settings_send_policy_current), fontSize = 11.5.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                    }
+                }
+                if (current != null) SendPolicyStateChip(effective(current.name))
+            }
+        }
+
+        Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            Column {
+                SwitchPreference(
+                    title = stringResource(R.string.settings_auto_send),
+                    summary = stringResource(R.string.settings_auto_send_hint),
+                    checked = automatic,
+                    enabled = canChange,
+                    switchColors = settingsSwitchColors(),
+                    modifier = Modifier.testTag("settings-send-policy-default"),
+                    onCheckedChange = {
+                        if (canChange) session.changeSendMode(if (it) SpeakSendMode.Automatic else SpeakSendMode.Manual)
+                    },
+                )
+                SliderPreference(
+                    value = delayDraft.toFloat(),
+                    onValueChange = { delayDraft = it.roundToInt() },
+                    onValueChangeFinished = { session.changeAutoSendSeconds(delayDraft) },
+                    modifier = Modifier.testTag("settings-send-policy-wait"),
+                    title = stringResource(R.string.settings_send_policy_wait),
+                    summary = stringResource(R.string.settings_auto_send_summary),
+                    valueText = stringResource(R.string.settings_send_policy_seconds, delayDraft),
+                    enabled = canChange && automatic,
+                    valueRange = SpeakInteraction.MIN_DELAY_SECONDS.toFloat()..SpeakInteraction.MAX_DELAY_SECONDS.toFloat(),
+                    steps = SpeakInteraction.MAX_DELAY_SECONDS - SpeakInteraction.MIN_DELAY_SECONDS - 1,
+                )
+            }
+        }
+
+        Row(Modifier.fillMaxWidth().padding(start = 8.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.settings_send_policy_apps), Modifier.weight(1f),
+                fontSize = 17.sp, fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            if (session.appSendPolicies.isNotEmpty()) {
+                TextButton(stringResource(R.string.settings_send_policy_clear), onClick = { session.clearAppSendPolicies() },
+                    minHeight = 36.dp, colors = plainTextButtonColors(),
+                    modifier = Modifier.testTag("send-policy-clear"))
+            }
+        }
+
+        if (apps.isEmpty()) {
+            SettingsCard {
+                Text(stringResource(R.string.settings_send_policy_empty), modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    fontSize = 12.sp, lineHeight = 18.sp, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+            }
+        } else {
+            Card(Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+                Column {
+                    apps.forEachIndexed { index, app ->
+                        WindowDropdownPreference(
+                            items = ruleLabels,
+                            selectedIndex = ruleOptions.indexOf(session.appSendPolicies[app.name] ?: AppSendPolicy.Inherit),
+                            title = app.name,
+                            startAction = { PolicyAppIcon(app, 24.dp) },
+                            modifier = Modifier.testTag("send-policy-app-${app.name}"),
+                            onSelectedIndexChange = { selected ->
+                                session.setAppSendPolicy(app.name, ruleOptions[selected])
+                            },
+                        )
+                        if (index != apps.lastIndex) HorizontalDivider(Modifier.padding(start = 58.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SendPolicyStateChip(policy: AppSendPolicy) {
+    val automatic = policy == AppSendPolicy.Automatic
+    Box(
+        Modifier.clip(CircleShape)
+            .background(if (automatic) MiuixTheme.colorScheme.primary.copy(alpha = .11f) else MiuixTheme.colorScheme.surfaceContainerHigh)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+    ) {
+        Text(
+            if (automatic) stringResource(R.string.settings_send_policy_chip_auto)
+            else stringResource(R.string.settings_send_policy_chip_manual),
+            fontSize = 11.sp, fontWeight = FontWeight.Medium,
+            color = if (automatic) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.onSurfaceSecondary,
+        )
+    }
+}
+
+@Composable
+private fun PolicyAppIcon(application: ForegroundApplication, size: androidx.compose.ui.unit.Dp = 32.dp) {
+    val icon = application.icon
+    if (icon != null) {
+        Image(
+            icon.asImageBitmap(), null,
+            Modifier.size(size),
+            contentScale = ContentScale.Fit,
+        )
+    } else {
+        Box(Modifier.size(size).clip(RoundedCornerShape(if (size >= 36.dp) 10.dp else 9.dp))
+            .background(MiuixTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
+            Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(size * .55f),
+                tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+        }
+    }
 }
 
 @Composable
@@ -371,12 +561,17 @@ private fun RootPage(
             SettingsCard {
                 ArrowPreference(title = stringResource(R.string.settings_voice_recognition), summary = engineText,
                     startAction = startIcon(VoiceLinkIcon.Microphone), onClick = { onOpen(SettingsRoute.Recognition) })
-                SwitchPreference(title = stringResource(R.string.settings_auto_send),
-                    summary = stringResource(R.string.settings_auto_send_summary),
-                    checked = session.sendMode == SpeakSendMode.Automatic,
-                    enabled = !session.busy && !session.requestLocked && !session.translation.running && !session.translationStopping,
-                    switchColors = settingsSwitchColors(),
-                    onCheckedChange = { session.changeSendMode(if (it) SpeakSendMode.Automatic else SpeakSendMode.Manual) })
+                ArrowPreference(
+                    title = stringResource(R.string.settings_send_policy),
+                    summary = pluralStringResource(
+                        R.plurals.settings_send_policy_summary,
+                        session.appSendPolicies.size,
+                        stringResource(if (session.sendMode == SpeakSendMode.Automatic) R.string.settings_policy_auto else R.string.settings_policy_manual),
+                        session.appSendPolicies.size,
+                    ),
+                    startAction = startIcon(VoiceLinkIcon.Send),
+                    onClick = { onOpen(SettingsRoute.SendPolicy) },
+                )
                 ArrowPreference(title = stringResource(R.string.settings_translation),
                     summary = stringResource(R.string.settings_translation_summary),
                     startAction = startIcon(VoiceLinkIcon.Translate), onClick = { onOpen(SettingsRoute.Translation) })
@@ -399,6 +594,12 @@ private fun RootPage(
                         } else if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         else requestOverlay()
                     },
+                )
+                ArrowPreference(
+                    title = stringResource(R.string.settings_floating_ball_settings),
+                    summary = stringResource(R.string.settings_floating_ball_settings_summary),
+                    startAction = startIcon(VoiceLinkIcon.Phone),
+                    onClick = { onOpen(SettingsRoute.Ball) },
                 )
                 ArrowPreference(
                     title = stringResource(R.string.settings_control_center),
@@ -503,6 +704,7 @@ private fun RecognitionPage(
     cloudState: CloudSettingsState,
     onOpenCloud: () -> Unit,
     onOpenHotwords: () -> Unit,
+    onOpenModel: () -> Unit,
     modifier: Modifier,
     scroll: androidx.compose.foundation.ScrollState,
 ) {
@@ -551,14 +753,35 @@ private fun RecognitionPage(
             }
         }
 
+        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            Column {
+                SwitchPreference(
+                    title = stringResource(R.string.settings_voice_commands),
+                    summary = stringResource(R.string.settings_voice_commands_summary),
+                    checked = session.voiceCommandsEnabled,
+                    enabled = !session.busy && !session.requestLocked,
+                    switchColors = settingsSwitchColors(),
+                    modifier = Modifier.testTag("voice-commands"),
+                    onCheckedChange = session::changeVoiceCommands,
+                )
+            }
+        }
+        Text(stringResource(R.string.settings_voice_commands_help),
+            Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp),
+            fontSize = 11.5.sp, lineHeight = 16.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+
         SectionLabel(stringResource(R.string.settings_section_local), Modifier.padding(top = 10.dp, start = 4.dp, bottom = 6.dp))
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
             BasicComponent(
                 title = stringResource(R.string.settings_offline_model),
                 summary = stringResource(R.string.settings_offline_model_sub),
                 startAction = startIcon(VoiceLinkIcon.Computer),
+                onClick = onOpenModel,
                 endActions = {
                     Text(modelStatus(session), fontSize = 13.sp, color = modelStatusColor(session))
+                    Spacer(Modifier.width(4.dp))
+                    Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceSecondary)
                 },
             )
         }
@@ -713,28 +936,172 @@ private fun cloudIssueText(issue: CloudIssue): String = stringResource(when (iss
 
 @Composable
 private fun TranslationPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val context = LocalContext.current
     val progress = session.modelPreparation
+    val model = session.currentTranslationModel
+    val models = session.translationModels
+    val canManage = !session.busy && !session.requestLocked && !session.translation.running &&
+        !session.translationStopping && !session.translationPreparing && !session.modelDeleting
+    var confirmDelete by remember { mutableStateOf(false) }
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SettingsCard {
-            ArrowPreference(title = stringResource(R.string.settings_translation),
-                summary = when {
-                    progress != null -> stringResource(R.string.settings_translation_progress,
-                        (progress.bytes * 100 / progress.total.coerceAtLeast(1)).toInt())
-                    session.modelPreparationFailed -> stringResource(R.string.settings_translation_failed)
-                    session.translationModelReady -> stringResource(R.string.settings_translation_ready)
-                    else -> stringResource(R.string.settings_translation_missing)
-                },
-                startAction = startIcon(VoiceLinkIcon.Translate), enabled = false, onClick = {})
+            WindowDropdownPreference(
+                title = stringResource(R.string.settings_translation_model),
+                items = models.map(::translationModelLabel),
+                selectedIndex = models.indexOfFirst { it.id == model.id }.coerceAtLeast(0),
+                startAction = startIcon(VoiceLinkIcon.Translate),
+                onSelectedIndexChange = { index -> models.getOrNull(index)?.let { session.selectTranslationModel(it.id) } },
+            )
+            DiagnosticRow(stringResource(R.string.settings_translation_file), model.fileName)
+            DiagnosticRow(stringResource(R.string.settings_translation_size), Formatter.formatFileSize(context, model.bytes))
+            DiagnosticRow(stringResource(R.string.settings_translation_version), model.revision.take(12))
+            DiagnosticRow(stringResource(R.string.settings_translation_status), when {
+                progress != null -> stringResource(R.string.settings_translation_progress, progressPercent(progress))
+                session.modelPreparationFailed || session.modelDeleteFailed -> stringResource(R.string.settings_translation_failed)
+                session.translationModelBundled -> stringResource(R.string.settings_translation_bundled)
+                session.translationModelReady -> stringResource(R.string.settings_translation_ready)
+                session.translationModelPresent -> stringResource(R.string.settings_translation_incomplete)
+                else -> stringResource(R.string.settings_translation_missing)
+            })
         }
-        NoticeText(stringResource(R.string.settings_translation_prepare_desc))
-        TextButton(
-            stringResource(if (session.translationModelReady) R.string.settings_translation_ready else R.string.settings_translation_prepare),
-            onClick = { session.prepareTranslationModel() },
-            enabled = progress == null && !session.translationModelReady,
-            minHeight = 48.dp,
-            modifier = Modifier.fillMaxWidth().testTag("settings-translation-prepare"),
-        )
+        NoticeText(stringResource(if (session.translationModelBundled) R.string.settings_translation_bundled_note else R.string.settings_translation_prepare_desc))
+        if (!session.translationModelBundled) {
+            Button(
+                onClick = { session.prepareTranslationModel() },
+                enabled = canManage && progress == null,
+                minHeight = 48.dp,
+                cornerRadius = 16.dp,
+                colors = ButtonDefaults.buttonColorsPrimary(),
+                modifier = Modifier.fillMaxWidth().testTag("settings-translation-prepare"),
+            ) {
+                Text(stringResource(if (session.translationModelReady) R.string.settings_translation_redownload else R.string.settings_translation_prepare))
+            }
+        }
+        if (session.modelDeleteFailed) NoticeText(stringResource(R.string.settings_translation_delete_failed))
+        if (session.translationModelPresent && progress == null) {
+            TextButton(
+                stringResource(if (session.modelDeleting) R.string.settings_translation_deleting else R.string.settings_translation_delete),
+                onClick = { confirmDelete = true },
+                enabled = canManage,
+                minHeight = 48.dp,
+                colors = plainTextButtonColors(),
+                modifier = Modifier.fillMaxWidth().testTag("settings-translation-delete"),
+            )
+        }
         NoticeText(stringResource(R.string.settings_translation_note))
+        NoticeText(stringResource(R.string.settings_translation_switch_note))
+    }
+    WindowDialog(
+        title = stringResource(R.string.settings_translation_delete_title),
+        summary = stringResource(R.string.settings_translation_delete_message),
+        show = confirmDelete,
+        onDismissRequest = { confirmDelete = false },
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.assist_cancel), onClick = { confirmDelete = false },
+                modifier = Modifier.weight(1f))
+            TextButton(stringResource(R.string.settings_translation_delete_confirm), onClick = {
+                confirmDelete = false
+                session.deleteTranslationModel()
+            }, modifier = Modifier.weight(1f).testTag("settings-translation-delete-confirm"))
+        }
+    }
+}
+
+private fun progressPercent(progress: ModelPreparationProgress): Int =
+    (progress.bytes * 100 / progress.total.coerceAtLeast(1)).toInt()
+
+private fun translationModelLabel(model: seeyuer.sayin.translation.TranslationModel): String =
+    model.fileName.removeSuffix(".gguf")
+
+@Composable
+private fun OfflineModelPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val context = LocalContext.current
+    var bytes by remember { mutableStateOf<Long?>(null) }
+    LaunchedEffect(Unit) {
+        bytes = withContext(Dispatchers.IO) { runCatching { seeyuer.sayin.asr.LocalAsrModel.size(context.assets) }.getOrNull() }
+    }
+    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SettingsCard {
+            BasicComponent(
+                title = stringResource(R.string.settings_asr_model_spec),
+                summary = stringResource(R.string.settings_asr_model_spec_summary),
+                startAction = startIcon(VoiceLinkIcon.Computer),
+                endActions = {
+                    Text(stringResource(R.string.settings_asr_model_spec_value), fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                },
+            )
+            DiagnosticRow(stringResource(R.string.settings_asr_model_files), "4")
+            DiagnosticRow(stringResource(R.string.settings_asr_model_size),
+                bytes?.let { Formatter.formatFileSize(context, it) } ?: stringResource(R.string.settings_storage_calculating))
+            DiagnosticRow(stringResource(R.string.settings_asr_model_version), seeyuer.sayin.asr.LocalAsrModel.VERSION)
+            DiagnosticRow(stringResource(R.string.settings_asr_model_state), modelStatus(session))
+        }
+        NoticeText(stringResource(R.string.settings_asr_model_only_one))
+        NoticeText(stringResource(R.string.settings_asr_model_bundled))
+        NoticeText(stringResource(R.string.settings_asr_model_spec_note))
+    }
+}
+
+
+@Composable
+private fun BallPage(modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val context = LocalContext.current
+    var size by remember { mutableFloatStateOf(QuickEntryService.size(context).toFloat()) }
+    var opacity by remember { mutableFloatStateOf(QuickEntryService.peekAlpha(context) * 100f) }
+    var doubleAction by remember { mutableStateOf(QuickEntryService.doubleAction(context)) }
+    val doubleOptions = listOf(
+        QuickEntryService.DOUBLE_CARD to stringResource(R.string.settings_ball_double_card),
+        QuickEntryService.DOUBLE_RECORD to stringResource(R.string.settings_ball_double_record),
+    )
+    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.settings_ball_size), Modifier.weight(1f), fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_ball_size_value, size.roundToInt()), fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
+                Slider(
+                    value = size,
+                    onValueChange = { size = it },
+                    valueRange = 44f..72f,
+                    steps = 6,
+                    onValueChangeFinished = { QuickEntryService.setSize(context, size.roundToInt()) },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-size"),
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.settings_ball_opacity), Modifier.weight(1f), fontSize = 14.sp)
+                    Text(stringResource(R.string.settings_ball_opacity_value, opacity.roundToInt()), fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
+                Slider(
+                    value = opacity,
+                    onValueChange = { opacity = it },
+                    valueRange = 35f..100f,
+                    steps = 12,
+                    onValueChangeFinished = { QuickEntryService.setPeekAlpha(context, opacity / 100f) },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-opacity"),
+                )
+            }
+        }
+        SettingsCard {
+            WindowDropdownPreference(
+                title = stringResource(R.string.settings_ball_double),
+                items = doubleOptions.map { it.second },
+                selectedIndex = doubleOptions.indexOfFirst { it.first == doubleAction }.coerceAtLeast(0),
+                startAction = startIcon(VoiceLinkIcon.Phone),
+                onSelectedIndexChange = { index ->
+                    doubleOptions.getOrNull(index)?.let {
+                        doubleAction = it.first
+                        QuickEntryService.setDoubleAction(context, it.first)
+                    }
+                },
+            )
+        }
+        NoticeText(stringResource(R.string.settings_ball_note))
+        NoticeText(stringResource(R.string.settings_ball_fullscreen_note))
     }
 }
 
@@ -974,6 +1341,7 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sizes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var modelSizes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var clearing by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(refresh) {
@@ -984,6 +1352,11 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
             val cache = fileSize(context.cacheDir) + (context.externalCacheDir?.let(::fileSize) ?: 0L)
             data to cache
         }
+        modelSizes = withContext(Dispatchers.IO) {
+            val translation = fileSize(File(context.noBackupFilesDir, "translation"))
+            val asr = runCatching { seeyuer.sayin.asr.LocalAsrModel.size(context.assets) }.getOrDefault(0L)
+            translation to asr
+        }
     }
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -991,6 +1364,8 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
             DiagnosticRow(stringResource(R.string.settings_storage_data), sizes?.let { Formatter.formatFileSize(context, it.first) } ?: stringResource(R.string.settings_storage_calculating))
             DiagnosticRow(stringResource(R.string.settings_storage_cache), sizes?.let { Formatter.formatFileSize(context, it.second) } ?: stringResource(R.string.settings_storage_calculating))
             DiagnosticRow(stringResource(R.string.settings_storage_used), sizes?.let { Formatter.formatFileSize(context, it.first + it.second) } ?: stringResource(R.string.settings_storage_calculating))
+            DiagnosticRow(stringResource(R.string.settings_storage_translation_models), modelSizes?.let { Formatter.formatFileSize(context, it.first) } ?: stringResource(R.string.settings_storage_calculating))
+            DiagnosticRow(stringResource(R.string.settings_storage_asr_model), modelSizes?.let { Formatter.formatFileSize(context, it.second) } ?: stringResource(R.string.settings_storage_calculating))
         }
         NoticeText(stringResource(R.string.settings_storage_note))
         if ((sizes?.second ?: 0L) > 0L) {
@@ -1048,12 +1423,13 @@ private fun DiagnosticsPage(state: ClientState, modifier: Modifier, scroll: andr
     val target = state.foregroundApplication?.name?.takeIf { it.isNotBlank() }
         ?: stringResource(R.string.settings_diagnostics_none)
     val computer = state.address.takeIf { it.isNotBlank() } ?: stringResource(R.string.settings_diagnostics_none)
+    val localeTag = LocalConfiguration.current.locales[0].toLanguageTag()
     val rows = listOf(
         stringResource(R.string.settings_diagnostics_version) to BuildConfig.VERSION_NAME,
         stringResource(R.string.settings_diagnostics_build) to BuildConfig.BUILD_TYPE,
         stringResource(R.string.settings_diagnostics_android) to "${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
         stringResource(R.string.settings_diagnostics_device) to "${Build.MANUFACTURER} ${Build.MODEL}",
-        stringResource(R.string.settings_diagnostics_locale) to Locale.getDefault().toLanguageTag(),
+        stringResource(R.string.settings_diagnostics_locale) to localeTag,
     )
     val connectionRows = listOf(
         stringResource(R.string.settings_diagnostics_state) to state.connection.name,

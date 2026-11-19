@@ -46,7 +46,7 @@ abstract class CopyTranslationCatalog : DefaultTask() {
         target.parentFile.mkdirs()
         manifest.get().asFile.copyTo(target, overwrite = true)
         val licenseDirectory = target.parentFile.resolve("licenses/translation").apply { mkdirs() }
-        listOf("THIRD-PARTY-NOTICES.txt", "llama.cpp-MIT.txt", "Hy-MT2-Apache-2.0.txt", "Android-NDK-29-toolchain-NOTICE.txt").forEach {
+        listOf("THIRD-PARTY-NOTICES.txt", "llama.cpp-MIT.txt", "Hy-MT2-Apache-2.0.txt", "PLaMo-Community-License.txt", "Android-NDK-29-toolchain-NOTICE.txt").forEach {
             notices.get().asFile.resolve(it).copyTo(licenseDirectory.resolve(it), overwrite = true)
         }
     }

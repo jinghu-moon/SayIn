@@ -278,6 +278,7 @@
 - Android 工程初始化时，将项目 Gradle JDK 明确设为上述 JDK，并用 Wrapper 的 `--version` 核对实际 Launcher/Daemon JVM；IDE与命令行配置保持一致。
 - 配套版本为 Kotlin **2.4.21**、AGP **9.3.1**、Gradle **9.7.0**；Java/Kotlin 字节码目标初始均为 **17**，与构建 JDK 分开配置。
 - Android 工程位于 `android/`；从仓库根目录使用 `scripts/gradle.ps1` 调用项目 Wrapper，明确使用已确认的 JDK。
+- 后续改动完成后，从仓库根目录运行 `scripts/gradle.ps1 :app:assembleDebug`，用 `adb -s <设备序列号> install -r android/app/build/outputs/apk/debug/app-debug.apk` 覆盖安装日常 Debug 包 `seeyuer.sayin` 到用户的手机，保留配对、草稿和历史。确认安装成功并在交付时报告结果。
 - 当前最低系统为 Android 10/API 29，与平台 TLS 1.3 必需条件一致；不得重新声明不具备该能力的旧系统受支持、降级 TLS 或为此引入兼容 provider。根因、修改前后验证与 API 37 真实系统授权测试见 [49](docs/49-android-platform-support-and-validation.md)。模拟器 ABI 仅允许显式 `sayin.emulatorTests=true` 的隔离 imageTest variant，日常包默认仍为 arm64-v8a。
 - 工程基础已完成首次 Debug 构建；后续状态以 `docs/04-android-foundation-implementation.md` 中的实际验证记录为准，不能将构建通过等同于业务链路或真机运行通过。
 
@@ -379,7 +380,7 @@
 ## 17. Android 云端流式识别
 
 - 首期为豆包流式语音识别 2.0 小时版，固定官方 WSS `bigmodel_async` 与 `volc.seedasr.sauc.duration`；不静默探测资源套餐、切换引擎、重连重传音频或重复发送。
-- `SpeakSession` 持有统一 `RecognitionEngine`，`SpeechRecognition` 管理本地/云端麦克风与识别资源；页面只展示共享会话；流式全文快照覆盖冻结的草稿选区，仅用户明确结束且收到最终结果后才能进入现有完成输入/发送判断。partial、断网、取消、尾包超时不得授权自动发送。
+- `SpeakSession` 持有统一 `RecognitionEngine`，`SpeechRecognition` 管理本地/云端麦克风与识别资源；页面只展示共享会话；流式全文快照覆盖冻结的草稿选区。主动结束或已启用的点按静音判停均须等到最终结果才可进入倒计时判断。partial、断网、取消、尾包超时不得授权自动发送。
 - 手机直连云服务，电脑协议仍只承载用户选择发送的文本。APP Key 或 APP ID + Access Token 只在 AndroidKeyStore AES-GCM 加密配置中持久化，独立于配对密钥、存于 noBackupFilesDir；缺失密钥/篡改拒绝读取，不写入日志、实例状态或桌面端。
 - 配置由 Application 的 ViewModelStore 唯一持有，后台串行读写；仅显式选择云端并点击录音才上传真实音频。验证服务只发送 1 秒生成静音、不访问麦克风、不触发 LAN 发送，明确说明可能计费及不能验证准确率/热词。
 - PCM 为 16kHz/mono/16bit、约 200ms 分包；未压缩 PCM socket 队列预算 64KB，超过即停止报错，不静默丢包。最终结果等候 10 秒，握手等候 12 秒。云端错误仅保留类型化状态，不输出服务响应或请求凭据。
@@ -404,7 +405,7 @@
 
 - 当前实施见 [37 手机统一说话界面与桌面联动](docs/37-android-unified-speak-and-desktop-coordination.md)，替代 29/31/34 中页面独占录音、无快捷入口及旧智能发送的阶段设计。
 - 完整页和 QuickActivity 使用 Application 唯一 SpeakSession/VoiceLinkViewModel/CloudSettings。页面、入口、语言与形态切换不得创建第二次录音、第二份草稿或重复提交；AppCompat floating decor 安装完成后设置快捷卡尺寸，避免窗口布局覆盖。
-- 说完自动发送默认关闭。只有显式结束、ASR final、可见说话页、有效完整 ReceptionScope 和合法非组合文字才授权三秒倒计时；编辑/更多/连接/离页/收起/入口/形态/范围变化撤销。后台结束不因重新打开而恢复授权；不按语种、长度或旧编辑记录猜测。
+- 自动发送默认关闭。点按录音在有声后连续 1.5 秒静音时自动收尾，长按松手或主动停止直接收尾，语音等 ASR final 后倒计时三秒。键盘须点击发送，IME 候选上屏后才计时。自动发送须绑定完整 ReceptionScope 和当前应用，任何编辑、离页、切换入口、打开面板或目标变化撤销。Windows 执行前再次核对应用名和窗口身份。见 [72 发送策略](docs/72-android-send-policy-settings.md)。
 - microphone 前台服务获系统接受后才启动录音，START_NOT_STICKY；收起可继续已开始录音，取消准备不能延迟开麦。磁贴只打开快捷卡；悬浮球默认关闭、按需授权，specialUse 空闲服务不开麦、不发送。不擅自设置后台/悬浮窗权限。
 - 草稿与请求身份用独立 Keystore AES-GCM/AtomicFile，150ms 合并落盘；恢复完成前禁止录音/发送，坏文件不静默覆盖。不能把草稿合并写入描述为同步持久化。Room schema 2 仅追加加密 transcript，终态清 payload 不清展示正文，保留当前用户配对与账本；旧终态原文缺失就如实显示。
 - saved/accepted/held/executing/review/uncertain 冻结当前请求，不新 ID 重发；回执查询允许终态 payload=null。uncertain 必须电脑本地核对后才能显式开始新草稿，手机不解除接收闸门。
@@ -426,16 +427,17 @@
 - 用户选定双 WSS：`/v2` 控制、按需 `/v2/images` 顺序二进制块；复用同一完整固定证书、TLS 名称、端口、精确网卡与网络范围。图片连接只绑定当前已认证控制会话，不能建立配对或信任。
 - 图片资源先有界校验、DPAPI 加密同步落盘，再以 WAL/FULL 接受事务绑定 schema 6 的收据、资源与历史。每设备一张、主机两张、完整解码并发一；10MiB 编码、1600 万像素、单边 8192、块正文 48KiB。
 - 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
-- 生产 NativeInput 在最终目标捕获前完成资源读取和解码；持久 executing 后发布 PNG/DIBV5/历史与云排除标记，只发一次 Ctrl+V、不追加 Enter。部分提交进入 uncertain，只补释放本次仍按下的键。提交成功不证明目标应用已显示图片。
+- 生产 NativeInput 读取并校验受保护原图，再捕获前台进程。电脑设置和历史菜单可为可执行文件配置图片接收方式，完整路径按 Windows 不区分大小写的序数规则匹配。完整路径规则优先于默认值，默认 Windows Terminal 复制文件路径，其他应用粘贴图片。持久 executing 后原子保存原图，默认目录为系统下载目录下的 SayIn。路径方式发布 Unicode 文本，回执为 `clipboard_image_path`。图片方式发布 PNG/DIBV5，核对剪贴板序列与持有者后提交一次 Ctrl+V，回执为 `clipboard_image`。两种方式都设置剪贴板历史与云排除标记。部分输入进入 uncertain，只补释放本次仍按下的键。路径只留在电脑端。
 - Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
 - 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。15 次 LAN 临时 RichEdit 粘贴、受控慢速 25 张、取消/暂停、51 项 JVM、44 项常规设备、3 组发现和 137 项桌面回归通过；首版有限验收已完成，用户确认浏览器/Word、聊天草稿、透明 PNG、历史操作和渲染正常；最低系统改为 Android 10/API 29，API 29/33 各 44 项、API 37 系统权限及图片数据补验通过，见 [49](docs/49-android-platform-support-and-validation.md)。精确应用版本、真正差 Wi-Fi/长期负载、真实多网卡/LAN 换 IPv4 及 VRAM 仍有证据边界，见 [46](docs/46-image-input-production-validation.md)。30 张历史/60 次原图开关发现并修复显式 atlas 释放，见 [48](docs/48-desktop-image-render-resource-lifecycle.md)，不能只用工作集或 CPU 引用推断渲染资源已回收。不把有限 fake/合成负载、旧网络测速或构建通过冒充整链路验收。图片及发现设备测试使用独立 `seeyuer.sayin.imagetest`，文字和图片使用不同临时电脑身份，绝不替换日常应用。
 
 ## 22. Android 本地中译英
 
-- 实施、三模型实测及主线整合记录见 [50 本地翻译](docs/50-android-local-translation-implementation.md)。默认仅 Hy-MT2-1.8B Q4_K_M；制品长度、摘要、模板与 llama.cpp revision 由 `android/translation-artifacts.json` 固定。执行 `python scripts/prepare_translation.py --source-archive <固定来源ZIP>` 准备被忽略的源码；构建会重新核验完整源码树，不随 worktree 自动复制。
+- 实施、三模型实测及主线整合记录见 [50 本地翻译](docs/50-android-local-translation-implementation.md)。默认选择仍为 Hy-MT2-1.8B Q4_K_M，另内置 PLaMo 0.8B Q4_K_M；制品长度、摘要、模板与 llama.cpp revision 由 `android/translation-artifacts.json` 固定。执行 `python scripts/prepare_translation.py --source-archive <固定来源ZIP>` 准备被忽略的源码；构建会重新核验完整源码树，不随 worktree 自动复制。
 - 产品使用 Kotlin + NDK/CMake/C++ 最小 JNI，minSdk 29、字节码 17，后台串行所有者负责推理和释放。新请求不复用上一条上下文；取消置标志并等待安全停止后释放，不能在主线程等待析构。CPU 基线之外的加速需另有实测依据。
 - 翻译是统一草稿的后处理；三输入来源保持不变。任务绑定草稿 ID/修订，原文与完整译文分别保存；编辑、取消、清空、新录音使旧任务失效。翻译撤销自动发送票据，partial/取消/截断/错误不可当完整译文发送；手动发送仍走原 Outbox、接收范围与收据恢复，不静默回退云端或记录正文/提示词。
-- APK 不内嵌 GGUF。公开模型只在用户明确操作后下载；真实进度、完整长度/SHA-256、私有 pending 和同目录原子替换必需，失败保留原稿和旧模型。Debug 提供同摘要本地导入；正式模型分发的完整 HTTPS 验收由用户接手，不得记为已通过。
+- 默认 Hy-MT2-1.8B Q4_K_M 与 PLaMo 0.8B Q4_K_M 作为未压缩 asset 内嵌 APK。构建任务按 `android/translation-artifacts.json` 的 `bundled:true` 从被忽略的 `assets/translation-model/` 读取模型，先核验固定长度与 SHA-256，再复制到生成 assets；缺失或不一致必须使构建失败。运行时不再复制第二份，而是通过 `AssetFileDescriptor` 的 fd 和 `llama_model_load_from_file_ptr` 直接读取，且禁用 mmap，避免映射/预取包含 ASR 权重的整个 APK。APK 签名与构建期固定摘要共同认证内嵌权重；`python scripts/check_translation_package.py <apk>` 必须确认 GGUF 位于 `assets/translation/`、ZIP 未压缩、长度/SHA-256 与清单一致，PLaMo Community License 必须随包保留。
+- 其他模型（当前为 PLaMo 2B）仍只在用户明确操作后下载；真实进度、完整长度/SHA-256、私有 pending 和同目录原子替换必需，失败保留原稿和旧模型。Debug 提供同摘要本地导入；正式模型分发的完整 HTTPS 验收由用户接手，不得记为已通过。默认 Debug/Release APK 约 2.4GB；这是内嵌权重的已知成本，不能描述成小体积安装包。
 - Debug 真 JNI 使用隔离 `imageTest`；构建统一选择项为 `sayin.instrumentationBuildType`。普通 Debug/JVM 构建与 imageTest 仪器化构建分别执行。Release 页面验证使用显式 `sayinVerification=true` 的独立包及外部 Kotlin 驱动，不扩大产品 R8 keep，不替换日常包；设备脚本共用命名互斥、真实测试串行执行。K40 证据不代表 K90 Pro Max 或真实麦克风→翻译→Wi-Fi 落字验收。
 
 

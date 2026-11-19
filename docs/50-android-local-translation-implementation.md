@@ -10,7 +10,7 @@
 - 独立工作目录：`D:/100_Projects/110_Daily/.zcf/VoiceInput/local-translation`。不修改 `paired-host-discovery` worktree，不在主线覆盖文件。
 - 翻译新增 `android/translation`（原生引擎）、`android/translation-benchmark`（独立验证应用）、制品清单、准备与验证脚本。产品接入修改 `SpeakSession`、`SpeakPage`、`SpeakingDraftStore`、ViewModel 的发送入口、应用依赖及双语资源。保持 `HostDiscovery`、`HostClient`、`LanNetwork`、Repository、电脑协议与接收核心不变。
 - 会与其他开发交叉的文件是 Gradle 配置、ViewModel、双语资源及测试入口；后续合并按符号/资源名审阅，不能整文件回拷到另一个 worktree。
-- 被忽略材料不随 worktree 创建：只复制 `android/local.properties`；ASR 通过只读使用的本地 junction 引用原准备目录。翻译源码由完整树摘要校验后解包到本 worktree，模型只按显式本机路径读取，尚未打进产品 APK。
+- 被忽略材料不随 worktree 创建：只复制 `android/local.properties`；ASR 通过只读使用的本地 junction 引用原准备目录。翻译源码由完整树摘要校验后解包到本 worktree，模型只按显式本机路径读取；该独立阶段尚未打进产品 APK，当前内嵌实现见文末“2026-11-19 内嵌默认翻译模型”。
 - 当前 app JVM 基线 45 项、0 失败；`:app:testDebugUnitTest :app:assembleDebug` 成功。Gradle 9.7.0 的 Launcher JVM 实测 Temurin `25.0.5+8-LTS`，Daemon 约束 Java 25/Temurin，字节码目标仍为 17。
 
 ## 固定材料
@@ -27,7 +27,7 @@
 
 NDK 固定 `29.0.14206865`，CMake 固定本机已安装的 `3.22.1`；独立分支起步时为 minSdk 26，合入当前主线时统一为 **29**，保留 arm64-v8a 和根包 `seeyuer.sayin`。未照搬示例包名、minSdk 33、KleidiAI/OpenMP 开关、全局模型指针或主线程 `runBlocking` 释放方式。CPU 基线关闭 GPU、KleidiAI、OpenMP 及运行时后端下载，不创建 HTTP 服务。
 
-取得的官方许可全文见 `docs/licenses/translation/`：llama.cpp 为 MIT；该固定 Hy-MT2 GGUF 明确为 Apache-2.0；PLaMo 为独立 Community License，有商业条件，不能笼统将全部模型标为 MIT。选定模型、llama.cpp、CPU 贡献者及 NDK 运行时通知已随生成的 Android assets 保留；PLaMo 只评估不交付。完整应用既有依赖仍有各自许可，不能据此宣称整个分发物均为 MIT。
+取得的官方许可全文见 `docs/licenses/translation/`：llama.cpp 为 MIT；该固定 Hy-MT2 GGUF 明确为 Apache-2.0；PLaMo 为独立 Community License，有商业条件，不能笼统将全部模型标为 MIT。选定模型、llama.cpp、CPU 贡献者及 NDK 运行时通知已随生成的 Android assets 保留；PLaMo 0.8B 自 2026-11-19 起随包交付，其 Community License 全文必须进入 APK；PLaMo 2B 仍只评估不交付。完整应用既有依赖仍有各自许可，不能据此宣称整个分发物均为 MIT。
 
 ## 独立可执行验证
 
@@ -99,9 +99,9 @@ p95/p99 使用最近秩；n=4 太少，只作探索性统计，不是尾延迟 S
 
 ## 准备与分发
 
-开发验证先用用户提供的本机文件，三个权重逐一测试完成后才选型/集成。现有 APK 已携带 X-ASR 大权重，最终 Debug 约670 MB、Release约655 MB；再内嵌1.13GB会明显增加安装、复制和更新成本。因此当前产品实现用户明确点击后的单模型下载准备，APK不打包任何GGUF，普通用户不选模型/量化/线程。
+开发验证先用用户提供的本机文件，三个权重逐一测试完成后才选型/集成。原阶段 APK 已携带 X-ASR 大权重，最终 Debug 约670 MB、Release约655 MB；当时为避免再增加1.13GB安装成本，产品采用用户明确点击后的单模型下载，APK不打包 GGUF。该决定已按用户 2026-11-19 的要求改变：默认 Hy-MT2-1.8B Q4_K_M 现在内嵌于 APK，见文末“内嵌默认翻译模型”。
 
-固定 Hy revision HTTPS下载仅接收公开权重，不接受草稿或prompt；不自动重试、回退云端、探测资源或切模型。私有 `.pending` 写入，真实字节进度和 SHA-256 校验、fsync后同目录原子rename；错误/取消保留原稿及旧可用模型，临时文件清理。准备需要至少模型大小+16MiB额外可用空间，页面说明约1.15GB。Debug另提供SAF导入同摘要本地文件，Release不提供开发文件入口。每次重新加载完整SHA校验，常驻同一权重复用但请求上下文独立。
+固定 Hy revision HTTPS下载仅接收公开权重，不接受草稿或prompt；不自动重试、回退云端、探测资源或切模型。私有 `.pending` 写入，真实字节进度和 SHA-256 校验、fsync后同目录原子rename；错误/取消保留原稿及旧可用模型，临时文件清理。准备需要至少模型大小+16MiB额外可用空间，页面说明约1.15GB。Debug另提供SAF导入同摘要本地文件，Release不提供开发文件入口。每次重新加载完整SHA校验，常驻同一权重复用但请求上下文独立。这些下载路径继续用于非内置模型（PLaMo 0.8B/2B 或未来模型），默认内置模型不再要求下载。
 
 这确定了可执行交付路径，不代表应用商店/AAB大资源渠道已验收。国内网络可达性、真实整包下载结果和分发许可审阅边界须以实际测试项为准；完整第三方通知在生成的 `assets/licenses/translation` 内，来源清单固定。
 
@@ -145,6 +145,8 @@ Debug首轮真实JNI和5项session/UI测试6/6通过（203.387秒），但发现
 | 现有发送通信 | 只有用户选定正文进入Outbox | 冻结实际选定表示，不上传额外原文/模型信息，不改电脑协议 |
 
 ## 下载验收交接
+
+> 本节记录内嵌之前的下载路径。默认 Hy-MT2 与 PLaMo 0.8B 现已内置；下载只继续用于未内置的 PLaMo 2B，按用户要求本轮未再测试下载。
 
 实际固定revision HTTPS测试已收到真实数据，但网络很慢；用户明确表示完整下载由其测试，因此停止仅本轮隔离 instrumentation（脚本如实退出失败，没有记为下载通过）。中止时收到 28,660,657 bytes / 1,133,080,448 bytes；删除本次 `.pending`，重新SHA-256确认旧模型仍为固定摘要。未停止/清理日常 `seeyuer.sayin`。证据 `download-handoff.json`；本地文件准备、完整性/原子性及真实推理已通过，整包HTTPS下载与完整校验仍待用户执行。
 
@@ -198,7 +200,7 @@ Cargo 命令在 `desktop/` 执行，使用该目录固定的 Rust 1.99.1。Wrapp
 | 优化后 Release 实际页面 | **1/1**；外部 Kotlin 驱动，真实本地翻译、原文/译文切换与 ASR 就绪断言通过 |
 | Rust 全工作区/全目标 | **138** 项通过，0 失败/忽略；Clippy、四包限定格式、工作区/fixture 构建通过 |
 | i18n、Yue 依赖/来源 | 通过；使用主线已更新的来源记录，没有重录外部 Yue 指纹 |
-| Debug/Release 原生打包 | arm64、全部 DT_NEEDED 闭包、六个 JNI 导出、隐藏 llama 符号、16KB ELF/ZIP 对齐、NDK29 libc++ 来源与许可通过；无 GGUF |
+| Debug/Release 原生打包 | arm64、全部 DT_NEEDED 闭包、七个 JNI 导出、隐藏 llama 符号、16KB ELF/ZIP 对齐、NDK29 libc++ 来源与许可通过；默认 GGUF 未压缩内嵌，长度/SHA-256 与清单一致（2026-11-19 起） |
 
 新增 UI 联动检查在实际“更多→选图”回调后等待后台释放，确认完整译文和中文仍在、推理任务仍只有一次、未触发文字发送。完整常规套件仍验证三种输入、草稿恢复、取消、手动发送、接收范围/收据恢复、图片数据与界面；常规套件不包含付费云、发现、平台权限和性能专用类，也排除显式 opt-in 的真 JNI 类。
 
@@ -216,3 +218,38 @@ Cargo 命令在 `desktop/` 执行，使用该目录固定的 Rust 1.99.1。Wrapp
 设备仍仅 Redmi K40 / M2012K11AC / API33。Debug 同一合成句首 token **1496ms**、完整 **2392ms**，私有模型导入准备 1467ms；含真实 ASR 的全进程峰 RSS 为 **2,324,984KiB**，不是单独模型内存。Release 页面点击到完成 **4130ms**，含校验/加载/调度，不与纯推理时间混算。新的原始报告为 `main-integration-debug-native.json`、`main-integration-release-native.json`，完整命令、日志 SHA-256、失败与修正证据索引见同目录 `main-integration.json`。
 
 本轮没有重新运行 API29/API37 或 x86_64 模拟器；文档 49 的主线平台记录不能充当新增翻译 JNI 在这些设备上的实跑证据。K90、完整 HTTPS 下载、真实麦克风→翻译→Wi-Fi 落字、热降频/功耗和硬件加速边界仍按前文如实保留；没有恢复用户已接手的 1.13GB 网络下载。
+
+## 2026-11-19 内嵌默认翻译模型
+
+用户指出“手机端已实现本地模型翻译，但构建的安装包没有内嵌翻译模型”。根因不在推理代码，而在交付链路：构建只复制模型清单和许可，`TranslationModelStore.prepared` 只检查私有目录文件，因此新安装必然先进入下载准备。修复同时覆盖四个边界：构建期校验并打包、运行时直接读取 APK asset、会话/设置状态、APK 验收。用户随后明确要求 `plamo-3-translate-0.8b-Q4_K_M.gguf` 也内置，因此当前内置 Hy-MT2-1.8B 与 PLaMo 0.8B 两个模型；PLaMo 2B 仍按需下载。
+
+### 实现
+
+- `android/translation-artifacts.json` 的 Hy-MT2-1.8B 与 PLaMo 0.8B 条目为 `bundled: true`；PLaMo 2B 保持 `false`。
+- `app/build.gradle.kts` 新增 `bundleTranslationModels`：读取清单，仅处理 `bundled: true` 的模型，从被忽略的 `assets/translation-model/` 读取，逐个校验固定 `bytes` 与 SHA-256 后复制到生成 assets 的 `translation/`。模型文件缺失、长度或摘要不一致都会使构建失败。`androidResources.noCompress += "gguf"` 保证 asset 在 APK 中未压缩且可 `openFd`。
+- `TranslationModelStore` 增加 `bundled`、`ready`、`openBundled()`；`ready` 表示私有文件已完整或 APK 内置模型可用。`SpeakSession` 优先使用已存在的私有文件（保留旧下载），否则把内置模型交给 `BundledTranslator`。设置页对任一内置模型显示“随应用内置”，隐藏下载/删除；未内置的 PLaMo 2B 仍可下载。
+- `SerialTranslator` 新增 `translate(AssetFileDescriptor, ...)`：先 `dup` 并 detach fd，再在后台所有者线程把 fd 交给 JNI；取消、排队拒绝、已加载复用和异常路径都关闭未被 native 接管的 fd。
+- JNI 新增 `loadFd`：`fdopen` 后定位到 asset 数据起点，调用 `llama_model_load_from_file_ptr`，并显式使用 `LLAMA_LOAD_MODE_NONE`。不使用 mmap 的原因：APK 同时含 X-ASR 权重和其他资源，`FILE*` 的 mmap 路径会映射/预取整个 APK，且 tensor 对齐受 ZIP 布局影响；直接读 fd 避免复制第二份权重。内嵌权重完整性由 APK 签名与构建期固定 SHA-256 共同保证，首次使用不重复做整文件哈希。
+- `check_translation_package.py` 现在要求 APK 中存在清单标记的全部 GGUF，确认 ZIP 未压缩、长度/SHA-256 一致、PLaMo Community License 随包保留，并核验新增的 `loadFd` JNI 导出。
+
+### 实际验证
+
+| 项目 | 结果 |
+| --- | --- |
+| `:app:assembleDebug` | 成功；APK **2,408,395,317 bytes**，内含 Hy-MT2-1.8B 与 PLaMo 0.8B 两个 GGUF |
+| `:app:assembleRelease` | 成功；APK **2,363,527,548 bytes** |
+| `check_translation_package.py` Debug/Release | 均通过；两个 GGUF 均未压缩、长度/SHA-256 与清单一致，PLaMo 许可存在，`loadFd` 等七个 JNI 导出存在 |
+| 日常 Debug 真机安装 | Redmi K40 `dc39c31d` 覆盖安装成功；UIAutomator 实际读取设置页：四个模型均出现，Hy 与 PLaMo 0.8B 状态为“随应用内置”，下载/删除按钮不存在；实际切换并选中 PLaMo 0.8B 成功 |
+| `TranslationNativeInstrumentedTest` | 隔离 imageTest 上 `-e localTranslation true` **1/1 通过**（10.786 秒）；两个内置模型都从 `bundled uncompressed APK asset` 完成真实翻译：Hy 首 token **1616ms** / 完整 **2596ms**，PLaMo 0.8B 首 token **793ms** / 完整 **2006ms**；含真实 ASR 权重同驻的 `VmHWM` **2,607,704KiB** |
+| `TranslationSessionInstrumentedTest` + `TranslationUiInstrumentedTest` | **11/11 通过**（5.05 秒），覆盖两模型切换、取消/截断、草稿与请求身份、手动发送及完整页/快捷卡共享 |
+| `MobileShellInstrumentedTest` | **24/24 通过**，包含“设置页显示内置状态且无下载按钮”的实际 Compose 断言 |
+| JVM / Lint / i18n | 应用 **117** + 翻译 **1** = **118** 项通过；`:app:lintDebug`、`python scripts/check_i18n.py` 通过 |
+| 证据位置 | `android/local-translation/results/dc39c31d-product-debug-bundled/product-native-report.json` |
+
+### 已知成本与未覆盖边界
+
+- APK 从约 0.7GB 增至约 **2.4GB**；安装、覆盖更新、备份和分发成本同步增加。2.4GB Debug/镜像包已在 K40 普通 `adb install` 成功，但不证明应用商店/AAB asset pack 渠道可用。
+- 直接读取使用非 mmap 路径，模型权重进入匿名内存。K40 上含真实 ASR 的峰值约 2.49GiB；实测按顺序加载两个模型，一次只保留一个模型。6GB 物理内存设备、K90 Pro Max、长期热降频/功耗未实测。若后续在这些设备出现内存压力，需用实测决定是否改为首次复制到私有文件后 mmap，而不是凭猜测增加缓存。
+- 构建现在要求本机存在 `assets/translation-model/Hy-MT2-1.8B-Q4_K_M.gguf` 与 `assets/translation-model/plamo-3-translate-0.8b-Q4_K_M.gguf`（被 `.gitignore` 忽略）。这是内嵌交付的必要输入；缺失时构建失败，而不是静默退回下载。
+- 按用户要求，本轮不测试“下载模型”路径。PLaMo 2B 的下载/完整 HTTPS 验收仍未执行；其代码路径未改。
+- Release APK 的内嵌 asset、JNI、R8 构建和包检查已通过；本轮未在 Release 真机上重跑完整页面。

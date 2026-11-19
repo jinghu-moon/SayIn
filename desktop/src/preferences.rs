@@ -3,11 +3,16 @@ use crate::localization::{Catalogs, LanguagePreference, Locale, Message, system_
 use atomic_write_file::AtomicWriteFile;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
-use yue_component::gpui_kit::{AppContext as _, Context, Task};
+use voicelink_receiver::windows_image_delivery::{
+    ImageDeliveryMode, ImageDeliverySettings, SharedImageDeliverySettings, is_executable_path,
+    same_executable,
+};
+use yue_component::gpui_kit::{AppContext as _, Context, PathPromptOptions, Task};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -64,6 +69,10 @@ pub struct Preferences {
     appearance: AppearancePreference,
     #[serde(default)]
     close_behavior: CloseBehavior,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    image_directory: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    image_applications: BTreeMap<String, ImageDeliveryMode>,
 }
 
 impl Default for Preferences {
@@ -73,6 +82,8 @@ impl Default for Preferences {
             language: LanguagePreference::System,
             appearance: AppearancePreference::System,
             close_behavior: CloseBehavior::Ask,
+            image_directory: None,
+            image_applications: BTreeMap::new(),
         }
     }
 }
@@ -168,6 +179,10 @@ pub struct PreferencesState {
     preferred_languages: Vec<String>,
     issue: Option<StorageIssue>,
     task: Option<Task<()>>,
+    default_image_directory: Option<PathBuf>,
+    image_delivery: SharedImageDeliverySettings,
+    image_picker: Option<Task<()>>,
+    image_picker_issue: Option<Message>,
 }
 
 impl PreferencesState {
@@ -180,14 +195,22 @@ impl PreferencesState {
                 (Preferences::default(), Some(StorageIssue::Read))
             }
         };
-        Self {
+        let default_image_directory = directories::UserDirs::new()
+            .and_then(|dirs| dirs.download_dir().map(|path| path.join("SayIn")));
+        let mut state = Self {
             value,
             file,
             catalogs: Catalogs::default(),
             preferred_languages: system_languages(),
             issue,
             task: None,
-        }
+            default_image_directory,
+            image_delivery: Default::default(),
+            image_picker: None,
+            image_picker_issue: None,
+        };
+        state.sync_image_delivery();
+        state
     }
 
     pub fn value(&self) -> &Preferences {
@@ -201,6 +224,124 @@ impl PreferencesState {
     }
     pub fn is_editable(&self) -> bool {
         self.issue != Some(StorageIssue::Read)
+    }
+
+    pub fn image_directory(&self) -> Option<&Path> {
+        if !self.is_editable() {
+            return None;
+        }
+        self.value
+            .image_directory
+            .as_deref()
+            .or(self.default_image_directory.as_deref())
+    }
+
+    pub fn shared_image_delivery(&self) -> SharedImageDeliverySettings {
+        self.image_delivery.clone()
+    }
+
+    fn sync_image_delivery(&mut self) {
+        let settings = ImageDeliverySettings::new(
+            self.image_directory().map(Path::to_path_buf),
+            self.value.image_applications.clone(),
+        );
+        *self
+            .image_delivery
+            .write()
+            .expect("image delivery snapshot") = settings;
+    }
+
+    pub fn image_applications(&self) -> &BTreeMap<String, ImageDeliveryMode> {
+        &self.value.image_applications
+    }
+
+    pub fn image_picker_busy(&self) -> bool {
+        self.image_picker.is_some()
+    }
+
+    pub fn image_picker_issue(&self) -> Option<Message> {
+        self.image_picker_issue
+    }
+
+    pub fn set_image_application(
+        &mut self,
+        executable: &str,
+        mode: Option<ImageDeliveryMode>,
+        cx: &mut Context<Self>,
+    ) {
+        if !is_executable_path(Path::new(executable)) {
+            return;
+        }
+        let mut next = self.value.clone();
+        let key = next
+            .image_applications
+            .keys()
+            .find(|key| same_executable(key, executable))
+            .cloned();
+        if let Some(mode) = mode {
+            next.image_applications
+                .insert(key.unwrap_or_else(|| executable.to_owned()), mode);
+        } else if let Some(key) = key {
+            next.image_applications.remove(&key);
+        }
+        self.save(next, cx);
+    }
+
+    pub fn pick_image_path(&mut self, mode: Option<ImageDeliveryMode>, cx: &mut Context<Self>) {
+        if !self.is_editable() || self.image_picker_busy() {
+            return;
+        }
+        self.image_picker_issue = None;
+        let application = mode.is_some();
+        let selecting = cx.prompt_for_paths(PathPromptOptions {
+            files: application,
+            directories: !application,
+            multiple: false,
+            prompt: Some(
+                self.text(if application {
+                    Message::ImageChooseApplication
+                } else {
+                    Message::ImageDirectory
+                })
+                .into(),
+            ),
+        });
+        self.image_picker = Some(cx.spawn(async move |owner, cx| {
+            let result = selecting.await;
+            let _ = owner.update(cx, |this, cx| {
+                this.image_picker = None;
+                match result {
+                    Ok(Ok(Some(mut paths))) if paths.len() == 1 && paths[0].is_absolute() => {
+                        let path = paths.pop().expect("one selected path");
+                        if let Some(mode) = mode {
+                            if is_executable_path(&path) {
+                                this.set_image_application(
+                                    path.to_str().expect("validated executable"),
+                                    Some(mode),
+                                    cx,
+                                );
+                            } else {
+                                this.image_picker_issue = Some(Message::ImageChooseExecutable);
+                            }
+                        } else {
+                            let mut next = this.value.clone();
+                            next.image_directory = Some(path);
+                            this.save(next, cx);
+                        }
+                    }
+                    Ok(Ok(None)) => {}
+                    _ => {
+                        this.image_picker_issue = Some(if application {
+                            Message::ImageApplicationSelectionFailed
+                        } else {
+                            Message::ImageDirectorySelectionFailed
+                        })
+                    }
+                }
+                cx.notify();
+            });
+        }));
+        cx.notify();
     }
     pub fn locale(&self) -> Locale {
         self.value.language.resolve(&self.preferred_languages)
@@ -239,6 +380,7 @@ impl PreferencesState {
         }
         self.value = next;
         self.issue = None;
+        self.sync_image_delivery();
         if !self.is_saving() {
             self.start_write(cx);
         }
@@ -293,6 +435,7 @@ impl PreferencesState {
                     Ok(value) => {
                         this.value = value;
                         this.issue = None;
+                        this.sync_image_delivery();
                     }
                     Err(error) => {
                         eprintln!("Reload preferences: {error}");
@@ -350,6 +493,62 @@ mod tests {
         file.save(&replacement).unwrap();
         assert_eq!(file.load().unwrap(), replacement);
         assert_eq!(fs::read_dir(&directory.0).unwrap().count(), 1);
+    }
+
+    #[gpui_kit::test]
+    fn folder_picker_updates_the_receiver_and_persists_the_selection(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let directory = Directory::new();
+        let file = PreferencesFile::in_directory(&directory.0);
+        let state = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
+        let selected = directory.0.join("接收 图片");
+        let snapshot = state.read_with(cx, |state, _| state.shared_image_delivery());
+
+        state.update(cx, |state, cx| state.pick_image_path(None, cx));
+        cx.simulate_path_prompt_response(|options| {
+            assert!(options.directories && !options.files && !options.multiple);
+            Some(vec![selected.clone()])
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            snapshot.read().unwrap().directory(),
+            Some(selected.as_path())
+        );
+        assert_eq!(file.load().unwrap().image_directory, Some(selected));
+    }
+
+    #[gpui_kit::test]
+    fn app_picker_persists_updates_and_reset_by_executable(cx: &mut gpui_kit::TestAppContext) {
+        use ImageDeliveryMode::{CopyPath, PasteImage};
+        let directory = Directory::new();
+        let file = PreferencesFile::in_directory(&directory.0);
+        let state = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
+        let rule = r"C:\Tools\Editor.exe";
+        let snapshot = state.read_with(cx, |state, _| state.shared_image_delivery());
+
+        state.update(cx, |state, cx| state.pick_image_path(Some(CopyPath), cx));
+        cx.simulate_path_prompt_response(|options| {
+            assert!(options.files && !options.directories && !options.multiple);
+            Some(vec![PathBuf::from(rule)])
+        });
+        cx.run_until_parked();
+        assert_eq!(snapshot.read().unwrap().mode_for(rule), CopyPath);
+        assert_eq!(file.load().unwrap().image_applications[rule], CopyPath);
+
+        let alias = r"c:\TOOLS\editor.EXE";
+        state.update(cx, |state, cx| {
+            state.set_image_application(alias, Some(PasteImage), cx)
+        });
+        cx.run_until_parked();
+        assert_eq!(
+            file.load().unwrap().image_applications,
+            BTreeMap::from([(rule.to_owned(), PasteImage)])
+        );
+        state.update(cx, |state, cx| state.set_image_application(alias, None, cx));
+        cx.run_until_parked();
+        assert!(file.load().unwrap().image_applications.is_empty());
+        assert_eq!(snapshot.read().unwrap().mode_for(rule), PasteImage);
     }
 
     #[test]

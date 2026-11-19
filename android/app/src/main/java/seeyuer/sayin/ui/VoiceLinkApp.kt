@@ -50,8 +50,8 @@ import top.yukonga.miuix.kmp.basic.TextField
 
 @Composable
 fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDismiss: () -> Unit = {},
-    openSettings: Boolean = false, entryVersion: Int = 0,
-    sharedImage: android.net.Uri? = null, shareVersion: Int = 0,
+    openSettings: Boolean = false, entryVersion: Int = 0, autoRecordVersion: Int = 0,
+    sharedImage: android.net.Uri? = null, sharedText: String? = null, shareVersion: Int = 0,
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as seeyuer.sayin.SayInApplication
@@ -114,9 +114,12 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         onSend = model::send,
         cloudSettings = application.cloudSettings,
         quick = quick, onExpand = onExpand, onDismiss = onDismiss, openSettings = openSettings, entryVersion = entryVersion,
-        sharedImage = sharedImage, shareVersion = shareVersion,
+        autoRecordVersion = autoRecordVersion,
+        sharedImage = sharedImage, sharedText = sharedText, shareVersion = shareVersion,
         onReconnect = { withNetwork(repository::connect) },
         onHistoryAction = repository::action,
+        onHideHistory = repository::hideHistory,
+        onCleanupHistory = repository::cleanupHistory,
         loadHistoryImage = repository::historyImage,
         loadDraftImage = repository::draftImage,
         onSelectImage = repository::selectImage,
@@ -208,6 +211,13 @@ internal fun receiptText(value: String): Int = when (value) {
     else -> R.string.receipt_saved
 }
 
+internal fun imageDeliveryFailure(reason: String?): Int? = when (reason) {
+    "image_export_failed" -> R.string.image_export_failed
+    "image_saved_path_unavailable" -> R.string.image_saved_path_unavailable
+    "image_saved_paste_unavailable" -> R.string.image_saved_paste_unavailable
+    else -> null
+}
+
 internal fun receiptHelp(state: String): Int? = when (state) {
     "accepted" -> R.string.receipt_accepted_help
     "expired" -> R.string.receipt_expired_help
@@ -221,6 +231,7 @@ internal fun receiptCause(reason: String?): Int? = when (reason) {
         "elevated_target" -> R.string.receipt_elevated_target
         "modifier_held" -> R.string.receipt_modifier_held
         "session_unavailable" -> R.string.receipt_session_unavailable
+        "automatic_target_changed" -> R.string.receipt_automatic_target_changed
         else -> null
 }
 

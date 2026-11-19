@@ -19,7 +19,7 @@ internal interface StreamingDecoder : Closeable {
 }
 
 internal interface PcmSource : Closeable {
-    /** Null means the user requested a normal stop; errors must throw. */
+    /** Null means a normal stop was requested; errors must throw. */
     fun read(): FloatArray?
     fun requestStop()
 }

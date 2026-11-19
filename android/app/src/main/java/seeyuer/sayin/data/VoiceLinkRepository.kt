@@ -42,6 +42,7 @@ internal data class ClientState(
     val pauseReason: String? = null,
     val target: String? = null,
     val foregroundApplication: ForegroundApplication? = null,
+    val autoTextSupported: Boolean = false,
     val active: Boolean = false,
     val revision: String? = null,
     val issue: ClientIssue? = null,
@@ -179,8 +180,11 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class ForegroundExpired(val generation: Long, val observed: Long) : Event
         data class Tick(val generation: Long) : Event
         data class Timeout(val generation: Long) : Event
-        data class Send(val text: String, val draftId: String, val expectedScope: ReceptionScope?) : Event
+        data class Send(val text: String, val draftId: String, val expectedScope: ReceptionScope?, val destination: AutoSendDestination?) : Event
         data class Action(val id: String, val action: String) : Event
+        data class Control(val name: String) : Event
+        data class HideHistory(val ids: List<String>) : Event
+        data class CleanupHistory(val before: Long) : Event
         data object CancelPairing : Event
         data object Forget : Event
         data class Image(val value: ImageEvent) : Event
@@ -197,13 +201,19 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     fun connect() = enqueue(Event.Connect)
     fun pairQr(value: String) = enqueue(Event.PairQr(value))
     fun pairCode(address: String, port: String, code: String) = enqueue(Event.PairCode(address, port, code))
-    fun send(text: String, draftId: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) =
-        enqueue(Event.Send(text, draftId, expectedScope))
+    fun send(text: String, draftId: String, expectedScope: ReceptionScope? = mutable.value.receptionScope, destination: AutoSendDestination? = null) =
+        enqueue(Event.Send(text, draftId, expectedScope, destination))
     fun selectImage(uri: Uri) = enqueue(Event.Image(ImageEvent.Select(uri)))
     fun sendImage(resource: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) = enqueue(Event.Image(ImageEvent.Send(resource, expectedScope)))
     fun cancelImage() = enqueue(Event.Image(ImageEvent.Cancel))
     fun clearImage() = enqueue(Event.Image(ImageEvent.Clear))
     fun action(id: String, action: String) = enqueue(Event.Action(id, action))
+    /** Presentation-only bulk hide. The transaction ledger and pending requests are untouched. */
+    fun hideHistory(ids: List<String>) = enqueue(Event.HideHistory(ids))
+    /** Presentation-only cleanup older than [before]. Receipts and request identity are untouched. */
+    fun cleanupHistory(before: Long) = enqueue(Event.CleanupHistory(before))
+    fun pauseReception() = enqueue(Event.Control("pause"))
+    fun resumeReception() = enqueue(Event.Control("resume"))
     fun updateAddress(address: String, port: String) = enqueue(Event.UpdateAddress(address, port))
     fun cancelPairing() = enqueue(Event.CancelPairing)
     fun forget() = enqueue(Event.Forget)
@@ -312,6 +322,12 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             }
             is Event.Send -> saveAndSend(event)
             is Event.Action -> historyAction(event.id, event.action)
+            is Event.Control -> control(event.name)
+            is Event.HideHistory -> {
+                val ids = event.ids.mapNotNull { runCatching { validId(it) }.getOrNull() }.distinct().take(100)
+                if (ids.isNotEmpty()) dao.hideAll(ids)
+            }
+            is Event.CleanupHistory -> dao.hideBefore(event.before)
             Event.CancelPairing -> disconnect()
             Event.Forget -> {
                 // Outstanding rows remain host-scoped. Forgetting cannot reassign them.
@@ -411,7 +427,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         reconnectJob?.cancel(); reconnectJob = null
         socket?.cancel(); socket = null
         client?.close(); client = null
-        mutable.update { it.copy(connection = Connection.OFFLINE, discovering = false, connectionEpoch = generation, paused = true, active = false, target = null, foregroundApplication = null, revision = null, recovering = false) }
+        mutable.update { it.copy(connection = Connection.OFFLINE, discovering = false, connectionEpoch = generation, paused = true, active = false, target = null, foregroundApplication = null, autoTextSupported = false, revision = null, recovering = false) }
     }
     private fun fail(issue: ClientIssue) {
         val candidateFailed = discoveredRound && connectingHost != null && session == null
@@ -463,6 +479,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 val sessionId = validId(value.getString("session_id"))
                 session = sessionId
                 imageInput?.welcome(value)
+                val capabilities = value.getJSONArray("capabilities")
+                val autoTextSupported = (0 until capabilities.length()).any { capabilities.getString(it) == "auto_text" }
                 applyState(value) // Validate the entire authenticated welcome before persisting routing.
                 // Full pinned TLS + authenticated host/device welcome precede route commit.
                 val authenticated = checkNotNull(connectingHost)
@@ -476,7 +494,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 deadline?.cancel(); deadline = null
                 val saved = checkNotNull(host)
                 val pending = dao.pending(saved.hostId, saved.deviceId)
-                mutable.update { it.copy(connection = Connection.ONLINE, address = saved.address, port = saved.port, issue = null, recovering = pending.isNotEmpty()) }
+                mutable.update { it.copy(connection = Connection.ONLINE, address = saved.address, port = saved.port, issue = null,
+                    recovering = pending.isNotEmpty(), autoTextSupported = autoTextSupported) }
                 if (pending.isNotEmpty()) {
                     val id = UUID.randomUUID().toString()
                     queries[id] = pending.map { it.id }.toSet()
@@ -502,6 +521,11 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         // Keep payload/id intact; query on reconnect before any retry.
                         mutable.update { it.copy(issue = ClientIssue.PROTOCOL) }
                         imageInput?.interrupt()
+                        val rejected = (value.opt("ref") as? String)?.let { runCatching { validId(it) }.getOrNull() }
+                        if (rejected != null && value.optString("code") == "INVALID_SUBMIT") {
+                            val saved = checkNotNull(host)
+                            if (dao.find(rejected, saved.hostId, saved.deviceId)?.state == "saved") queryReceipt(rejected)
+                        }
                     }
                     else -> error("Unexpected message")
                 }
@@ -565,8 +589,14 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         }
         // Terminal rows are immutable locally; a stale response cannot resurrect text.
         if (item.payload != null) {
-            try { dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
-                value.optString("reason").takeIf { it.isNotEmpty() }, terminal); val garbage = dao.trimTerminal(); imageInput?.cleanup(garbage) }
+            val method = value.optString("method").takeIf {
+                status == "injected" && item.kind == "image" && it == IMAGE_PATH_COPY_METHOD
+            }
+            try {
+                dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
+                    value.optString("reason").takeIf { it.isNotEmpty() }, terminal, method)
+                imageInput?.cleanup(dao.trimTerminal())
+            }
             catch (_: Exception) { storageFailed(); return }
         }
         if (status != "unknown" && item.kind == "image") imageInput?.status(item)
@@ -574,7 +604,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     }
     private suspend fun saveAndSend(event: Event.Send) {
         if (event.draftId == lastDraftId) return
-        if (event.expectedScope == null || mutable.value.receptionScope != event.expectedScope) {
+        if (event.expectedScope == null || mutable.value.receptionScope != event.expectedScope ||
+            event.destination != null && mutable.value.autoSendDestination != event.destination) {
             mutable.update { it.copy(issue = ClientIssue.NOT_READY, rejectedDraft = event.draftId) }; return
         }
         val normalized = try { normalizedText(event.text) } catch (_: Exception) {
@@ -591,7 +622,9 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             return
         }
         val target = checkNotNull(mutable.value.target)
-        val operation = JSONObject().put("kind", "text").put("text", normalized).put("src", "manual")
+        val operation = JSONObject().put("text", normalized)
+        if (event.destination == null) operation.put("kind", "text").put("src", "manual")
+        else operation.put("kind", "auto_text").put("application", event.destination.application)
         val payload = try { store.encrypt(operation.toString().toByteArray()) } catch (_: Exception) { storageFailed(); return }
         val transcript = try { store.encrypt(normalized.toByteArray(Charsets.UTF_8)) } catch (_: Exception) { storageFailed(); return }
         val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis(), transcript)
@@ -605,17 +638,21 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         check(mutable.value.ready && item.target == mutable.value.target && item.hostId == host?.hostId && item.deviceId == host?.deviceId)
         val operation = try { strictJson(store.decrypt(checkNotNull(item.payload)).toString(Charsets.UTF_8)) }
         catch (_: Exception) { storageFailed(); return }
+        if (operation.optString("kind") == "auto_text" && !mutable.value.autoTextSupported) return
         sendFrame(base("submit").put("id", item.id).put("target", item.target).put("op", operation))
+    }
+    private fun queryReceipt(id: String) {
+        if (session == null || mutable.value.connection != Connection.ONLINE || queries.size >= 16 || queries.values.any { id in it }) return
+        val queryId = UUID.randomUUID().toString()
+        queries[queryId] = setOf(id)
+        sendFrame(base("query").put("id", queryId).put("refs", JSONArray(listOf(id))))
     }
     private suspend fun historyAction(id: String, action: String) {
         if (action == "delete") { dao.hide(validId(id)); return }
         val saved = host ?: return
         val item = dao.find(id, saved.hostId, saved.deviceId) ?: return
         if (action == "query") {
-            if (session == null || mutable.value.connection != Connection.ONLINE || queries.size >= 16 || queries.values.any { id in it }) return
-            val queryId = UUID.randomUUID().toString()
-            queries[queryId] = setOf(id)
-            sendFrame(base("query").put("id", queryId).put("refs", JSONArray(listOf(id))))
+            queryReceipt(id)
             return
         }
         if (item.payload == null) return
@@ -630,6 +667,16 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     .put("refs", JSONArray(listOf(id))).put("target", mutable.value.target).put("expected_rev", mutable.value.revision))
             }
         }
+    }
+
+    /** Phone-initiated pause/resume for the active device. No refs are implied or retried. */
+    private fun control(name: String) {
+        if (name != "pause" && name != "resume") return
+        val current = mutable.value
+        if (session == null || current.connection != Connection.ONLINE || !current.active) return
+        if (current.paused == (name == "pause")) return
+        sendFrame(base("control").put("id", UUID.randomUUID().toString()).put("name", name)
+            .put("expected_rev", current.revision))
     }
 
     suspend fun draftImage(resourceId: String, edge: Int): android.graphics.Bitmap? =

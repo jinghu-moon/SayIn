@@ -1,20 +1,23 @@
 package seeyuer.sayin.ui
 
 import seeyuer.sayin.data.normalizedText
-import seeyuer.sayin.data.ReceptionScope
+import seeyuer.sayin.data.AutoSendDestination
 
 internal enum class SpeakInputSource { Local, Cloud, Keyboard; val isRecognition get() = this != Keyboard }
 internal enum class SpeakSendMode { Manual, Automatic }
-internal enum class DraftReview { Manual, Empty, Invalid, Composing, Edited, Offline, Automatic }
+internal enum class AppSendPolicy { Inherit, Automatic, Manual }
+internal enum class DraftReview { Manual, Empty, Invalid, Composing, Edited, TargetUnavailable, TargetChanged, Automatic }
 
 internal data class AutoSendCountdown(
     val text: String,
     val version: Long,
-    val scope: ReceptionScope,
+    val destination: AutoSendDestination,
     val deadlineMillis: Long,
+    /** Total armed window; the send ring shrinks from this span and never from a UI-side constant. */
+    val durationMillis: Long,
 ) {
-    fun matches(text: String, version: Long, composing: Boolean, scope: ReceptionScope?): Boolean =
-        this.text == text && this.version == version && !composing && this.scope == scope
+    fun matches(text: String, version: Long, composing: Boolean, destination: AutoSendDestination?): Boolean =
+        this.text == text && this.version == version && !composing && this.destination == destination
 
     fun secondsRemaining(nowMillis: Long): Int =
         ((deadlineMillis - nowMillis).coerceAtLeast(0) + 999).div(1000).toInt()
@@ -42,32 +45,42 @@ internal data class SpeakInteraction(
         review = if (countdown != null) DraftReview.Manual else review,
     )
 
-    fun finish(text: String, composing: Boolean, mode: SpeakSendMode, scope: ReceptionScope?, nowMillis: Long): SpeakInteraction {
+    fun finish(
+        text: String,
+        composing: Boolean,
+        mode: SpeakSendMode,
+        destination: AutoSendDestination?,
+        nowMillis: Long,
+        delayMillis: Long,
+    ): SpeakInteraction {
         val normalized = runCatching { normalizedText(text) }.getOrNull()
         val reason = when {
             text.isBlank() -> DraftReview.Empty
             normalized == null -> DraftReview.Invalid
-            composing -> DraftReview.Composing
             mode == SpeakSendMode.Manual -> DraftReview.Manual
-            scope == null -> DraftReview.Offline
+            destination == null -> DraftReview.TargetUnavailable
+            composing -> DraftReview.Composing
             else -> DraftReview.Automatic
         }
         return copy(
             review = reason,
             countdown = if (reason == DraftReview.Automatic) {
-                AutoSendCountdown(text, version, checkNotNull(scope), nowMillis + COUNTDOWN_MILLIS)
+                AutoSendCountdown(text, version, checkNotNull(destination), nowMillis + delayMillis, delayMillis)
             } else null,
         )
     }
 
     /** Consuming removes the ticket before the caller invokes transport. */
-    fun consumeDue(text: String, composing: Boolean, scope: ReceptionScope?, nowMillis: Long): SpeakInteraction? {
+    fun consumeDue(text: String, composing: Boolean, destination: AutoSendDestination?, nowMillis: Long): SpeakInteraction? {
         val pending = countdown ?: return null
-        if (!pending.matches(text, version, composing, scope) || nowMillis < pending.deadlineMillis) return null
+        if (!pending.matches(text, version, composing, destination) || nowMillis < pending.deadlineMillis) return null
         return cancelCountdown()
     }
 
     companion object {
-        const val COUNTDOWN_MILLIS = 3000L
+        /** User-selectable auto-send delay in seconds; the default keeps the established three-second window. */
+        const val DEFAULT_DELAY_SECONDS = 3
+        const val MIN_DELAY_SECONDS = 1
+        const val MAX_DELAY_SECONDS = 10
     }
 }

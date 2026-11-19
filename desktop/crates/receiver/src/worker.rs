@@ -173,6 +173,16 @@ impl Receiver {
                         InputOutcome::Failed {
                             reason: "paused_before_input",
                         }
+                    } else if let crate::protocol::Operation::AutoText { application, .. } =
+                        job.operation()
+                        && adapter
+                            .prepared_application()
+                            .and_then(|target| target.display)
+                            .is_none_or(|display| display.name != *application)
+                    {
+                        InputOutcome::Failed {
+                            reason: "automatic_target_changed",
+                        }
                     } else {
                         // A panic cannot prove how many events were inserted.
                         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

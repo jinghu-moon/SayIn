@@ -1,6 +1,5 @@
-//! Opt-in real SendInput verification against this executable's own child EDIT.
-//! No production data, network or user application is used. --image explicitly
-//! replaces the real clipboard and pastes into a disposable child RichEdit.
+//! Opt-in verification with disposable EDIT, RichEdit or Windows Terminal windows.
+//! Image modes replace the system clipboard. No production data or network is used.
 use std::{
     future::Future,
     path::Path,
@@ -14,12 +13,18 @@ use voicelink_receiver::{
     gate::InputGate,
     ledger::{Execution, InputOutcome},
     protocol::{Operation, State, Submit, TextSource},
+    windows_image_delivery::{ImageDeliveryMode, ImageDeliverySettings},
     windows_input::{NativeInput, open_ledger},
     worker::{InputAdapter, Receiver},
 };
 use windows::{
     Win32::{
-        Foundation::{LPARAM, WPARAM},
+        Foundation::{HGLOBAL, LPARAM, WPARAM},
+        System::{
+            DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
+            Memory::{GlobalLock, GlobalSize, GlobalUnlock},
+            Ole::CF_UNICODETEXT,
+        },
         UI::{
             Controls::EM_SETSEL,
             Input::KeyboardAndMouse::{GetFocus, SetFocus},
@@ -321,6 +326,7 @@ struct FixtureInput {
     native: NativeInput,
     hwnd: usize,
     pid: u32,
+    terminal: bool,
 }
 impl FixtureInput {
     fn is_fixture(&self) -> bool {
@@ -339,6 +345,15 @@ impl InputAdapter for FixtureInput {
         }
         let started = Instant::now();
         let result = self.native.preflight(job);
+        if self.terminal
+            && !self.native.prepared_application().is_some_and(|app| {
+                Path::new(&app.executable)
+                    .file_name()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("WindowsTerminal.exe"))
+            })
+        {
+            return Err("fixture_not_windows_terminal");
+        }
         eprintln!(
             "Production native preflight: {} ms",
             started.elapsed().as_millis()
@@ -363,7 +378,10 @@ fn verify(
     child_pid: u32,
     is_image: bool,
     image_path: Option<&Path>,
+    terminal: bool,
+    copy_path_override: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let copy_path = terminal || copy_path_override;
     let deadline = Instant::now() + Duration::from_secs(5);
     while !directory.join("window.json").exists() {
         if Instant::now() >= deadline {
@@ -380,12 +398,29 @@ fn verify(
         &Uuid::new_v4().to_string(),
     )?;
     ledger.attach_images(store.clone())?;
+    let mut rules = std::collections::BTreeMap::new();
+    if copy_path_override {
+        let exe = std::env::current_exe()?;
+        rules.insert(
+            exe.to_str()
+                .ok_or("invalid fixture executable path")?
+                .to_owned(),
+            ImageDeliveryMode::CopyPath,
+        );
+    }
     let receiver = Receiver::start(
         ledger,
         FixtureInput {
-            native: NativeInput::with_images(store.clone()),
+            native: NativeInput::with_images(
+                store.clone(),
+                Arc::new(std::sync::RwLock::new(ImageDeliverySettings::new(
+                    Some(directory.join("exports")),
+                    rules,
+                ))),
+            ),
             hwnd: window["hwnd"].as_u64().unwrap() as usize,
             pid: child_pid,
+            terminal,
         },
     )?;
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -465,6 +500,16 @@ fn verify(
         loop {
             let receipt = wait(receiver.query(session.clone(), operation.id.clone()))?.unwrap();
             if receipt.st == State::Injected {
+                assert_eq!(
+                    receipt.method.as_deref(),
+                    Some(if copy_path {
+                        "clipboard_image_path"
+                    } else if is_image {
+                        "clipboard_image"
+                    } else {
+                        "unicode"
+                    })
+                );
                 break;
             }
             if receipt.st == State::Held || receipt.st.is_terminal() || Instant::now() >= deadline {
@@ -476,7 +521,17 @@ fn verify(
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        while !directory.join("observed.json").exists() {
+        if let Operation::Image { image } = &operation.op {
+            let paths = std::fs::read_dir(directory.join("exports"))?
+                .collect::<std::io::Result<Vec<_>>>()?;
+            assert_eq!(paths.len(), 1);
+            let path = paths[0].path();
+            image.metadata.verify_bytes(&std::fs::read(&path)?)?;
+            if copy_path {
+                assert!(clipboard_has_path(&path)?);
+            }
+        }
+        while !copy_path && !directory.join("observed.json").exists() {
             if Instant::now() >= deadline {
                 return Err(
                     "SendInput returned but EDIT did not contain exact expected text".into(),
@@ -484,12 +539,14 @@ fn verify(
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        let observed: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(directory.join("observed.json"))?)?;
-        if is_image {
-            assert_eq!(observed["pictures"], 1);
-        } else {
-            assert_eq!(observed["text"], format!("{ORIGINAL}{TEXT}"));
+        if !copy_path {
+            let observed: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(directory.join("observed.json"))?)?;
+            if is_image {
+                assert_eq!(observed["pictures"], 1);
+            } else {
+                assert_eq!(observed["text"], format!("{ORIGINAL}{TEXT}"));
+            }
         }
         assert_eq!(
             wait(receiver.submit(session, operation))?.st,
@@ -501,7 +558,15 @@ fn verify(
             history.entries[0].target.as_ref().unwrap().process_id,
             child_pid
         );
-        if is_image {
+        if terminal {
+            println!(
+                "PASS: Windows Terminal target saved original bytes and copied the exact Windows path as Unicode text."
+            );
+        } else if copy_path_override {
+            println!(
+                "PASS: Per-app rule for a non-terminal selected path copy and saved original bytes."
+            );
+        } else if is_image {
             println!(
                 "PASS: production DPAPI/receipt/NativeInput path pasted one image into child RichEdit; no Enter; duplicate did not execute; target PID recorded."
             );
@@ -516,6 +581,83 @@ fn verify(
     result
 }
 
+fn clipboard_has_path(path: &Path) -> windows::core::Result<bool> {
+    use std::os::windows::ffi::OsStrExt as _;
+    let expected = path
+        .as_os_str()
+        .encode_wide()
+        .chain([0])
+        .collect::<Vec<_>>();
+    // The clipboard owns the block. It remains locked only during comparison.
+    unsafe {
+        OpenClipboard(None)?;
+        let result = (|| {
+            let handle = HGLOBAL(GetClipboardData(CF_UNICODETEXT.0 as u32)?.0);
+            if GlobalSize(handle) < expected.len() * size_of::<u16>() {
+                return Ok(false);
+            }
+            let data = GlobalLock(handle).cast::<u16>();
+            if data.is_null() {
+                return Err(windows::core::Error::from_thread());
+            }
+            let matched = std::slice::from_raw_parts(data, expected.len()) == expected;
+            let _ = GlobalUnlock(handle);
+            Ok(matched)
+        })();
+        let _ = CloseClipboard();
+        result
+    }
+}
+
+fn verify_terminal(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let title = format!("SayIn image validation {}", Uuid::new_v4());
+    let status = Command::new("wt.exe")
+        .args([
+            "--window",
+            "new",
+            "new-tab",
+            "--title",
+            &title,
+            "--suppressApplicationTitle",
+            "cmd.exe",
+            "/d",
+        ])
+        .status()?;
+    if !status.success() {
+        return Err("Windows Terminal failed to launch".into());
+    }
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let mut caption = [0u16; 256];
+        // Check the unique test title and pin the native window and process.
+        let (window, pid, length) = unsafe {
+            let window = GetForegroundWindow();
+            let mut pid = 0;
+            GetWindowThreadProcessId(window, Some(&mut pid));
+            (
+                window,
+                pid,
+                GetWindowTextW(window, &mut caption).max(0) as usize,
+            )
+        };
+        if String::from_utf16_lossy(&caption[..length]).contains(&title) {
+            std::fs::write(
+                directory.join("window.json"),
+                serde_json::to_vec(&serde_json::json!({"hwnd": window.0 as usize, "pid": pid}))?,
+            )?;
+            let result = verify(directory, pid, true, None, true, false);
+            unsafe {
+                PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0))?;
+            }
+            return result;
+        }
+        if Instant::now() >= deadline {
+            return Err("disposable Windows Terminal did not become foreground".into());
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = std::env::args().collect::<Vec<_>>();
     if arguments.get(1).is_some_and(|arg| arg == "--edit-target") {
@@ -527,7 +669,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let directory = std::env::temp_dir().join(format!("voicelink-real-edit-{}", Uuid::new_v4()));
     std::fs::create_dir_all(directory.join("ledger"))?;
-    let is_image = arguments.get(1).is_some_and(|arg| arg == "--image");
+    if arguments.get(1).is_some_and(|arg| arg == "--terminal") {
+        let result = verify_terminal(&directory);
+        std::fs::remove_dir_all(&directory)?;
+        return result;
+    }
+    let copy_path_override = arguments.get(1).is_some_and(|arg| arg == "--copy-path");
+    let is_image = copy_path_override || arguments.get(1).is_some_and(|arg| arg == "--image");
     let mut child = Command::new(std::env::current_exe()?)
         .arg("--edit-target")
         .arg(&directory)
@@ -537,14 +685,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .windows(2)
         .find(|args| args[0] == "--image-path")
         .map(|args| Path::new(&args[1]));
-    let result = verify(&directory, child.id(), is_image, image_path);
+    let result = verify(
+        &directory,
+        child.id(),
+        is_image,
+        image_path,
+        false,
+        copy_path_override,
+    );
     std::fs::write(directory.join("stop"), b"")?;
     let child_status = child.wait()?;
     let final_content = std::fs::read(directory.join("final.json"));
     std::fs::remove_dir_all(&directory)?;
     result?;
     let final_content: serde_json::Value = serde_json::from_slice(&final_content?)?;
-    if is_image {
+    if copy_path_override {
+        assert_eq!(final_content["pictures"], 0);
+    } else if is_image {
         assert_eq!(final_content["pictures"], 1);
         assert_eq!(final_content["length"], ORIGINAL.len() + 1);
     } else {

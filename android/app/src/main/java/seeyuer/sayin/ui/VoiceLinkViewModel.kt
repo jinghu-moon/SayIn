@@ -10,9 +10,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
+import seeyuer.sayin.data.AutoSendDestination
 import seeyuer.sayin.data.SpeakingDraftStore
 import seeyuer.sayin.quick.RecordingService
 import seeyuer.sayin.data.VoiceLinkRepository
+import seeyuer.sayin.data.autoSendDestination
 import seeyuer.sayin.data.receptionScope
 
 internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(application) {
@@ -52,8 +54,11 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
     private fun refreshConnection() {
         repository.foreground(foregroundOwners.isNotEmpty() || speaking.recognition.state.value.busy)
     }
-    fun send() {
-        if (speaking.markSubmitted()) repository.send(checkNotNull(speaking.submitted).value.text, checkNotNull(speaking.submitted).id, speaking.receiver.receptionScope)
+    fun send(destination: AutoSendDestination? = null) {
+        if (destination != null && destination != repository.state.value.autoSendDestination) return
+        if (!speaking.markSubmitted()) return
+        val draft = checkNotNull(speaking.submitted)
+        repository.send(draft.value.text, draft.id, destination?.scope ?: speaking.receiver.receptionScope, destination)
     }
     override fun onCleared() { speaking.close(); repository.close() }
 }

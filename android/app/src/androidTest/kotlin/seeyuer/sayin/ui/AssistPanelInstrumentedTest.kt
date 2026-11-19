@@ -753,16 +753,15 @@ class AssistPanelInstrumentedTest {
         compose.runOnIdle { assertEquals("changed elsewhere", session.draft.text) }
     }
 
-    @Test fun fallbackMenuItemOpensPanelWhenToolsAreHidden() {
+    @Test fun fallbackActionOpensPanelWhenToolsAreHidden() {
         // Double text size pushes the page into the minimal layout where the secondary tool row is
-        // gone, so only the overflow fallback can reach the panel.
+        // gone, so the draft header keeps a dedicated fallback.
         layoutHeight = 300.dp
         fontScale = 2f
         mount()
         compose.waitUntil(5_000) { session.assistEditable }
         compose.onNodeWithTag("open-assist").assertDoesNotExist()
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(compose.activity.getString(R.string.assist_open)).performClick()
+        compose.onNodeWithTag("open-assist-fallback").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("assist-panel").fetchSemanticsNodes().isNotEmpty() }
     }
 

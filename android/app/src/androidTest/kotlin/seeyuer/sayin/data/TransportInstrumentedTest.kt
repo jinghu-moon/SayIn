@@ -40,7 +40,7 @@ class TransportInstrumentedTest {
             waitFor { it.connection == Connection.OFFLINE }
             repository.foreground(true)
             repository.pairCode("127.0.0.1", args.getString("fixturePort") ?: "17888", code!!)
-            waitFor { it.ready }
+            assertTrue(waitFor { it.ready }.autoTextSupported)
             val validScope = checkNotNull(repository.state.value.receptionScope)
             repository.send("stale scope must not enqueue", UUID.randomUUID().toString(), validScope.copy(target = "stale-target"))
             withTimeout(5000) {

@@ -8,6 +8,8 @@ pub mod protocol;
 #[cfg(windows)]
 pub mod windows_clipboard;
 #[cfg(windows)]
+pub mod windows_image_delivery;
+#[cfg(windows)]
 pub mod windows_input;
 pub mod worker;
 

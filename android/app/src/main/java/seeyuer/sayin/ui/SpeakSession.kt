@@ -12,11 +12,14 @@ import java.io.Closeable
 import java.util.UUID
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import org.json.JSONObject
 import seeyuer.sayin.asr.*
+import seeyuer.sayin.data.AutoSendDestination
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.ReceptionScope
 import seeyuer.sayin.data.receptionScope
 import seeyuer.sayin.data.SavedSpeakingDraft
+import seeyuer.sayin.data.autoSendDestination
 import seeyuer.sayin.translation.*
 import java.io.File
 import java.io.InputStream
@@ -30,17 +33,31 @@ internal class SpeakSession(
     private val onDraftChanged: (TextFieldValue) -> Unit = {},
     val recognition: RecognitionEngine = SpeechRecognition(context),
     private val translator: Translator = SerialTranslator(),
-    private val translationModel: TranslationModel = TranslationCatalog.read(context).defaultModel,
-    private val modelStore: TranslationModelStore = TranslationModelStore(context, translationModel),
+    private val catalog: TranslationCatalog = TranslationCatalog.read(context),
+    translationModel: TranslationModel = catalog.models.firstOrNull {
+        it.id == context.getSharedPreferences("presentation", 0).getString("translation_model", null)
+    } ?: catalog.defaultModel,
+    private var modelStore: TranslationModelStore = TranslationModelStore(context, translationModel),
 ) : Closeable {
     private val preferences = context.getSharedPreferences("presentation", 0)
+    private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    /** Selected model is a preference; artifacts stay on disk per model file. */
+    var currentTranslationModel by mutableStateOf(translationModel); private set
+    val translationModels get() = catalog.models
     var draft by mutableStateOf(initialDraft); private set
     var draftId by mutableStateOf(UUID.randomUUID().toString()); private set
     var source by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("input_source", "Cloud")!!) }.getOrDefault(SpeakInputSource.Cloud)); private set
     var lastVoiceSource by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("voice_source", "Cloud")!!) }
         .getOrDefault(SpeakInputSource.Cloud).takeIf { it.isRecognition } ?: SpeakInputSource.Cloud); private set
     var sendMode by mutableStateOf(if (preferences.getBoolean("auto_send", false)) SpeakSendMode.Automatic else SpeakSendMode.Manual); private set
+    /** Delay between the final text and the automatic send; it is a default policy, not a per-app rule. */
+    var autoSendSeconds by mutableIntStateOf(
+        preferences.getInt("auto_send_seconds", SpeakInteraction.DEFAULT_DELAY_SECONDS)
+            .coerceIn(SpeakInteraction.MIN_DELAY_SECONDS, SpeakInteraction.MAX_DELAY_SECONDS),
+    ); private set
+    var appSendPolicies by mutableStateOf(loadAppSendPolicies()); private set
+    var voiceCommandsEnabled by mutableStateOf(preferences.getBoolean("voice_commands", false)); private set
     var interaction by mutableStateOf(SpeakInteraction()); private set
     var asr by mutableStateOf(RecognitionState()); private set
     var model by mutableStateOf(LocalModelPhase.Unloaded); private set
@@ -59,7 +76,7 @@ internal class SpeakSession(
     val canRedo get() = historyRevision.let { historyEnabled && history.canRedo }
     val recordingHasText get() = recognitionHadText && asr.transcript.isNotBlank()
     var receiver by mutableStateOf(ClientState()); private set
-    var secondsRemaining by mutableStateOf(3); private set
+    var secondsRemaining by mutableStateOf(SpeakInteraction.DEFAULT_DELAY_SECONDS); private set
     var preparingToRecord by mutableStateOf(false); private set
     var microphoneDenied by mutableStateOf(false)
     var undoDraft by mutableStateOf<TextFieldValue?>(null); private set
@@ -81,7 +98,10 @@ internal class SpeakSession(
     /** Monotonic generation of the single active insertion ticket. */
     var assistEpoch by mutableStateOf(0L); private set
     var modelPreparation by mutableStateOf<ModelPreparationProgress?>(null); private set
-    var translationModelReady by mutableStateOf(modelStore.prepared); private set
+    var translationModelReady by mutableStateOf(modelStore.ready); private set
+    val translationModelPresent get() = modelStore.present
+    val translationModelBundled get() = modelStore.bundled
+    val translationDownloadedBytes get() = modelStore.downloadedBytes
     var modelPreparationFailed by mutableStateOf(false); private set
     var translationStopping by mutableStateOf(false); private set
     val translationPreparing get() = modelPreparation != null
@@ -153,7 +173,7 @@ internal class SpeakSession(
             translation.takeIf { it.complete }?.ticket?.templateRevision,
             translationShown && translation.complete, request?.translated ?: false)
     }
-    var onSendReady: () -> Unit = {}
+    var onSendReady: (AutoSendDestination?) -> Unit = {}
     var requestMicrophoneService: (() -> Unit)? = null
     private var insertion: RecognitionInsertion? = null
     private var originalDraft: TextFieldValue? = null
@@ -161,7 +181,12 @@ internal class SpeakSession(
     private var recognitionHadText = false
     private var explicitFinish = false
     private var recordingScope: ReceptionScope? = null
-    private var recordingMayAutoSend = false
+    private var recordingMode = SpeakSendMode.Manual
+    val recordingUsesAutoSend get() = recordingMode == SpeakSendMode.Automatic
+    private var recordingDestination: AutoSendDestination? = null
+    private var finishOnSilence = false
+    private var imeDestination by mutableStateOf<AutoSendDestination?>(null)
+    val waitingForImeCommit get() = imeDestination != null
     private var pendingCloud: CloudConfiguration? = null
     private var countdownJob: Job? = null
     private var translationJob: Job? = null
@@ -182,9 +207,15 @@ internal class SpeakSession(
             asr = result
             val range = insertion
             if (acceptRecognition && range != null && result.session == expectedRecognitionSession && result.session != 0L) {
+                var finalCommands = emptySet<VoiceCommand>()
                 if (result.transcript.isNotEmpty() || recognitionHadText) {
                     recognitionHadText = result.transcript.isNotEmpty()
                     val value = if (result.transcript.isEmpty()) originalDraft ?: TextFieldValue(range.original, TextRange(range.start, range.end))
+                        else if (!result.busy && voiceCommandsEnabled) {
+                            val processed = VoiceCommands.process(range.original, range.start, range.end, result.transcript)
+                            finalCommands = processed.commands
+                            TextFieldValue(processed.text, TextRange(processed.cursor))
+                        }
                         else TextFieldValue(range.text(result.transcript), TextRange(range.cursor(result.transcript)))
                     changeDraft(value, fromRecognition = true)
                 }
@@ -195,13 +226,20 @@ internal class SpeakSession(
                     val direct = sendAfterFinal && recordingScope != null && recordingScope == receiver.receptionScope
                     sendAfterFinal = false
                     if (result.finished && explicitFinish && result.transcript.isNotBlank() && visible) {
-                        if (direct) onSendReady()
-                        else {
-                            val mode = if (recordingMayAutoSend && recordingScope == receiver.receptionScope) sendMode else SpeakSendMode.Manual
-                            completeInput(mode)
+                        when {
+                            VoiceCommand.Translate in finalCommands -> translateDraft()
+                            direct -> onSendReady(null)
+                            recordingMode == SpeakSendMode.Automatic -> completeInput(
+                                recordingMode, recordingDestination, fromRecording = true,
+                            )
+                            VoiceCommand.Send in finalCommands && receiver.ready -> onSendReady(null)
+                            else -> completeInput(SpeakSendMode.Manual)
                         }
                     }
                     explicitFinish = false
+                } else if (result.phase == RecognitionPhase.Listening && result.speechPause && recordingHasText && finishOnSilence &&
+                    visible && recognition.state.value.let { it.session == result.session && it.speechPause }) {
+                    finishRecording()
                 }
             }
         } }
@@ -217,7 +255,7 @@ internal class SpeakSession(
             visibleOwners.remove(owner)
             invalidateAssist()
             cancelAutoSend()
-            if (explicitFinish) recordingMayAutoSend = false
+            recordingDestination = null
             if (!visible) preparingToRecord = false
             if (!visible) {
                 backgroundRelease?.cancel()
@@ -231,8 +269,13 @@ internal class SpeakSession(
     }
 
     fun updateReceiver(value: ClientState) {
-        if (receiver.receptionScope != value.receptionScope) {
-            cancelAutoSend(); recordingMayAutoSend = false
+        val hadCountdown = interaction.countdown != null || waitingForImeCommit
+        val receptionChanged = receiver.receptionScope != value.receptionScope
+        if (receptionChanged) cancelAutoSend()
+        if (receiver.autoSendDestination != value.autoSendDestination) {
+            if (!receptionChanged) cancelCountdown()
+            if (hadCountdown) interaction = interaction.copy(review = DraftReview.TargetChanged)
+            recordingDestination = null
         }
         receiver = value
         val request = submitted ?: return
@@ -242,7 +285,7 @@ internal class SpeakSession(
             return
         }
         val item = value.history.firstOrNull { it.id == request.id } ?: return
-        submitted = request.copy(state = item.state)
+        submitted = request.copy(state = item.state, reason = item.reason)
         if (submitted != request) invalidateAssist()
         if (item.state == "injected" && request.state != "injected") { history.clear(); historyRevision++; undoDraft = null }
         if (item.state == "injected" && request.translated && draftId == request.id) {
@@ -283,7 +326,7 @@ internal class SpeakSession(
         if (value.text != draft.text) {
             interaction = interaction.inputChanged()
             draftId = UUID.randomUUID().toString()
-        } else if (value.selection != draft.selection || value.composition != draft.composition) cancelAutoSend()
+        }
         val compositionEnded = draft.composition != null && value.composition == null
         draft = value
         if (compositionEnded) history.breakGroup()
@@ -303,11 +346,67 @@ internal class SpeakSession(
 
     fun changeSendMode(value: SpeakSendMode) {
         if (busy || requestLocked) return
-        cancelAutoSend(); recordingMayAutoSend = false; sendMode = value
+        cancelAutoSend(); sendMode = value
         preferences.edit().putBoolean("auto_send", value == SpeakSendMode.Automatic).apply()
     }
 
-    fun start(cloud: CloudConfiguration?) {
+    /** Wait time belongs to automatic sending; changing it never enables or disables the default policy. */
+    fun changeAutoSendSeconds(value: Int) {
+        if (busy || requestLocked) return
+        val clamped = value.coerceIn(SpeakInteraction.MIN_DELAY_SECONDS, SpeakInteraction.MAX_DELAY_SECONDS)
+        if (clamped == autoSendSeconds) return
+        cancelAutoSend(); autoSendSeconds = clamped
+        preferences.edit().putInt("auto_send_seconds", clamped).apply()
+    }
+
+    /** Per-app rules are a local delivery preference, never a target/authorization boundary. */
+    fun setAppSendPolicy(application: String, policy: AppSendPolicy) {
+        if (application.isBlank()) return
+        cancelAutoSend()
+        appSendPolicies = if (policy == AppSendPolicy.Inherit) appSendPolicies - application
+        else appSendPolicies + (application to policy)
+        val json = JSONObject()
+        appSendPolicies.forEach { (name, value) -> json.put(name, value.name) }
+        preferences.edit().putString("app_send_policies", json.toString()).apply()
+    }
+
+    fun clearAppSendPolicies() {
+        if (appSendPolicies.isEmpty()) return
+        cancelAutoSend()
+        appSendPolicies = emptyMap()
+        preferences.edit().remove("app_send_policies").apply()
+    }
+
+    /** The current rule only picks auto/manual delivery; scope and target validation still run at send time. */
+    fun effectiveSendMode(): SpeakSendMode {
+        val application = receiver.foregroundApplication?.name
+        return when (application?.let { appSendPolicies[it] } ?: AppSendPolicy.Inherit) {
+            AppSendPolicy.Automatic -> SpeakSendMode.Automatic
+            AppSendPolicy.Manual -> SpeakSendMode.Manual
+            AppSendPolicy.Inherit -> sendMode
+        }
+    }
+
+    private fun loadAppSendPolicies(): Map<String, AppSendPolicy> {
+        val raw = preferences.getString("app_send_policies", null) ?: return emptyMap()
+        return runCatching {
+            val json = JSONObject(raw)
+            buildMap {
+                json.keys().forEach { application ->
+                    val policy = runCatching { AppSendPolicy.valueOf(json.getString(application)) }.getOrNull()
+                    if (policy == AppSendPolicy.Automatic || policy == AppSendPolicy.Manual) put(application, policy)
+                }
+            }
+        }.getOrDefault(emptyMap())
+    }
+
+    fun changeVoiceCommands(value: Boolean) {
+        if (busy || requestLocked) return
+        voiceCommandsEnabled = value
+        preferences.edit().putBoolean("voice_commands", value).apply()
+    }
+
+    fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {
         if (!visible || busy || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
         invalidateAssist()
         recordingSnapshot = snapshot()
@@ -317,7 +416,10 @@ internal class SpeakSession(
         val selection = draft.selection
         originalDraft = draft.copy(composition = null)
         insertion = RecognitionInsertion(draft.text, selection.min, selection.max)
-        recordingScope = receiver.receptionScope; recordingMayAutoSend = true
+        recordingScope = receiver.receptionScope
+        recordingMode = effectiveSendMode()
+        recordingDestination = receiver.autoSendDestination
+        finishOnSilence = recordingMode == SpeakSendMode.Automatic && !holdToSpeak
         pendingCloud = if (source == SpeakInputSource.Cloud) cloud else null
         preparingToRecord = true
         waitingForTranslationStop = true
@@ -350,8 +452,10 @@ internal class SpeakSession(
     fun finishRecording(andSend: Boolean = false) {
         if (asr.phase != RecognitionPhase.Listening) return
         invalidateAssist()
-        sendAfterFinal = andSend && recordingHasText && visible && recordingScope != null && recordingScope == receiver.receptionScope
-        explicitFinish = true; recordingMayAutoSend = recordingMayAutoSend && visible && !andSend
+        sendAfterFinal = andSend && recordingMode == SpeakSendMode.Manual && recordingHasText && visible &&
+            recordingScope != null && recordingScope == receiver.receptionScope
+        explicitFinish = true
+        if (!visible) recordingDestination = null
         recognition.finish()
     }
 
@@ -391,23 +495,63 @@ internal class SpeakSession(
         invalidateAssist()
     }
     fun edit() { cancelAutoSend(); interaction = interaction.edit() }
-    fun cancelAutoSend() { sendAfterFinal = false; countdownJob?.cancel(); countdownJob = null; interaction = interaction.cancelCountdown() }
+    private fun cancelCountdown() {
+        imeDestination = null
+        countdownJob?.cancel()
+        countdownJob = null
+        interaction = interaction.cancelCountdown()
+    }
 
-    fun completeInput(mode: SpeakSendMode = sendMode) {
+    fun cancelAutoSend() {
+        sendAfterFinal = false
+        recordingDestination = null
+        cancelCountdown()
+    }
+
+    fun requestAutoSend() {
         cancelAutoSend()
-        if (!visible || requestLocked || draftRestoring) return
-        if (translationShown || translation.ticket != null || translationStopping) return
-        interaction = interaction.finish(draft.text, draft.composition != null, mode, receiver.receptionScope, SystemClock.elapsedRealtime())
+        if (!visible || busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation ||
+            effectiveSendMode() != SpeakSendMode.Automatic) return
+        val destination = receiver.autoSendDestination
+        if (displayedDraft.composition != null && destination != null) imeDestination = destination
+        else completeInput(SpeakSendMode.Automatic, destination)
+    }
+
+    fun cancelImeSend() {
+        imeDestination = null
+    }
+
+    fun completeInput(
+        mode: SpeakSendMode = effectiveSendMode(),
+        destination: AutoSendDestination? = receiver.autoSendDestination,
+        fromRecording: Boolean = false,
+    ) {
+        cancelAutoSend()
+        if (!visible || busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation) return
+        if (fromRecording && translationShown) return
+        val value = displayedDraft
+        val currentDestination = destination?.takeIf { it == receiver.autoSendDestination }
+        interaction = interaction.finish(value.text, value.composition != null, mode, currentDestination,
+            SystemClock.elapsedRealtime(), autoSendSeconds * 1000L)
         invalidateAssist()
         val ticket = interaction.countdown ?: return
         countdownJob = scope.launch {
-            while (visible && sendMode == SpeakSendMode.Automatic && interaction.countdown == ticket) {
+            while (visible && interaction.countdown == ticket) {
                 val now = SystemClock.elapsedRealtime()
-                if (!ticket.matches(draft.text, interaction.version, draft.composition != null, receiver.receptionScope)) { cancelAutoSend(); return@launch }
+                val current = displayedDraft
+                if (!ticket.matches(current.text, interaction.version, current.composition != null, receiver.autoSendDestination)) {
+                    cancelCountdown()
+                    return@launch
+                }
                 secondsRemaining = ticket.secondsRemaining(now)
-                val consumed = interaction.consumeDue(draft.text, draft.composition != null, receiver.receptionScope, now)
-                if (consumed != null) { interaction = consumed; onSendReady(); return@launch }
-                delay(100)
+                val consumed = interaction.consumeDue(current.text, current.composition != null, receiver.autoSendDestination, now)
+                if (consumed != null) {
+                    interaction = consumed
+                    countdownJob = null
+                    onSendReady(ticket.destination)
+                    return@launch
+                }
+                delay(minOf(100, ticket.deadlineMillis - now))
             }
         }
     }
@@ -435,7 +579,12 @@ internal class SpeakSession(
     }
 
     fun changeDisplayedDraft(value: TextFieldValue) {
-        if (!translationShown) { changeDraft(value); return }
+        val committedDestination = imeDestination.takeIf { displayedDraft.composition != null && value.composition == null }
+        if (!translationShown) {
+            changeDraft(value)
+            committedDestination?.let { completeInput(SpeakSendMode.Automatic, it) }
+            return
+        }
         if (!translation.complete || requestLocked || draftRestoring) return
         if (value.text != translation.value.text) record(snapshot(),
             if (value.composition != null || translation.value.composition != null) "translated-composition" else "translated-edit",
@@ -443,14 +592,15 @@ internal class SpeakSession(
         val compositionEnded = translation.value.composition != null && value.composition == null
         cancelAutoSend(); translation = translation.copy(value = value)
         if (compositionEnded) history.breakGroup()
+        committedDestination?.let { completeInput(SpeakSendMode.Automatic, it) }
     }
 
     fun translateDraft() {
         if (!canTranslateDraft) return
-        cancelAutoSend(); recordingMayAutoSend = false
+        cancelAutoSend()
         val before = snapshot()
         val ticket = TranslationTicket(UUID.randomUUID().toString(), draftId, interaction.version, draft.text,
-            translationModel.sha256, translationModel.templateRevision)
+            currentTranslationModel.sha256, currentTranslationModel.templateRevision)
         translation = DraftTranslation(ticket = ticket, running = true)
         translationShown = false
         translationJob = scope.launch {
@@ -463,8 +613,16 @@ internal class SpeakSession(
                 }
             }
             try {
-                val result = translator.translate(modelStore.file, translationModel, ticket.source,
-                    onProgress = { progress -> updates.value = progress })
+                val bundled = if (modelStore.prepared) null else modelStore.openBundled()
+                val result = when {
+                    bundled != null && translator is BundledTranslator -> translator.translate(bundled, currentTranslationModel, ticket.source,
+                        onProgress = { progress -> updates.value = progress })
+                    else -> {
+                        bundled?.close()
+                        translator.translate(modelStore.file, currentTranslationModel, ticket.source,
+                            onProgress = { progress -> updates.value = progress })
+                    }
+                }
                 if (translation.running && translation.accepts(ticket.id, draftId, interaction.version)) {
                     translation = translation.copy(running = false, end = result.end,
                         value = TextFieldValue(if (result.end == TranslationEnd.Complete) result.text else ""))
@@ -508,9 +666,11 @@ internal class SpeakSession(
     }
 
     fun prepareTranslationModel(input: (() -> InputStream)? = null) {
-        if (busy || translationPreparing || translation.running || translationStopping) return
-        cancelAutoSend(); modelPreparationFailed = false
-        modelPreparation = ModelPreparationProgress(if (input == null) ModelPreparationStage.Downloading else ModelPreparationStage.Copying, 0, translationModel.bytes)
+        if (busy || translationPreparing || translation.running || translationStopping || modelDeleting) return
+        // The bundled model is already authenticated by the build and APK signature.
+        if (modelStore.bundled) return
+        cancelAutoSend(); modelPreparationFailed = false; modelDeleteFailed = false
+        modelPreparation = ModelPreparationProgress(if (input == null) ModelPreparationStage.Downloading else ModelPreparationStage.Copying, 0, currentTranslationModel.bytes)
         preparationJob = scope.launch {
             val updates = MutableStateFlow(checkNotNull(modelPreparation))
             val observer = launch { updates.collect { modelPreparation = it } }
@@ -518,13 +678,48 @@ internal class SpeakSession(
                 translator.release()
                 val progress: (ModelPreparationProgress) -> Unit = { value -> updates.value = value }
                 if (input == null) modelStore.download(progress) else withContext(Dispatchers.IO) { modelStore.import(input(), progress) }
-                translationModelReady = modelStore.prepared
+                translationModelReady = modelStore.ready
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { modelPreparationFailed = true }
             finally { observer.cancel(); modelPreparation = null; preparationJob = null }
         }
     }
     fun cancelModelPreparation() { preparationJob?.cancel() }
+
+    var modelDeleteFailed by mutableStateOf(false); private set
+    var modelDeleting by mutableStateOf(false); private set
+
+    /** Switching only changes which artifact later translations use; an existing translation stays valid. */
+    fun selectTranslationModel(id: String): Boolean {
+        if (busy || requestLocked || translationPreparing || translation.running || translationStopping || modelDeleting) return false
+        val model = catalog.models.firstOrNull { it.id == id } ?: return false
+        if (model.id == currentTranslationModel.id) return true
+        cancelAutoSend()
+        currentTranslationModel = model
+        modelStore = TranslationModelStore(appContext, model)
+        translationModelReady = modelStore.ready
+        modelPreparationFailed = false
+        modelDeleteFailed = false
+        preferences.edit().putString("translation_model", model.id).apply()
+        scope.launch { translator.release() }
+        return true
+    }
+
+    /** Deletes only the selected model artifact; the draft and any completed translation are retained. */
+    fun deleteTranslationModel() {
+        if (busy || requestLocked || translationPreparing || translation.running || translationStopping || modelDeleting) return
+        modelDeleteFailed = false
+        modelDeleting = true
+        preparationJob?.cancel()
+        val store = modelStore
+        scope.launch {
+            try {
+                translator.release()
+                if (!store.delete()) modelDeleteFailed = true
+                translationModelReady = modelStore.ready
+            } finally { modelDeleting = false }
+        }
+    }
 
     /** The uncertain request stays immutable in the ledger; this does not retry it or release the desktop gate. */
     fun newDraft() {
@@ -538,6 +733,12 @@ internal class SpeakSession(
     override fun close() { cancelAutoSend(); translator.close(); recognition.close(); scope.cancel() }
 }
 
-internal data class SubmittedDraft(val id: String, val value: TextFieldValue, val state: String = "saved", val translated: Boolean = false)
+internal data class SubmittedDraft(
+    val id: String,
+    val value: TextFieldValue,
+    val state: String = "saved",
+    val translated: Boolean = false,
+    val reason: String? = null,
+)
 
 private data class SpeakingSnapshot(val draft: TextFieldValue, val translation: DraftTranslation, val translationShown: Boolean, val duration: Long)

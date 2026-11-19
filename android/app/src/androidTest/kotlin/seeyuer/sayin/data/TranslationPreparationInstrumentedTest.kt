@@ -34,6 +34,10 @@ class TranslationPreparationInstrumentedTest {
             } catch (_: CancellationException) { }
             assertArrayEquals(bytes, store.file.readBytes())
             assertFalse(File(directory, model.fileName + ".pending").exists())
+            assertTrue(store.delete())
+            assertFalse(store.present)
+            assertFalse(store.prepared)
+            assertFalse(store.file.exists())
         } finally { directory.listFiles()?.forEach { it.delete() }; directory.delete() }
     }
 }

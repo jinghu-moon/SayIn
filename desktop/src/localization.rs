@@ -174,6 +174,25 @@ messages! {
     ImageClipboardChanged => "image-clipboard-changed",
     ImagePreviewFailed => "image-preview-failed",
     ImagePasteSubmitted => "image-paste-submitted",
+    ImageDirectory => "image-directory",
+    ImageDirectoryHelp => "image-directory-help",
+    ChooseImageDirectory => "choose-image-directory",
+    ImageDirectorySelectionFailed => "image-directory-selection-failed",
+    ImagePathCopied => "image-path-copied",
+    ImageExportFailed => "image-export-failed",
+    ImageSavedPathUnavailable => "image-saved-path-unavailable",
+    ImageSavedPasteUnavailable => "image-saved-paste-unavailable",
+    ImageApplicationRules => "image-application-rules",
+    ImageApplicationDefaults => "image-application-defaults",
+    ImageAddApplication => "image-add-application",
+    ImageChooseApplication => "image-choose-application",
+    ImageChooseExecutable => "image-choose-executable",
+    ImageApplicationSelectionFailed => "image-application-selection-failed",
+    ImageModePaste => "image-mode-paste",
+    ImageModeCopyPath => "image-mode-copy-path",
+    ImageModePasteForApp => "image-mode-paste-for-app",
+    ImageModeCopyPathForApp => "image-mode-copy-path-for-app",
+    ImageUseDefault => "image-use-default",
     BodyUnavailable => "body-unavailable",
     TargetUnavailable => "target-unavailable",
     TimeUnavailable => "time-unavailable",
@@ -317,6 +336,9 @@ impl Catalogs {
             State::Accepted => Message::ReceiptAccepted,
             State::Held => Message::ReceiptHeld,
             State::Executing => Message::ReceiptExecuting,
+            State::Injected if receipt.method.as_deref() == Some("clipboard_image_path") => {
+                Message::ImagePathCopied
+            }
             State::Injected => Message::ReceiptInjected,
             State::Cancelled => Message::ReceiptCancelled,
             State::Expired => Message::ReceiptExpired,
@@ -335,11 +357,25 @@ impl Catalogs {
         receipt: &voicelink_receiver::protocol::Receipt,
     ) -> String {
         use voicelink_receiver::protocol::State;
-        if receipt.method.as_deref() == Some("clipboard_image") && receipt.st == State::Injected {
-            return self.text(locale, Message::ImagePasteSubmitted);
+        if receipt.st == State::Injected {
+            match receipt.method.as_deref() {
+                Some("clipboard_image_path") => return self.text(locale, Message::ImagePathCopied),
+                Some("clipboard_image") => return self.text(locale, Message::ImagePasteSubmitted),
+                _ => {}
+            }
         }
-        if receipt.reason.as_deref() == Some("clipboard_changed_not_pasted") {
-            return self.text(locale, Message::ImageClipboardChanged);
+        match receipt.reason.as_deref() {
+            Some("image_export_failed") => return self.text(locale, Message::ImageExportFailed),
+            Some("image_saved_path_unavailable") => {
+                return self.text(locale, Message::ImageSavedPathUnavailable);
+            }
+            Some("image_saved_paste_unavailable") => {
+                return self.text(locale, Message::ImageSavedPasteUnavailable);
+            }
+            Some("clipboard_changed_not_pasted") => {
+                return self.text(locale, Message::ImageClipboardChanged);
+            }
+            _ => {}
         }
         if matches!(receipt.st, State::Held | State::Expired) {
             let cause = match receipt.reason.as_deref() {

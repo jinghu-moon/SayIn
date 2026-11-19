@@ -32,11 +32,12 @@ internal data class RecognitionState(
     val issue: RecognitionIssue? = null,
     val finished: Boolean = false,
     val audioLevel: Float = 0f,
+    val speechPause: Boolean = false,
 ) {
     val busy get() = phase != RecognitionPhase.Idle
 }
 
-/** Session-owned engine. Cancellation suppresses completion; only explicit Finish can produce it. */
+/** Session-owned engine. Only a requested finish can produce a completed result. */
 internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private val application = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -99,8 +100,14 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         if (ContextCompat.checkSelfPermission(application, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                             throw SecurityException("Microphone permission is required")
                         }
-                        return AndroidMicrophone(application) { level ->
-                            mutableState.update { if (it.session == session && it.phase == RecognitionPhase.Listening) it.copy(audioLevel = level) else it }
+                        val pause = SpeechPause()
+                        return AndroidMicrophone(application) { rms, samples ->
+                            val paused = pause.update(rms, samples)
+                            mutableState.update {
+                                if (it.session == session && it.phase == RecognitionPhase.Listening)
+                                    it.copy(audioLevel = (rms * 8f).coerceIn(0f, 1f), speechPause = paused)
+                                else it
+                            }
                         }.also { source ->
                             synchronized(microphoneLock) { microphone = source }
                         }

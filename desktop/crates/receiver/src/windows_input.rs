@@ -2,14 +2,16 @@
 use crate::{
     Error, Result,
     gate::InputGate,
+    images::{ImageMime, payload::PreparedImage},
     ledger::{Execution, InputOutcome, Ledger, Protector},
     protocol::{KeyName, Operation},
+    windows_image_delivery::{ImageDeliveryMode, SharedImageDeliverySettings},
     worker::InputAdapter,
 };
 use std::{
     fs,
     io::{Read, Write},
-    path::Path,
+    path::{Path, PathBuf},
 };
 use windows::{
     Win32::{
@@ -178,13 +180,26 @@ pub struct NativeInput {
     prepared: Option<ForegroundLease>,
     application: Option<crate::history::TargetApplication>,
     image_store: Option<crate::images::storage::ImageStore>,
-    image: Option<crate::images::payload::PreparedImage>,
+    image: Option<ImageDelivery>,
+    image_delivery: SharedImageDeliverySettings,
     clipboard_owner: Option<crate::windows_clipboard::ClipboardOwner>,
 }
+
+struct ImageDelivery {
+    directory: Option<PathBuf>,
+    mime: ImageMime,
+    bytes: Zeroizing<Vec<u8>>,
+    paste: Option<PreparedImage>,
+}
+
 impl NativeInput {
-    pub fn with_images(store: crate::images::storage::ImageStore) -> Self {
+    pub fn with_images(
+        store: crate::images::storage::ImageStore,
+        image_delivery: SharedImageDeliverySettings,
+    ) -> Self {
         Self {
             image_store: Some(store),
+            image_delivery,
             ..Self::default()
         }
     }
@@ -201,6 +216,34 @@ impl NativeInput {
         }
         Ok(())
     }
+}
+
+fn save_received_image(
+    directory: &Path,
+    mime: ImageMime,
+    bytes: &[u8],
+    allowed: impl Fn() -> bool,
+) -> Result<PathBuf> {
+    if !directory.is_absolute() {
+        return Err(Error::Protocol("IMAGE_EXPORT_DIRECTORY"));
+    }
+    if !allowed() {
+        return Err(Error::Protocol("IMAGE_EXPORT_NOT_ALLOWED"));
+    }
+    fs::create_dir_all(directory)?;
+    let extension = match mime {
+        ImageMime::Png => "png",
+        ImageMime::Jpeg => "jpg",
+    };
+    let path = directory.join(format!("SayIn-{}.{extension}", uuid::Uuid::new_v4()));
+    let mut output = atomic_write_file::AtomicWriteFile::open(&path)?;
+    output.write_all(bytes)?;
+    output.sync_all()?;
+    if !allowed() {
+        return Err(Error::Protocol("IMAGE_EXPORT_NOT_ALLOWED"));
+    }
+    output.commit()?;
+    Ok(path)
 }
 
 fn desktop_is_interactive() -> Result<()> {
@@ -477,7 +520,7 @@ fn keyboard(code: u16, unicode: bool, up: bool) -> INPUT {
 
 fn events(operation: &Operation) -> Vec<INPUT> {
     match operation {
-        Operation::Text { text, .. } => text
+        Operation::Text { text, .. } | Operation::AutoText { text, .. } => text
             .encode_utf16()
             .flat_map(|code| [keyboard(code, true, false), keyboard(code, true, true)])
             .collect(),
@@ -517,38 +560,69 @@ impl InputAdapter for NativeInput {
         self.prepared = None;
         self.application = None;
         self.image = None;
-        let mut prepared_image = None;
-        if let Operation::Image { image } = job.operation() {
+        let image = if let Operation::Image { image } = job.operation() {
             let store = self.image_store.as_ref().ok_or("image_unavailable")?;
             let bytes = store
                 .read(job.device(), image, &Dpapi)
                 .map_err(|_| "image_storage_failed")?;
-            prepared_image = Some(
-                image
-                    .metadata
-                    .prepare_image(&bytes)
-                    .map_err(|_| "image_invalid")?,
-            );
             if self.clipboard_owner.is_none() {
                 self.clipboard_owner = Some(
                     crate::windows_clipboard::ClipboardOwner::new()
                         .map_err(|_| "clipboard_owner_failed")?,
                 );
             }
+            Some((image, bytes))
+        } else {
+            None
+        };
+        let identity = foreground().map_err(preflight_reason)?;
+        let application = application_at(identity);
+        if let Some((image, bytes)) = image {
+            let application = application
+                .as_ref()
+                .map_err(|_| "foreground_guard_failed")?;
+            let (directory, mode) = {
+                let settings = self
+                    .image_delivery
+                    .read()
+                    .map_err(|_| "image_export_failed")?;
+                (
+                    settings.directory().map(Path::to_path_buf),
+                    settings.mode_for(&application.executable),
+                )
+            };
+            let paste = match mode {
+                ImageDeliveryMode::CopyPath => None,
+                ImageDeliveryMode::PasteImage => Some(
+                    image
+                        .metadata
+                        .prepare_image(&bytes)
+                        .map_err(|_| "image_invalid")?,
+                ),
+            };
+            let current = foreground().map_err(preflight_reason)?;
+            if identity != current {
+                return Err("foreground_guard_failed");
+            }
+            self.image = Some(ImageDelivery {
+                directory,
+                mime: image.metadata.mime,
+                bytes,
+                paste,
+            });
         }
-        let foreground = foreground().map_err(preflight_reason)?;
-        self.application = application_at(foreground).ok();
-        self.image = prepared_image;
+        self.application = application.ok();
         self.prepared = Some(ForegroundLease {
             device: job.device().into(),
             request: job.id().into(),
             scope: job.target().into(),
-            foreground,
+            foreground: identity,
         });
         Ok(())
     }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         let prepared_image = self.image.take();
+        let fence = gate.snapshot();
         if gate.is_paused() {
             return InputOutcome::Failed {
                 reason: "paused_before_input",
@@ -559,36 +633,64 @@ impl InputAdapter for NativeInput {
                 reason: "foreground_guard_failed",
             };
         }
-        let mut events = events(job.operation());
-        let fence = gate.snapshot();
-        let published = if matches!(job.operation(), Operation::Image { .. }) {
-            let Some(image) = prepared_image.as_ref() else {
+        let allowed = || self.check(job).is_ok() && !gate.is_paused() && gate.snapshot() == fence;
+        let published = match prepared_image {
+            Some(ImageDelivery {
+                directory,
+                mime,
+                bytes,
+                paste,
+            }) => {
+                let Some(directory) = directory else {
+                    return InputOutcome::Failed {
+                        reason: "image_export_failed",
+                    };
+                };
+                let path = match save_received_image(&directory, mime, &bytes, allowed) {
+                    Ok(path) => path,
+                    Err(Error::Protocol("IMAGE_EXPORT_NOT_ALLOWED")) => {
+                        return InputOutcome::Failed {
+                            reason: "foreground_guard_failed",
+                        };
+                    }
+                    Err(_) => {
+                        return InputOutcome::Failed {
+                            reason: "image_export_failed",
+                        };
+                    }
+                };
+                let owner = self
+                    .clipboard_owner
+                    .as_ref()
+                    .expect("prepared owner")
+                    .window();
+                let Some(image) = paste else {
+                    return match crate::windows_clipboard::publish_path(owner, &path, allowed) {
+                        Ok(_) => InputOutcome::Injected {
+                            method: "clipboard_image_path",
+                        },
+                        Err(_) => InputOutcome::Failed {
+                            reason: "image_saved_path_unavailable",
+                        },
+                    };
+                };
+                match crate::windows_clipboard::publish(owner, &image, allowed) {
+                    Ok(published) => Some(published),
+                    Err(_) => {
+                        return InputOutcome::Failed {
+                            reason: "image_saved_paste_unavailable",
+                        };
+                    }
+                }
+            }
+            None if matches!(job.operation(), Operation::Image { .. }) => {
                 return InputOutcome::Failed {
                     reason: "image_unprepared",
                 };
-            };
-            match crate::windows_clipboard::publish(
-                self.clipboard_owner
-                    .as_ref()
-                    .expect("prepared owner")
-                    .window(),
-                image,
-                || !gate.is_paused() && gate.snapshot() == fence && self.check(job).is_ok(),
-            ) {
-                Ok(published) => Some(published),
-                Err(failure) => {
-                    return InputOutcome::Failed {
-                        reason: if failure.clipboard_changed {
-                            "clipboard_changed_not_pasted"
-                        } else {
-                            "clipboard_unavailable"
-                        },
-                    };
-                }
             }
-        } else {
-            None
+            None => None,
         };
+        let mut events = events(job.operation());
         // Foreground/session checks can cross a thread boundary or take time.
         // Recheck a newly requested pause as close to SendInput as possible.
         if gate.is_paused()
@@ -699,6 +801,28 @@ fn application_at(identity: (usize, u32, u64, u32)) -> Result<crate::history::Ta
 mod tests {
     use super::*;
     use crate::protocol::TextSource;
+
+    #[test]
+    fn received_files_keep_original_bytes_and_guard_cancellation() {
+        let directory =
+            std::env::temp_dir().join(format!("sayin-image-export-{}", uuid::Uuid::new_v4()));
+        let cancelled = std::cell::Cell::new(false);
+        assert!(matches!(
+            save_received_image(&directory, ImageMime::Png, b"cancelled", || !cancelled
+                .replace(true)),
+            Err(Error::Protocol("IMAGE_EXPORT_NOT_ALLOWED"))
+        ));
+        assert_eq!(fs::read_dir(&directory).unwrap().count(), 0);
+
+        for (mime, extension) in [(ImageMime::Png, "png"), (ImageMime::Jpeg, "jpg")] {
+            let path = save_received_image(&directory, mime, b"original bytes", || true).unwrap();
+            assert_eq!(path.extension().unwrap(), extension);
+            assert_eq!(fs::read(&path).unwrap(), b"original bytes");
+            assert!(save_received_image(&path, mime, b"different bytes", || true).is_err());
+            assert_eq!(fs::read(path).unwrap(), b"original bytes");
+        }
+        fs::remove_dir_all(&directory).unwrap();
+    }
 
     #[test]
     fn partial_paste_releases_only_our_still_pressed_keys_without_repeating_paste() {

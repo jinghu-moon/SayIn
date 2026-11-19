@@ -21,6 +21,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import seeyuer.sayin.MainActivity
 import seeyuer.sayin.SayInApplication
 import seeyuer.sayin.designsystem.Appearance
@@ -31,9 +33,12 @@ import seeyuer.sayin.ui.VoiceLinkApp
 
 /** A real translucent native card. It presents the existing session and never starts recording itself. */
 class QuickActivity : AppCompatActivity() {
+    private var autoRecordVersion by mutableIntStateOf(0)
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        setIntent(intent)
         (application as SayInApplication).model.speaking.cancelAutoSend()
+        if (intent.getBooleanExtra(EXTRA_AUTO_RECORD, false)) autoRecordVersion++
     }
     override fun onStart() {
         super.onStart()
@@ -47,6 +52,7 @@ class QuickActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (intent.getBooleanExtra(EXTRA_AUTO_RECORD, false)) autoRecordVersion = 1
         window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window.attributes = window.attributes.apply { dimAmount = 0.22f }
         setFinishOnTouchOutside(true)
@@ -63,7 +69,7 @@ class QuickActivity : AppCompatActivity() {
             VoiceLinkTheme(dark = dark) {
                 Box(Modifier.fillMaxWidth().height(cardHeight)
                     .clip(RoundedCornerShape(28.dp)).background(MiuixTheme.colorScheme.background)) {
-                    VoiceLinkApp(quick = true, onExpand = { settings ->
+                    VoiceLinkApp(quick = true, autoRecordVersion = autoRecordVersion, onExpand = { settings ->
                         QuickEntryService.startIfEnabled(this@QuickActivity)
                         startActivity(Intent(this@QuickActivity, MainActivity::class.java)
                             .putExtra(MainActivity.OPEN_SETTINGS, settings)
@@ -86,7 +92,9 @@ class QuickActivity : AppCompatActivity() {
         window.setLayout(windowWidth, WindowManager.LayoutParams.WRAP_CONTENT)
     }
     companion object {
-        fun intent(context: Context) = Intent(context, QuickActivity::class.java)
+        private const val EXTRA_AUTO_RECORD = "seeyuer.sayin.AUTO_RECORD"
+        fun intent(context: Context, autoRecord: Boolean = false) = Intent(context, QuickActivity::class.java)
+            .putExtra(EXTRA_AUTO_RECORD, autoRecord)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         fun pendingIntent(context: Context): PendingIntent = PendingIntent.getActivity(context, 43, intent(context),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)

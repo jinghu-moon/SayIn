@@ -15,13 +15,21 @@ Additional attributions retained in the pinned CPU inference source:
 - src/llama-vocab.cpp: BPE tokenizer adapted from cmp-nct/ggllm.cpp, MIT.
   https://github.com/cmp-nct/ggllm.cpp
 
-Selected downloadable weight: tencent/Hy-MT2-1.8B-GGUF
+Bundled default weights: tencent/Hy-MT2-1.8B-GGUF
 Revision: a0c709d9fac510f2c807aa3af52872340dc37a4a
 File: Hy-MT2-1.8B-Q4_K_M.gguf
 SHA-256: dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699
 License: Apache-2.0; see Hy-MT2-Apache-2.0.txt.
-Weights are not modified and are not contained in the APK. They are prepared
-only after an explicit user action. Tencent does not endorse SayIn.
+Weights are unmodified and are stored uncompressed in the APK.
+Tencent does not endorse SayIn.
+
+Bundled optional weights: pfnet/plamo-3-translate-0.8b-GGUF
+Revision: 1cf96ae02133958a20074bfdfab76517bb737d00
+File: plamo-3-translate-0.8b-Q4_K_M.gguf
+SHA-256: 70891ec70dc7ab4205745a38307867c2881b99239f20327927633abfe4bc9ec6
+License: PLaMo Community License; see PLaMo-Community-License.txt.
+Weights are unmodified and are stored uncompressed in the APK.
+The PLaMo 2B GGUF was evaluated separately and is not distributed.
 
 Native C++ runtime: libc++_shared.so from Android NDK 29.0.14206865.
 The complete, unmodified Android SDK toolchain notice is included as
@@ -30,7 +38,5 @@ That supplemental SDK notice also describes build tools that are not linked
 or distributed in the application. It is not a statement that every component
 listed there is part of SayIn.
 
-PLaMo weights were evaluated separately and are not distributed by this
-product. Their Community License is retained in the development repository.
 Other existing SayIn dependencies retain their own licenses; this notice
 does not assign a single license to the entire application.

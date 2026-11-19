@@ -68,7 +68,8 @@ pub struct Execution {
 impl Drop for Execution {
     fn drop(&mut self) {
         use zeroize::Zeroize as _;
-        if let Operation::Text { text, .. } = &mut self.operation {
+        if let Operation::Text { text, .. } | Operation::AutoText { text, .. } = &mut self.operation
+        {
             text.zeroize();
         }
     }

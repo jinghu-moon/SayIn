@@ -57,6 +57,9 @@ class ForegroundApplicationHintTest {
         assertEquals(ready.receptionScope, ready.copy(foregroundApplication = null).receptionScope)
         assertFalse(ready.copy(paused = true, foregroundApplication = ForegroundApplication("Word")).ready)
         assertNull(ready.copy(connection = Connection.OFFLINE, foregroundApplication = ForegroundApplication("Word")).receptionScope)
+        val foreground = ready.copy(foregroundApplication = ForegroundApplication("Word", sequence = 1))
+        assertNull(foreground.autoSendDestination)
+        assertEquals("Word", foreground.copy(autoTextSupported = true).autoSendDestination?.application)
     }
 
 }

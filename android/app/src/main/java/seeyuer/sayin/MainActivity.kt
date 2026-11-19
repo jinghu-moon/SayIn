@@ -17,18 +17,21 @@ import androidx.activity.enableEdgeToEdge
 import seeyuer.sayin.designsystem.Appearance
 import seeyuer.sayin.designsystem.AppearanceMode
 import seeyuer.sayin.designsystem.VoiceLinkTheme
+import seeyuer.sayin.data.sharedText
 import seeyuer.sayin.ui.VoiceLinkApp
 
 class MainActivity : AppCompatActivity() {
     private var settingsRequested by mutableStateOf(false)
     private var entryVersion by mutableStateOf(0)
     private var sharedImage by mutableStateOf<Uri?>(null)
+    private var sharedText by mutableStateOf<String?>(null)
     private var shareVersion by mutableStateOf(0)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         settingsRequested = intent.getBooleanExtra(OPEN_SETTINGS, false)
         sharedImage = intent.imageUri()
+        sharedText = intent.sharedText(this)
         setContent {
             val mode by Appearance.mode.collectAsStateWithLifecycle()
             val dark = when (mode) {
@@ -44,7 +47,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
                 VoiceLinkApp(openSettings = settingsRequested, entryVersion = entryVersion,
-                    sharedImage = sharedImage, shareVersion = shareVersion)
+                    sharedImage = sharedImage, sharedText = sharedText, shareVersion = shareVersion)
             }
         }
     }
@@ -54,6 +57,7 @@ class MainActivity : AppCompatActivity() {
         (application as SayInApplication).model.speaking.cancelAutoSend()
         settingsRequested = intent.getBooleanExtra(OPEN_SETTINGS, false)
         sharedImage = intent.imageUri()
+        sharedText = intent.sharedText(this)
         shareVersion++
         entryVersion++
     }

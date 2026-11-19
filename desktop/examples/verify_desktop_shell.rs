@@ -136,7 +136,7 @@ fn main() {
                     cx.new(|_| PreferencesState::new(PreferencesFile::in_directory(&directory)));
                 let reception = cx.new(|cx| {
                     if first {
-                        ReceptionState::new(directory.join("receiver"), cx)
+                        ReceptionState::new(directory.join("receiver"), Default::default(), cx)
                     } else {
                         ReceptionState::local_only(directory.join("receiver"), cx)
                     }

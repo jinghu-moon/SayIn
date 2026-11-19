@@ -1,6 +1,7 @@
 package seeyuer.sayin.data
 
 import androidx.room.ColumnInfo
+import androidx.room.AutoMigration
 import androidx.room.OnConflictStrategy
 import androidx.room.Dao
 import androidx.room.Database
@@ -33,6 +34,7 @@ internal data class OutboxItem(
     @ColumnInfo(defaultValue = "0") val imageByteCount: Int = 0,
     val application: ByteArray? = null,
     @ColumnInfo(defaultValue = "0") val historyHidden: Boolean = false,
+    val method: String? = null,
 )
 
 @Entity(tableName = "image_drafts", primaryKeys = ["hostId", "deviceId"])
@@ -60,12 +62,14 @@ internal interface OutboxDao {
     @Query("SELECT * FROM outbox ORDER BY createdAt DESC LIMIT 100") fun observe(): Flow<List<OutboxItem>>
     @Query("SELECT * FROM outbox WHERE id=:id AND historyHidden=0 LIMIT 1") suspend fun visible(id: String): OutboxItem?
     @Query("UPDATE outbox SET historyHidden=1 WHERE id=:id") suspend fun hide(id: String)
+    @Query("UPDATE outbox SET historyHidden=1 WHERE id IN (:ids)") suspend fun hideAll(ids: List<String>)
+    @Query("UPDATE outbox SET historyHidden=1 WHERE historyHidden=0 AND createdAt < :before") suspend fun hideBefore(before: Long): Int
     @Query("UPDATE outbox SET application=:value WHERE id=:id AND hostId=:host AND deviceId=:device AND application IS NULL")
     suspend fun application(id: String, host: String, device: String, value: ByteArray)
     @Query("SELECT * FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL ORDER BY createdAt,id") suspend fun pending(hostId: String, deviceId: String): List<OutboxItem>
     @Query("SELECT * FROM outbox WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId LIMIT 1") suspend fun find(id: String, hostId: String, deviceId: String): OutboxItem?
-    @Query("UPDATE outbox SET state=:state,`order`=:order,reason=:reason,payload=CASE WHEN :terminal THEN NULL ELSE payload END,byteCount=CASE WHEN :terminal THEN 0 ELSE byteCount END WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId")
-    suspend fun status(id: String, hostId: String, deviceId: String, state: String, order: String?, reason: String?, terminal: Boolean)
+    @Query("UPDATE outbox SET state=:state,`order`=:order,reason=:reason,method=:method,payload=CASE WHEN :terminal THEN NULL ELSE payload END,byteCount=CASE WHEN :terminal THEN 0 ELSE byteCount END WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId")
+    suspend fun status(id: String, hostId: String, deviceId: String, state: String, order: String?, reason: String?, terminal: Boolean, method: String? = null)
     @Query("SELECT DISTINCT imageResource FROM outbox WHERE imageResource IS NOT NULL AND payload IS NULL AND id NOT IN (SELECT id FROM outbox ORDER BY createdAt DESC LIMIT 100)") suspend fun terminalGarbageImages(): List<String>
     @Query("DELETE FROM outbox WHERE payload IS NULL AND id NOT IN (SELECT id FROM outbox ORDER BY createdAt DESC LIMIT 100)") suspend fun deleteTerminalGarbage()
     @Transaction suspend fun trimTerminal(): List<String> {
@@ -82,7 +86,10 @@ internal interface OutboxDao {
     suspend fun imageReady(id: String, hostId: String, deviceId: String, payload: ByteArray): Int
 }
 
-@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 4, exportSchema = true)
+internal const val IMAGE_PATH_COPY_METHOD = "clipboard_image_path"
+
+@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 5, exportSchema = true,
+    autoMigrations = [AutoMigration(from = 4, to = 5)])
 internal abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
     companion object {

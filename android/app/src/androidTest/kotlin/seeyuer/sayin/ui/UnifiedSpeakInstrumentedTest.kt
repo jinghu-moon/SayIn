@@ -106,6 +106,53 @@ class UnifiedSpeakInstrumentedTest {
         compose.runOnIdle { assertNull(session.interaction.countdown); assertEquals(text, session.draft.text); assertEquals(0, sends) }
     }
 
+    @Test fun tapRecordingFinishesOnSilenceButHoldWaitsForRelease() {
+        mount()
+        compose.runOnIdle {
+            session.setAppSendPolicy("Test editor", AppSendPolicy.Automatic)
+            session.start(null)
+        }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "partial", speechPause = true) }
+        compose.runOnIdle {
+            assertEquals(RecognitionPhase.Finishing, session.asr.phase)
+            assertNull(session.interaction.countdown)
+            engine.emit(RecognitionPhase.Idle, "final text", finished = true)
+        }
+        compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed().performClick()
+        compose.runOnIdle {
+            assertEquals("final text", session.draft.text)
+            session.start(null, holdToSpeak = true)
+        }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "held", speechPause = true) }
+        compose.runOnIdle {
+            assertEquals(RecognitionPhase.Listening, session.asr.phase)
+            assertNull(session.interaction.countdown)
+        }
+        finish("released")
+        compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
+        assertEquals(0, sends)
+    }
+
+    @Test fun keyboardWaitsForImeCommitAndForegroundChangeCancels() {
+        mount(TextFieldValue("ni", TextRange(2), TextRange(0, 2)))
+        compose.runOnIdle { session.setAppSendPolicy("Test editor", AppSendPolicy.Automatic) }
+        compose.onNodeWithTag("send-draft").performClick()
+        compose.runOnIdle {
+            assertTrue(session.waitingForImeCommit)
+            assertNull(session.interaction.countdown)
+            session.changeDisplayedDraft(TextFieldValue("你", TextRange(1)))
+        }
+        compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
+        compose.runOnIdle { receiver = ready().copy(foregroundApplication = ForegroundApplication("Browser", sequence = 2)) }
+        compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
+        compose.runOnIdle { receiver = ready().copy(foregroundApplication = ForegroundApplication("Test editor", sequence = 3)) }
+        compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
+        compose.runOnIdle { assertEquals("你", session.draft.text); assertEquals(0, sends) }
+        compose.onNodeWithTag("send-draft").performClick()
+        compose.waitUntil(5000) { sends == 1 }
+        compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
+    }
+
     @Test fun endingFromBackgroundDoesNotArmWhenUiReturnsBeforeFinal() {
         mount(); compose.runOnIdle { session.changeSendMode(SpeakSendMode.Automatic) }
         listen("background draft")
@@ -275,7 +322,9 @@ class UnifiedSpeakInstrumentedTest {
         File(dir, "$name.png").outputStream().use { compose.onRoot().captureToImage().asAndroidBitmap().compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
     companion object {
-        private fun ready() = ClientState(connection = Connection.ONLINE, paired = true, address = "127.0.0.1", active = true, paused = false, target = "target", revision = "1")
+        private fun ready() = ClientState(connection = Connection.ONLINE, paired = true, address = "127.0.0.1",
+            active = true, paused = false, target = "target", revision = "1", autoTextSupported = true,
+            foregroundApplication = ForegroundApplication("Test editor", sequence = 1))
     }
 }
 
@@ -285,7 +334,9 @@ private class FakeRecognition : RecognitionEngine {
     var starts = 0
     override fun prepareLocal() { if (model.value != LocalModelPhase.Ready) model.value = LocalModelPhase.Loading }
     override fun start(cloud: CloudConfiguration?) { starts++; state.value = RecognitionState(starts.toLong(), RecognitionPhase.Loading) }
-    fun emit(phase: RecognitionPhase, text: String, finished: Boolean = false) { state.value = RecognitionState(starts.toLong(), phase, text, finished = finished) }
+    fun emit(phase: RecognitionPhase, text: String, finished: Boolean = false, speechPause: Boolean = false) {
+        state.value = RecognitionState(starts.toLong(), phase, text, finished = finished, speechPause = speechPause)
+    }
     override fun finish() { state.value = state.value.copy(phase = RecognitionPhase.Finishing) }
     override fun cancel() { state.value = state.value.copy(phase = RecognitionPhase.Idle, finished = false) }
     override fun clearResult() { state.value = RecognitionState() }

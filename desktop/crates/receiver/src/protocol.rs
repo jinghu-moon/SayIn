@@ -20,6 +20,11 @@ pub enum Operation {
         text: String,
         src: TextSource,
     },
+    #[serde(rename = "auto_text")]
+    AutoText {
+        text: String,
+        application: String,
+    },
     Key {
         name: KeyName,
     },
@@ -44,18 +49,28 @@ pub enum KeyName {
 }
 
 impl Operation {
-    pub fn bytes(&self) -> usize {
+    pub fn text(&self) -> Option<&str> {
         match self {
-            Self::Text { text, .. } => text.len(),
-            Self::Key { .. } => 0,
-            Self::Image { .. } => 0, // separate resource quota, never text byte quota
+            Self::Text { text, .. } | Self::AutoText { text, .. } => Some(text),
+            _ => None,
         }
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.text().map_or(0, str::len)
     }
     pub fn validate(&self) -> Result<()> {
         if let Self::Image { image } = self {
             return image.validate();
         }
-        if let Self::Text { text, .. } = self {
+        if let Self::AutoText { application, .. } = self
+            && (application.trim().is_empty()
+                || application.chars().count() > 96
+                || application.chars().any(char::is_control))
+        {
+            return Err(Error::Protocol("INVALID_APPLICATION"));
+        }
+        if let Some(text) = self.text() {
             if text.is_empty()
                 || text.len() > MAX_TEXT_BYTES
                 || text.chars().count() > MAX_TEXT_SCALARS

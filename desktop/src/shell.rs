@@ -5,13 +5,14 @@ use crate::{
     reception::{ReceptionPhase, ReceptionState, ReviewScope},
     theme,
 };
+use voicelink_receiver::windows_image_delivery::ImageDeliveryMode;
 use yue_component::gpui_kit::base::{
     Tab, TabDescriptor, TabPanel, Tabs, TabsController, TabsSnapshot, TestSupportExt as _,
 };
 use yue_component::{
     ButtonVariant, CheckboxState, Icon, IconDefinition, SelectEvent, SelectMode, SelectOption,
-    SelectValue, YueButton, YueCard, YueCardHeader, YueCheckbox, YueEmpty, YueSelect,
-    YueSelectState, current_theme,
+    SelectValue, YueButton, YueCard, YueCardHeader, YueCheckbox, YueDropdownMenu, YueEmpty,
+    YueMenuItem, YueSelect, YueSelectState, current_theme,
     gpui_kit::{
         self, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
         ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
@@ -600,7 +601,26 @@ fn settings(
             state.text(M::Settings),
             state.text(M::SettingsDescription),
             cx,
-        ))
+        ));
+    if let Some(issue) = state.issue() {
+        let owner = preferences.clone();
+        content = content.child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(state.text(match issue {
+                    StorageIssue::Read => M::SettingsReadFailed,
+                    StorageIssue::Save => M::SettingsSaveFailed,
+                }))
+                .child(
+                    YueButton::new("retry-settings", state.text(M::Retry))
+                        .disabled(state.is_saving())
+                        .on_click(move |_, _, cx| owner.update(cx, |state, cx| state.retry(cx))),
+                ),
+        );
+    }
+    let content = content
         .child(preference_card(
             "language-card",
             state.text(M::Language),
@@ -625,6 +645,40 @@ fn settings(
             &controls.close_behavior,
             cx,
         ))
+        .child({
+            let owner = preferences.clone();
+            let mut card = section(
+                "image-directory-card",
+                state.text(M::ImageDirectory),
+                outline::Folder,
+                cx,
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(gpui_kit::rgb(theme.text_secondary()))
+                    .child(state.text(M::ImageDirectoryHelp)),
+            );
+            if let Some(path) = state.image_directory() {
+                card = card.child(div().min_w_0().text_sm().child(path.display().to_string()));
+            }
+            if let Some(issue) = state.image_picker_issue() {
+                card = card.child(div().text_sm().child(state.text(issue)));
+            }
+            card.child(
+                div().child(
+                    YueButton::new(
+                        "choose-image-directory",
+                        state.text(M::ChooseImageDirectory),
+                    )
+                    .disabled(!state.is_editable() || state.image_picker_busy())
+                    .on_click(move |_, _, cx| {
+                        owner.update(cx, |state, cx| state.pick_image_path(None, cx))
+                    }),
+                ),
+            )
+            .child(image_application_rules(preferences, cx))
+        })
         .child(
             section("about-card", state.text(M::About), outline::InfoCircle, cx)
                 .child(div().text_sm().child(state.version()))
@@ -635,24 +689,6 @@ fn settings(
                         .child(state.text(M::FoundationNote)),
                 ),
         );
-    if let Some(issue) = state.issue() {
-        let owner = preferences.clone();
-        content = content.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(state.text(match issue {
-                    StorageIssue::Read => M::SettingsReadFailed,
-                    StorageIssue::Save => M::SettingsSaveFailed,
-                }))
-                .child(
-                    YueButton::new("retry-settings", state.text(M::Retry))
-                        .disabled(state.is_saving())
-                        .on_click(move |_, _, cx| owner.update(cx, |state, cx| state.retry(cx))),
-                ),
-        );
-    }
     // This viewport owns settings scrolling; the inset belongs to its content.
     div()
         .id("settings-scroll")
@@ -660,6 +696,90 @@ fn settings(
         .overflow_y_scroll()
         .child(content)
         .into_any_element()
+}
+
+fn image_application_rules(preferences: &Entity<PreferencesState>, cx: &App) -> impl IntoElement {
+    use ImageDeliveryMode::{CopyPath, PasteImage};
+
+    let state = preferences.read(cx);
+    let theme = current_theme(cx);
+    let modes = [
+        (PasteImage, M::ImageModePaste),
+        (CopyPath, M::ImageModeCopyPath),
+    ];
+    let add = YueDropdownMenu::new(
+        "add-image-application-menu",
+        theme,
+        YueButton::new("add-image-application", state.text(M::ImageAddApplication))
+            .disabled(!state.is_editable() || state.image_picker_busy()),
+    )
+    .items(modes.map(|(mode, label)| {
+        let owner = preferences.clone();
+        YueMenuItem::new(format!("{}…", state.text(label))).on_click(move |_, _, cx| {
+            owner.update(cx, |state, cx| state.pick_image_path(Some(mode), cx));
+        })
+    }));
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                .child(state.text(M::ImageApplicationRules)),
+        )
+        .child(muted(state.text(M::ImageApplicationDefaults), cx))
+        .children(state.image_applications().iter().map(|(path, current)| {
+            let executable = std::path::Path::new(path)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or(path);
+            let label = state.text(match current {
+                PasteImage => M::ImageModePaste,
+                CopyPath => M::ImageModeCopyPath,
+            });
+            let options = [
+                (Some(PasteImage), M::ImageModePaste),
+                (Some(CopyPath), M::ImageModeCopyPath),
+                (None, M::ImageUseDefault),
+            ];
+            let menu = YueDropdownMenu::new(
+                gpui_kit::SharedString::from(format!("image-application-menu-{path}")),
+                theme,
+                YueButton::new(
+                    gpui_kit::SharedString::from(format!("image-application-mode-{path}")),
+                    label.clone(),
+                )
+                .accessibility_label(format!("{executable} · {label}"))
+                .disabled(!state.is_editable()),
+            )
+            .items(options.map(|(mode, message)| {
+                let owner = preferences.clone();
+                let path = path.clone();
+                YueMenuItem::new(state.text(message))
+                    .checked(mode == Some(*current))
+                    .on_click(move |_, _, cx| {
+                        owner.update(cx, |state, cx| state.set_image_application(&path, mode, cx));
+                    })
+            }));
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .justify_between()
+                .gap_2()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(div().text_sm().child(executable.to_owned()))
+                        .child(muted(path.clone(), cx)),
+                )
+                .child(menu)
+        }))
+        .child(div().child(add))
 }
 
 impl Shell {
@@ -937,13 +1057,7 @@ impl Render for Shell {
                             .reception
                             .read(cx)
                             .review_entry()
-                            .and_then(|entry| match &entry.operation {
-                                Some(voicelink_receiver::protocol::Operation::Text {
-                                    text,
-                                    ..
-                                }) => Some(text.clone()),
-                                _ => None,
-                            })
+                            .and_then(|entry| entry.operation.as_ref()?.text().map(str::to_owned))
                             .unwrap_or_else(|| state.text(M::BodyUnavailable));
                         div()
                             .p_3()

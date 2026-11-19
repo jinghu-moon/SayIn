@@ -158,7 +158,6 @@
     <string name="asr_microphone_error">Microphone unavailable. Check microphone access and other recording apps.</string>
     <string name="asr_too_slow">Recognition could not keep up and stopped. Check the draft before sending.</string>
     <string name="asr_recognition_error">Recognition stopped unexpectedly. Check the draft or try again.</string>
-    <string name="speak_countdown">Sending in %1$d s · Tap Edit to cancel</string>
     <string name="speak_keep_editing">Keep editing · cancel auto-send</string>
     <string name="speak_composing">Confirm the keyboard suggestion to finish input.</string>
     <string name="speak_smart_hint">Finish input to check whether this short text can be sent automatically.</string>
@@ -259,6 +258,7 @@
     <string name="speak_send_to_computer">Send to computer</string>
     <string name="speak_cancel_send">Cancel send</string>
     <string name="speak_query">Check status</string>
+    <string name="speak_keep_draft">Keep as draft</string>
     <string name="speak_offline_saved">%1$s · Draft kept</string>
     <string name="speak_view_connection">View connection</string>
     <string name="speak_cleared">Draft cleared</string>
@@ -308,6 +308,11 @@
     <string name="image_progress">Uploading · %1$d%%</string>
     <string name="image_cancel_upload">Cancel upload</string>
     <string name="image_paste_submitted">Paste instruction submitted. Check the target app.</string>
+    <string name="image_path_copied">Image saved and path copied</string>
+    <string name="image_path_paste_help">Image saved and path copied. Paste it in the target app on your computer.</string>
+    <string name="image_export_failed">Couldn’t save the image. Check the folder in SayIn settings on the computer.</string>
+    <string name="image_saved_path_unavailable">The image was saved. Its path couldn’t be copied.</string>
+    <string name="image_saved_paste_unavailable">The image was saved. The paste instruction couldn’t be submitted.</string>
     <string name="image_invalid">The image is unsupported, damaged or over the size limit. Choose a static PNG or JPEG.</string>
     <string name="image_not_ready">The computer is not ready to paste. The image is kept; check the connection or computer reception state.</string>
     <string name="image_unsupported">This computer does not support image input. Update its SayIn app.</string>
@@ -337,7 +342,7 @@
     <string name="translation_model_unavailable">The local model is missing or failed integrity checks. Prepare it again. The original is retained.</string>
     <string name="translation_error">Local translation failed. The original is retained. No cloud service was used.</string>
     <string name="translation_prepare_title">Prepare offline translation</string>
-    <string name="translation_prepare_description">Download the selected Hy-MT2 model (1.13 GB) and verify its integrity. At least 1.15 GB of additional storage is needed during preparation. Later translations run on this phone without uploading text. The download does not translate or send your draft.</string>
+    <string name="translation_prepare_description">Download the selected model and verify it against the pinned SHA-256. Later translations run on this phone without uploading text. The download does not translate or send your draft.</string>
     <string name="translation_prepare_download">Download and prepare model</string>
     <string name="translation_import_development">Import verified local model (development)</string>
     <string name="translation_preparing">Preparing translation model: %1$d%%</string>
@@ -490,8 +495,9 @@
     <string name="settings_group_privacy">Data and privacy</string>
     <string name="settings_group_about">About</string>
     <string name="settings_voice_recognition">Voice recognition</string>
-    <string name="settings_auto_send">Send after speaking</string>
-    <string name="settings_auto_send_summary">Sends 3 seconds after a complete result</string>
+    <string name="settings_auto_send">Auto-send</string>
+    <string name="settings_auto_send_hint">Sends automatically after the wait below when on</string>
+    <string name="settings_auto_send_summary">Wait after speech recognition ends</string>
     <string name="settings_translation">Translation</string>
     <string name="settings_translation_summary">Local · Chinese to English</string>
     <string name="settings_floating_ball">Floating button</string>
@@ -538,10 +544,12 @@
     <string name="settings_cloud_title">Doubao voice configuration</string>
     <string name="settings_translation_title">Translation and model</string>
     <string name="settings_translation_ready">Model ready</string>
+    <string name="settings_translation_bundled">Included in app</string>
+    <string name="settings_translation_bundled_note">Bundled models are included in this app and work offline immediately. Models that are not bundled download over the network and are verified against the pinned SHA-256 before use.</string>
     <string name="settings_translation_missing">Model not prepared</string>
     <string name="settings_translation_failed">Model unavailable</string>
     <string name="settings_translation_prepare">Download model</string>
-    <string name="settings_translation_prepare_desc">Local Chinese-English translation runs on this device; downloading the model needs a network connection.</string>
+    <string name="settings_translation_prepare_desc">Local Chinese-English translation runs on this device. This model must be downloaded and verified against the pinned SHA-256 before use.</string>
     <string name="settings_translation_progress">Preparing %1$d%%</string>
     <string name="settings_translation_note">Translation is applied to the current draft from the speaking page.</string>
     <string name="settings_background_title">Background help</string>
@@ -670,4 +678,142 @@
     <string name="settings_diagnostics_true">Yes</string>
     <string name="settings_diagnostics_false">No</string>
     <string name="settings_storage_empty_cache">No cache to clear</string>
+
+    <string name="share_text_locked">A request is being processed. Try sharing again when it finishes.</string>
+    <string name="share_text_loaded">Shared text loaded</string>
+    <string name="share_text_title">Shared text</string>
+    <string name="share_text_conflict">Your current draft is not empty. Replace the draft, append the shared text, or cancel.</string>
+    <string name="share_text_replace">Replace draft</string>
+    <string name="share_text_append">Append to draft</string>
+
+    <string name="settings_voice_commands">Spoken editing commands</string>
+    <string name="settings_voice_commands_summary">Applies whole command phrases only</string>
+    <string name="settings_voice_commands_help">With this on, a separate phrase such as “newline”, “delete previous sentence”, “clear”, “translate” or “send” edits the finished draft. Command words inside a sentence stay text. Off by default. “Send” submits the finished draft to the computer; it still requires an active connection.</string>
+
+    <string name="settings_offline_model_title">Offline model</string>
+    <string name="settings_translation_model">Model</string>
+    <string name="settings_translation_file">File</string>
+    <string name="settings_translation_size">Size</string>
+    <string name="settings_translation_version">Revision</string>
+    <string name="settings_translation_status">Status</string>
+    <string name="settings_translation_incomplete">Incomplete file</string>
+    <string name="settings_translation_redownload">Re-download and verify</string>
+    <string name="settings_translation_delete">Delete model</string>
+    <string name="settings_translation_deleting">Deleting model…</string>
+    <string name="settings_translation_delete_failed">Could not delete the model file. Try again.</string>
+    <string name="settings_translation_delete_title">Delete local model?</string>
+    <string name="settings_translation_delete_message">Only this model file is deleted. Your draft, history and paired computer are kept; translation will need another download.</string>
+    <string name="settings_translation_delete_confirm">Delete</string>
+    <string name="settings_translation_switch_note">Changing the model affects future translations only. An existing translated draft stays available and can still be sent.</string>
+    <string name="settings_asr_model_spec">Model specification</string>
+    <string name="settings_asr_model_spec_summary">On-device recognition model packaged with the app</string>
+    <string name="settings_asr_model_spec_value">X-ASR 480ms</string>
+    <string name="settings_asr_model_files">Model files</string>
+    <string name="settings_asr_model_size">Model size</string>
+    <string name="settings_asr_model_version">Model version</string>
+    <string name="settings_asr_model_state">Model state</string>
+    <string name="settings_asr_model_only_one">Only the bundled X-ASR 480 ms specification is available today. No other downloadable ASR specification is included yet.</string>
+    <string name="settings_asr_model_bundled">The model ships inside the app and is verified by the build; it cannot be deleted separately.</string>
+    <string name="settings_asr_model_spec_note">480 ms is the audio chunk size, not first-word or end-to-end latency.</string>
+    <string name="settings_storage_translation_models">Translation models</string>
+    <string name="settings_storage_asr_model">Offline ASR model</string>
+
+    <string name="settings_floating_ball_settings">Floating button settings</string>
+    <string name="settings_floating_ball_settings_summary">Size, opacity and double-tap action</string>
+    <string name="settings_ball_size">Size</string>
+    <string name="settings_ball_size_value">%1$d dp</string>
+    <string name="settings_ball_opacity">Opacity at the screen edge</string>
+    <string name="settings_ball_opacity_value">%1$d%%</string>
+    <string name="settings_ball_double">Double-tap action</string>
+    <string name="settings_ball_double_card">Open quick card</string>
+    <string name="settings_ball_double_record">Start recording in quick card</string>
+    <string name="settings_ball_note">Drag to move, tap to expand, double-tap for the selected action, and long-press for quick actions.</string>
+    <string name="settings_ball_fullscreen_note">Auto-hide for fullscreen video or games is not enabled: Android gives an overlay no reliable fullscreen signal without accessibility or usage-access permission.</string>
+    <string name="quick_menu_open">Open quick card</string>
+    <string name="quick_menu_pause">Pause computer input</string>
+    <string name="quick_menu_resume">Resume computer input</string>
+    <string name="quick_menu_close">Turn off floating button</string>
+
+    <string name="history_date_all">Any date</string>
+    <string name="history_date_today">Today</string>
+    <string name="history_date_week">7 days</string>
+    <string name="history_date_month">30 days</string>
+    <string name="history_app_all">All apps</string>
+    <string name="history_manage">Manage</string>
+    <string name="history_manage_cancel">Done</string>
+    <string name="history_select_all">Select all</string>
+    <string name="history_select_none">Clear selection</string>
+    <string name="history_delete_selected">Delete (%1$d)</string>
+    <string name="history_export">Export</string>
+    <string name="history_cleanup">Clean up</string>
+    <string name="history_export_title">Export history</string>
+    <string name="history_export_help">Exports the filtered text records and metadata. Image files are not embedded; copy an image from its record to keep the original.</string>
+    <string name="history_export_markdown">Markdown file</string>
+    <string name="history_export_json">JSON file</string>
+    <string name="history_export_encrypted">Encrypted backup…</string>
+    <string name="history_export_encrypted_title">Encrypted backup</string>
+    <string name="history_export_encrypted_help">The backup is encrypted with your passphrase (PBKDF2-HMAC-SHA256 + AES-256-GCM). SayIn cannot recover a lost passphrase.</string>
+    <string name="history_export_passphrase">Passphrase (at least 8 characters)</string>
+    <string name="history_export_passphrase_short">Use at least 8 characters.</string>
+    <string name="history_export_encrypted_start">Encrypt and export</string>
+    <string name="history_export_done">History exported</string>
+    <string name="history_export_failed">Export failed. Check the destination and try again.</string>
+    <string name="history_delete_selected_title">Delete selected records?</string>
+    <string name="history_delete_multiple_help">Hide %1$d records on this phone only. Requests, receipts and the paired computer are unchanged.</string>
+    <string name="history_delete_selected_action">Delete selected</string>
+    <string name="history_cleanup_title">Clean up history</string>
+    <string name="history_cleanup_help">Only the history list on this phone is cleaned. Receipts, request identity and pending operations are kept.</string>
+    <string name="history_cleanup_week">Older than 7 days</string>
+    <string name="history_cleanup_month">Older than 30 days</string>
+    <string name="history_cleanup_quarter">Older than 90 days</string>
+    <string name="history_cleanup_all">All displayed history</string>
+
+    <string name="history_count">%1$d records</string>
+    <string name="history_more">More actions</string>
+    <string name="history_filter">Filter</string>
+    <string name="history_filter_title">Filter records</string>
+    <string name="history_filter_help">Status stays on the toolbar. Choose a date and app here.</string>
+    <string name="history_filter_date">Date</string>
+    <string name="history_filter_app">App</string>
+    <string name="history_filter_reset">Reset</string>
+    <string name="history_filter_apply">View %1$d results</string>
+    <string name="history_filter_clear">Clear</string>
+    <string name="history_filter_remove">Remove filter: %1$s</string>
+    <string name="history_clear_search">Clear search</string>
+    <string name="history_selected_count">%1$d selected</string>
+
+    <string name="history_confirm">Confirm</string>
+    <string name="history_cleanup_confirm">Clean up</string>
+
+    <string name="settings_send_policy">Send policy</string>
+    <plurals name="settings_send_policy_summary">
+        <item quantity="one">Default %1$s · %2$d app rule</item>
+        <item quantity="other">Default %1$s · %2$d app rules</item>
+    </plurals>
+    <string name="settings_policy_manual">Manual</string>
+    <string name="settings_policy_auto">Auto-send</string>
+    <string name="settings_policy_inherit">Use default</string>
+    <string name="settings_send_policy_current">Current desktop app</string>
+    <string name="settings_send_policy_no_current">No foreground app</string>
+    <string name="settings_send_policy_chip_auto">Auto</string>
+    <string name="settings_send_policy_chip_manual">Manual</string>
+    <string name="settings_send_policy_wait">Wait time</string>
+    <string name="settings_send_policy_seconds">%1$d s</string>
+    <string name="settings_send_policy_apps">App rules</string>
+    <string name="settings_send_policy_empty">Send once from a desktop app to create a rule.</string>
+    <string name="settings_send_policy_clear">Clear all rules</string>
+
+    <string name="speak_listening_short">Listening</string>
+    <string name="speak_send_after_delay">Send in %1$d seconds</string>
+    <string name="speak_confirm_ime">Confirm your keyboard suggestion</string>
+    <string name="speak_auto_target_unavailable">Bring the target app to the front, then tap Send</string>
+    <string name="speak_auto_update_desktop">Update SayIn on your PC for auto-send</string>
+    <string name="receipt_automatic_target_changed">Target changed. Draft kept.</string>
+    <string name="speak_policy_auto_short">Auto</string>
+    <string name="speak_policy_manual_short">Manual</string>
+    <string name="speak_policy_description">Send policy: %1$s</string>
+
+    <string name="speak_countdown_number">%1$d</string>
+
+    <string name="speak_finish_auto_send">Finish and auto-send</string>
 </resources>

@@ -3,10 +3,14 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -192,6 +196,47 @@ extern "C" JNIEXPORT jint JNICALL Java_seeyuer_sayin_translation_NativeBindings_
         const auto name = bytes(env, path);
         if (name.find('\0') != std::string::npos) return Error;
         s.model = llama_model_load_from_file(name.c_str(), params);
+        if (!s.model) return s.cancelled.load() ? Cancelled : Error;
+        char arch[64]{};
+        llama_model_meta_val_str(s.model, "general.architecture", arch, sizeof(arch));
+        if (std::string(arch) != (kind == 0 ? "hunyuan-dense" : "plamo3") || s.cancelled.load()) {
+            llama_model_free(s.model); s.model = nullptr;
+            return s.cancelled.load() ? Cancelled : Error;
+        }
+        s.kind = kind; s.threads = threads;
+        return Complete;
+    } catch (...) { if (s.model) { llama_model_free(s.model); s.model = nullptr; } return Error; }
+}
+// Load an uncompressed APK asset without extracting a second 1.13 GB copy.
+// The FILE* starts at the asset data; llama reads absolute offsets from it.
+// No mmap: the APK also contains unrelated assets, and mapping the whole APK
+// would prefetch them and make tensor alignment depend on ZIP layout.
+extern "C" JNIEXPORT jint JNICALL Java_seeyuer_sayin_translation_NativeBindings_loadFd(
+        JNIEnv * env, jobject, jlong h, jint fd, jlong offset, jlong length, jint kind, jint threads, jobject callback) {
+    auto & s = *session(h);
+    if (s.model || kind < 0 || kind > 1 || threads < 1 || threads > 8 || fd < 0 || offset < 0 || length <= 0) return Error;
+    // Borrow the caller's descriptor; Kotlin closes it after this call returns.
+    const int duplicate = ::dup(fd);
+    if (duplicate < 0) return Error;
+    FILE * file = ::fdopen(duplicate, "rb");
+    if (file == nullptr) { ::close(duplicate); return Error; }
+    struct FileGuard {
+        FILE * value;
+        ~FileGuard() { if (value) std::fclose(value); }
+    } guard{file};
+    try {
+        struct stat info{};
+        const auto data = static_cast<uint64_t>(offset);
+        const auto size = static_cast<uint64_t>(length);
+        if (::fstat(::fileno(file), &info) != 0 || data + size < data ||
+            data + size > static_cast<uint64_t>(info.st_size)) return Error;
+        if (::fseeko(file, static_cast<off_t>(offset), SEEK_SET) != 0) return Error;
+        Events events(env, callback); Loading loading{&s, &events};
+        auto params = llama_model_default_params();
+        params.n_gpu_layers = 0;
+        params.progress_callback = load_progress; params.progress_callback_user_data = &loading;
+        params.load_mode = LLAMA_LOAD_MODE_NONE;
+        s.model = llama_model_load_from_file_ptr(file, params);
         if (!s.model) return s.cancelled.load() ? Cancelled : Error;
         char arch[64]{};
         llama_model_meta_val_str(s.model, "general.architecture", arch, sizeof(arch));

@@ -796,7 +796,7 @@ async fn authenticated(
         "device_id":session.device(),"active_device_id":control.active_device_id,"state_rev":control.state_rev,
         "paused":control.paused,"pause_reason":control.pause_reason,"target":control.target,
         "image_channel":image_binding.description(),
-        "capabilities":if shared.receiver.image_store().is_some() {vec!["text","key_enter","control","query","image"]} else {vec!["text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
+        "capabilities":if shared.receiver.image_store().is_some() {vec!["text","auto_text","key_enter","control","query","image"]} else {vec!["text","auto_text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
             "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536}})).await?;
     let sample = foreground.borrow_and_update().clone();
     display

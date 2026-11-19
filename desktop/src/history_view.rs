@@ -21,6 +21,7 @@ use std::{
 use voicelink_receiver::{
     history::{HistoryEntry, HistoryPolicy},
     protocol::{Operation, State},
+    windows_image_delivery::{ImageDeliveryMode, is_executable_path},
 };
 use yue_component::{
     ButtonSize, ButtonVariant, DialogFooter, Icon, SelectEvent, SelectMode, SelectOption,
@@ -490,7 +491,7 @@ impl HistoryView {
         let theme = current_theme(cx);
         let order = &entry.receipt.order;
         let body = match &entry.operation {
-            Some(Operation::Text { text, .. }) => text.clone(),
+            Some(Operation::Text { text, .. } | Operation::AutoText { text, .. }) => text.clone(),
             Some(Operation::Image { image }) => format!(
                 "{} · {} × {} · {} KiB",
                 settings.text(M::ImageLabel),
@@ -580,6 +581,29 @@ impl HistoryView {
                 );
             }
             if !self.recent_only {
+                if let Some(target) = entry
+                    .target
+                    .as_ref()
+                    .filter(|target| is_executable_path(std::path::Path::new(&target.executable)))
+                {
+                    items.push(YueMenuItem::separator());
+                    for (mode, label) in [
+                        (ImageDeliveryMode::PasteImage, M::ImageModePasteForApp),
+                        (ImageDeliveryMode::CopyPath, M::ImageModeCopyPathForApp),
+                    ] {
+                        let owner = self.preferences.clone();
+                        let executable = target.executable.clone();
+                        items.push(
+                            YueMenuItem::new(settings.text(label))
+                                .disabled(!settings.is_editable())
+                                .on_click(move |_, _, cx| {
+                                    owner.update(cx, |settings, cx| {
+                                        settings.set_image_application(&executable, Some(mode), cx);
+                                    })
+                                }),
+                        );
+                    }
+                }
                 items.extend([
                     YueMenuItem::separator(),
                     YueMenuItem::new(settings.text(M::HistoryDelete))
@@ -821,7 +845,7 @@ impl HistoryView {
             .when(!compact_route, |footer| footer.items_center())
             .gap_3()
             .child(route);
-        if matches!(entry.operation, Some(Operation::Text { .. })) {
+        if entry.operation.as_ref().and_then(Operation::text).is_some() {
             footer = footer.child(
                 YueButton::icon_text(
                     SharedString::from(format!("history-copy-{order}")),

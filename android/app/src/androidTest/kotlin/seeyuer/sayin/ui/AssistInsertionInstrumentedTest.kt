@@ -29,7 +29,8 @@ class AssistInsertionInstrumentedTest {
     }
 
     private fun ready() = ClientState(connection = Connection.ONLINE, paired = true, address = "127.0.0.1",
-        target = "target", paused = false, active = true, revision = "1", connectionEpoch = 1)
+        target = "target", paused = false, active = true, revision = "1", connectionEpoch = 1, autoTextSupported = true,
+        foregroundApplication = ForegroundApplication("Test editor"))
 
     private fun openSession(initial: TextFieldValue = TextFieldValue(), recognition: Recognition = Recognition()): SpeakSession {
         val context = object : ContextWrapper(instrumentation.targetContext) {

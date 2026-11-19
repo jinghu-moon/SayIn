@@ -119,6 +119,6 @@ python scripts/check_i18n.py
 python scripts/check_translation_package.py android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-这些准备命令在开发电脑执行，安装后的 Android 产品不需要 Python、Termux 或本地 HTTP 服务。APK 不包含 GGUF。首次使用由用户明确准备单一 Hy-MT2-1.8B Q4_K_M（1,133,080,448 bytes），从固定来源下载并 SHA-256 校验到私有目录；之后离线翻译。Debug 另可导入同一摘要的本机模型，Release 不暴露文件选择器。准备期间需要约 1.15 GB 额外可用存储；网络失败保留原稿和旧可用模型。
+这些准备命令在开发电脑执行，安装后的 Android 产品不需要 Python、Termux 或本地 HTTP 服务。Hy-MT2-1.8B Q4_K_M（1,133,080,448 bytes）与 PLaMo 0.8B Q4_K_M（573,126,848 bytes）以未压缩 asset 内嵌 APK：构建任务读取被忽略的 `assets/translation-model/`，逐个核验固定长度/SHA-256 后复制，运行时不复制第二份，直接通过 `AssetFileDescriptor` 读取。Debug/Release APK 约 2.4GB。PLaMo 2B 仍由用户明确下载；Debug 另可导入同一摘要的本机模型，Release 不暴露文件选择器。下载准备期间需要约 1.15 GB 额外可用存储；网络失败保留原稿和旧可用模型。
 
 回归脚本 `verify_android_transport.ps1 -FullSuite` 与 `verify_android_translation_product.ps1 -BuildType debug` 共用独立 `seeyuer.sayin.imagetest` 包（imageTest）；真实Release验证使用显式隔离的 `seeyuer.sayin.translationverification` 包，不覆盖日常数据；共享设备必须串行运行。前者验证完整常规套件和恰好两次 fake 输入，后者显式验证真实 JNI 与 ASR 权重共存；两者都不证明真实麦克风到 Wi-Fi 目标应用落字。模型比较和 K40 实测、K90 待验收边界见 [50 本地翻译实施](../docs/50-android-local-translation-implementation.md)。

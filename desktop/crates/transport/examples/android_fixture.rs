@@ -283,10 +283,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let image_delivery = Arc::new(std::sync::RwLock::new(
+        voicelink_receiver::windows_image_delivery::ImageDeliverySettings::new(
+            Some(output.join("exports")),
+            Default::default(),
+        ),
+    ));
     let adapter = if let Some(target) = target.clone() {
         FixtureInput::Native(Box::new(NativeFixture {
             native: NativeInput::with_images(
                 image_store.ok_or("--native-target requires --images")?,
+                image_delivery,
             ),
             target,
             calls: calls.clone(),
@@ -298,6 +305,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         FixtureInput::Manual(
             Box::new(NativeInput::with_images(
                 image_store.ok_or("--manual-native requires --images")?,
+                image_delivery,
             )),
             calls.clone(),
         )

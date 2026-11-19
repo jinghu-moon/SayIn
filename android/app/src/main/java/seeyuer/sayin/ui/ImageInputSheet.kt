@@ -57,6 +57,7 @@ import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.data.ImageIssue
+import seeyuer.sayin.data.IMAGE_PATH_COPY_METHOD
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -206,11 +207,16 @@ internal fun ImageInputSheet(
                         val issue = state.imageIssue
                         when {
                             receipt != null && receipt.state == "injected" -> ImageStatus(
-                                VoiceLinkIcon.Check, stringResource(R.string.image_paste_submitted),
+                                VoiceLinkIcon.Check, stringResource(if (receipt.method == IMAGE_PATH_COPY_METHOD)
+                                    R.string.image_path_paste_help else R.string.image_paste_submitted),
                                 successColor(), Modifier.testTag("image-receipt"),
                             )
                             receipt != null && receipt.state == "uncertain" -> ImageStatus(
                                 VoiceLinkIcon.Alert, stringResource(receiptText(receipt.state)), errorColor(),
+                            )
+                            receipt != null && receipt.state == "failed" -> ImageStatus(
+                                VoiceLinkIcon.Alert, stringResource(imageDeliveryFailure(receipt.reason)
+                                    ?: receiptText(receipt.state)), errorColor(),
                             )
                             issue != null -> ImageStatus(VoiceLinkIcon.Alert, stringResource(when (issue) {
                                 ImageIssue.INVALID -> R.string.image_invalid

@@ -39,6 +39,7 @@ import org.junit.runner.RunWith
 import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.ForegroundApplication
 import seeyuer.sayin.data.OutboxItem
 import seeyuer.sayin.designsystem.VoiceLinkTheme
 import top.yukonga.miuix.kmp.basic.Text
@@ -47,14 +48,14 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MobileShellInstrumentedTest {
-    @Test fun horizontalSwipeAndTabClickShareThePageTransition() {
+    @Test fun tabClicksSwitchPagesWithoutTransportActions() {
         val state = ready()
         setTestContent { VoiceLinkTheme { TestVoiceLinkContent(state, TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
         compose.onNodeWithTag("page-Speak").assertExists()
-        compose.onRoot().performTouchInput { swipeLeft() }
+        compose.onNodeWithTag("nav-History").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("page-History").assertExists()
-        compose.onRoot().performTouchInput { swipeRight() }
+        compose.onNodeWithTag("nav-Speak").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("page-Speak").assertExists()
         compose.onNodeWithTag("nav-Connection").performClick()
@@ -89,7 +90,7 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithText(context.getString(R.string.history_delete)).performClick()
         compose.onNodeWithText(context.getString(R.string.history_delete_help)).assertExists()
         assertTrue(actions.isEmpty())
-        compose.onAllNodesWithText(context.getString(R.string.history_delete)).filter(hasClickAction()).onFirst().performClick()
+        compose.onNodeWithTag("history-confirm-delete").performClick()
         compose.onNodeWithTag("history-text-$id").assertDoesNotExist()
         assertEquals(listOf(id to "delete"), actions)
         assertEquals("injected", state.history.single().state)
@@ -103,18 +104,124 @@ class MobileShellInstrumentedTest {
         setTestContent { VoiceLinkTheme { Scaffold {
             MobileHistoryPage(state, action = { _, _ -> })
         } } }
-        compose.onNodeWithTag("history-filter-All").assertIsSelected()
-        compose.onNodeWithTag("history-filter-Submitted").assertIsNotSelected()
+        fun tab(label: Int) = compose.onNode(hasText(context.getString(label)) and hasClickAction())
+        tab(R.string.history_all).assertIsSelected()
+        tab(R.string.history_submitted).assertIsNotSelected()
         compose.onNodeWithTag("history-text-$review").assertExists()
-        compose.onNodeWithTag("history-filter-Submitted").performClick()
-        compose.onNodeWithTag("history-filter-Submitted").assertIsSelected()
-        compose.onNodeWithTag("history-filter-All").assertIsNotSelected()
+        tab(R.string.history_submitted).performClick()
+        tab(R.string.history_submitted).assertIsSelected()
+        tab(R.string.history_all).assertIsNotSelected()
         compose.onNodeWithTag("history-text-$submitted").assertExists()
         compose.onNodeWithTag("history-text-$review").assertDoesNotExist()
-        compose.onNodeWithTag("history-filter-Review").performClick()
-        compose.onNodeWithTag("history-filter-Review").assertIsSelected()
+        tab(R.string.history_attention).performClick()
+        tab(R.string.history_attention).assertIsSelected()
         compose.onNodeWithTag("history-text-$review").assertExists()
         compose.onNodeWithTag("history-text-$submitted").assertDoesNotExist()
+    }
+
+    @Test fun historyDateAndApplicationFiltersComposeWithBulkDeleteAndExport() {
+        val now = System.currentTimeMillis()
+        val todayId = java.util.UUID.randomUUID().toString()
+        val oldId = java.util.UUID.randomUUID().toString()
+        val state = ready().copy(
+            history = listOf(
+                item("injected", todayId).copy(createdAt = now),
+                item("injected", oldId).copy(createdAt = now - 10L * 24 * 60 * 60 * 1000),
+            ),
+            historyText = mapOf(todayId to "Today words", oldId to "Old words"),
+            historyApplications = mapOf(
+                todayId to seeyuer.sayin.data.ForegroundApplication("Chat"),
+                oldId to seeyuer.sayin.data.ForegroundApplication("Editor"),
+            ),
+        )
+        val hidden = mutableListOf<List<String>>()
+        setTestContent { VoiceLinkTheme { Scaffold {
+            MobileHistoryPage(state, action = { _, _ -> }, onHideHistory = { hidden += it })
+        } } }
+        compose.onNodeWithTag("history-filter-open").performClick()
+        compose.onNodeWithTag("history-filter-sheet").assertExists()
+        compose.onNodeWithTag("history-app-Editor").performClick()
+        compose.onNodeWithTag("history-filter-apply").performClick()
+        compose.onNodeWithTag("history-active-app").assertExists()
+        compose.onNodeWithTag("history-text-$oldId").assertExists()
+        compose.onNodeWithTag("history-text-$todayId").assertDoesNotExist()
+        compose.onNodeWithTag("history-filter-open").performClick()
+        compose.onNodeWithTag("history-app-all").performClick()
+        compose.onNode(hasText(context.getString(R.string.history_date_today)) and hasClickAction()).performClick()
+        compose.onNodeWithTag("history-filter-apply").performClick()
+        compose.onNodeWithTag("history-active-date").assertExists()
+        compose.onNodeWithTag("history-text-$todayId").assertExists()
+        compose.onNodeWithTag("history-text-$oldId").assertDoesNotExist()
+        compose.onNodeWithTag("history-filter-open").performClick()
+        compose.onNodeWithTag("history-app-all").performClick()
+        compose.onNode(hasText(context.getString(R.string.history_date_all)) and hasClickAction()).performClick()
+        compose.onNodeWithTag("history-filter-apply").performClick()
+        compose.onNodeWithTag("history-top-more").performClick()
+        compose.onNodeWithText(context.getString(R.string.history_manage)).performClick()
+        compose.onNodeWithTag("history-select-all").performClick()
+        compose.onNodeWithTag("history-delete-selected").performClick()
+        compose.onNodeWithText(context.getString(R.string.history_delete_multiple_help, 2)).assertExists()
+        compose.onNodeWithTag("history-confirm-delete").performClick()
+        assertEquals(listOf(listOf(todayId, oldId)), hidden)
+    }
+
+    @Test fun historyExportSheetRequiresALongEnoughBackupPassphrase() {
+        val id = java.util.UUID.randomUUID().toString()
+        val state = ready().copy(history = listOf(item("injected", id)), historyText = mapOf(id to "Export me"))
+        setTestContent { VoiceLinkTheme { Scaffold {
+            MobileHistoryPage(state, action = { _, _ -> })
+        } } }
+        compose.onNodeWithTag("history-top-more").performClick()
+        compose.onNodeWithText(context.getString(R.string.history_export)).performClick()
+        compose.onNodeWithText(context.getString(R.string.history_export_title)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.history_export_encrypted)).performClick()
+        compose.onNodeWithTag("history-passphrase").assertExists()
+        compose.onNodeWithText(context.getString(R.string.history_export_encrypted_start)).performClick()
+        compose.onNodeWithText(context.getString(R.string.history_export_passphrase_short)).assertExists()
+    }
+
+    @Test fun settingsExposeVoiceCommandsModelManagementAndFloatingButtonOptions() {
+        setTestContent { VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
+        compose.onNodeWithTag("nav-Settings").performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_voice_recognition)).performClick()
+        compose.onNodeWithTag("voice-commands").assertExists()
+        compose.onNodeWithTag("voice-commands").performClick()
+        assertTrue(currentTestSession.voiceCommandsEnabled)
+        compose.onNodeWithText(context.getString(R.string.settings_offline_model)).performClick()
+        compose.onNodeWithTag("settings-page-OfflineModel").assertExists()
+        compose.onNodeWithText(context.getString(R.string.settings_asr_model_spec_value)).assertExists()
+        compose.onNodeWithTag("settings-back").performClick()
+        compose.onNodeWithTag("settings-back").performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_translation)).performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_translation_bundled)).assertExists()
+        compose.onNodeWithTag("settings-translation-prepare").assertDoesNotExist()
+        compose.onNodeWithTag("settings-page-Translation").assertExists()
+        compose.onNodeWithTag("settings-back").performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_floating_ball_settings)).performClick()
+        compose.onNodeWithTag("ball-size").assertExists()
+        compose.onNodeWithTag("ball-opacity").assertExists()
+    }
+
+    @Test fun sharedTextLoadsIntoAnEmptyDraft() {
+        var draft by mutableStateOf(TextFieldValue())
+        setTestContent {
+            VoiceLinkTheme { TestVoiceLinkContent(ready(), draft, { draft = it }, {}, { _, _ -> }, {},
+                sharedText = "来自浏览器的分享", shareVersion = 1) }
+        }
+        compose.waitUntil(5_000) { draft.text == "来自浏览器的分享" }
+        compose.onNodeWithTag("draft").assertTextContains("来自浏览器的分享")
+    }
+
+    @Test fun sharedTextAsksBeforeReplacingExistingDraft() {
+        var draft by mutableStateOf(TextFieldValue("现有草稿"))
+        setTestContent {
+            VoiceLinkTheme { TestVoiceLinkContent(ready(), draft, { draft = it }, {}, { _, _ -> }, {},
+                sharedText = "新的分享文本", shareVersion = 1) }
+        }
+        compose.onNodeWithText(context.getString(R.string.share_text_title)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.share_text_replace)).performClick()
+        compose.waitUntil(5_000) { draft.text == "新的分享文本" }
+        compose.onNodeWithTag("draft").assertTextContains("新的分享文本")
     }
 
     @Test fun historyImageFitsCardAndOpensLargerPreviewWithoutSending() {
@@ -372,7 +479,7 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithTag("draft").assertTextEquals("Review this text.")
     }
 
-    @Test fun compactLargeTextAndNormalizationPreviewKeepSendVisible() {
+    @Test fun compactLargeTextKeepsSendVisibleAndEditable() {
         val original = "first line\n" + "long draft ".repeat(200)
         setTestContent {
             val density = LocalDensity.current
@@ -385,21 +492,10 @@ class MobileShellInstrumentedTest {
             }
         }
         compose.onNodeWithTag("send-draft").assertIsDisplayed().assertIsEnabled()
-        screenshot("speak-compact-large-before-preview")
         val editorHeight = compose.onNodeWithTag("draft").fetchSemanticsNode().boundsInRoot.height
         val lineHeight = 34 * 1.5f * compose.activity.resources.displayMetrics.density
         assertTrue("Compact editor must fit a full line at 150% text size ($editorHeight >= $lineHeight)", editorHeight >= lineHeight)
-        // At 320dp the fifth tool leaves no room for the optional normalization toggle; the same
-        // preview action stays reachable through the existing overflow menu.
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(compose.activity.getString(R.string.speak_preview)).performClick()
-        compose.onNodeWithTag("send-draft").assertIsDisplayed()
-        compose.onNodeWithTag("draft-preview").assertTextContains(original.replace('\n', ' '))
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(compose.activity.getString(R.string.speak_edit)).performClick()
-        compose.onNodeWithTag("draft").assertTextContains(original)
-        assertTrue(compose.onNodeWithTag("draft").fetchSemanticsNode().boundsInRoot.height > 0)
-        screenshot("speak-compact-large-preview")
+        screenshot("speak-compact-large")
     }
 
     @Test fun emptyAndOversizedDraftCannotSendButRemainEditable() {
@@ -449,10 +545,9 @@ class MobileShellInstrumentedTest {
             var draft by remember { mutableStateOf(TextFieldValue("运行测试")) }
             VoiceLinkTheme { TestVoiceLinkContent(state, draft, { draft = it }, { sends++ }, { _, _ -> }, {}) }
         }
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(context.getString(R.string.speak_auto_send)).performClick()
+        enableAutomaticSending()
         compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
-        compose.runOnIdle { currentTestSession.completeInput() }
+        compose.onNodeWithTag("send-draft").performClick()
         compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
         compose.runOnIdle { state = ready().copy(connection = Connection.OFFLINE) }
         compose.onNodeWithTag("cancel-auto-send").assertDoesNotExist()
@@ -516,9 +611,8 @@ class MobileShellInstrumentedTest {
         setTestContent {
             VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue("运行测试"), {}, { sends++ }, { _, _ -> }, {}) }
         }
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNodeWithText(context.getString(R.string.speak_auto_send)).performClick()
-        compose.runOnIdle { currentTestSession.completeInput() }
+        enableAutomaticSending()
+        compose.onNodeWithTag("send-draft").performClick()
         compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
         compose.onNodeWithTag("speak-connect-action").performClick()
         compose.onNodeWithTag("close-connection").performClick()
@@ -527,8 +621,14 @@ class MobileShellInstrumentedTest {
     }
 
     private fun openRecognitionSettings() {
-        compose.onNodeWithTag("speak-more").performClick()
-        compose.onNode(hasText("识别设置") or hasText("Recognition settings")).performClick()
+        compose.onNodeWithTag("nav-Settings").performClick()
+        compose.onNode(
+            (hasText("语音识别") or hasText("Voice recognition")) and hasClickAction()
+        ).performClick()
+    }
+
+    private fun enableAutomaticSending() {
+        compose.runOnIdle { currentTestSession.changeSendMode(SpeakSendMode.Automatic) }
     }
 
     private fun selectRecognitionEngine(source: SpeakInputSource) {
@@ -542,17 +642,18 @@ class MobileShellInstrumentedTest {
     private fun TestVoiceLinkContent(state: ClientState, draft: TextFieldValue,
         onDraftChange: (TextFieldValue) -> Unit, onSend: () -> Unit,
         onHistoryAction: (String, String) -> Unit, connectionActions: @Composable () -> Unit,
-        onReconnect: () -> Unit = {}) {
+        onReconnect: () -> Unit = {}, sharedText: String? = null, shareVersion: Int = 0) {
         val context = LocalContext.current
         val callback by rememberUpdatedState(onDraftChange)
         val session = remember { SpeakSession(context, draft, { callback(it) }).also { it.selectSource(SpeakInputSource.Keyboard) } }
         currentTestSession = session
         val externalDraft by rememberUpdatedState(draft)
         LaunchedEffect(draft) { session.changeDraft(externalDraft) }
-        SideEffect { session.onSendReady = onSend }
+        SideEffect { session.onSendReady = { onSend() } }
         DisposableEffect(session) { onDispose { session.close() } }
         val phrases = rememberTestPhraseLibrary()
-        VoiceLinkContent(state, session, phrases, onSend, onHistoryAction, connectionActions, onReconnect)
+        VoiceLinkContent(state, session, phrases, onSend, onHistoryAction, connectionActions, onReconnect,
+            sharedText = sharedText, shareVersion = shareVersion)
     }
 
     @Composable
@@ -562,7 +663,7 @@ class MobileShellInstrumentedTest {
         cloudConfig: seeyuer.sayin.asr.CloudConfiguration? = null, onConfigureCloud: () -> Unit = {}) {
         val context = LocalContext.current
         val session = remember { SpeakSession(context, draft, onDraftChange).also { it.selectSource(source); it.changeSendMode(sendMode) } }
-        SideEffect { session.updateReceiver(state); session.onSendReady = onSend }
+        SideEffect { session.updateReceiver(state); session.onSendReady = { onSend() } }
         DisposableEffect(session) { onDispose { session.close() } }
         SpeakPage(state, session, rememberTestPhraseLibrary(), onSend, onConnect, cloudConfig, onConfigureCloud)
     }
@@ -605,7 +706,8 @@ class MobileShellInstrumentedTest {
     }
 
     private fun ready() = ClientState(connection = Connection.ONLINE, paired = true, address = "192.168.1.23:7788",
-        paused = false, target = "scope", active = true)
+        paused = false, target = "scope", active = true, autoTextSupported = true,
+        foregroundApplication = ForegroundApplication("Test editor"))
     private fun item(state: String, id: String) = OutboxItem(id, "host", "device", "scope", null, 0,
         state, null, null, 1794480000000L)
 }

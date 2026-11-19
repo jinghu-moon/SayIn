@@ -315,6 +315,51 @@ fn prepared_application_is_durable_before_native_execution() {
 }
 
 #[test]
+fn automatic_text_executes_only_in_the_requested_application() {
+    use voicelink_receiver::{application_icon::ApplicationDisplay, history::TargetApplication};
+
+    struct Editor;
+    impl InputAdapter for Editor {
+        fn preflight(&mut self, _: &Execution) -> std::result::Result<(), &'static str> {
+            Ok(())
+        }
+        fn prepared_application(&self) -> Option<TargetApplication> {
+            let mut target = TargetApplication::new("Editor.exe".into(), "".into(), 77, 1);
+            target.display = Some(ApplicationDisplay {
+                name: "Editor".into(),
+                icon_png: None,
+            });
+            Some(target)
+        }
+        fn execute(&mut self, job: &Execution, _: &InputGate) -> InputOutcome {
+            assert_eq!(job.operation().text(), Some("matching target"));
+            InputOutcome::Injected { method: "test" }
+        }
+    }
+    let directory = Directory::new();
+    let (receiver, session, target) = ready(&directory, Editor);
+    let make_message = |text: &str, application: &str| {
+        let mut message = submit(&session, &target, text);
+        message.op = Operation::AutoText {
+            text: text.into(),
+            application: application.into(),
+        };
+        message
+    };
+    let wrong = make_message("wrong target", "Browser");
+    wait(receiver.submit(session.clone(), wrong.clone())).unwrap();
+    until(&receiver, &session, &wrong.id, State::Failed);
+    let receipt = wait(receiver.query(session.clone(), wrong.id))
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.reason.as_deref(), Some("automatic_target_changed"));
+    let right = make_message("matching target", "Editor");
+    wait(receiver.submit(session.clone(), right.clone())).unwrap();
+    until(&receiver, &session, &right.id, State::Injected);
+    wait(receiver.shutdown()).unwrap();
+}
+
+#[test]
 fn native_preflight_failure_holds_oldest_without_input_or_skipping() {
     let directory = Directory::new();
     let calls = Arc::new(Mutex::new(Vec::new()));

@@ -154,7 +154,6 @@
     <string name="asr_microphone_error">麦克风不可用，请检查权限或其他正在录音的应用。</string>
     <string name="asr_too_slow">识别未能跟上录音，已停止。请检查草稿后发送。</string>
     <string name="asr_recognition_error">识别意外停止，请检查草稿或重新录音。</string>
-    <string name="speak_countdown">%1$d 秒后发送 · 点编辑可取消</string>
     <string name="speak_keep_editing">继续编辑 · 取消自动发送</string>
     <string name="speak_composing">请先确认输入法候选词。</string>
     <string name="speak_smart_hint">点“完成输入”后，符合条件的短句将自动发送。</string>
@@ -255,6 +254,7 @@
     <string name="speak_send_to_computer">发送到电脑</string>
     <string name="speak_cancel_send">取消发送</string>
     <string name="speak_query">查询状态</string>
+    <string name="speak_keep_draft">保留为草稿</string>
     <string name="speak_offline_saved">%1$s · 草稿自动保留</string>
     <string name="speak_view_connection">查看连接</string>
     <string name="speak_cleared">草稿已清空</string>
@@ -304,6 +304,11 @@
     <string name="image_progress">正在传送 · %1$d%%</string>
     <string name="image_cancel_upload">取消传送</string>
     <string name="image_paste_submitted">已提交粘贴指令，请查看目标应用。</string>
+    <string name="image_path_copied">图片已保存，路径已复制</string>
+    <string name="image_path_paste_help">图片已保存，路径已复制。可在电脑上的目标应用中粘贴。</string>
+    <string name="image_export_failed">图片保存失败，请检查电脑端 SayIn 设置中的文件夹。</string>
+    <string name="image_saved_path_unavailable">图片已保存，路径复制失败。</string>
+    <string name="image_saved_paste_unavailable">图片已保存，粘贴指令提交失败。</string>
     <string name="image_invalid">图片格式不支持、内容损坏或超出上限，请选择静态 PNG/JPEG。</string>
     <string name="image_not_ready">电脑暂时无法粘贴。图片已保留，请查看连接或电脑接收状态。</string>
     <string name="image_unsupported">此电脑尚不支持图片输入，请更新电脑端 SayIn。</string>
@@ -333,7 +338,7 @@
     <string name="translation_model_unavailable">本地模型缺失或完整性校验失败，请重新准备，原文已保留。</string>
     <string name="translation_error">本地翻译失败，原文已保留，未调用云服务。</string>
     <string name="translation_prepare_title">准备离线翻译</string>
-    <string name="translation_prepare_description">下载选定的 Hy-MT2 模型（1.13 GB）并校验完整性，准备期间至少需要额外 1.15 GB 存储空间。准备完成后在手机本地翻译，不上传正文。下载不会翻译或发送当前草稿。</string>
+    <string name="translation_prepare_description">下载所选模型并按固定 SHA-256 校验完整性。准备完成后在手机本地翻译，不上传正文。下载不会翻译或发送当前草稿。</string>
     <string name="translation_prepare_download">下载并准备模型</string>
     <string name="translation_import_development">导入已核验的本地模型（开发用）</string>
     <string name="translation_preparing">正在准备翻译模型：%1$d%%</string>
@@ -486,8 +491,9 @@
     <string name="settings_group_privacy">数据与隐私</string>
     <string name="settings_group_about">关于</string>
     <string name="settings_voice_recognition">语音识别</string>
-    <string name="settings_auto_send">说完自动发送</string>
-    <string name="settings_auto_send_summary">识别完成后，倒计时 3 秒发送</string>
+    <string name="settings_auto_send">自动发送</string>
+    <string name="settings_auto_send_hint">开启后按下方等待时长自动发送</string>
+    <string name="settings_auto_send_summary">语音识别结束后等待时长</string>
     <string name="settings_translation">翻译</string>
     <string name="settings_translation_summary">本地 · 中译英</string>
     <string name="settings_floating_ball">悬浮球</string>
@@ -534,10 +540,12 @@
     <string name="settings_cloud_title">豆包语音配置</string>
     <string name="settings_translation_title">翻译与模型</string>
     <string name="settings_translation_ready">模型已就绪</string>
+    <string name="settings_translation_bundled">随应用内置</string>
+    <string name="settings_translation_bundled_note">已内置的模型随应用打包，安装后即可离线翻译。未内置的模型会联网下载并在使用前校验固定 SHA-256。</string>
     <string name="settings_translation_missing">模型未准备</string>
     <string name="settings_translation_failed">模型不可用</string>
     <string name="settings_translation_prepare">下载模型</string>
-    <string name="settings_translation_prepare_desc">本地中译英在本机推理，下载模型需要网络。</string>
+    <string name="settings_translation_prepare_desc">本地中译英在本机推理。该模型需要联网下载，并在使用前校验固定 SHA-256。</string>
     <string name="settings_translation_progress">准备中 %1$d%%</string>
     <string name="settings_translation_note">翻译会从说话页应用到当前草稿。</string>
     <string name="settings_background_title">后台运行帮助</string>
@@ -666,4 +674,141 @@
     <string name="settings_diagnostics_true">是</string>
     <string name="settings_diagnostics_false">否</string>
     <string name="settings_storage_empty_cache">暂无缓存可清理</string>
+
+    <string name="share_text_locked">当前请求处理中，完成后再分享。</string>
+    <string name="share_text_loaded">已载入分享文本</string>
+    <string name="share_text_title">分享的文本</string>
+    <string name="share_text_conflict">当前草稿不为空。可以替换草稿、追加分享文本或取消。</string>
+    <string name="share_text_replace">替换草稿</string>
+    <string name="share_text_append">追加到草稿</string>
+
+    <string name="settings_voice_commands">语音编辑指令</string>
+    <string name="settings_voice_commands_summary">仅整句指令生效</string>
+    <string name="settings_voice_commands_help">开启后，单独说出的“换行”“删除上一句”“清空”“翻译”“发送”会作用于已定稿草稿；句子中的同名词仍作为正文。默认关闭。“发送”会把定稿发送到电脑，仍需连接有效。</string>
+
+    <string name="settings_offline_model_title">离线模型</string>
+    <string name="settings_translation_model">模型</string>
+    <string name="settings_translation_file">文件</string>
+    <string name="settings_translation_size">大小</string>
+    <string name="settings_translation_version">版本</string>
+    <string name="settings_translation_status">状态</string>
+    <string name="settings_translation_incomplete">文件不完整</string>
+    <string name="settings_translation_redownload">重新下载并校验</string>
+    <string name="settings_translation_delete">删除模型</string>
+    <string name="settings_translation_deleting">正在删除模型…</string>
+    <string name="settings_translation_delete_failed">无法删除模型文件，请重试。</string>
+    <string name="settings_translation_delete_title">删除本地模型？</string>
+    <string name="settings_translation_delete_message">只删除当前模型文件；草稿、历史和已配对电脑都会保留。再次翻译需要重新下载。</string>
+    <string name="settings_translation_delete_confirm">删除</string>
+    <string name="settings_translation_switch_note">切换模型只影响之后的翻译；已完成的译文仍可查看和发送。</string>
+    <string name="settings_asr_model_spec">模型规格</string>
+    <string name="settings_asr_model_spec_summary">随应用打包的离线识别模型</string>
+    <string name="settings_asr_model_spec_value">X-ASR 480ms</string>
+    <string name="settings_asr_model_files">模型文件</string>
+    <string name="settings_asr_model_size">模型占用</string>
+    <string name="settings_asr_model_version">模型版本</string>
+    <string name="settings_asr_model_state">模型状态</string>
+    <string name="settings_asr_model_only_one">当前仅有内置 X-ASR 480ms 规格，尚未提供其他可下载规格。</string>
+    <string name="settings_asr_model_bundled">模型随应用打包并由构建校验，不能单独删除。</string>
+    <string name="settings_asr_model_spec_note">480ms 是音频分块规格，不是首字或端到端延迟。</string>
+    <string name="settings_storage_translation_models">翻译模型</string>
+    <string name="settings_storage_asr_model">离线识别模型</string>
+
+    <string name="settings_floating_ball_settings">悬浮球设置</string>
+    <string name="settings_floating_ball_settings_summary">尺寸、透明度与双击动作</string>
+    <string name="settings_ball_size">尺寸</string>
+    <string name="settings_ball_size_value">%1$d dp</string>
+    <string name="settings_ball_opacity">贴边透明度</string>
+    <string name="settings_ball_opacity_value">%1$d%%</string>
+    <string name="settings_ball_double">双击动作</string>
+    <string name="settings_ball_double_card">打开快捷说话卡</string>
+    <string name="settings_ball_double_record">在快捷卡直接录音</string>
+    <string name="settings_ball_note">拖动可移动，单击展开，双击执行所选动作，长按打开快捷菜单。</string>
+    <string name="settings_ball_fullscreen_note">全屏视频或游戏时自动隐藏未启用：不申请无障碍或使用情况访问权限时，Android 不会向悬浮窗提供可靠的全屏信号。</string>
+    <string name="quick_menu_open">打开快捷说话卡</string>
+    <string name="quick_menu_pause">暂停电脑接收</string>
+    <string name="quick_menu_resume">恢复电脑接收</string>
+    <string name="quick_menu_close">关闭悬浮球</string>
+
+    <string name="history_date_all">不限日期</string>
+    <string name="history_date_today">今天</string>
+    <string name="history_date_week">7 天</string>
+    <string name="history_date_month">30 天</string>
+    <string name="history_app_all">全部应用</string>
+    <string name="history_manage">批量管理</string>
+    <string name="history_manage_cancel">完成</string>
+    <string name="history_select_all">全选</string>
+    <string name="history_select_none">取消全选</string>
+    <string name="history_delete_selected">删除（%1$d）</string>
+    <string name="history_export">导出</string>
+    <string name="history_cleanup">清理</string>
+    <string name="history_export_title">导出历史记录</string>
+    <string name="history_export_help">导出当前筛选的文字记录和元数据。图片文件不会嵌入；如需保留原图，请在对应记录中复制。</string>
+    <string name="history_export_markdown">Markdown 文件</string>
+    <string name="history_export_json">JSON 文件</string>
+    <string name="history_export_encrypted">加密备份…</string>
+    <string name="history_export_encrypted_title">加密备份</string>
+    <string name="history_export_encrypted_help">备份使用你的口令加密（PBKDF2-HMAC-SHA256 + AES-256-GCM）。口令丢失后 SayIn 无法恢复。</string>
+    <string name="history_export_passphrase">口令（至少 8 个字符）</string>
+    <string name="history_export_passphrase_short">请使用至少 8 个字符。</string>
+    <string name="history_export_encrypted_start">加密并导出</string>
+    <string name="history_export_done">历史记录已导出</string>
+    <string name="history_export_failed">导出失败，请检查目标位置后重试。</string>
+    <string name="history_delete_selected_title">删除选中的记录？</string>
+    <string name="history_delete_multiple_help">仅在本机隐藏 %1$d 条记录；请求、回执和已配对电脑都不变。</string>
+    <string name="history_delete_selected_action">删除选中</string>
+    <string name="history_cleanup_title">清理历史</string>
+    <string name="history_cleanup_help">只清理本机历史列表；回执、请求身份和待处理操作都会保留。</string>
+    <string name="history_cleanup_week">7 天以前</string>
+    <string name="history_cleanup_month">30 天以前</string>
+    <string name="history_cleanup_quarter">90 天以前</string>
+    <string name="history_cleanup_all">全部历史显示记录</string>
+
+    <string name="history_count">%1$d 条</string>
+    <string name="history_more">更多操作</string>
+    <string name="history_filter">筛选</string>
+    <string name="history_filter_title">筛选记录</string>
+    <string name="history_filter_help">状态在工具栏切换，这里只选择日期与应用。</string>
+    <string name="history_filter_date">日期</string>
+    <string name="history_filter_app">应用</string>
+    <string name="history_filter_reset">重置</string>
+    <string name="history_filter_apply">查看 %1$d 条结果</string>
+    <string name="history_filter_clear">清除</string>
+    <string name="history_filter_remove">移除筛选：%1$s</string>
+    <string name="history_clear_search">清空搜索</string>
+    <string name="history_selected_count">已选 %1$d 条</string>
+
+    <string name="history_confirm">确认</string>
+    <string name="history_cleanup_confirm">清理</string>
+
+    <string name="settings_send_policy">发送策略</string>
+    <plurals name="settings_send_policy_summary">
+        <item quantity="other">默认%1$s · %2$d 个应用规则</item>
+    </plurals>
+    <string name="settings_policy_manual">手动确认</string>
+    <string name="settings_policy_auto">自动发送</string>
+    <string name="settings_policy_inherit">跟随默认</string>
+    <string name="settings_send_policy_current">电脑当前前台</string>
+    <string name="settings_send_policy_no_current">暂无前台应用</string>
+    <string name="settings_send_policy_chip_auto">自动</string>
+    <string name="settings_send_policy_chip_manual">手动</string>
+    <string name="settings_send_policy_wait">等待时长</string>
+    <string name="settings_send_policy_seconds">%1$d 秒</string>
+    <string name="settings_send_policy_apps">应用规则</string>
+    <string name="settings_send_policy_empty">连接电脑并发送一次后，这里会出现可配置的应用。</string>
+    <string name="settings_send_policy_clear">清除全部规则</string>
+
+    <string name="speak_listening_short">正在听</string>
+    <string name="speak_send_after_delay">%1$d 秒后发送</string>
+    <string name="speak_confirm_ime">请先确认输入法候选词</string>
+    <string name="speak_auto_target_unavailable">请将目标应用切到前台，再点发送</string>
+    <string name="speak_auto_update_desktop">请更新电脑端 SayIn 以使用自动发送</string>
+    <string name="receipt_automatic_target_changed">目标已变化，草稿已保留。</string>
+    <string name="speak_policy_auto_short">自动</string>
+    <string name="speak_policy_manual_short">手动</string>
+    <string name="speak_policy_description">发送策略：%1$s</string>
+
+    <string name="speak_countdown_number">%1$d</string>
+
+    <string name="speak_finish_auto_send">结束并自动发送</string>
 </resources>

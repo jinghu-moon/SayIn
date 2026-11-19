@@ -26,7 +26,8 @@
       "templateKind": 0,
       "templateRevision": "hy-official-zh-en-v1",
       "license": "Apache-2.0",
-      "licenseFile": "LICENSE.txt"
+      "licenseFile": "LICENSE.txt",
+      "bundled": true
     },
     {
       "id": "plamo-0.8b-q4",
@@ -40,7 +41,8 @@
       "templateKind": 1,
       "templateRevision": "pfml3-zh-hans-en-v1",
       "license": "PLaMo Community License",
-      "licenseFile": "LICENSE/en"
+      "licenseFile": "LICENSE/en",
+      "bundled": true
     },
     {
       "id": "plamo-2b-q4",
@@ -54,7 +56,8 @@
       "templateKind": 1,
       "templateRevision": "pfml3-zh-hans-en-v1",
       "license": "PLaMo Community License",
-      "licenseFile": "LICENSE/en"
+      "licenseFile": "LICENSE/en",
+      "bundled": false
     }
   ]
 }

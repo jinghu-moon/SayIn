@@ -1,5 +1,6 @@
 package seeyuer.sayin.ui
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.slideInHorizontally
@@ -33,6 +34,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -78,6 +80,7 @@ internal fun VoiceLinkContent(
     openSettings: Boolean = false,
     entryVersion: Int = 0,
     sharedImage: android.net.Uri? = null,
+    sharedText: String? = null,
     shareVersion: Int = 0,
     onSelectImage: (android.net.Uri) -> Unit = {},
     onSendImage: (String) -> Unit = {},
@@ -85,6 +88,9 @@ internal fun VoiceLinkContent(
     onClearImage: () -> Unit = {},
     loadDraftImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
     loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
+    onHideHistory: (List<String>) -> Unit = {},
+    onCleanupHistory: (Long) -> Unit = {},
+    autoRecordVersion: Int = 0,
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
     val page = MobilePage.valueOf(pageName)
@@ -115,6 +121,27 @@ internal fun VoiceLinkContent(
             showConnection = false
             onSelectImage(it)
             showImage = true
+        }
+    }
+    var handledShare by rememberSaveable { mutableIntStateOf(-1) }
+    var pendingShareText by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(sharedText, shareVersion) {
+        if (shareVersion == handledShare) return@LaunchedEffect
+        val text = sharedText?.trim()?.takeIf { it.isNotEmpty() } ?: return@LaunchedEffect
+        handledShare = shareVersion
+        session.cancelAutoSend()
+        showConnection = false
+        showImage = false
+        pageName = MobilePage.Speak.name
+        when {
+            session.requestLocked || session.busy || session.draftRestoring ->
+                Toast.makeText(context, R.string.share_text_locked, Toast.LENGTH_SHORT).show()
+            session.draft.text.isBlank() -> {
+                // A share is explicit text import, not a voice final: it is not eligible for auto-send.
+                session.changeDraft(TextFieldValue(text, TextRange(text.length)))
+                Toast.makeText(context, R.string.share_text_loaded, Toast.LENGTH_SHORT).show()
+            }
+            else -> pendingShareText = text
         }
     }
     SideEffect { session.updateReceiver(state) }
@@ -176,10 +203,10 @@ internal fun VoiceLinkContent(
                         if (forward) -width else width
                     }).using(SizeTransform(clip = false))
                 },
-                label = "root-page-transition",
             ) { currentPage ->
                 when (currentPage) {
                     MobilePage.Speak -> SpeakPage(state, session, phrases, onSend,
+                        autoRecordVersion = autoRecordVersion,
                         cloudConfig = cloudState.config.takeIf { !cloudState.busy && cloudState.issue != seeyuer.sayin.asr.CloudIssue.Storage },
                         onConfigureCloud = { if (quick) onExpand(true) else { settingsEntry = SettingsRoute.Recognition; goTo(MobilePage.Settings) } },
                         onConnect = { showConnection = true },
@@ -187,12 +214,11 @@ internal fun VoiceLinkContent(
                         onImage = { session.cancelAutoSend(); showImage = true },
                         quick = quick, onExpand = { onExpand(false) }, onDismiss = onDismiss,
                         onRequestAction = onHistoryAction, pageActive = currentPage == MobilePage.Speak)
-                    MobilePage.History -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
-                        PageTopBar(MobilePage.History)
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                            Box(Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("page-History")) {
-                                MobileHistoryPage(state, onHistoryAction, loadHistoryImage)
-                            }
+                    MobilePage.History -> Box(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface),
+                        contentAlignment = Alignment.TopCenter) {
+                        Box(Modifier.widthIn(max = 1000.dp).fillMaxSize().testTag("page-History")) {
+                            MobileHistoryPage(state, onHistoryAction, loadHistoryImage,
+                                onHideHistory = onHideHistory, onCleanupHistory = onCleanupHistory)
                         }
                     }
                     MobilePage.Connection -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
@@ -228,6 +254,30 @@ internal fun VoiceLinkContent(
             onDismiss = { onCancelImage(); showImage = false }, onSelectImage, onSendImage, onCancelImage, onClearImage,
             onPreview = { previewImageId = it })
         previewImageId?.let { id -> ImagePreviewDialog(id, loadDraftImage) { previewImageId = null } }
+        OverlayBottomSheet(show = pendingShareText != null, onDismissRequest = { pendingShareText = null }) {
+            val text = pendingShareText
+            if (text != null) Column(Modifier.fillMaxWidth().navigationBarsPadding()
+                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.share_text_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.share_text_conflict), fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                Panel {
+                    Text(text, maxLines = 6, overflow = TextOverflow.Ellipsis, fontSize = 15.sp, lineHeight = 22.sp)
+                }
+                Action(R.string.share_text_replace, primary = true) {
+                    session.changeDraft(TextFieldValue(text, TextRange(text.length)))
+                    pendingShareText = null
+                }
+                Action(R.string.share_text_append) {
+                    val base = session.draft.text
+                    val joined = if (base.endsWith("\n") || base.isBlank()) base + text else base + "\n" + text
+                    session.changeDraft(TextFieldValue(joined, TextRange(joined.length)))
+                    pendingShareText = null
+                }
+                TextButton(stringResource(R.string.assist_cancel), onClick = { pendingShareText = null },
+                    modifier = Modifier.fillMaxWidth(), minHeight = 48.dp)
+            }
+        }
         OverlayBottomSheet(show = showConnection, onDismissRequest = { showConnection = false }) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("connection-sheet")) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,

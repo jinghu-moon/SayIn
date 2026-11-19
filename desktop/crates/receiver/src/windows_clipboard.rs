@@ -1,6 +1,10 @@
-//! Native image clipboard publication shared by production input and history.
+//! Native clipboard publication shared by production input and history.
 use crate::images::payload::PreparedImage;
-use std::time::{Duration, Instant};
+use std::{
+    os::windows::ffi::OsStrExt,
+    path::Path,
+    time::{Duration, Instant},
+};
 use windows::{
     Win32::{
         Foundation::{GlobalFree, HANDLE, HGLOBAL, HWND},
@@ -10,7 +14,7 @@ use windows::{
                 OpenClipboard, RegisterClipboardFormatW, SetClipboardData,
             },
             Memory::{GMEM_MOVEABLE, GMEM_ZEROINIT, GlobalAlloc, GlobalLock, GlobalUnlock},
-            Ole::CF_DIBV5,
+            Ole::{CF_DIBV5, CF_UNICODETEXT},
         },
     },
     core::w,
@@ -170,6 +174,33 @@ pub fn publish(
     image: &PreparedImage,
     allowed: impl Fn() -> bool,
 ) -> Result<Published, Failure> {
+    let png = unsafe { RegisterClipboardFormatW(w!("PNG")) };
+    publish_formats(
+        owner,
+        &[(png, &image.png), (CF_DIBV5.0 as u32, &image.dibv5)],
+        allowed,
+    )
+}
+
+pub(crate) fn publish_path(
+    owner: HWND,
+    path: &Path,
+    allowed: impl Fn() -> bool,
+) -> Result<Published, Failure> {
+    let bytes = path
+        .as_os_str()
+        .encode_wide()
+        .chain([0])
+        .flat_map(u16::to_le_bytes)
+        .collect::<Vec<_>>();
+    publish_formats(owner, &[(CF_UNICODETEXT.0 as u32, &bytes)], allowed)
+}
+
+fn publish_formats(
+    owner: HWND,
+    formats: &[(u32, &[u8])],
+    allowed: impl Fn() -> bool,
+) -> Result<Published, Failure> {
     let before = |reason| Failure {
         clipboard_changed: false,
         reason,
@@ -178,36 +209,28 @@ pub fn publish(
         clipboard_changed: true,
         reason,
     };
-    let png = unsafe { RegisterClipboardFormatW(w!("PNG")) };
     let history = unsafe { RegisterClipboardFormatW(w!("CanIncludeInClipboardHistory")) };
     let cloud = unsafe { RegisterClipboardFormatW(w!("CanUploadToCloudClipboard")) };
     let monitor =
         unsafe { RegisterClipboardFormatW(w!("ExcludeClipboardContentFromMonitorProcessing")) };
-    if [png, history, cloud, monitor].contains(&0) {
+    let exclude = 0u32.to_le_bytes();
+    let monitor_exclude = 1u32.to_le_bytes();
+    let privacy = [
+        (history, exclude.as_slice()),
+        (cloud, exclude.as_slice()),
+        (monitor, monitor_exclude.as_slice()),
+    ];
+    let formats = privacy.iter().chain(formats);
+    if formats.clone().any(|(format, _)| *format == 0) {
         return Err(before("register_format"));
     }
-    let mut blocks = [
-        (
-            png,
-            Block::new(&image.png).map_err(|_| before("allocation"))?,
-        ),
-        (
-            CF_DIBV5.0 as u32,
-            Block::new(&image.dibv5).map_err(|_| before("allocation"))?,
-        ),
-        (
-            history,
-            Block::new(&0u32.to_le_bytes()).map_err(|_| before("allocation"))?,
-        ),
-        (
-            cloud,
-            Block::new(&0u32.to_le_bytes()).map_err(|_| before("allocation"))?,
-        ),
-        (
-            monitor,
-            Block::new(&1u32.to_le_bytes()).map_err(|_| before("allocation"))?,
-        ),
-    ];
+    let blocks = formats
+        .map(|&(format, bytes)| {
+            Block::new(bytes)
+                .map(|block| (format, block))
+                .map_err(|_| before("allocation"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let deadline = Instant::now() + Duration::from_millis(150);
     loop {
         if !allowed() {
@@ -229,9 +252,8 @@ pub fn publish(
         EmptyClipboard().map_err(|_| before("empty_clipboard"))?;
     }
     // Set privacy markers first. Never paste if any requested format failed.
-    for index in [2, 3, 4, 0, 1] {
-        let (format, block) = &mut blocks[index];
-        block.publish(*format).map_err(|_| after("set_clipboard"))?;
+    for (format, mut block) in blocks {
+        block.publish(format).map_err(|_| after("set_clipboard"))?;
     }
     drop(open);
     let sequence = unsafe { GetClipboardSequenceNumber() };

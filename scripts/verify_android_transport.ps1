@@ -30,7 +30,9 @@ if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSu
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
-$expectedTests = if ($FullSuite) { 117 } elseif ($TransportOnly) { 1 } else { 4 }
+$expectedTextUiTests = 136
+$expectedImageTests = 4
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
@@ -86,7 +88,7 @@ try {
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }
-        Write-Output 'PASS: all 121 regular device tests (117 text/UI + 4 image) across independent text/image desktop identities; live paid cloud and discovery fixtures remain separate.'
+        Write-Output "PASS: all $($expectedTextUiTests + $expectedImageTests) regular device tests ($expectedTextUiTests text/UI + $expectedImageTests image) across independent desktop identities."
     }
 } finally {
     try {

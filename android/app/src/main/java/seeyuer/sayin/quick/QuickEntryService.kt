@@ -3,16 +3,22 @@ package seeyuer.sayin.quick
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.*
+import android.widget.LinearLayout
+import android.widget.PopupWindow
+import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
@@ -27,6 +33,7 @@ import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.ui.VoiceLinkViewModel
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Explicitly enabled optional overlay; idle service never records or sends. */
 class QuickEntryService : Service() {
@@ -41,6 +48,8 @@ class QuickEntryService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val handler = Handler(Looper.getMainLooper())
     private var longPress: Runnable? = null
+    private var tapRunnable: Runnable? = null
+    private var menu: PopupWindow? = null
     private var downRawX = 0f
     private var downRawY = 0f
     private var startX = 0
@@ -48,6 +57,11 @@ class QuickEntryService : Service() {
     private var longPressed = false
     private var dragging = false
     private var moved = false
+    private var lastTapAt = 0L
+    private val preferences: SharedPreferences by lazy { getSharedPreferences("presentation", 0) }
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in BALL_KEYS) applyBallSettings()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -75,24 +89,28 @@ class QuickEntryService : Service() {
             }
         }
         windows = getSystemService(WindowManager::class.java)
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         showBall()
     }
 
     private fun showBall() {
         if (ball != null || !Settings.canDrawOverlays(this)) return
         val dp = resources.displayMetrics.density
-        val size = (56 * dp).toInt()
+        val sizeDp = size(this)
+        val size = (sizeDp * dp).toInt()
         val p = params ?: WindowManager.LayoutParams(size, size, WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT).apply {
             gravity = Gravity.TOP or Gravity.START
             y = (300 * dp).toInt()
         }.also { params = it }
+        p.width = size
+        p.height = size
         p.x = peekX()
-        val view = BallView(this, R.drawable.ic_sayin_brand_fyan_mark).apply {
+        val view = BallView(this, R.drawable.ic_sayin_brand_fyan_mark, sizeDp).apply {
             contentDescription = getString(R.string.quick_open)
             setPeekAtLeft(edgeLeft)
-            alpha = PEEK_ALPHA
+            alpha = peekAlpha(this@QuickEntryService)
         }
         view.setOnTouchListener { v, event ->
             when (event.actionMasked) {
@@ -102,8 +120,8 @@ class QuickEntryService : Service() {
                     longPressed = false; dragging = false; moved = false
                     longPress = Runnable {
                         longPressed = true
-                        expandBall()
                         v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                        showMenu(v)
                     }.also { handler.postDelayed(it, ViewConfiguration.getLongPressTimeout().toLong()) }
                     true
                 }
@@ -111,20 +129,21 @@ class QuickEntryService : Service() {
                     val dx = event.rawX - downRawX
                     val dy = event.rawY - downRawY
                     if (!longPressed) {
-                        if (abs(dx) > ViewConfiguration.get(this).scaledTouchSlop ||
-                            abs(dy) > ViewConfiguration.get(this).scaledTouchSlop) {
+                        if (!moved && (abs(dx) > ViewConfiguration.get(this).scaledTouchSlop ||
+                                abs(dy) > ViewConfiguration.get(this).scaledTouchSlop)) {
                             moved = true
                             longPress?.let { handler.removeCallbacks(it) }
                             longPress = null
+                            dragging = true
                         }
-                    } else {
-                        dragging = true
-                        val layout = params ?: return@setOnTouchListener true
-                        layout.x = (startX + dx.toInt()).coerceIn(0,
-                            resources.displayMetrics.widthPixels - layout.width)
-                        layout.y = (startY + dy.toInt()).coerceIn(0,
-                            resources.displayMetrics.heightPixels - layout.height)
-                        windows.updateViewLayout(v, layout)
+                        if (dragging) {
+                            val layout = params ?: return@setOnTouchListener true
+                            layout.x = (startX + dx.toInt()).coerceIn(0,
+                                resources.displayMetrics.widthPixels - layout.width)
+                            layout.y = (startY + dy.toInt()).coerceIn(0,
+                                resources.displayMetrics.heightPixels - layout.height)
+                            windows.updateViewLayout(v, layout)
+                        }
                     }
                     true
                 }
@@ -132,9 +151,11 @@ class QuickEntryService : Service() {
                     handler.removeCallbacks(longPress ?: Runnable {})
                     longPress = null
                     if (longPressed) {
-                        snapToEdge(if ((params?.x ?: 0) + size / 2 < resources.displayMetrics.widthPixels / 2) 1 else -1)
-                    } else if (!dragging && !moved) {
-                        if (expanded) openQuick() else expandBall()
+                        // The menu is modal; releasing the finger must not open or expand the ball.
+                    } else if (dragging) {
+                        snapToEdge(if ((params?.x ?: 0) + (params?.width ?: 0) / 2 < resources.displayMetrics.widthPixels / 2) 1 else -1)
+                    } else if (!moved) {
+                        onTap()
                     }
                     longPressed = false; dragging = false
                     true
@@ -161,9 +182,33 @@ class QuickEntryService : Service() {
         }
     }
 
+    /** Single tap expands at the edge; a second tap (or a tap on the expanded ball) opens the card. */
+    private fun onTap() {
+        ball?.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        val now = SystemClock.uptimeMillis()
+        if (tapRunnable != null && now - lastTapAt <= DOUBLE_TAP_MILLIS) {
+            tapRunnable?.let(handler::removeCallbacks)
+            tapRunnable = null
+            lastTapAt = 0
+            openQuick(autoRecord = doubleAction(this) == DOUBLE_RECORD)
+            return
+        }
+        lastTapAt = now
+        val action = Runnable {
+            tapRunnable = null
+            lastTapAt = 0
+            if (expanded) openQuick() else expandBall()
+        }
+        tapRunnable = action
+        handler.postDelayed(action, DOUBLE_TAP_MILLIS)
+    }
+
     private fun hideBall() {
         handler.removeCallbacksAndMessages(null)
+        tapRunnable = null
         longPress = null
+        menu?.dismiss()
+        menu = null
         expanded = false
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }
         ball = null
@@ -177,7 +222,7 @@ class QuickEntryService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification(state))
     }
 
-    private fun peekWidth(): Int = (23 * resources.displayMetrics.density).toInt()
+    private fun peekWidth(): Int = (size(this) * PEEK_FRACTION * resources.displayMetrics.density).toInt()
 
     private fun fullX(): Int = if (edgeLeft) 0 else resources.displayMetrics.widthPixels - (ball?.width ?: 0)
 
@@ -195,7 +240,7 @@ class QuickEntryService : Service() {
     private fun collapseToPeek() {
         expanded = false
         ball?.setExpanded(false)
-        ball?.alpha = PEEK_ALPHA
+        ball?.alpha = peekAlpha(this)
         val p = params ?: return
         p.x = peekX()
         windows.updateViewLayout(ball ?: return, p)
@@ -207,9 +252,74 @@ class QuickEntryService : Service() {
         collapseToPeek()
     }
 
-    private fun openQuick() {
-        startActivity(QuickActivity.intent(this))
+    private fun applyBallSettings() {
+        val view = ball ?: return
+        val p = params ?: return
+        val density = resources.displayMetrics.density
+        val sizeDp = size(this)
+        val size = (sizeDp * density).toInt()
+        view.setMetrics(sizeDp)
+        p.width = size
+        p.height = size
+        p.x = if (expanded) fullX() else peekX()
+        if (!expanded) view.alpha = peekAlpha(this)
+        windows.updateViewLayout(view, p)
     }
+
+    private fun openQuick(autoRecord: Boolean = false) {
+        startActivity(QuickActivity.intent(this, autoRecord))
+    }
+
+    private fun showMenu(anchor: View) {
+        menu?.dismiss()
+        val state = latestState
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), dp(8), dp(14), dp(8))
+            background = GradientDrawable().apply {
+                setColor(0xF2F3F3F1.toInt())
+                cornerRadius = dp(16).toFloat()
+            }
+        }
+        val popup = PopupWindow(column, WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.WRAP_CONTENT, true).apply {
+            isOutsideTouchable = true
+            elevation = dp(8).toFloat()
+            setBackgroundDrawable(null)
+        }
+        fun item(label: String, enabled: Boolean = true, action: () -> Unit) {
+            val row = TextView(this).apply {
+                text = label
+                textSize = 14f
+                setTextColor(if (enabled) 0xFF1A1A1A.toInt() else 0xFF8A8A8A.toInt())
+                setPadding(dp(8), dp(12), dp(8), dp(12))
+                isEnabled = enabled
+                isClickable = enabled
+                setOnClickListener {
+                    if (!enabled) return@setOnClickListener
+                    popup.dismiss()
+                    action()
+                }
+            }
+            column.addView(row)
+        }
+        item(getString(R.string.quick_menu_open)) { openQuick() }
+        val networkState = state
+        val canControl = networkState?.connection == Connection.ONLINE && networkState.active
+        if (networkState?.paused == true) {
+            val resumable = canControl && networkState.pauseReason != "outcome_review_required" &&
+                !networkState.target.isNullOrBlank()
+            item(getString(R.string.quick_menu_resume), resumable) { model?.repository?.resumeReception() }
+        } else {
+            item(getString(R.string.quick_menu_pause), canControl) { model?.repository?.pauseReception() }
+        }
+        item(getString(R.string.quick_menu_close)) { stopSelf() }
+        menu = popup
+        popup.setOnDismissListener { if (menu === popup) menu = null }
+        popup.showAsDropDown(anchor, -dp(80), -dp(12))
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun notification(state: ClientState): Notification {
         val target = state.foregroundApplication?.name?.takeIf { it.isNotBlank() }
@@ -252,6 +362,7 @@ class QuickEntryService : Service() {
         when (intent?.action) {
             HIDE_BALL -> hideBall()
             SHOW_BALL -> showBall()
+            APPLY -> applyBallSettings()
             STOP -> stopSelf()
             else -> showBall()
         }
@@ -259,15 +370,17 @@ class QuickEntryService : Service() {
     }
 
     override fun onDestroy() {
+        preferences.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         scope.cancel()
         if (active === this) active = null
         handler.removeCallbacksAndMessages(null)
+        menu?.dismiss(); menu = null
         ball?.let { if (it.isAttachedToWindow) windows.removeView(it) }; ball = null
         model?.foreground(this, false)
         enabled(this, false); super.onDestroy()
     }
 
-    private class BallView(context: Context, private val iconRes: Int) : View(context) {
+    private class BallView(context: Context, private val iconRes: Int, private var sizeDp: Int) : View(context) {
         private val density = resources.displayMetrics.density
         private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = 0xF2F3F3F1.toInt()
@@ -279,9 +392,13 @@ class QuickEntryService : Service() {
             strokeWidth = 1.5f * density
         }
         private val icon = context.getDrawable(iconRes)
-        private val peekWidth = (23 * density).toInt()
+        private val peekWidth get() = (sizeDp * PEEK_FRACTION * density).toInt()
         private var peekAtLeft = false
         private var expanded = false
+
+        fun setMetrics(value: Int) {
+            if (value != sizeDp) { sizeDp = value; invalidate() }
+        }
 
         fun setPeekAtLeft(value: Boolean) {
             peekAtLeft = value
@@ -301,7 +418,7 @@ class QuickEntryService : Service() {
             val centerY = height / 2f
             canvas.drawCircle(centerX, centerY, radius, fill)
             canvas.drawCircle(centerX, centerY, radius, edge)
-            val iconSize = ((if (expanded) 36f else 32.4f) * density).toInt()
+            val iconSize = ((if (expanded) sizeDp * 0.64f else sizeDp * 0.58f) * density).toInt()
             val iconCenterX = when {
                 expanded -> centerX
                 peekAtLeft -> width - peekWidth / 2f
@@ -317,9 +434,37 @@ class QuickEntryService : Service() {
         private const val STOP = "seeyuer.sayin.STOP_QUICK_ENTRY"
         private const val HIDE_BALL = "seeyuer.sayin.HIDE_QUICK_ENTRY"
         private const val SHOW_BALL = "seeyuer.sayin.SHOW_QUICK_ENTRY"
+        private const val APPLY = "seeyuer.sayin.APPLY_QUICK_ENTRY"
         private const val NOTIFICATION_ID = 44
-        private const val PEEK_ALPHA = 0.5f
+        private const val PEEK_FRACTION = 0.41f
+        private const val DOUBLE_TAP_MILLIS = 240L
+        const val DOUBLE_CARD = "card"
+        const val DOUBLE_RECORD = "record"
+        private val BALL_KEYS = setOf("quick_ball_size", "quick_ball_alpha", "quick_ball_double")
         private var active: QuickEntryService? = null
+
+        fun size(context: Context): Int = context.getSharedPreferences("presentation", 0)
+            .getInt("quick_ball_size", 56).coerceIn(44, 72)
+        fun peekAlpha(context: Context): Float = context.getSharedPreferences("presentation", 0)
+            .getFloat("quick_ball_alpha", 0.5f).coerceIn(0.35f, 1f)
+        fun doubleAction(context: Context): String = context.getSharedPreferences("presentation", 0)
+            .getString("quick_ball_double", DOUBLE_CARD)?.takeIf { it in setOf(DOUBLE_CARD, DOUBLE_RECORD) } ?: DOUBLE_CARD
+
+        fun setSize(context: Context, value: Int) {
+            context.getSharedPreferences("presentation", 0).edit().putInt("quick_ball_size", value.coerceIn(44, 72)).apply()
+            refresh(context)
+        }
+        fun setPeekAlpha(context: Context, value: Float) {
+            context.getSharedPreferences("presentation", 0).edit().putFloat("quick_ball_alpha", value.coerceIn(0.35f, 1f)).apply()
+            refresh(context)
+        }
+        fun setDoubleAction(context: Context, value: String) {
+            context.getSharedPreferences("presentation", 0).edit().putString("quick_ball_double", value).apply()
+        }
+        private fun refresh(context: Context) {
+            if (active == null) return
+            runCatching { context.startService(Intent(context, QuickEntryService::class.java).setAction(APPLY)) }
+        }
 
         /** Hide the overlay while the quick card owns the screen; show it again on close. */
         fun setQuickWindowVisible(visible: Boolean) {

@@ -1,6 +1,7 @@
 package seeyuer.sayin.translation
 
 import android.content.Context
+import android.content.res.AssetFileDescriptor
 import android.os.SystemClock
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -16,7 +17,7 @@ import org.json.JSONObject
 data class TranslationModel(
     val id: String, val fileName: String, val bytes: Long, val sha256: String,
     val architecture: String, val templateKind: Int, val templateRevision: String,
-    val repository: String = "", val revision: String = "",
+    val repository: String = "", val revision: String = "", val bundled: Boolean = false,
 )
 
 class TranslationCatalog private constructor(val models: List<TranslationModel>, val defaultId: String?) {
@@ -28,7 +29,8 @@ class TranslationCatalog private constructor(val models: List<TranslationModel>,
             return TranslationCatalog((0 until array.length()).map { index ->
                 val m = array.getJSONObject(index)
                 TranslationModel(m.getString("id"), m.getString("file"), m.getLong("bytes"), m.getString("sha256"),
-                    m.getString("architecture"), m.getInt("templateKind"), m.getString("templateRevision"), m.getString("repository"), m.getString("revision"))
+                    m.getString("architecture"), m.getInt("templateKind"), m.getString("templateRevision"),
+                    m.getString("repository"), m.getString("revision"), m.optBoolean("bundled", false))
             }, root.optString("defaultModel").takeIf { it.isNotBlank() && it != "null" })
         }
     }
@@ -54,6 +56,7 @@ internal class NativeBindings {
     external fun reset(handle: Long)
     external fun cancel(handle: Long)
     external fun load(handle: Long, path: ByteArray, kind: Int, threads: Int, events: NativeEvents): Int
+    external fun loadFd(handle: Long, fd: Int, offset: Long, length: Long, kind: Int, threads: Int, events: NativeEvents): Int
     external fun run(handle: Long, source: ByteArray, limit: Int, timeoutMillis: Int, events: NativeEvents): NativeResult
     external fun destroy(handle: Long)
 }
@@ -72,13 +75,28 @@ interface Translator : Closeable {
     suspend fun release()
 }
 
-class SerialTranslator : Translator {
+/** Translation directly from an uncompressed APK asset without extracting a second copy.
+ * Implementations take ownership of [AssetFileDescriptor] and close it before returning or throwing.
+ */
+interface BundledTranslator : Translator {
+    suspend fun translate(
+        asset: AssetFileDescriptor, model: TranslationModel, source: String, threads: Int = 4,
+        outputLimit: Int = 2048, timeoutMillis: Int = 120_000,
+        onProgress: (TranslationProgress) -> Unit = {}, onPartial: (String) -> Unit = {},
+    ): TranslationResult
+}
+
+class SerialTranslator : BundledTranslator {
     private class Request { val cancelled = AtomicBoolean(false) }
+    private sealed interface Input {
+        class Local(val file: File) : Input
+        class Asset(val descriptor: AssetFileDescriptor) : Input
+    }
     private val owner = Executors.newSingleThreadExecutor { task -> Thread(task, "SayIn-translation") }
     private val lock = Any()
     private var native: NativeBindings? = null
     private var handle = 0L
-    private var loaded: Pair<String, TranslationModel>? = null
+    private var loaded: String? = null
     private var active: Request? = null
     private var closed = false
 
@@ -86,39 +104,66 @@ class SerialTranslator : Translator {
         file: File, model: TranslationModel, source: String, threads: Int,
         outputLimit: Int, timeoutMillis: Int,
         onProgress: (TranslationProgress) -> Unit, onPartial: (String) -> Unit,
+    ): TranslationResult = submit(Input.Local(file), model, source, threads, outputLimit, timeoutMillis, onProgress, onPartial)
+
+    override suspend fun translate(
+        asset: AssetFileDescriptor, model: TranslationModel, source: String, threads: Int,
+        outputLimit: Int, timeoutMillis: Int,
+        onProgress: (TranslationProgress) -> Unit, onPartial: (String) -> Unit,
+    ): TranslationResult =
+        submit(Input.Asset(asset), model, source, threads, outputLimit, timeoutMillis, onProgress, onPartial)
+
+    private suspend fun submit(
+        input: Input, model: TranslationModel, source: String, threads: Int,
+        outputLimit: Int, timeoutMillis: Int,
+        onProgress: (TranslationProgress) -> Unit, onPartial: (String) -> Unit,
     ): TranslationResult = suspendCancellableCoroutine { continuation ->
         val request = Request()
         continuation.invokeOnCancellation { cancel(request) }
         try { owner.execute {
-            if (request.cancelled.get()) return@execute
-            val result = try {
-                synchronized(lock) {
-                    check(!closed)
-                    if (request.cancelled.get()) return@execute
-                    active = request
-                }
-                // dlopen/backend initialization can be slow. Cancellation never waits for it on the UI thread.
-                val api = native ?: NativeBindings().also { native = it }
-                if (handle == 0L) {
-                    val created = api.create().also { check(it != 0L) }
-                    synchronized(lock) { handle = created }
-                }
-                synchronized(lock) { if (!request.cancelled.get()) api.reset(handle) }
-                if (request.cancelled.get()) TranslationResult(TranslationEnd.Cancelled)
-                else infer(request, file, model, source, threads, outputLimit, timeoutMillis, onProgress, onPartial)
-            } catch (_: Exception) { TranslationResult(if (request.cancelled.get()) TranslationEnd.Cancelled else TranslationEnd.Error) }
-              catch (_: LinkageError) { TranslationResult(TranslationEnd.Error) }
-            finally { synchronized(lock) { if (active === request) active = null } }
-            if (continuation.isActive) continuation.resume(result)
-        } } catch (_: RejectedExecutionException) { if (continuation.isActive) continuation.resume(TranslationResult(TranslationEnd.Error)) }
+            try {
+                if (request.cancelled.get()) return@execute
+                val result = try {
+                    synchronized(lock) {
+                        check(!closed)
+                        if (request.cancelled.get()) return@execute
+                        active = request
+                    }
+                    // dlopen/backend initialization can be slow. Cancellation never waits for it on the UI thread.
+                    val api = native ?: NativeBindings().also { native = it }
+                    if (handle == 0L) {
+                        val created = api.create().also { check(it != 0L) }
+                        synchronized(lock) { handle = created }
+                    }
+                    synchronized(lock) { if (!request.cancelled.get()) api.reset(handle) }
+                    if (request.cancelled.get()) TranslationResult(TranslationEnd.Cancelled)
+                    else infer(request, input, model, source, threads, outputLimit, timeoutMillis, onProgress, onPartial)
+                } catch (_: Exception) { TranslationResult(if (request.cancelled.get()) TranslationEnd.Cancelled else TranslationEnd.Error) }
+                  catch (_: LinkageError) { TranslationResult(TranslationEnd.Error) }
+                finally { synchronized(lock) { if (active === request) active = null } }
+                if (continuation.isActive) continuation.resume(result)
+            } finally { closeInput(input) }
+        } } catch (_: RejectedExecutionException) {
+            closeInput(input)
+            if (continuation.isActive) continuation.resume(TranslationResult(TranslationEnd.Error))
+        }
+    }
+
+    private fun closeInput(input: Input) {
+        if (input is Input.Asset) runCatching { input.descriptor.close() }
+    }
+
+    private fun identity(input: Input, model: TranslationModel): String = when (input) {
+        is Input.Local -> input.file.canonicalPath + ":" + model.sha256
+        is Input.Asset -> "asset:" + model.sha256
     }
 
     private fun infer(
-        request: Request, file: File, model: TranslationModel, source: String, threads: Int,
+        request: Request, input: Input, model: TranslationModel, source: String, threads: Int,
         limit: Int, timeout: Int, progress: (TranslationProgress) -> Unit, partial: (String) -> Unit,
     ): TranslationResult {
         val api = checkNotNull(native)
-        val identity = file.canonicalPath to model
+        val key = identity(input, model)
         var verification = 0L; var loading = 0L
         val output = ByteArrayOutputStream()
         val events = object : NativeEvents {
@@ -129,7 +174,7 @@ class SerialTranslator : Translator {
                 if (!request.cancelled.get()) partial(Utf8Preview.completePrefix(output.toByteArray()))
             }
         }
-        if (loaded != identity) {
+        if (loaded != key) {
             // Only the owner destroys; the lock excludes the tiny concurrent cancellation call.
             val retired = synchronized(lock) {
                 if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
@@ -142,28 +187,41 @@ class SerialTranslator : Translator {
                     handle = api.create(); check(handle != 0L)
                 }
             }
-            if (!file.isFile) return TranslationResult(TranslationEnd.ModelMissing)
-            val start = SystemClock.elapsedRealtime()
-            val digest = MessageDigest.getInstance("SHA-256")
-            if (file.length() != model.bytes) return TranslationResult(TranslationEnd.Integrity)
-            file.inputStream().buffered(1024 * 1024).use { input ->
-                val buffer = ByteArray(1024 * 1024); var done = 0L
-                while (true) {
-                    if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
-                    val count = input.read(buffer); if (count < 0) break
-                    digest.update(buffer, 0, count); done += count
-                    progress(TranslationProgress(TranslationStage.Verifying, (done.toDouble() / model.bytes).toFloat()))
+            val local = (input as? Input.Local)?.file
+            if (local != null) {
+                if (!local.isFile) return TranslationResult(TranslationEnd.ModelMissing)
+                val start = SystemClock.elapsedRealtime()
+                val digest = MessageDigest.getInstance("SHA-256")
+                if (local.length() != model.bytes) return TranslationResult(TranslationEnd.Integrity)
+                local.inputStream().buffered(1024 * 1024).use { stream ->
+                    val buffer = ByteArray(1024 * 1024); var done = 0L
+                    while (true) {
+                        if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
+                        val count = stream.read(buffer); if (count < 0) break
+                        digest.update(buffer, 0, count); done += count
+                        progress(TranslationProgress(TranslationStage.Verifying, (done.toDouble() / model.bytes).toFloat()))
+                    }
                 }
+                if (digest.digest().joinToString("") { "%02x".format(it) } != model.sha256) return TranslationResult(TranslationEnd.Integrity)
+                verification = SystemClock.elapsedRealtime() - start
+            } else {
+                // The APK signature and the build-time pinned SHA-256 authenticate the asset;
+                // a full duplicate hash would read the whole model a second time at first use.
+                val asset = input as Input.Asset
+                if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
+                if (asset.descriptor.length != model.bytes) return TranslationResult(TranslationEnd.Integrity)
             }
-            if (digest.digest().joinToString("") { "%02x".format(it) } != model.sha256) return TranslationResult(TranslationEnd.Integrity)
-            verification = SystemClock.elapsedRealtime() - start
             if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
             val loadStart = SystemClock.elapsedRealtime()
-            val status = api.load(handle, file.path.toByteArray(Charsets.UTF_8), model.templateKind, threads, events)
+            val status = when (input) {
+                is Input.Local -> api.load(handle, input.file.path.toByteArray(Charsets.UTF_8), model.templateKind, threads, events)
+                is Input.Asset -> api.loadFd(handle, input.descriptor.parcelFileDescriptor.fd,
+                    input.descriptor.startOffset, input.descriptor.length, model.templateKind, threads, events)
+            }
             loading = SystemClock.elapsedRealtime() - loadStart
             if (status != 0) return TranslationResult(if (status == 1) TranslationEnd.Cancelled else TranslationEnd.Error,
                 verifyMillis = verification, loadMillis = loading)
-            loaded = identity
+            loaded = key
         }
         if (request.cancelled.get()) return TranslationResult(TranslationEnd.Cancelled)
         progress(TranslationProgress(TranslationStage.Generating))

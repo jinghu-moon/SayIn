@@ -1,9 +1,13 @@
 //! Application-owned receiver lifecycle and local commands, independent of UI locale.
 use futures_util::StreamExt as _;
-use std::{path::PathBuf, sync::Arc};
+use std::{
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 use voicelink_receiver::{
     history::{HistoryPage, HistoryQuery},
     ledger::ReceiverSnapshot,
+    windows_image_delivery::{ImageDeliverySettings, SharedImageDeliverySettings},
     windows_input::{NativeInput, open_ledger},
     worker::Receiver,
 };
@@ -77,6 +81,7 @@ enum HistoryChange {
 
 pub struct ReceptionState {
     directory: PathBuf,
+    image_delivery: SharedImageDeliverySettings,
     phase: ReceptionPhase,
     snapshot: Option<ReceiverSnapshot>,
     issue: Option<ReceptionIssue>,
@@ -116,16 +121,30 @@ pub struct ReceptionState {
 }
 
 impl ReceptionState {
-    pub fn new(directory: PathBuf, cx: &mut Context<Self>) -> Self {
-        Self::create(directory, true, cx)
+    pub fn new(
+        directory: PathBuf,
+        image_delivery: SharedImageDeliverySettings,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::create(directory, image_delivery, true, cx)
     }
     /// Offline inspection and verification; never discovers or starts a listener.
     pub fn local_only(directory: PathBuf, cx: &mut Context<Self>) -> Self {
-        Self::create(directory, false, cx)
+        let image_delivery = Arc::new(RwLock::new(ImageDeliverySettings::new(
+            Some(directory.join("exports")),
+            Default::default(),
+        )));
+        Self::create(directory, image_delivery, false, cx)
     }
-    fn create(directory: PathBuf, start_network: bool, cx: &mut Context<Self>) -> Self {
+    fn create(
+        directory: PathBuf,
+        image_delivery: SharedImageDeliverySettings,
+        start_network: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let mut this = Self {
             directory,
+            image_delivery,
             phase: ReceptionPhase::Loading,
             snapshot: None,
             issue: None,
@@ -171,19 +190,20 @@ impl ReceptionState {
         self.phase = ReceptionPhase::Loading;
         self.issue = None;
         let directory = self.directory.clone();
+        let image_delivery = self.image_delivery.clone();
         let opening = cx.background_spawn(async move {
             secure_directory(&directory)?;
             let mut ledger = open_ledger(&directory)?;
             let identity = HostIdentity::open(&directory, ledger.snapshot()?.paired_devices)?;
-            let image_directory = directory.join("images");
-            secure_directory(&image_directory)?;
+            let image_storage = directory.join("images");
+            secure_directory(&image_storage)?;
             let images = voicelink_receiver::images::storage::ImageStore::open(
-                &image_directory,
+                &image_storage,
                 identity.host_id(),
             )?;
             ledger.attach_images(images.clone())?;
             Ok::<_, voicelink_transport::Error>((
-                Receiver::start(ledger, NativeInput::with_images(images))?,
+                Receiver::start(ledger, NativeInput::with_images(images, image_delivery))?,
                 identity,
                 std::fs::read_to_string(directory.join("network-interface.txt"))
                     .ok()

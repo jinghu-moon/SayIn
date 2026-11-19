@@ -50,7 +50,10 @@
     "radar": "b261bb1323a7bccb20bee6a99e8496f7c0c5fbe8d6ab36d3fe3dcf6dee3da0ad",
     "eye": "45bdbd35bb18e9997a86dad8db6eb90931d1d53884484baf2c65e34d6f6e4f93",
     "eye-off": "7fd56939026b76c23b64597bab2ad0b6aab824eef4e0edd772626126b8b20433",
-    "arrows-diagonal": "8036e742c7b3b360d43af1b68366d772e8b9bca6050a0e5f1381f6fd1bc5800e"
+    "arrows-diagonal": "8036e742c7b3b360d43af1b68366d772e8b9bca6050a0e5f1381f6fd1bc5800e",
+    "search": "3dd53b9606283dfa0adcb0b10a7d9a4432369d4bebcfacf67f80fbe358381c34",
+    "filter": "69bbcca665588bd0b64c44c42ced4538b3e3c75a59e3fc46e58b1f10d99d15ec",
+    "download": "c13f6f9cf87deee99e331622169efd59cd764b376994540347e50d6bb5e2e0ef"
   },
   "license_sha256": "b740a1d46122672da62833e97f7e7c8a13fa85cbc7445b584b297cc00dde93db"
 }
