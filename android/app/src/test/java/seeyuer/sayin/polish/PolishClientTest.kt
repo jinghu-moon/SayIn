@@ -189,6 +189,15 @@ class PolishClientTest {
         assertFailureStreaming(PolishFailure.InvalidResponse, base(PolishProvider.Anthropic, PolishProtocol.Messages))
     }
 
+    @Test fun `connection test accepts a bounded response even when the budget truncated it`() {
+        server.enqueue(response(body = chatResponse(content = "OK", finish = "length")))
+        val result = client(base(PolishProvider.DeepSeek)).test()
+        assertTrue(result is PolishCallResult.Success)
+        assertEquals("OK", (result as PolishCallResult.Success).text)
+        val body = JSONObject(server.takeRequest().body!!.utf8())
+        assertEquals(512, body.getInt("max_tokens"))
+    }
+
     @Test fun `missing key is rejected before network`() {
         val result = client(base(PolishProvider.DeepSeek).copy(key = "")).call(PolishMode.Voice, text = "x")
         assertEquals(PolishFailure.MissingConfig, (result as PolishCallResult.Failure).kind)

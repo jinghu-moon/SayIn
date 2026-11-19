@@ -46,7 +46,8 @@ internal class PolishClient(
     }
 
     fun test(): PolishCallResult =
-        callRaw("你是连接测试器。只输出 OK，不解释。", "<input_text>OK</input_text>", maxTokens = 8)
+        callRaw("你是连接测试器。只输出 OK，不解释。", "<input_text>OK</input_text>",
+            maxTokens = 512, acceptTruncated = true)
 
     fun callStreaming(mode: PolishMode, targetLanguage: String? = null, appName: String? = null,
                       scene: PolishScene? = null, customRewrite: String? = null, text: String,
@@ -56,7 +57,8 @@ internal class PolishClient(
         return streamRaw(system, PolishPrompts.user(text), 4096, onCall, onPartial)
     }
 
-    fun callRaw(system: String, user: String, maxTokens: Int, onCall: (Call) -> Unit = {}): PolishCallResult {
+    fun callRaw(system: String, user: String, maxTokens: Int, onCall: (Call) -> Unit = {},
+                acceptTruncated: Boolean = false): PolishCallResult {
         val error = config.validate(allowLoopbackHttp)
         if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig)
         val started = System.nanoTime()
@@ -73,7 +75,7 @@ internal class PolishClient(
                     ?: return PolishCallResult.Failure(PolishFailure.TooLarge, response.code, elapsed)
                 val body = decodeStrict(bytes)
                     ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed)
-                parse(body, response.code, elapsed)
+                parse(body, response.code, elapsed, acceptTruncated)
             }
         } catch (_: SocketTimeoutException) {
             PolishCallResult.Failure(PolishFailure.Timeout, durationMillis = elapsed(started))
@@ -246,22 +248,24 @@ internal class PolishClient(
         }
     }
 
-    private fun parse(body: String, status: Int, elapsed: Long): PolishCallResult {
+    private fun parse(body: String, status: Int, elapsed: Long, acceptTruncated: Boolean): PolishCallResult {
         val json = runCatching { JSONObject(body) }.getOrNull()
             ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         return when (config.protocol) {
-            PolishProtocol.Chat -> parseChat(json, status, elapsed)
-            PolishProtocol.Messages -> parseMessages(json, status, elapsed)
+            PolishProtocol.Chat -> parseChat(json, status, elapsed, acceptTruncated)
+            PolishProtocol.Messages -> parseMessages(json, status, elapsed, acceptTruncated)
         }
     }
 
-    private fun parseChat(json: JSONObject, status: Int, elapsed: Long): PolishCallResult {
+    private fun parseChat(json: JSONObject, status: Int, elapsed: Long,
+                          acceptTruncated: Boolean): PolishCallResult {
         val choices = json.optJSONArray("choices")
         if (choices == null || choices.length() != 1) return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         val choice = choices.optJSONObject(0) ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
-        when (choice.optString("finish_reason")) {
+        val finish = choice.optString("finish_reason")
+        when (finish) {
             "stop" -> Unit
-            "length" -> return PolishCallResult.Failure(PolishFailure.Truncated, status, elapsed)
+            "length" -> if (!acceptTruncated) return PolishCallResult.Failure(PolishFailure.Truncated, status, elapsed)
             "content_filter" -> return PolishCallResult.Failure(PolishFailure.Refused, status, elapsed)
             else -> return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         }
@@ -278,10 +282,12 @@ internal class PolishClient(
             json.optJSONObject("usage")?.optLongOrNull("completion_tokens"), elapsed, status)
     }
 
-    private fun parseMessages(json: JSONObject, status: Int, elapsed: Long): PolishCallResult {
+    private fun parseMessages(json: JSONObject, status: Int, elapsed: Long,
+                              acceptTruncated: Boolean): PolishCallResult {
         when (json.optString("stop_reason")) {
             "end_turn" -> Unit
-            "max_tokens", "model_context_window_exceeded" -> return PolishCallResult.Failure(PolishFailure.Truncated, status, elapsed)
+            "max_tokens", "model_context_window_exceeded" ->
+                if (!acceptTruncated) return PolishCallResult.Failure(PolishFailure.Truncated, status, elapsed)
             "refusal" -> return PolishCallResult.Failure(PolishFailure.Refused, status, elapsed)
             else -> return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         }
