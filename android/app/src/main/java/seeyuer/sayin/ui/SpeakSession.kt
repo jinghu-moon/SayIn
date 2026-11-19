@@ -556,7 +556,7 @@ internal class SpeakSession(
         val appName = receiver.foregroundApplication?.name
         val scene = if (polish.appRulesEnabled) PolishScene.forApplication(appName) else null
         val custom = polish.customRewrite.takeIf { mode == PolishMode.Custom }
-        val system = PolishPrompts.system(mode, language, appName, custom, scene)
+        val system = PolishPrompts.system(mode, language, appName, custom, scene, polish.hotwords)
         val ticket = PolishTicket(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version,
             start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = language,
@@ -574,6 +574,7 @@ internal class SpeakSession(
                     scene = scene,
                     customRewrite = custom,
                     text = sourceText,
+                    hotwords = polish.hotwords,
                     onCall = { polishCall = it },
                 )
             }
@@ -590,8 +591,10 @@ internal class SpeakSession(
                     }
                     val next = if (ticket.start == ticket.end) result.text
                     else draft.text.replaceRange(ticket.start, ticket.end, result.text)
-                    if (next == draft.text) {
-                        polishState = PolishState(ticket = ticket, outcome = PolishOutcome.Success(mode, result.durationMillis))
+                    val original = draft.text
+                    if (next == original) {
+                        polishState = PolishState(ticket = ticket, outcome = PolishOutcome.Success(mode, result.durationMillis),
+                            originalText = original, resultText = next)
                         return@launch
                     }
                     val caret = if (ticket.start == ticket.end) result.text.length else ticket.start + result.text.length
@@ -601,7 +604,7 @@ internal class SpeakSession(
                     polishState = PolishState(
                         ticket = ticket, running = false,
                         outcome = PolishOutcome.Success(mode, result.durationMillis),
-                        confirmationPending = true,
+                        confirmationPending = true, originalText = original, resultText = next,
                     )
                 }
                 is PolishCallResult.Failure -> {

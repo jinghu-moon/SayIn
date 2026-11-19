@@ -40,8 +40,8 @@ internal class PolishClient(
 ) {
     fun call(mode: PolishMode, targetLanguage: String? = null, appName: String? = null,
              scene: PolishScene? = null, customRewrite: String? = null, text: String,
-             onCall: (Call) -> Unit = {}): PolishCallResult {
-        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene)
+             hotwords: String? = null, onCall: (Call) -> Unit = {}): PolishCallResult {
+        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene, hotwords)
         return callRaw(system, PolishPrompts.user(text), maxTokens = 4096, onCall = onCall)
     }
 

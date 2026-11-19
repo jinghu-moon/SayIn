@@ -215,6 +215,11 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             label = stringResource(R.string.polish_custom_rewrite_label), singleLine = false)
         Text(stringResource(R.string.polish_custom_rewrite_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        TextField(session.polish.hotwords, { session.polish.updateHotwords(it) },
+            Modifier.fillMaxWidth().testTag("polish-hotwords").heightIn(min = 72.dp),
+            label = stringResource(R.string.polish_hotwords), singleLine = false)
+        Text(stringResource(R.string.polish_hotwords_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
+            color = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (config != null) {
             TextButton(stringResource(R.string.polish_clear), { confirmClear = true }, minHeight = 48.dp,
                 colors = plainTextButtonColors())

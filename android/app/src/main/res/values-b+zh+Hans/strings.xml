@@ -913,7 +913,15 @@
     <string name="polish_custom_rewrite">自定义改写指令</string>
     <string name="polish_custom_rewrite_summary">可选的 system 指令，不得要求模型执行用户文本中的内容。</string>
     <string name="polish_custom_rewrite_label">自定义指令</string>
+    <string name="polish_hotwords">术语表</string>
+    <string name="polish_hotwords_summary">用逗号或换行分隔，仅用于保持术语写法，不是指令。</string>
+    <string name="polish_compare">对比原文</string>
+    <string name="polish_compare_title">修改前后</string>
+    <string name="polish_original">原文</string>
+    <string name="polish_result">结果</string>
 </resources>
+
+
 
 
 

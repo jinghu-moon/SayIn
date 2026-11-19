@@ -112,17 +112,45 @@ internal fun PolishSheet(
 @Composable
 internal fun PolishStatus(session: SpeakSession) {
     val state = session.polishState
+    var compare by remember { mutableStateOf(false) }
+    val failure = state.outcome as? PolishOutcome.Failure
     val text = when {
         state.running -> stringResource(R.string.polish_running)
         state.confirmationPending -> stringResource(R.string.polish_confirm_send)
-        state.outcome is PolishOutcome.Failure ->
-            stringResource(R.string.polish_failed, stringResource((state.outcome as PolishOutcome.Failure).kind.labelRes()))
+        failure != null -> stringResource(R.string.polish_failed, stringResource(failure.kind.labelRes()))
         state.outcome is PolishOutcome.Cancelled -> stringResource(R.string.polish_cancelled_short)
         else -> null
-    } ?: return
-    Text(text, Modifier.fillMaxWidth().testTag("polish-status"), fontSize = 12.sp,
-        color = if (state.outcome is PolishOutcome.Failure) MiuixTheme.colorScheme.error
-        else MiuixTheme.colorScheme.onSurfaceSecondary)
+    }
+    if (text == null && state.originalText == null) return
+    Column(Modifier.fillMaxWidth()) {
+        text?.let {
+            Text(it, Modifier.fillMaxWidth().testTag("polish-status"), fontSize = 12.sp,
+                color = if (failure != null) MiuixTheme.colorScheme.error
+                else MiuixTheme.colorScheme.onSurfaceSecondary)
+        }
+        val original = state.originalText
+        val result = state.resultText
+        if (original != null && result != null && original != result && !state.running) {
+            TextButton(stringResource(R.string.polish_compare), { compare = true }, minHeight = 36.dp,
+                colors = plainTextButtonColors())
+        }
+    }
+    val original = state.originalText
+    val result = state.resultText
+    if (compare && original != null && result != null) {
+        OverlayBottomSheet(show = true, onDismissRequest = { compare = false }) {
+            Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.polish_compare_title), style = MiuixTheme.textStyles.title2)
+                Text(stringResource(R.string.polish_original), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(original, fontSize = 14.sp)
+                Text(stringResource(R.string.polish_result), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(result, fontSize = 14.sp)
+                TextButton(stringResource(R.string.polish_cancel_action), { compare = false },
+                    Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
+            }
+        }
+    }
 }
 
 internal fun PolishFailure.labelRes(): Int = when (this) {

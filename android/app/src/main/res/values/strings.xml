@@ -918,7 +918,15 @@
     <string name="polish_custom_rewrite">Custom rewrite instruction</string>
     <string name="polish_custom_rewrite_summary">Optional system instruction. It must not ask the model to execute user content.</string>
     <string name="polish_custom_rewrite_label">Custom instruction</string>
+    <string name="polish_hotwords">Term list</string>
+    <string name="polish_hotwords_summary">Terms separated by commas or new lines. They are data, never instructions.</string>
+    <string name="polish_compare">Compare original</string>
+    <string name="polish_compare_title">Before and after</string>
+    <string name="polish_original">Original</string>
+    <string name="polish_result">Result</string>
 </resources>
+
+
 
 
 

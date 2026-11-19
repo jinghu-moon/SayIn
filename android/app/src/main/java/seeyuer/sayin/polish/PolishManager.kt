@@ -40,6 +40,8 @@ internal class PolishManager(context: Context) {
         private set
     var customRewrite by mutableStateOf(preferences.getString("custom_rewrite", "").orEmpty())
         private set
+    var hotwords by mutableStateOf(preferences.getString("hotwords", "").orEmpty())
+        private set
     var autoPolish by mutableStateOf(false)
         private set
     private var autoFingerprint: String? = preferences.getString("auto_fingerprint", null)
@@ -71,6 +73,11 @@ internal class PolishManager(context: Context) {
     fun updateCustomRewrite(value: String) {
         customRewrite = value.take(2000)
         preferences.edit().putString("custom_rewrite", customRewrite).apply()
+    }
+
+    fun updateHotwords(value: String) {
+        hotwords = value.take(1000)
+        preferences.edit().putString("hotwords", hotwords).apply()
     }
 
     fun updateAutoPolish(value: Boolean) {

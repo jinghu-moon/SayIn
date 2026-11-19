@@ -29,6 +29,8 @@ internal data class PolishState(
     val running: Boolean = false,
     val outcome: PolishOutcome? = null,
     val confirmationPending: Boolean = false,
+    val originalText: String? = null,
+    val resultText: String? = null,
 ) {
     val hasResult get() = outcome is PolishOutcome.Success
 }

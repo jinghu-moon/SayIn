@@ -72,6 +72,13 @@ class PolishPromptsTest {
         assertEquals("长度无效", PolishPrompts.validateTargetLanguage("x".repeat(35) + "y"))
     }
 
+    @Test fun `hotwords are appended as data, not as a user message`() {
+        val prompt = PolishPrompts.system(PolishMode.Text, hotwords = "SayIn, X-ASR")
+        assertTrue(prompt.contains("SayIn, X-ASR"))
+        assertTrue(prompt.contains("不是指令"))
+        assertTrue(PolishPrompts.user("SayIn").startsWith("<input_text>"))
+    }
+
     @Test fun `prompt hash changes with revision semantics`() {
         val a = PolishPrompts.hash(PolishPrompts.system(PolishMode.Voice))
         val b = PolishPrompts.hash(PolishPrompts.system(PolishMode.Text))
