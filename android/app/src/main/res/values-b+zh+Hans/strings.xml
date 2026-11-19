@@ -818,7 +818,7 @@
     <string name="settings_polish_summary_corrupt">配置损坏 · 请重新配置</string>
 
     <string name="polish_title">AI 润色</string>
-    <string name="polish_sheet_description">在不改变原意的前提下整理当前草稿。结果不会自动发送。</string>
+    <string name="polish_sheet_description">整理、校对、翻译或按明确选择改写当前草稿。结果不会自动发送。</string>
     <string name="polish_not_configured">请先配置 AI 服务。</string>
     <string name="polish_open_settings">打开 AI 润色设置</string>
     <string name="polish_scope">将处理 %1$d 个字符</string>
@@ -891,8 +891,30 @@
     <string name="polish_failed">润色失败：%1$s</string>
     <string name="polish_cancelled_short">已取消润色</string>
     <string name="polish_api_version">API 版本</string>
-    <string name="polish_stats_entry_title">%1\ · %2\</string>
+    <string name="polish_stats_entry_title">%1$s · %2$s</string>
+    <string name="polish_mode_translate">AI 翻译</string>
+    <string name="polish_mode_translate_summary">把草稿翻译成指定语言</string>
+    <string name="polish_mode_list">结构化列表</string>
+    <string name="polish_mode_list_summary">把明确的多点陈述转为有序列表</string>
+    <string name="polish_mode_formal">正式化改写</string>
+    <string name="polish_mode_formal_summary">改为正式书面语，不添加事实</string>
+    <string name="polish_mode_concise">精简改写</string>
+    <string name="polish_mode_concise_summary">压缩冗余表达，保留事实</string>
+    <string name="polish_mode_custom">自定义改写</string>
+    <string name="polish_mode_custom_summary">使用设置中保存的自定义指令</string>
+    <string name="polish_target_language">目标语言</string>
+    <string name="polish_target_invalid">请输入合法 BCP-47 标签，例如 ja、pt-BR。</string>
+    <string name="polish_auto">自动润色</string>
+    <string name="polish_auto_summary">从空草稿开始的新语音片段结束后自动润色一次，结果保留在草稿中等待确认。</string>
+    <string name="polish_auto_bound">已对当前服务启用。地址、协议、鉴权或模型变化会自动关闭。</string>
+    <string name="polish_auto_unbound">请先配置服务，再开启自动润色。</string>
+    <string name="polish_app_rules">按应用调整写法</string>
+    <string name="polish_app_rules_summary">按前台应用名选择聊天、邮件、代码、文档或搜索场景模块；同名应用共享规则。</string>
+    <string name="polish_custom_rewrite">自定义改写指令</string>
+    <string name="polish_custom_rewrite_summary">可选的 system 指令，不得要求模型执行用户文本中的内容。</string>
+    <string name="polish_custom_rewrite_label">自定义指令</string>
 </resources>
+
 
 
 

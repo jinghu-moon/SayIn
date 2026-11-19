@@ -257,7 +257,12 @@ internal class SpeakSession(
                                 recordingMode, recordingDestination, fromRecording = true,
                             )
                             VoiceCommand.Send in finalCommands && receiver.ready -> onSendReady(null)
-                            else -> completeInput(SpeakSendMode.Manual)
+                            else -> {
+                                completeInput(SpeakSendMode.Manual)
+                                if (shouldAutoPolish(recordingStartedEmpty, typedSinceVoice, polish.autoPolishBound)) {
+                                    startPolish(PolishMode.Voice)
+                                }
+                            }
                         }
                     }
                     explicitFinish = false
@@ -537,7 +542,8 @@ internal class SpeakSession(
             polishState = PolishState(outcome = PolishOutcome.Failure(PolishFailure.MissingConfig))
             return
         }
-        if (mode == PolishMode.Translate && PolishPrompts.validateTargetLanguage(targetLanguage.orEmpty()) != null) {
+        val language = if (mode == PolishMode.Translate) targetLanguage ?: polish.targetLanguage else null
+        if (mode == PolishMode.Translate && PolishPrompts.validateTargetLanguage(language.orEmpty()) != null) {
             polishState = PolishState(outcome = PolishOutcome.Failure(PolishFailure.InvalidResponse))
             return
         }
@@ -548,10 +554,12 @@ internal class SpeakSession(
         val sourceText = draft.text.substring(start, end)
         if (sourceText.isBlank()) return
         val appName = receiver.foregroundApplication?.name
-        val system = PolishPrompts.system(mode, targetLanguage, appName, scene = null)
+        val scene = if (polish.appRulesEnabled) PolishScene.forApplication(appName) else null
+        val custom = polish.customRewrite.takeIf { mode == PolishMode.Custom }
+        val system = PolishPrompts.system(mode, language, appName, custom, scene)
         val ticket = PolishTicket(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version,
-            start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = targetLanguage,
+            start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = language,
             configFingerprint = config.fingerprint, promptHash = PolishPrompts.hash(system),
         )
         polishState = PolishState(ticket = ticket, running = true)
@@ -561,8 +569,10 @@ internal class SpeakSession(
             val result = withContext(Dispatchers.IO) {
                 PolishClient(config).call(
                     mode = mode,
-                    targetLanguage = targetLanguage,
+                    targetLanguage = language,
                     appName = appName,
+                    scene = scene,
+                    customRewrite = custom,
                     text = sourceText,
                     onCall = { polishCall = it },
                 )

@@ -19,6 +19,7 @@ import seeyuer.sayin.R
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.polish.PolishFailure
 import seeyuer.sayin.polish.PolishMode
+import seeyuer.sayin.polish.PolishPrompts
 import seeyuer.sayin.polish.userMessage
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
@@ -33,10 +34,8 @@ internal fun PolishSheet(
 ) {
     val state = session.polishState
     var selected by remember(show) { mutableStateOf(session.suggestedPolishMode()) }
-    if (selected == PolishMode.Translate || selected == PolishMode.List ||
-        selected == PolishMode.Formal || selected == PolishMode.Concise) {
-        selected = PolishMode.Text
-    }
+    var targetLanguage by remember(show) { mutableStateOf(session.polish.targetLanguage) }
+    var targetError by remember(show) { mutableStateOf(false) }
     OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -57,6 +56,27 @@ internal fun PolishSheet(
                 color = MiuixTheme.colorScheme.onSurfaceSecondary)
             PolishModeRow(PolishMode.Voice, selected, enabled = !state.running) { selected = it }
             PolishModeRow(PolishMode.Text, selected, enabled = !state.running) { selected = it }
+            PolishModeRow(PolishMode.List, selected, enabled = !state.running) { selected = it }
+            PolishModeRow(PolishMode.Formal, selected, enabled = !state.running) { selected = it }
+            PolishModeRow(PolishMode.Concise, selected, enabled = !state.running) { selected = it }
+            if (session.polish.customRewrite.isNotBlank()) {
+                PolishModeRow(PolishMode.Custom, selected, enabled = !state.running) { selected = it }
+            }
+            PolishModeRow(PolishMode.Translate, selected, enabled = !state.running) { selected = it }
+            if (selected == PolishMode.Translate) {
+                Text(stringResource(R.string.polish_target_language), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                TextField(targetLanguage, { targetLanguage = it.take(35); targetError = false },
+                    Modifier.fillMaxWidth().testTag("polish-target-language"),
+                    label = stringResource(R.string.polish_target_language), singleLine = true, enabled = !state.running)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("en" to "English", "ja" to "日本語", "fr" to "Français", "ar" to "العربية").forEach { (code, name) ->
+                        TextButton(name, { targetLanguage = code; targetError = false }, minHeight = 36.dp,
+                            colors = plainTextButtonColors())
+                    }
+                }
+                if (targetError) Text(stringResource(R.string.polish_target_invalid), fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.error)
+            }
             when (val outcome = state.outcome) {
                 is PolishOutcome.Failure -> Text(stringResource(outcome.kind.labelRes()), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.error)
@@ -72,7 +92,12 @@ internal fun PolishSheet(
                 }
             } else {
                 Button({
-                    session.startPolish(selected)
+                    if (selected == PolishMode.Translate && PolishPrompts.validateTargetLanguage(targetLanguage) != null) {
+                        targetError = true
+                        return@Button
+                    }
+                    if (selected == PolishMode.Custom && session.polish.customRewrite.isBlank()) return@Button
+                    session.startPolish(selected, targetLanguage.takeIf { selected == PolishMode.Translate })
                     onDismiss()
                 }, Modifier.fillMaxWidth().testTag("polish-run")) {
                     Text(stringResource(if (state.confirmationPending) R.string.polish_run_again else R.string.polish_run))
@@ -123,12 +148,31 @@ private fun PolishModeRow(mode: PolishMode, selectedMode: PolishMode, enabled: B
         .padding(horizontal = 14.dp, vertical = 12.dp).testTag("polish-mode-${mode.id}"),
         verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(stringResource(if (mode == PolishMode.Voice) R.string.polish_mode_voice else R.string.polish_mode_text),
-                fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-            Text(stringResource(if (mode == PolishMode.Voice) R.string.polish_mode_voice_summary else R.string.polish_mode_text_summary),
-                fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            Text(stringResource(modeLabel(mode)), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(modeSummary(mode)), fontSize = 11.5.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary)
         }
         if (selected) Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(20.dp),
             tint = MiuixTheme.colorScheme.primary)
     }
+}
+
+private fun modeLabel(mode: PolishMode): Int = when (mode) {
+    PolishMode.Voice -> R.string.polish_mode_voice
+    PolishMode.Text -> R.string.polish_mode_text
+    PolishMode.Translate -> R.string.polish_mode_translate
+    PolishMode.List -> R.string.polish_mode_list
+    PolishMode.Formal -> R.string.polish_mode_formal
+    PolishMode.Concise -> R.string.polish_mode_concise
+    PolishMode.Custom -> R.string.polish_mode_custom
+}
+
+private fun modeSummary(mode: PolishMode): Int = when (mode) {
+    PolishMode.Voice -> R.string.polish_mode_voice_summary
+    PolishMode.Text -> R.string.polish_mode_text_summary
+    PolishMode.Translate -> R.string.polish_mode_translate_summary
+    PolishMode.List -> R.string.polish_mode_list_summary
+    PolishMode.Formal -> R.string.polish_mode_formal_summary
+    PolishMode.Concise -> R.string.polish_mode_concise_summary
+    PolishMode.Custom -> R.string.polish_mode_custom_summary
 }

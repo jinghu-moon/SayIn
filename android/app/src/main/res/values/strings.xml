@@ -823,7 +823,7 @@
     <string name="settings_polish_summary_corrupt">Configuration damaged · reconfigure</string>
 
     <string name="polish_title">AI polish</string>
-    <string name="polish_sheet_description">Clean the current draft without changing its meaning. The result never sends automatically.</string>
+    <string name="polish_sheet_description">Clean, proofread, translate or explicitly rewrite the current draft. The result never sends automatically.</string>
     <string name="polish_not_configured">Configure a service before using AI polish.</string>
     <string name="polish_open_settings">Open AI polish settings</string>
     <string name="polish_scope">Will process %1$d characters</string>
@@ -896,8 +896,30 @@
     <string name="polish_failed">AI polish failed: %1$s</string>
     <string name="polish_cancelled_short">AI polish cancelled</string>
     <string name="polish_api_version">API version</string>
-    <string name="polish_stats_entry_title">%1\ · %2\</string>
+    <string name="polish_stats_entry_title">%1$s · %2$s</string>
+    <string name="polish_mode_translate">AI translation</string>
+    <string name="polish_mode_translate_summary">Translate the draft into a chosen language</string>
+    <string name="polish_mode_list">Structured list</string>
+    <string name="polish_mode_list_summary">Turn explicit points into an ordered list</string>
+    <string name="polish_mode_formal">Formal rewrite</string>
+    <string name="polish_mode_formal_summary">Use formal written language without adding facts</string>
+    <string name="polish_mode_concise">Concise rewrite</string>
+    <string name="polish_mode_concise_summary">Compress redundancy while preserving facts</string>
+    <string name="polish_mode_custom">Custom rewrite</string>
+    <string name="polish_mode_custom_summary">Use the custom instruction saved in settings</string>
+    <string name="polish_target_language">Target language</string>
+    <string name="polish_target_invalid">Enter a valid BCP-47 tag, for example ja or pt-BR.</string>
+    <string name="polish_auto">Automatic polish</string>
+    <string name="polish_auto_summary">After a new voice segment that started from an empty draft, polish once and keep the draft for confirmation.</string>
+    <string name="polish_auto_bound">Enabled for the current service. Changing endpoint, protocol, authentication or model disables it.</string>
+    <string name="polish_auto_unbound">Configure a service before enabling automatic polish.</string>
+    <string name="polish_app_rules">App-aware style</string>
+    <string name="polish_app_rules_summary">Choose chat, email, code, document or search guidance from the foreground app name. Same-name apps share the rule.</string>
+    <string name="polish_custom_rewrite">Custom rewrite instruction</string>
+    <string name="polish_custom_rewrite_summary">Optional system instruction. It must not ask the model to execute user content.</string>
+    <string name="polish_custom_rewrite_label">Custom instruction</string>
 </resources>
+
 
 
 

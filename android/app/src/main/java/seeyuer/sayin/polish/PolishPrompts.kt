@@ -4,7 +4,8 @@ import java.security.MessageDigest
 
 internal enum class PolishMode(val id: String, val builtin: Boolean = true) {
     Voice("voice"), Text("text"), Translate("translate"),
-    List("rewrite.list", builtin = false), Formal("rewrite.formal", builtin = false), Concise("rewrite.concise", builtin = false);
+    List("rewrite.list", builtin = false), Formal("rewrite.formal", builtin = false),
+    Concise("rewrite.concise", builtin = false), Custom("rewrite.custom", builtin = false);
 
     val revision: String get() = when (this) {
         Voice -> "voice-1"
@@ -13,6 +14,7 @@ internal enum class PolishMode(val id: String, val builtin: Boolean = true) {
         List -> "rewrite.list-1"
         Formal -> "rewrite.formal-1"
         Concise -> "rewrite.concise-1"
+        Custom -> "rewrite.custom-1"
     }
 }
 
@@ -113,7 +115,7 @@ internal object PolishPrompts {
                customRewrite: String? = null, scene: PolishScene? = null): String {
         val base = when (mode) {
             PolishMode.Voice -> voice
-            PolishMode.Text, PolishMode.List, PolishMode.Formal, PolishMode.Concise -> text
+            PolishMode.Text, PolishMode.List, PolishMode.Formal, PolishMode.Concise, PolishMode.Custom -> text
             PolishMode.Translate -> translate.replace("{{TARGET_LANGUAGE}}", requireNotNull(targetLanguage))
         }
         val parts = mutableListOf(base)
@@ -158,7 +160,7 @@ internal object PolishPrompts {
     fun applicationPrompt(name: String): String? {
         val n = name.lowercase()
         return when {
-            listOf("vscode", "visual studio code", "cursor", "terminal", "powershell", "cmd", "windowsterminal").any(n::contains) ->
+            listOf("vscode", "vs code", "visual studio code", "cursor", "terminal", "powershell", "cmd", "windowsterminal").any(n::contains) ->
                 "目标应用：$name。这是编辑器或终端输入，保留代码、命令、路径、文件名、英文标识符和 Markdown；不要解释、补全或格式化代码。"
             listOf("outlook", "foxmail", "mail").any(n::contains) ->
                 "目标应用：$name。这是邮件正文，保留称呼、事实和署名；不添加收件人、客套话或结尾。"
@@ -191,7 +193,7 @@ internal enum class PolishScene(val id: String, val prompt: String) {
             return when {
                 listOf("wechat", "微信", "qq", "teams", "slack", "discord").any(n::contains) -> Chat
                 listOf("outlook", "foxmail", "mail").any(n::contains) -> Email
-                listOf("vscode", "visual studio code", "cursor", "terminal", "powershell", "cmd", "windowsterminal").any(n::contains) -> Code
+                listOf("vscode", "vs code", "visual studio code", "cursor", "terminal", "powershell", "cmd", "windowsterminal").any(n::contains) -> Code
                 listOf("word", "notion", "obsidian", "notepad", "记事本").any(n::contains) -> Docs
                 listOf("chrome", "edge", "firefox", "browser").any(n::contains) -> Search
                 else -> null

@@ -22,6 +22,7 @@ internal class PolishManager(context: Context) {
     private val appContext = context.applicationContext
     private val configStore = PolishConfigStore(appContext)
     private val statsStore = PolishStatsStore(appContext)
+    private val preferences = appContext.getSharedPreferences("polish", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val loading = AtomicBoolean(false)
 
@@ -33,15 +34,51 @@ internal class PolishManager(context: Context) {
         private set
     var saving by mutableStateOf(false)
         private set
+    var targetLanguage by mutableStateOf(preferences.getString("target_language", "en") ?: "en")
+        private set
+    var appRulesEnabled by mutableStateOf(preferences.getBoolean("app_rules", true))
+        private set
+    var customRewrite by mutableStateOf(preferences.getString("custom_rewrite", "").orEmpty())
+        private set
+    var autoPolish by mutableStateOf(false)
+        private set
+    private var autoFingerprint: String? = preferences.getString("auto_fingerprint", null)
 
     val config: PolishConfig? get() = (state as? PolishConfigState.Ready)?.config
     val ready: Boolean get() = config != null
+    val autoPolishBound: Boolean get() = autoPolish && config != null && autoFingerprint == config?.fingerprint
 
     init {
         scope.launch {
             state = withContext(Dispatchers.IO) { configStore.load() }
             stats = withContext(Dispatchers.IO) { statsStore.load() }
+            autoPolish = preferences.getBoolean("auto", false) &&
+                (state as? PolishConfigState.Ready)?.config?.fingerprint == autoFingerprint
         }
+    }
+
+    fun updateTargetLanguage(value: String) {
+        if (PolishPrompts.validateTargetLanguage(value) != null) return
+        targetLanguage = value
+        preferences.edit().putString("target_language", value).apply()
+    }
+
+    fun updateAppRules(value: Boolean) {
+        appRulesEnabled = value
+        preferences.edit().putBoolean("app_rules", value).apply()
+    }
+
+    fun updateCustomRewrite(value: String) {
+        customRewrite = value.take(2000)
+        preferences.edit().putString("custom_rewrite", customRewrite).apply()
+    }
+
+    fun updateAutoPolish(value: Boolean) {
+        if (value && config == null) return
+        autoPolish = value
+        autoFingerprint = if (value) config?.fingerprint else null
+        preferences.edit().putBoolean("auto", value)
+            .putString("auto_fingerprint", autoFingerprint).apply()
     }
 
     fun refresh() {
@@ -62,8 +99,10 @@ internal class PolishManager(context: Context) {
             val result = runCatching { withContext(Dispatchers.IO) { configStore.save(config) } }
             saving = false
             if (result.isSuccess) {
+                val previous = this@PolishManager.config?.fingerprint
                 state = PolishConfigState.Ready(config)
                 testState = PolishTestState.Idle
+                if (previous != null && previous != config.fingerprint && autoPolish) updateAutoPolish(false)
                 onSaved(null)
             } else {
                 onSaved("保存失败")
@@ -76,6 +115,7 @@ internal class PolishManager(context: Context) {
             withContext(Dispatchers.IO) { configStore.clear() }
             state = PolishConfigState.Missing
             testState = PolishTestState.Idle
+            if (autoPolish) updateAutoPolish(false)
         }
     }
 

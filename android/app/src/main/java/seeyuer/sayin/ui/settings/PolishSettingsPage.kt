@@ -24,6 +24,7 @@ import seeyuer.sayin.polish.*
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.plainTextButtonColors
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
@@ -182,6 +183,37 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             PolishTestState.Idle -> Unit
         }
         Text(stringResource(R.string.polish_key_binding_note), fontSize = 11.5.sp, lineHeight = 17.sp,
+            color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        Card {
+            Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                SwitchPreference(
+                    title = stringResource(R.string.polish_auto),
+                    summary = stringResource(if (config == null) R.string.polish_auto_unbound
+                    else if (session.polish.autoPolishBound) R.string.polish_auto_bound else R.string.polish_auto_summary),
+                    checked = session.polish.autoPolishBound,
+                    enabled = config != null,
+                    modifier = Modifier.testTag("polish-auto"),
+                    onCheckedChange = { session.polish.updateAutoPolish(it) },
+                )
+                SwitchPreference(
+                    title = stringResource(R.string.polish_app_rules),
+                    summary = stringResource(R.string.polish_app_rules_summary),
+                    checked = session.polish.appRulesEnabled,
+                    modifier = Modifier.testTag("polish-app-rules"),
+                    onCheckedChange = { session.polish.updateAppRules(it) },
+                )
+            }
+        }
+        var targetDraft by remember { mutableStateOf(session.polish.targetLanguage) }
+        TextField(targetDraft, {
+            targetDraft = it.take(35)
+            if (PolishPrompts.validateTargetLanguage(targetDraft) == null) session.polish.updateTargetLanguage(targetDraft)
+        }, Modifier.fillMaxWidth().testTag("polish-default-language"),
+            label = stringResource(R.string.polish_target_language), singleLine = true)
+        TextField(session.polish.customRewrite, { session.polish.updateCustomRewrite(it) },
+            Modifier.fillMaxWidth().testTag("polish-custom-rewrite").heightIn(min = 88.dp),
+            label = stringResource(R.string.polish_custom_rewrite_label), singleLine = false)
+        Text(stringResource(R.string.polish_custom_rewrite_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (config != null) {
             TextButton(stringResource(R.string.polish_clear), { confirmClear = true }, minHeight = 48.dp,
