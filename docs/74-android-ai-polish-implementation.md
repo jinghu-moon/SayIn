@@ -79,7 +79,8 @@ adb -s dc39c31d install -r .\android\app\build\outputs\apk\debug\app-debug.apk
 - 30 项 AI 润色 JVM 测试通过，0 失败；覆盖协议字段/headers、响应校验、截断/拒绝/tool、单请求、重定向不跟随、严格 UTF-8、流式 SSE、prompt 注入边界、配置/预设、编辑状态、自动润色条件。
 - i18n 检查通过（en、zh-Hans，占位符一致）。
 - lintDebug 通过。
-- assembleDebug 通过；P3 APK 已覆盖安装到 Redmi K40 (`dc39c31d`)。
+- assembleDebug 通过；P3 APK 已覆盖安装到 Redmi K40 (`dc39c31d`)。常规 `adb install` 被 MIUI 拦截（`INSTALL_FAILED_USER_RESTRICTED`）；在已授权的 Magisk root 设备上使用 `su -c "pm install -r --user 0 /data/local/tmp/sayin.apk"` 安装成功（临时 APK 已删除）。
+- 首页工具行 AI 入口使用 Tabler `ai` 图标（字母 A+I），不再使用闪电 `Automatic`；APK 安装后已截图确认。
 - Android UI 测试已编译；`connectedDebugAndroidTest` 尝试启动时被 MIUI 安装确认拦截，报 `INSTALL_FAILED_USER_RESTRICTED: Install canceled by user`，测试未执行。
 - 已在 Redmi K40 上人工验证：
   - 设置 → AI 润色入口显示“未配置 · 点此设置”；
