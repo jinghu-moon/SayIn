@@ -48,6 +48,12 @@ internal class PolishManager(context: Context) {
         private set
     var catalogError by mutableStateOf<String?>(null)
         private set
+    var exchangeRate by mutableStateOf<PolishExchangeRate?>(null)
+        private set
+    var exchangeRateLoading by mutableStateOf(false)
+        private set
+    var exchangeRateError by mutableStateOf<String?>(null)
+        private set
     var customModels by mutableStateOf<List<String>>(emptyList())
         private set
     var customModelsLoading by mutableStateOf(false)
@@ -133,6 +139,19 @@ internal class PolishManager(context: Context) {
         }
     }
 
+    fun ensureExchangeRate(force: Boolean = false) {
+        val current = exchangeRate
+        if (!force && current?.valid == true && System.currentTimeMillis() - current.fetchedAt < 60_000) return
+        if (exchangeRateLoading) return
+        exchangeRateLoading = true
+        exchangeRateError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { PolishExchangeRateClient.fetch() }
+            exchangeRateLoading = false
+            result.onSuccess { exchangeRate = it }.onFailure { exchangeRateError = it.message ?: "汇率获取失败" }
+        }
+    }
+
     fun refreshCatalog() {
         if (catalogChecking) return
         catalogChecking = true
@@ -141,6 +160,27 @@ internal class PolishManager(context: Context) {
             val result = withContext(Dispatchers.IO) { catalogStore.refresh() }
             catalogChecking = false
             catalogError = result.error
+        }
+    }
+
+    fun reload() {
+        scope.launch {
+            when (val loaded = withContext(Dispatchers.IO) { configStore.load() }) {
+                PolishConfigLoad.Missing -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Missing
+                }
+                PolishConfigLoad.Corrupt -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Corrupt
+                }
+                is PolishConfigLoad.Ready -> {
+                    configurations = loaded.set.configurations
+                    activeId = loaded.set.activeId
+                    state = loaded.set.active?.let { PolishConfigState.Ready(it) } ?: PolishConfigState.Missing
+                }
+            }
+            configWriteFailed = false
+            testedConfig = null
+            testState = PolishTestState.Idle
         }
     }
 

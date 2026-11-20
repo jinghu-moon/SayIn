@@ -98,12 +98,23 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
     val manager = session.polish
     val config = manager.config
     val configs = manager.configurations
+    var confirmAuto by remember { mutableStateOf(false) }
+    var showPrice by remember { mutableStateOf(false) }
+    var displayCurrency by remember { mutableStateOf("USD") }
+    val currentTest = config?.let { manager.testResultFor(it) } ?: PolishTestState.Idle
+    val locale = LocalConfiguration.current.locales[0]
+    val catalogState by manager.catalogState.collectAsState()
+    val catalog = catalogState?.first
+    val priceEntry = config?.let { current ->
+        catalog?.modelsFor(current.provider)?.firstOrNull { it.id == current.model }
+    }
+    val exchangeRate = manager.exchangeRate
     Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Card {
             if (configs.isNotEmpty()) {
                 WindowDropdownPreference(
                     title = config?.let { configLabel(it) } ?: stringResource(R.string.polish_select_service),
-                    summary = config?.model,
+                    summary = config?.let { "${it.model} · ${testSummary(currentTest)}" },
                     entry = DropdownEntry(items = configs.map { saved ->
                         DropdownItem(text = configLabel(saved), summary = saved.model,
                             selected = config?.id == saved.id,
@@ -113,16 +124,48 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                     showValue = false,
                     startAction = config?.let { current -> { ProviderLogo(current.provider, Modifier.size(26.dp)) } },
                 )
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(stringResource(R.string.polish_test), {
+                        config?.let { manager.test(it) }
+                    }, minHeight = 44.dp, enabled = config != null && !manager.saving &&
+                        currentTest != PolishTestState.Testing, colors = plainTextButtonColors())
+                }
+                BasicComponent(
+                    title = stringResource(R.string.polish_model_price),
+                    summary = if (priceEntry == null) stringResource(R.string.polish_price_unknown)
+                    else priceSummary(priceEntry, displayCurrency, exchangeRate),
+                    onClick = {
+                        showPrice = true
+                        if (displayCurrency == "CNY") manager.ensureExchangeRate()
+                    },
+                    modifier = Modifier.testTag("polish-price"),
+                )
+            } else {
+                BasicComponent(
+                    title = stringResource(R.string.polish_add_config),
+                    summary = stringResource(R.string.polish_auto_unbound),
+                    onClick = openServices,
+                    modifier = Modifier.testTag("polish-services"),
+                )
             }
-            BasicComponent(title = stringResource(R.string.polish_services), onClick = openServices,
-                modifier = Modifier.testTag("polish-services"))
+            if (configs.isNotEmpty()) {
+                BasicComponent(title = stringResource(R.string.polish_services), onClick = openServices,
+                    modifier = Modifier.testTag("polish-services"))
+            }
         }
-        if (manager.configWriteFailed) Notice(stringResource(R.string.polish_save_failed), error = true)
+        if (manager.configWriteFailed) {
+            Notice(stringResource(R.string.polish_save_failed), error = true)
+            TextButton(stringResource(R.string.polish_reload_config), { manager.reload() },
+                minHeight = 44.dp, colors = plainTextButtonColors())
+        }
         Card {
             SwitchPreference(title = stringResource(R.string.polish_auto),
                 summary = stringResource(R.string.polish_auto_summary),
                 checked = manager.autoPolishBound, enabled = config != null && !manager.saving,
-                modifier = Modifier.testTag("polish-auto"), onCheckedChange = manager::updateAutoPolish)
+                modifier = Modifier.testTag("polish-auto"), onCheckedChange = { enabled ->
+                    if (enabled && !manager.autoPolishBound) confirmAuto = true else manager.updateAutoPolish(enabled)
+                })
             SwitchPreference(title = stringResource(R.string.polish_app_rules),
                 summary = stringResource(R.string.polish_app_rules_summary), checked = manager.appRulesEnabled,
                 modifier = Modifier.testTag("polish-app-rules"), onCheckedChange = manager::updateAppRules)
@@ -156,6 +199,93 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             label = stringResource(R.string.polish_hotwords))
         Notice(stringResource(R.string.polish_upload_note))
     }
+    if (showPrice) {
+        OverlayBottomSheet(show = true, onDismissRequest = { showPrice = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .navigationBarsPadding().imePadding().padding(bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.polish_model_price), style = MiuixTheme.textStyles.title2)
+                if (priceEntry == null) {
+                    Notice(stringResource(R.string.polish_price_manual))
+                } else {
+                    WindowDropdownPreference(
+                        title = stringResource(R.string.polish_currency),
+                        items = listOf(stringResource(R.string.polish_currency_usd),
+                            stringResource(R.string.polish_currency_cny)),
+                        selectedIndex = if (displayCurrency == "USD") 0 else 1,
+                        onSelectedIndexChange = {
+                            displayCurrency = if (it == 0) "USD" else "CNY"
+                            if (displayCurrency == "CNY") manager.ensureExchangeRate()
+                        },
+                    )
+                    Text(stringResource(R.string.polish_price_reference), fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    priceLine(stringResource(R.string.polish_price_input), priceEntry.inputUsdPerMillion,
+                        displayCurrency, exchangeRate)
+                    priceLine(stringResource(R.string.polish_price_output), priceEntry.outputUsdPerMillion,
+                        displayCurrency, exchangeRate)
+                    priceLine(stringResource(R.string.polish_price_cache_read), priceEntry.cacheReadUsdPerMillion,
+                        displayCurrency, exchangeRate)
+                    priceLine(stringResource(R.string.polish_price_cache_write), priceEntry.cacheWriteUsdPerMillion,
+                        displayCurrency, exchangeRate)
+                    if (priceEntry.tiers.isNotEmpty()) {
+                        Text(stringResource(R.string.polish_price_tiers), fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                        priceEntry.tiers.forEach { tier ->
+                            Text(stringResource(R.string.polish_price_tier_threshold, tier.minContext), fontSize = 11.sp)
+                            priceLine(stringResource(R.string.polish_price_input), tier.rates.input,
+                                displayCurrency, exchangeRate)
+                            priceLine(stringResource(R.string.polish_price_output), tier.rates.output,
+                                displayCurrency, exchangeRate)
+                        }
+                    }
+                    priceEntry.schedule?.let { schedule ->
+                        Text(stringResource(R.string.polish_price_schedule), fontSize = 12.sp,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                        Text(stringResource(R.string.polish_price_schedule_line, schedule.zoneId, schedule.windows.size), fontSize = 11.sp)
+                    }
+                    Notice(stringResource(R.string.polish_price_catalog,
+                        catalog?.version?.take(12) ?: "?"))
+                }
+                if (displayCurrency == "CNY") {
+                    if (manager.exchangeRateLoading) Notice(stringResource(R.string.polish_testing))
+                    else if (exchangeRate != null) Notice(stringResource(R.string.polish_exchange_source,
+                        exchangeRate.cnyPerUsd.toPlainString(),
+                        SimpleDateFormat("MM-dd HH:mm", locale).format(Date(exchangeRate.fetchedAt))))
+                    else if (manager.exchangeRateError != null) Notice(stringResource(R.string.polish_exchange_failed), error = true)
+                    TextButton(stringResource(R.string.polish_catalog_refresh), { manager.ensureExchangeRate(true) },
+                        minHeight = 44.dp, colors = plainTextButtonColors())
+                }
+                TextButton(stringResource(R.string.polish_cancel_action), { showPrice = false },
+                    Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
+            }
+        }
+    }
+    WindowDialog(
+        title = stringResource(R.string.polish_auto_confirm_title),
+        summary = stringResource(R.string.polish_auto_confirm_summary),
+        show = confirmAuto,
+        onDismissRequest = { confirmAuto = false },
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.polish_cancel_action), { confirmAuto = false },
+                Modifier.weight(1f), minHeight = 48.dp)
+            TextButton(stringResource(R.string.polish_auto), {
+                confirmAuto = false
+                manager.updateAutoPolish(true)
+            }, Modifier.weight(1f).testTag("polish-auto-confirm"), minHeight = 48.dp,
+                colors = plainTextButtonColors())
+        }
+    }
+}
+
+@Composable
+private fun testSummary(state: PolishTestState): String = when (state) {
+    PolishTestState.Idle -> stringResource(R.string.polish_test_idle)
+    PolishTestState.Testing -> stringResource(R.string.polish_testing)
+    is PolishTestState.Success -> stringResource(R.string.polish_test_last_success, state.durationMillis.toInt())
+    is PolishTestState.Failure -> stringResource(R.string.polish_test_last_failure,
+        stringResource(state.kind.labelRes()))
 }
 
 @Composable
@@ -172,9 +302,8 @@ private fun UsageCosts(report: PolishUsageReport) {
     if (report.totals.unknownCost > 0 || report.costs.isNotEmpty()) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
             report.costs.forEach { amount ->
-                val label = stringResource(if (amount.source == PolishCostSource.Reported.name)
-                    R.string.polish_stats_cost_reported else R.string.polish_stats_cost_estimated)
-                Notice(stringResource(R.string.polish_usage_amount, label,
+                Notice(stringResource(if (amount.source == PolishCostSource.Reported.name)
+                    R.string.polish_stats_cost_reported else R.string.polish_stats_cost_estimated,
                     String.format(locale, "%.6f", java.math.BigDecimal.valueOf(amount.micros, 6)), amount.currency))
             }
             if (report.totals.unknownCost > 0) Notice(stringResource(R.string.polish_usage_unknown_cost, report.totals.unknownCost))
@@ -288,6 +417,7 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
     val locale = LocalConfiguration.current.locales[0]
     var confirmDelete by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
+    var showAdvanced by remember(creating, config?.id) { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
     val catalog by manager.catalogState.collectAsState()
     val candidates = (catalog?.first?.modelsByProvider?.get(editor.build().officialCatalogProvider).orEmpty() +
@@ -315,43 +445,18 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
                 startAction = { ProviderLogo(editor.provider, Modifier.size(26.dp)) },
                 showValue = false,
             )
-            if (editor.provider == PolishProvider.Custom) {
-                WindowDropdownPreference(
-                    title = stringResource(R.string.polish_protocol),
-                    items = listOf(stringResource(R.string.polish_protocol_chat), stringResource(R.string.polish_protocol_messages)),
-                    selectedIndex = if (editor.protocol == PolishProtocol.Chat) 0 else 1,
-                    onSelectedIndexChange = {
-                        editor.selectProtocol(if (it == 0) PolishProtocol.Chat else PolishProtocol.Messages)
-                    },
-                )
-            } else {
-                BasicComponent(
-                    title = stringResource(R.string.polish_protocol),
-                    summary = stringResource(if ((PolishConfig.presets.firstOrNull { p -> p.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Chat)
-                        R.string.polish_protocol_chat else R.string.polish_protocol_messages),
-                )
-            }
         }
         Card {
             Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 TextField(editor.name, { editor.name = it.take(80) },
                     Modifier.fillMaxWidth().testTag("polish-config-name"),
                     label = stringResource(R.string.polish_config_name), singleLine = true, enabled = !saving)
-                TextField(editor.baseUrl, { editor.updateBaseUrl(it.take(300)) },
-                    Modifier.fillMaxWidth().testTag("polish-base-url"), label = stringResource(R.string.polish_base_url),
-                    singleLine = true, enabled = !saving)
                 BasicComponent(
                     title = stringResource(R.string.polish_model),
                     summary = editor.model.ifBlank { null },
                     onClick = { modelQuery = ""; showModels = true },
                     modifier = Modifier.testTag("polish-model"),
                 )
-                if ((PolishConfig.presets.firstOrNull { it.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Messages &&
-                    editor.provider == PolishProvider.Custom) {
-                    TextField(editor.apiVersion, { editor.apiVersion = it.take(40) },
-                        Modifier.fillMaxWidth().testTag("polish-api-version"), label = stringResource(R.string.polish_api_version),
-                        singleLine = true, enabled = !saving)
-                }
                 TextField(editor.key, { editor.key = it.take(8192); editor.localError = null },
                     Modifier.fillMaxWidth().testTag("polish-key"), label = stringResource(R.string.polish_key),
                     singleLine = true, enabled = !saving,
@@ -364,6 +469,40 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
                                 Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
                         }
                     })
+                BasicComponent(
+                    title = stringResource(R.string.polish_advanced),
+                    summary = editor.baseUrl,
+                    onClick = { showAdvanced = !showAdvanced },
+                    modifier = Modifier.testTag("polish-advanced"),
+                )
+                if (showAdvanced) {
+                    TextField(editor.baseUrl, { editor.updateBaseUrl(it.take(300)) },
+                        Modifier.fillMaxWidth().testTag("polish-base-url"), label = stringResource(R.string.polish_base_url),
+                        singleLine = true, enabled = !saving)
+                    if (editor.provider == PolishProvider.Custom) {
+                        WindowDropdownPreference(
+                            title = stringResource(R.string.polish_protocol),
+                            items = listOf(stringResource(R.string.polish_protocol_chat),
+                                stringResource(R.string.polish_protocol_messages)),
+                            selectedIndex = if (editor.protocol == PolishProtocol.Chat) 0 else 1,
+                            onSelectedIndexChange = {
+                                editor.selectProtocol(if (it == 0) PolishProtocol.Chat else PolishProtocol.Messages)
+                            },
+                        )
+                    } else {
+                        BasicComponent(
+                            title = stringResource(R.string.polish_protocol),
+                            summary = stringResource(if ((PolishConfig.presets.firstOrNull { p -> p.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Chat)
+                                R.string.polish_protocol_chat else R.string.polish_protocol_messages),
+                        )
+                    }
+                    if ((PolishConfig.presets.firstOrNull { it.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Messages &&
+                        editor.provider == PolishProvider.Custom) {
+                        TextField(editor.apiVersion, { editor.apiVersion = it.take(40) },
+                            Modifier.fillMaxWidth().testTag("polish-api-version"), label = stringResource(R.string.polish_api_version),
+                            singleLine = true, enabled = !saving)
+                    }
+                }
             }
         }
         editor.localError?.let { Text(stringResource(it), fontSize = 12.sp, color = MiuixTheme.colorScheme.error) }
@@ -436,6 +575,12 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
                         editor.localError = null
                         showModels = false
                     }, endActions = {
+                        val input = model.inputUsdPerMillion
+                        val output = model.outputUsdPerMillion
+                        if (input != null && output != null) {
+                            Text(stringResource(R.string.polish_price_candidate_line, formatPrice(input, "USD", null), formatPrice(output, "USD", null)),
+                                fontSize = 10.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                        }
                         if (editor.model == model.id) Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(20.dp))
                     })
                 }
@@ -462,6 +607,34 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
                 colors = plainTextButtonColors())
         }
     }
+}
+
+@Composable
+private fun priceLine(label: String, usdPerMillion: Double?, currency: String,
+                      rate: PolishExchangeRate?) {
+    if (usdPerMillion == null) return
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, fontSize = 12.sp)
+        Text(stringResource(R.string.polish_price_per_million,
+            formatPrice(usdPerMillion, currency, rate)), fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun priceSummary(entry: PolishCatalogModel, currency: String,
+                         rate: PolishExchangeRate?): String {
+    val input = entry.inputUsdPerMillion?.let { formatPrice(it, currency, rate) } ?: "?"
+    val output = entry.outputUsdPerMillion?.let { formatPrice(it, currency, rate) } ?: "?"
+    return "${stringResource(R.string.polish_price_input)} $input · " +
+        "${stringResource(R.string.polish_price_output)} $output"
+}
+
+private fun formatPrice(usdPerMillion: Double, currency: String, rate: PolishExchangeRate?): String {
+    val usd = java.math.BigDecimal.valueOf(usdPerMillion)
+    val value = if (currency == "CNY") rate?.cnyPerUsd?.multiply(usd) else usd
+    if (value == null) return "—"
+    return (if (currency == "CNY") "¥" else "$") +
+        value.setScale(4, java.math.RoundingMode.HALF_UP).stripTrailingZeros().toPlainString()
 }
 
 @Composable

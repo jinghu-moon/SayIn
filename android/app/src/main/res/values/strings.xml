@@ -980,7 +980,39 @@
     <string name="polish_catalog_refresh_failed">Couldn’t refresh the model catalog. Current models are still available.</string>
     <string name="polish_models_refresh_failed">Couldn’t load models from this service.</string>
     <string name="polish_use_model_id">Use %1$s</string>
+    <string name="polish_auto_confirm_title">Enable automatic polish?</string>
+    <string name="polish_auto_confirm_summary">Even when speech recognition runs on this phone, text from a qualifying voice segment will be uploaded to the selected AI service for polishing.</string>
+    <string name="polish_reload_config">Reload saved services</string>
+    <string name="polish_test_last_success">Last test succeeded · %1$d ms</string>
+    <string name="polish_test_last_failure">Last test failed · %1$s</string>
+    <string name="polish_test_idle">Not tested with this configuration yet.</string>
+    <string name="polish_advanced">Advanced</string>
+    <string name="polish_model_price">Model pricing</string>
+    <string name="polish_price_reference">Reference price</string>
+    <string name="polish_price_input">Input</string>
+    <string name="polish_price_output">Output</string>
+    <string name="polish_price_cache_read">Cache read</string>
+    <string name="polish_price_cache_write">Cache write</string>
+    <string name="polish_price_per_million">%1$s / 1M tokens</string>
+    <string name="polish_price_unknown">No price provided</string>
+    <string name="polish_price_tiers">Context tiers</string>
+    <string name="polish_price_schedule">Time windows</string>
+    <string name="polish_price_catalog">Catalog %1$s</string>
+    <string name="polish_currency">Currency</string>
+    <string name="polish_currency_usd">USD</string>
+    <string name="polish_currency_cny">CNY</string>
+    <string name="polish_exchange_source">Rate: %1$s · %2$s</string>
+    <string name="polish_exchange_failed">CNY rate unavailable</string>
+    <string name="polish_price_manual">Manually entered or gateway models have no official catalog price.</string>
+    <string name="polish_price_tier_threshold">&gt; %1$d tokens</string>
+    <string name="polish_price_schedule_line">%1$s · %2$d windows</string>
+    <string name="polish_price_missing">?</string>
+    <string name="polish_price_candidate_line">%1$s / %2$s</string>
 </resources>
+
+
+
+
 
 
 

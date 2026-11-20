@@ -975,7 +975,39 @@
     <string name="polish_catalog_refresh_failed">无法刷新模型目录，仍可使用当前模型。</string>
     <string name="polish_models_refresh_failed">无法获取该服务的模型列表。</string>
     <string name="polish_use_model_id">使用 %1$s</string>
+    <string name="polish_auto_confirm_title">开启自动润色？</string>
+    <string name="polish_auto_confirm_summary">即使语音识别在本机运行，符合条件的新语音片段文本也会上传到所选 AI 服务进行润色。</string>
+    <string name="polish_reload_config">重新载入已保存的服务</string>
+    <string name="polish_test_last_success">上次测试成功 · %1$d ms</string>
+    <string name="polish_test_last_failure">上次测试失败 · %1$s</string>
+    <string name="polish_test_idle">当前配置尚未测试。</string>
+    <string name="polish_advanced">高级</string>
+    <string name="polish_model_price">模型价格</string>
+    <string name="polish_price_reference">参考价</string>
+    <string name="polish_price_input">输入</string>
+    <string name="polish_price_output">输出</string>
+    <string name="polish_price_cache_read">缓存读</string>
+    <string name="polish_price_cache_write">缓存写</string>
+    <string name="polish_price_per_million">%1$s / 百万 Token</string>
+    <string name="polish_price_unknown">未提供单价</string>
+    <string name="polish_price_tiers">上下文档位</string>
+    <string name="polish_price_schedule">时段</string>
+    <string name="polish_price_catalog">目录 %1$s</string>
+    <string name="polish_currency">币种</string>
+    <string name="polish_currency_usd">USD</string>
+    <string name="polish_currency_cny">CNY</string>
+    <string name="polish_exchange_source">汇率：%1$s · %2$s</string>
+    <string name="polish_exchange_failed">人民币汇率不可用</string>
+    <string name="polish_price_manual">手填模型或中转站模型没有官方目录价。</string>
+    <string name="polish_price_tier_threshold">&gt; %1$d Token</string>
+    <string name="polish_price_schedule_line">%1$s · %2$d 个时段</string>
+    <string name="polish_price_missing">?</string>
+    <string name="polish_price_candidate_line">%1$s / %2$s</string>
 </resources>
+
+
+
+
 
 
 
