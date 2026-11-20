@@ -327,6 +327,10 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
     var model by remember { mutableStateOf<String?>(null) }
     var page by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
+    var showFilters by remember { mutableStateOf(false) }
+    var draftPurpose by remember { mutableStateOf<String?>(null) }
+    var draftService by remember { mutableStateOf<String?>(null) }
+    var draftModel by remember { mutableStateOf<String?>(null) }
     val state by produceState<Result<PolishUsageReport>?>(null, version, days, purpose, service, model, page) {
         value = null
         value = try { Result.success(manager.usageReport(days, purpose, service, model, page)) }
@@ -338,35 +342,54 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
     val all = stringResource(R.string.polish_usage_all)
     val purposes = listOf(null, "polish", "translation", "test")
     val locale = LocalConfiguration.current.locales[0]
+    val filterCount = listOf(purpose, service, model).count { it != null }
     Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        WindowDropdownPreference(title = stringResource(R.string.polish_usage_period),
-            items = listOf(R.string.polish_usage_today, R.string.polish_usage_7d, R.string.polish_usage_30d).map { stringResource(it) },
-            selectedIndex = listOf(1, 7, 30).indexOf(days),
-            onSelectedIndexChange = { days = listOf(1, 7, 30)[it]; page = 0; model = null })
-        WindowDropdownPreference(title = stringResource(R.string.polish_usage_purpose),
-            items = purposes.map { if (it == null) all else stringResource(usagePurposeLabel(it)) },
-            selectedIndex = purposes.indexOf(purpose),
-            onSelectedIndexChange = { purpose = purposes[it]; page = 0 })
-        if (configurations.isNotEmpty()) {
-            WindowDropdownPreference(title = stringResource(R.string.polish_usage_service),
-                items = listOf(all) + configurations.map { configLabel(it) },
-                selectedIndex = configurations.indexOfFirst { it.id == service } + 1,
-                onSelectedIndexChange = { service = configurations.getOrNull(it - 1)?.id; page = 0; model = null })
-        }
-        val models = report?.models.orEmpty()
-        if (models.isNotEmpty()) {
-            WindowDropdownPreference(title = stringResource(R.string.polish_model), items = listOf(all) + models,
-                selectedIndex = models.indexOf(model) + 1,
-                onSelectedIndexChange = { model = models.getOrNull(it - 1); page = 0 })
-        }
+        TabRowWithContour(
+            tabs = listOf(R.string.polish_usage_today, R.string.polish_usage_7d, R.string.polish_usage_30d)
+                .map { stringResource(it) },
+            selectedTabIndex = listOf(1, 7, 30).indexOf(days).coerceAtLeast(0),
+            onTabSelected = { days = listOf(1, 7, 30)[it]; page = 0; model = null },
+            modifier = Modifier.fillMaxWidth().testTag("polish-usage-period"),
+            height = 44.dp,
+            cornerRadius = 14.dp,
+        )
         when {
             state?.isFailure == true -> Notice(stringResource(R.string.polish_usage_load_failed), error = true)
             report == null -> Notice(stringResource(R.string.polish_usage_loading))
             report.totals.calls == 0L -> Notice(stringResource(R.string.polish_stats_empty))
             else -> {
-                Notice(usageSummary(report))
-                UsageCosts(report)
-                report.entries.forEach { StatsRow(it, locale) }
+                Card {
+                    Column(Modifier.padding(vertical = 12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            UsageMetric(stringResource(R.string.polish_usage_calls), report.totals.calls.toString())
+                            UsageMetric(stringResource(R.string.polish_usage_token_label),
+                                report.totals.tokens.takeIf { it > 0 }?.toString() ?: stringResource(R.string.polish_usage_unknown_tokens))
+                            UsageMetric(stringResource(R.string.polish_usage_median),
+                                report.medianMillis.takeIf { it > 0 }?.let { "$it ms" } ?: "—")
+                        }
+                        HorizontalDivider(Modifier.padding(vertical = 10.dp))
+                        UsageCosts(report)
+                    }
+                }
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.polish_usage_details), Modifier.weight(1f), fontSize = 13.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                    TextButton(stringResource(
+                        if (filterCount > 0) R.string.polish_usage_filter_count else R.string.polish_usage_filter,
+                        filterCount,
+                    ), {
+                        draftPurpose = purpose; draftService = service; draftModel = model
+                        showFilters = true
+                    }, minHeight = 44.dp, colors = plainTextButtonColors())
+                }
+                report.entries.groupBy {
+                    SimpleDateFormat("yyyy-MM-dd", locale).format(Date(it.timestamp))
+                }.forEach { (day, entries) ->
+                    Text(SimpleDateFormat("MM-dd", locale).format(Date(entries.first().timestamp)),
+                        fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        modifier = Modifier.padding(top = 4.dp))
+                    entries.forEach { StatsRow(it, locale) }
+                }
                 if (report.totals.calls > POLISH_USAGE_PAGE_SIZE) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         TextButton(stringResource(R.string.polish_usage_previous), { page-- }, minHeight = 48.dp, enabled = page > 0)
@@ -378,6 +401,39 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
         }
         if (report != null) TextButton(stringResource(R.string.polish_stats_clear), { confirmClear = true }, minHeight = 48.dp)
     }
+    if (showFilters) {
+        OverlayBottomSheet(show = true, onDismissRequest = { showFilters = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.polish_usage_filter), style = MiuixTheme.textStyles.title2)
+                WindowDropdownPreference(title = stringResource(R.string.polish_usage_purpose),
+                    items = purposes.map { if (it == null) all else stringResource(usagePurposeLabel(it)) },
+                    selectedIndex = purposes.indexOf(draftPurpose),
+                    onSelectedIndexChange = { draftPurpose = purposes[it] })
+                WindowDropdownPreference(title = stringResource(R.string.polish_usage_service),
+                    items = listOf(all) + configurations.map { configLabel(it) },
+                    selectedIndex = configurations.indexOfFirst { it.id == draftService } + 1,
+                    onSelectedIndexChange = { draftService = configurations.getOrNull(it - 1)?.id; draftModel = null })
+                val models = report?.models.orEmpty()
+                if (models.isNotEmpty()) {
+                    WindowDropdownPreference(title = stringResource(R.string.polish_model), items = listOf(all) + models,
+                        selectedIndex = models.indexOf(draftModel) + 1,
+                        onSelectedIndexChange = { draftModel = models.getOrNull(it - 1) })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(stringResource(R.string.polish_usage_reset_filters), {
+                        draftPurpose = null; draftService = null; draftModel = null
+                    }, Modifier.weight(1f), minHeight = 48.dp)
+                    TextButton(stringResource(R.string.polish_usage_apply_filters), {
+                        purpose = draftPurpose; service = draftService; model = draftModel; page = 0
+                        showFilters = false
+                    }, Modifier.weight(1f), minHeight = 48.dp, colors = plainTextButtonColors())
+                }
+                TextButton(stringResource(R.string.polish_cancel_action), { showFilters = false },
+                    Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
+            }
+        }
+    }
     WindowDialog(title = stringResource(R.string.polish_stats_clear), summary = stringResource(R.string.polish_stats_clear_summary),
         show = confirmClear, onDismissRequest = { confirmClear = false }) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -388,6 +444,14 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                 manager.clearStats()
             }, Modifier.weight(1f), minHeight = 48.dp)
         }
+    }
+}
+
+@Composable
+private fun UsageMetric(label: String, value: String) {
+    Column(Modifier.width(96.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(value, fontSize = 18.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        Text(label, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
     }
 }
 

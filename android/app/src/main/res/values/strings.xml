@@ -1030,7 +1030,22 @@
     <string name="polish_scene_code">Code / terminal</string>
     <string name="polish_scene_docs">Document</string>
     <string name="polish_scene_search">Search</string>
+    <string name="polish_usage_calls">Calls</string>
+    <string name="polish_usage_token_label">Tokens</string>
+    <string name="polish_usage_median">Median</string>
+    <string name="polish_usage_details">Call details</string>
+    <string name="polish_usage_filter">Filter</string>
+    <string name="polish_usage_filter_count">Filter (%1$d)</string>
+    <string name="polish_usage_apply_filters">Apply</string>
+    <string name="polish_usage_reset_filters">Reset</string>
+    <string name="polish_translate_style">Translation style</string>
+    <string name="polish_style_auto">Automatic</string>
+    <string name="polish_style_chat">Everyday chat</string>
+    <string name="polish_style_formal">Formal writing</string>
+    <string name="polish_style_tech">Technical</string>
 </resources>
+
+
 
 
 

@@ -374,8 +374,9 @@ internal object PolishPrompts {
             return leakProblem(restored, input)
         }
         val baseMode = if (mode == PolishMode.Voice) baseModeFor(source ?: PolishSource.LocalAsr) else baseModeFor(source ?: PolishSource.Ime)
-        val ratio = ratioFor(baseMode, mode) ?: return null
-        ratioProblem(restored, input, ratio.first, ratio.second)?.let { return it }
+        ratioFor(mode)?.let { (low, high) ->
+            ratioProblem(restored, input, low, high)?.let { return it }
+        }
         fidelityProblem(restored, input, translation = false,
             includeIdentifiers = baseMode == PolishMode.Text)?.let { return it }
         return leakProblem(restored, input)
@@ -429,7 +430,7 @@ internal object PolishPrompts {
         return "$lead\n$entries\n</glossary>"
     }
 
-    private fun ratioFor(base: PolishMode, mode: PolishMode): Pair<Double, Double>? = when (mode) {
+    private fun ratioFor(mode: PolishMode): Pair<Double, Double>? = when (mode) {
         PolishMode.Voice -> 0.3 to 1.5
         PolishMode.Text -> 0.85 to 1.15
         PolishMode.List -> 0.6 to 2.0

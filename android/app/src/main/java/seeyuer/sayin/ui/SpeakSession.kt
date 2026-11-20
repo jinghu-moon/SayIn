@@ -556,7 +556,8 @@ internal class SpeakSession(
             polishState = polishState.copy(confirmationPending = false)
         }
     }
-    fun startPolish(mode: PolishMode, targetLanguage: String? = null) {
+    fun startPolish(mode: PolishMode, targetLanguage: String? = null,
+                    translateStyle: PolishTranslateStyle? = null) {
         if (!canPolish) return
         val config = polish.config ?: run {
             polishState = PolishState(outcome = PolishOutcome.Failure(PolishFailure.MissingConfig))
@@ -575,13 +576,27 @@ internal class SpeakSession(
         if (sourceText.isBlank()) return
         val appName = receiver.foregroundApplication?.name
         val scene = polish.sceneFor(appName)
+        val source = when {
+            selected -> PolishSource.Selection
+            voiceOrigin && !typedSinceVoice -> PolishSource.LocalAsr
+            voiceOrigin && typedSinceVoice -> PolishSource.Mixed
+            else -> PolishSource.Ime
+        }
         val custom = polish.customRewrite.takeIf { mode == PolishMode.Custom }
-        val system = PolishPrompts.system(mode, language, appName, custom, scene, polish.hotwords)
+        val terms = polish.hotwords.takeIf { mode == PolishMode.Translate }
+        val userStyle = polish.customRewrite.takeIf { mode != PolishMode.Custom }
+        val style = if (mode == PolishMode.Translate) {
+            translateStyle ?: PolishPrompts.autoTranslateStyle(appName)
+        } else null
+        val system = PolishPrompts.system(mode, language, appName, custom, scene, polish.hotwords,
+            source = source, style = style, terms = terms, userStyle = userStyle)
         val ticket = PolishTicket(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version,
             start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = language,
             configId = config.id, configRevision = config.revision,
             configFingerprint = config.fingerprint, promptHash = PolishPrompts.hash(system),
+            source = source, style = style?.id, promptVersion = PolishPrompts.PROMPT_VERSION,
+            guardRevision = PolishPrompts.GUARD_REVISION,
         )
         polishRequest?.cancel()
         val request = PolishRequest()
@@ -603,6 +618,7 @@ internal class SpeakSession(
                     client.callStreaming(
                         mode = mode, targetLanguage = language, appName = appName, scene = scene,
                         customRewrite = custom, text = sourceText, hotwords = hotwords,
+                        source = source, style = style, terms = terms, userStyle = userStyle,
                         onCall = request::attach,
                         onPartial = { partial ->
                             scope.launch {
@@ -616,6 +632,7 @@ internal class SpeakSession(
                     client.call(
                         mode = mode, targetLanguage = language, appName = appName, scene = scene,
                         customRewrite = custom, text = sourceText, hotwords = hotwords,
+                        source = source, style = style, terms = terms, userStyle = userStyle,
                         onCall = request::attach,
                     )
                 }

@@ -1025,7 +1025,22 @@
     <string name="polish_scene_code">代码／终端</string>
     <string name="polish_scene_docs">文档</string>
     <string name="polish_scene_search">搜索</string>
+    <string name="polish_usage_calls">调用次数</string>
+    <string name="polish_usage_token_label">Token</string>
+    <string name="polish_usage_median">中位耗时</string>
+    <string name="polish_usage_details">调用明细</string>
+    <string name="polish_usage_filter">筛选</string>
+    <string name="polish_usage_filter_count">筛选（%1$d）</string>
+    <string name="polish_usage_apply_filters">应用</string>
+    <string name="polish_usage_reset_filters">重置</string>
+    <string name="polish_translate_style">翻译风格</string>
+    <string name="polish_style_auto">自动</string>
+    <string name="polish_style_chat">日常聊天</string>
+    <string name="polish_style_formal">正式书面</string>
+    <string name="polish_style_tech">技术文档</string>
 </resources>
+
+
 
 
 

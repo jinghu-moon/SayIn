@@ -20,9 +20,11 @@ import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.polish.PolishFailure
 import seeyuer.sayin.polish.PolishMode
 import seeyuer.sayin.polish.PolishPrompts
+import seeyuer.sayin.polish.PolishTranslateStyle
 import seeyuer.sayin.polish.userMessage
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
@@ -36,6 +38,7 @@ internal fun PolishSheet(
     var selected by remember(show) { mutableStateOf(session.suggestedPolishMode()) }
     var targetLanguage by remember(show) { mutableStateOf(session.polish.targetLanguage) }
     var targetError by remember(show) { mutableStateOf(false) }
+    var translateStyle by remember(show) { mutableStateOf<PolishTranslateStyle?>(null) }
     OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -76,6 +79,17 @@ internal fun PolishSheet(
                 }
                 if (targetError) Text(stringResource(R.string.polish_target_invalid), fontSize = 11.sp,
                     color = MiuixTheme.colorScheme.error)
+                val styles = listOf(null, PolishTranslateStyle.Chat, PolishTranslateStyle.Formal,
+                    PolishTranslateStyle.Tech)
+                WindowDropdownPreference(
+                    title = stringResource(R.string.polish_translate_style),
+                    items = listOf(stringResource(R.string.polish_style_auto),
+                        stringResource(R.string.polish_style_chat),
+                        stringResource(R.string.polish_style_formal),
+                        stringResource(R.string.polish_style_tech)),
+                    selectedIndex = styles.indexOf(translateStyle),
+                    onSelectedIndexChange = { translateStyle = styles[it] },
+                )
             }
             when (val outcome = state.outcome) {
                 is PolishOutcome.Failure -> Text(stringResource(outcome.kind.labelRes()), fontSize = 12.sp,
@@ -97,7 +111,8 @@ internal fun PolishSheet(
                         return@Button
                     }
                     if (selected == PolishMode.Custom && session.polish.customRewrite.isBlank()) return@Button
-                    session.startPolish(selected, targetLanguage.takeIf { selected == PolishMode.Translate })
+                    session.startPolish(selected, targetLanguage.takeIf { selected == PolishMode.Translate },
+                        translateStyle.takeIf { selected == PolishMode.Translate })
                     onDismiss()
                 }, Modifier.fillMaxWidth().testTag("polish-run")) {
                     Text(stringResource(if (state.confirmationPending) R.string.polish_run_again else R.string.polish_run))

@@ -39,6 +39,13 @@ internal sealed interface PolishCallResult {
     ) : PolishCallResult
 }
 
+internal data class PolishGuardContext(
+    val input: String,
+    val mode: PolishMode,
+    val targetLanguage: String? = null,
+    val source: PolishSource? = null,
+)
+
 internal class PolishClient(
     private val config: PolishConfig,
     private val client: OkHttpClient = defaultClient(),
@@ -46,9 +53,13 @@ internal class PolishClient(
 ) {
     fun call(mode: PolishMode, targetLanguage: String? = null, appName: String? = null,
              scene: PolishScene? = null, customRewrite: String? = null, text: String,
-             hotwords: String? = null, onCall: (Call) -> Unit = {}): PolishCallResult {
-        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene, hotwords)
-        return callRaw(system, PolishPrompts.user(text), maxTokens = 4096, onCall = onCall)
+             hotwords: String? = null, onCall: (Call) -> Unit = {},
+             source: PolishSource? = null, style: PolishTranslateStyle? = null,
+             terms: String? = null, userStyle: String? = null): PolishCallResult {
+        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene, hotwords,
+            source = source, style = style, terms = terms, userStyle = userStyle)
+        return callRaw(system, PolishPrompts.user(text), maxTokens = 4096, onCall = onCall,
+            guard = PolishGuardContext(text, mode, targetLanguage, source))
     }
 
     fun test(): PolishCallResult =
@@ -58,13 +69,17 @@ internal class PolishClient(
     fun callStreaming(mode: PolishMode, targetLanguage: String? = null, appName: String? = null,
                       scene: PolishScene? = null, customRewrite: String? = null, text: String,
                       hotwords: String? = null, onCall: (Call) -> Unit = {},
-                      onPartial: (String) -> Unit = {}): PolishCallResult {
-        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene, hotwords)
-        return streamRaw(system, PolishPrompts.user(text), 4096, onCall, onPartial)
+                      onPartial: (String) -> Unit = {},
+                      source: PolishSource? = null, style: PolishTranslateStyle? = null,
+                      terms: String? = null, userStyle: String? = null): PolishCallResult {
+        val system = PolishPrompts.system(mode, targetLanguage, appName, customRewrite, scene, hotwords,
+            source = source, style = style, terms = terms, userStyle = userStyle)
+        return streamRaw(system, PolishPrompts.user(text), 4096, onCall, onPartial,
+            guard = PolishGuardContext(text, mode, targetLanguage, source))
     }
 
     fun callRaw(system: String, user: String, maxTokens: Int, onCall: (Call) -> Unit = {},
-                acceptTruncated: Boolean = false): PolishCallResult {
+                acceptTruncated: Boolean = false, guard: PolishGuardContext? = null): PolishCallResult {
         val error = config.validate(allowLoopbackHttp)
         if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig, requestSent = false)
         val started = System.nanoTime()
@@ -81,7 +96,7 @@ internal class PolishClient(
                     ?: return PolishCallResult.Failure(PolishFailure.TooLarge, response.code, elapsed)
                 val body = decodeStrict(bytes)
                     ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed)
-                parse(body, response.code, elapsed, acceptTruncated)
+                parse(body, response.code, elapsed, acceptTruncated, guard)
             }
         } catch (_: SocketTimeoutException) {
             PolishCallResult.Failure(PolishFailure.Timeout, durationMillis = elapsed(started))
@@ -153,7 +168,8 @@ internal class PolishClient(
     }
 
     private fun streamRaw(system: String, user: String, maxTokens: Int,
-                          onCall: (Call) -> Unit, onPartial: (String) -> Unit): PolishCallResult {
+                          onCall: (Call) -> Unit, onPartial: (String) -> Unit,
+                          guard: PolishGuardContext? = null): PolishCallResult {
         val error = config.validate(allowLoopbackHttp)
         if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig, requestSent = false)
         val started = System.nanoTime()
@@ -255,7 +271,8 @@ internal class PolishClient(
                     "content_filter", "refusal" -> return failure(PolishFailure.Refused)
                     else -> return failure(PolishFailure.InvalidResponse)
                 }
-                val problem = PolishPrompts.outputProblem(text.toString())
+                val problem = guard?.let { PolishPrompts.outputProblem(text.toString(), it.input, it.mode, it.targetLanguage, it.source) }
+                    ?: PolishPrompts.outputProblem(text.toString())
                 if (problem != null) return failure(if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse)
                 PolishCallResult.Success(text.toString(), usage, elapsed(started), response.code, responseModel)
             }
@@ -268,17 +285,18 @@ internal class PolishClient(
         }
     }
 
-    private fun parse(body: String, status: Int, elapsed: Long, acceptTruncated: Boolean): PolishCallResult {
+    private fun parse(body: String, status: Int, elapsed: Long, acceptTruncated: Boolean,
+                        guard: PolishGuardContext? = null): PolishCallResult {
         val json = runCatching { JSONObject(body) }.getOrNull()
             ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         return when (config.protocol) {
-            PolishProtocol.Chat -> parseChat(json, status, elapsed, acceptTruncated)
-            PolishProtocol.Messages -> parseMessages(json, status, elapsed, acceptTruncated)
+            PolishProtocol.Chat -> parseChat(json, status, elapsed, acceptTruncated, guard)
+            PolishProtocol.Messages -> parseMessages(json, status, elapsed, acceptTruncated, guard)
         }
     }
 
     private fun parseChat(json: JSONObject, status: Int, elapsed: Long,
-                          acceptTruncated: Boolean): PolishCallResult {
+                          acceptTruncated: Boolean, guard: PolishGuardContext? = null): PolishCallResult {
         val choices = json.optJSONArray("choices")
         if (choices == null || choices.length() != 1) return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
         val choice = choices.optJSONObject(0) ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed)
@@ -300,7 +318,8 @@ internal class PolishClient(
         if (message.has("tool_calls")) return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed, usage)
         val text = textContent(message.opt("content"))
             ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, status, elapsed, usage)
-        val problem = PolishPrompts.outputProblem(text)
+        val problem = guard?.let { PolishPrompts.outputProblem(text, it.input, it.mode, it.targetLanguage, it.source) }
+            ?: PolishPrompts.outputProblem(text)
         return if (problem != null) {
             PolishCallResult.Failure(
                 if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,
@@ -311,7 +330,7 @@ internal class PolishClient(
     }
 
     private fun parseMessages(json: JSONObject, status: Int, elapsed: Long,
-                              acceptTruncated: Boolean): PolishCallResult {
+                              acceptTruncated: Boolean, guard: PolishGuardContext? = null): PolishCallResult {
         val usage = PolishUsage.fromMessages(json.optJSONObject("usage"))
         when (json.optString("stop_reason")) {
             "end_turn" -> Unit
@@ -333,7 +352,8 @@ internal class PolishClient(
                 }
             }
         }
-        val problem = PolishPrompts.outputProblem(text)
+        val problem = guard?.let { PolishPrompts.outputProblem(text, it.input, it.mode, it.targetLanguage, it.source) }
+            ?: PolishPrompts.outputProblem(text)
         return if (problem != null) {
             PolishCallResult.Failure(
                 if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,

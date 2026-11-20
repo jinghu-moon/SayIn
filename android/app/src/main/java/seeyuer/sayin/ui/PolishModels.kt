@@ -2,6 +2,7 @@ package seeyuer.sayin.ui
 
 import seeyuer.sayin.polish.PolishFailure
 import seeyuer.sayin.polish.PolishMode
+import seeyuer.sayin.polish.PolishSource
 
 internal data class PolishTicket(
     val id: String,
@@ -16,6 +17,10 @@ internal data class PolishTicket(
     val configRevision: Long,
     val configFingerprint: String,
     val promptHash: String,
+    val source: PolishSource? = null,
+    val style: String? = null,
+    val promptVersion: String = "",
+    val guardRevision: String = "",
 ) {
     fun matches(draftId: String, version: Long) = this.draftId == draftId && this.version == version
 }
