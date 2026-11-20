@@ -165,9 +165,12 @@ internal data class PolishCatalogRefresh(
     val error: String? = null,
 )
 
-internal class PolishCatalogStore(private val context: Context) {
-    private val cacheFile = AtomicFile(File(context.filesDir, "polish-catalog.json"))
-    private val preferences = context.getSharedPreferences("polish_catalog", Context.MODE_PRIVATE)
+internal class PolishCatalogStore(
+    private val context: Context,
+    private val cacheFile: AtomicFile = AtomicFile(File(context.filesDir, "polish-catalog.json")),
+    private val preferences: android.content.SharedPreferences =
+        context.getSharedPreferences("polish_catalog", Context.MODE_PRIVATE),
+) {
     private val fetcher = PolishCatalogFetcher(SOURCE)
 
     fun lastCheckedAt(): Long = preferences.getLong("checked_at", 0L)
