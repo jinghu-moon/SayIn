@@ -107,6 +107,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
     var confirmDelete by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
+    var usageDays by remember { mutableStateOf(7) }
     val catalog = session.polish.catalog
     val candidates = (catalog?.modelsFor(editor.provider).orEmpty() +
         if (editor.provider == PolishProvider.Custom) session.polish.customModels.map {
@@ -347,7 +348,32 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             Text(stringResource(R.string.polish_stats_empty), fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceSecondary)
         } else {
-            session.polish.stats.take(10).forEach { entry -> StatsRow(entry, locale) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0 to R.string.polish_usage_today, 7 to R.string.polish_usage_7d,
+                    30 to R.string.polish_usage_30d).forEach { (days, label) ->
+                    TextButton(stringResource(label), { usageDays = days }, minHeight = 36.dp,
+                        colors = plainTextButtonColors())
+                }
+            }
+            val now = System.currentTimeMillis()
+            val cutoff = if (usageDays == 0) {
+                java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } else now - usageDays * 24L * 60L * 60L * 1000L
+            val filtered = session.polish.stats.filter { it.timestamp >= cutoff }
+            if (filtered.isEmpty()) {
+                Text(stringResource(R.string.polish_stats_empty), fontSize = 12.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            } else {
+                val knownTokens = filtered.sumOf { (it.inputTokens ?: 0L) + (it.outputTokens ?: 0L) }
+                val durations = filtered.map { it.durationMillis }.sorted()
+                val median = durations.getOrElse(durations.size / 2) { 0L }
+                val unknownCost = filtered.count { it.costMicros == null }
+                Text(stringResource(R.string.polish_usage_summary, filtered.size, knownTokens.toString(), median),
+                    fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                if (unknownCost > 0) Text(stringResource(R.string.polish_usage_unknown_cost, unknownCost),
+                    fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                filtered.take(20).forEach { entry -> StatsRow(entry, locale) }
+            }
         }
     }
     if (showModels) {
@@ -427,11 +453,18 @@ private fun Notice(text: String, error: Boolean = false) {
         color = if (error) MiuixTheme.colorScheme.error else MiuixTheme.colorScheme.onSurfaceSecondary)
 }
 
+private fun usagePurposeLabel(purpose: String): Int = when (purpose) {
+    "translation" -> R.string.polish_usage_purpose_translation
+    "test" -> R.string.polish_usage_purpose_test
+    else -> R.string.polish_usage_purpose_polish
+}
+
 @Composable
 private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.model), Modifier.weight(1f), fontSize = 12.sp)
+            Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.model) + " · " +
+                stringResource(usagePurposeLabel(entry.purpose)), Modifier.weight(1f), fontSize = 12.sp)
             Text(SimpleDateFormat("MM-dd HH:mm", locale).format(Date(entry.timestamp)),
                 fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         }
@@ -441,8 +474,15 @@ private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
             stringResource(R.string.polish_stats_outcome,
                 stringResource(if (entry.outcome == "success" || entry.outcome == "test") R.string.polish_stats_success else R.string.polish_stats_failure)),
             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-        Text(stringResource(R.string.polish_stats_cost_unknown), fontSize = 10.5.sp,
-            color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        val cost = if (entry.costMicros != null && entry.costCurrency != null) {
+            stringResource(
+                if (entry.costSource == PolishCostSource.Reported) R.string.polish_stats_cost_reported
+                else R.string.polish_stats_cost_estimated,
+                String.format(locale, "%.6f", entry.costMicros / 1_000_000.0),
+                entry.costCurrency,
+            )
+        } else stringResource(R.string.polish_stats_cost_unknown)
+        Text(cost, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
     }
 }
 

@@ -21,7 +21,7 @@ internal sealed interface PolishTestState {
 internal class PolishManager(context: Context) {
     private val appContext = context.applicationContext
     private val configStore = PolishConfigStore(appContext)
-    private val statsStore = PolishStatsStore(appContext)
+    private val usageStore = PolishUsageStore(appContext)
     private val catalogStore = PolishCatalogStore(appContext)
     private val preferences = appContext.getSharedPreferences("polish", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -95,7 +95,10 @@ internal class PolishManager(context: Context) {
                     state = PolishConfigState.Ready(loaded.set.active)
                 }
             }
-            stats = withContext(Dispatchers.IO) { statsStore.load() }
+            stats = withContext(Dispatchers.IO) {
+                usageStore.recover()
+                usageStore.recent().map { it.toStatsEntry() }
+            }
             catalog = withContext(Dispatchers.IO) { catalogStore.load() }
             catalogLastCheckedAt = catalogStore.lastCheckedAt()
             autoPolish = preferences.getBoolean("auto", false) &&
@@ -203,7 +206,9 @@ internal class PolishManager(context: Context) {
                     state = PolishConfigState.Ready(loaded.set.active)
                 }
             }
-            stats = withContext(Dispatchers.IO) { statsStore.load() }
+            stats = withContext(Dispatchers.IO) {
+                usageStore.recent().map { it.toStatsEntry() }
+            }
             loading.set(false)
         }
     }
@@ -290,35 +295,43 @@ internal class PolishManager(context: Context) {
         if (error != null) { testState = PolishTestState.Failure(PolishFailure.MissingConfig); return }
         testState = PolishTestState.Testing
         scope.launch {
+            val call = withContext(Dispatchers.IO) { usageStore.begin(config, PolishCallPurpose.Test) }
             val result = withContext(Dispatchers.IO) { PolishClient(config).test() }
             testState = when (result) {
                 is PolishCallResult.Success -> PolishTestState.Success(result.durationMillis)
                 is PolishCallResult.Failure -> PolishTestState.Failure(result.kind)
             }
-            record(config, result, "test")
+            finishCall(call.callId, result)
         }
     }
 
-    fun record(config: PolishConfig, result: PolishCallResult, outcome: String) {
-        val entry = when (result) {
-            is PolishCallResult.Success -> PolishStatsEntry(
-                System.currentTimeMillis(), config.provider.id, config.model,
-                result.inputTokens, result.outputTokens, result.durationMillis, outcome,
-                PolishCostSource.Unknown, result.httpStatus,
-            )
-            is PolishCallResult.Failure -> PolishStatsEntry(
-                System.currentTimeMillis(), config.provider.id, config.model,
-                null, null, result.durationMillis, result.kind.name.lowercase(),
-                PolishCostSource.Unknown, result.httpStatus,
-            )
+    suspend fun beginCall(config: PolishConfig, purpose: PolishCallPurpose): String =
+        withContext(Dispatchers.IO) { usageStore.begin(config, purpose).callId }
+
+    suspend fun finishCall(callId: String, result: PolishCallResult) {
+        val outcome = when (result) {
+            is PolishCallResult.Success -> "success"
+            is PolishCallResult.Failure -> result.kind.name.lowercase()
         }
-        stats = (listOf(entry) + stats).take(PolishStatsStore.MAX_ENTRIES)
-        scope.launch { withContext(Dispatchers.IO) { statsStore.add(entry) } }
+        withContext(Dispatchers.IO) {
+            val entity = usageStore.byId(callId)
+            val usage = when (result) {
+                is PolishCallResult.Success -> result.usage
+                is PolishCallResult.Failure -> result.usage
+            }
+            val purpose = entity?.purpose?.let { runCatching { PolishCallPurpose.valueOf(it.replaceFirstChar(Char::uppercase)) }.getOrNull() }
+                ?: PolishCallPurpose.Polish
+            val price = if (entity == null) null else PolishPricing.estimate(
+                catalog, usage, PolishProvider.from(entity.provider), entity.requestModel, purpose,
+            )
+            usageStore.finish(callId, result, outcome, price)
+            usageStore.recent().map { it.toStatsEntry() }
+        }.also { stats = it }
     }
 
     fun clearStats() {
         stats = emptyList()
-        scope.launch { withContext(Dispatchers.IO) { statsStore.clear() } }
+        scope.launch { withContext(Dispatchers.IO) { usageStore.clear() } }
     }
 }
 

@@ -948,7 +948,20 @@
     <string name="polish_fetch_models">Fetch gateway models</string>
     <string name="polish_fetching_models">Fetching gateway models…</string>
     <string name="polish_gateway_models_error">Model list failed: %1$s</string>
+    <string name="polish_stats_cost_estimated">Cost: estimated %1$s %2$s</string>
+    <string name="polish_stats_cost_reported">Cost: provider reported %1$s %2$s</string>
+    <string name="polish_usage_today">Today</string>
+    <string name="polish_usage_7d">7 days</string>
+    <string name="polish_usage_30d">30 days</string>
+    <string name="polish_usage_summary">%1$d calls · %2$s tokens · median %3$d ms</string>
+    <string name="polish_usage_unknown_cost">Unknown cost: %1$d</string>
+    <string name="polish_usage_unknown_tokens">?</string>
+    <string name="polish_usage_purpose_polish">Polish</string>
+    <string name="polish_usage_purpose_translation">Translation</string>
+    <string name="polish_usage_purpose_test">Connection test</string>
 </resources>
+
+
 
 
 

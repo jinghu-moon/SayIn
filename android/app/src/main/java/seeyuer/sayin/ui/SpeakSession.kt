@@ -576,6 +576,10 @@ internal class SpeakSession(
         val useStreaming = polish.streamingPreview
         polishJob?.cancel()
         polishJob = scope.launch {
+            val callId = runCatching {
+                polish.beginCall(config, if (mode == PolishMode.Translate) PolishCallPurpose.Translation
+                else PolishCallPurpose.Polish)
+            }.getOrNull()
             val result = withContext(Dispatchers.IO) {
                 val client = PolishClient(config)
                 if (useStreaming) {
@@ -600,8 +604,8 @@ internal class SpeakSession(
                 }
             }
             polishCall = null
+            if (callId != null) runCatching { polish.finishCall(callId, result) }
             if (!isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch
-            polish.record(config, result, mode.id)
             when (result) {
                 is PolishCallResult.Success -> {
                     if (draftId != ticket.draftId || interaction.version != ticket.version ||

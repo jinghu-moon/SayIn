@@ -1,6 +1,6 @@
 # 75 · Android AI 润色后续任务
 
-父设计见 [73 · Android AI 润色](73-android-ai-polish-design.md)，已有功能与测试证据见 [74 · 实施记录](74-android-ai-polish-implementation.md)。第一批实施进度与未通过项见 [76 · 第一批实施记录](76-android-ai-polish-batch1-implementation.md)。
+父设计见 [73 · Android AI 润色](73-android-ai-polish-design.md)，已有功能与测试证据见 [74 · 实施记录](74-android-ai-polish-implementation.md)。第一批实施进度与未通过项见 [76 · 第一批实施记录](76-android-ai-polish-batch1-implementation.md)；第二批用量与费用见 [77 · 第二批实施记录](77-android-ai-polish-batch2-usage.md)。
 
 已有手动和自动润色、AI 翻译、流式预览、术语表及前后对比。用户已跑通 DeepSeek 润色。当前代码只保存一份服务配置，模型靠手填，近 100 条调用记录只覆盖基础 Token 和耗时，费用缺少可用价目。74 号文档中的厂商实测、ASR 实录和目标应用落字仍需补齐证据。
 
