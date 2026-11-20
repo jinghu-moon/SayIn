@@ -43,7 +43,7 @@
 | i18n | `python scripts/check_i18n.py` 通过 |
 | Lint | `:app:lintDebug` BUILD SUCCESSFUL |
 | 构建/安装 | `:app:assembleDebug` 成功；root 覆盖安装成功 |
-| 真机统计 | 测试连接后显示“1 次调用 · 83 Token · 中位耗时 252 ms”、用途“连接测试”、未知费用 1 |\n| 真机润色（普通） | 2026-11-20 19:56 DeepSeek 普通响应成功：输入 450 / 输出 58 Token，375 ms，估算 `0.000102 USD` |\n| 真机润色（SSE） | 2026-11-20 19:59 流式预览开启，DeepSeek SSE 成功：输入 450 / 输出 22 Token，436 ms，估算 `0.000043 USD` |\n| 真实中转站 | `api.shuaiapi.com` / `gpt-6.2-sol` 经临时代理 | 模型列表、连接测试、短样句润色均成功；凭据只经仪器化参数传入，未入源码 |
+| 真机统计 | 测试连接后显示“1 次调用 · 83 Token · 中位耗时 252 ms”、用途“连接测试”、未知费用 1 |\n| 真机润色（普通） | 2026-11-20 19:56 DeepSeek 普通响应成功：输入 450 / 输出 58 Token，375 ms，估算 `0.000102 USD` |\n| 真机润色（SSE） | 2026-11-20 19:59 流式预览开启，DeepSeek SSE 成功：输入 450 / 输出 22 Token，436 ms，估算 `0.000043 USD` |\n| 真实中转站 | `api.shuaiapi.com` / `gpt-6.2-sol`，VPN 直连 | 模型列表、连接测试、短样句润色均成功（11.709 s）；凭据只经仪器化参数传入，未入源码 |
 | 数据库 | 设备上 Room 记录可读，筛选/汇总/明细正常 |\n| 数据库仪器化 | `PolishUsageStoreInstrumentedTest` | 4 项通过：pending→unknown、终态幂等、清空后迟到完成不复活、90 天前记录清理、4 路并发完成、清空/完成竞态 |
 
 ## 未完成 / 待补
