@@ -335,7 +335,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         )?
     };
-    service.open_pairing().await?;
+    let lifetime = std::env::args()
+        .find_map(|arg| arg.strip_prefix("--lifetime=").and_then(|value| value.parse().ok()))
+        .unwrap_or(if std::env::args().any(|arg| arg == "--benchmark") {
+            600
+        } else {
+            180
+        });
+    service.open_pairing_with_lifetime(Duration::from_secs(lifetime)).await?;
     let snapshot = service.snapshot()?;
     let window = snapshot.window.ok_or("pairing window missing")?;
     std::fs::write(
@@ -346,11 +353,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
     println!("Isolated Android test fixture ready; native_child_target={native}.");
     let target = Uuid::new_v4().to_string();
-    let lifetime = if std::env::args().any(|arg| arg == "--benchmark") {
-        600
-    } else {
-        180
-    };
     let until = std::time::Instant::now() + Duration::from_secs(lifetime);
     let mut ready = false;
     let mut paused_request: Option<String> = None;

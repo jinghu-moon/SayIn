@@ -59,7 +59,7 @@ try {
     # A previous targeted run may have left pairing/outbox state in the isolated
     # test package. Clear it so every suite starts from its own identity.
     Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
-    $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0')
+    $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0', '--lifetime=7200')
     if ($Lan) { $fixtureArguments += '--lan' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(10)

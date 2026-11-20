@@ -79,11 +79,19 @@ OK (8 tests)
 
 覆盖 501 条全量汇总/分页、清除与 finish 竞态、设置页服务入口、连续新增与重载恢复。
 
+完整通信套件：
+
+```text
+scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -FullSuite -UseExistingRootInstall
+PASS: 148 instrumentation tests; 2 fake input calls, no replay.
+PASS: 4 instrumentation tests; 1 fake input call, no replay.
+PASS: all 152 regular device tests (148 text/UI + 4 image)
+```
+
+全量套件曾从 39 项失败收敛到 2 项，最终通过。根因是测试夹具配对窗口固定 120 秒，而完整套件运行时间超过窗口；`open_pairing_with_lifetime` 仅供夹具使用，产品仍固定 120 秒。另一个失败是测试使用全局返回关闭确认对话框不稳定，改为显式点击取消按钮。
+
 ## 9. 未完成边界
 
-- 价格详情页已在 K40 验证；USD 参考价和缓存读显示正常，CNY 已在统计页验证。
-- 完整 148 项 `verify_android_transport.ps1 -FullSuite -UseExistingRootInstall` 已执行两轮。第一轮 39 项失败；清理隔离测试包数据并放宽单项超时后，第二轮为 `Tests run: 148, Failures: 2`：`TransportInstrumentedTest` 的 `INVALID_PAIRING` 与 `AssistPanelInstrumentedTest` 的系统返回关闭确认对话框超时。仍不能记为完整通信通过。
-- T5 的 U01–U08 真实模型/中转站语料未重跑；当前仅验证模板与 guard 单测。
+- T5 的 U01–U08 真实模型/中转站语料未重跑；当前仅验证模板与 guard 单测、完整设备套件。
 - 应用写法规则选择、术语/补充要求保存、快捷卡 AI 面板运行均已有截图/入口证据，但尚未加入常规仪器化套件。
 - 清除统计确认对话框、筛选应用后的空结果和跨币种切换尚未加入 UI 自动化。
-- 全量套件剩余 2 项失败需要先区分 fixture/环境与真实回归；在恢复 148 项通过前，不应声称本任务通信验收完成。\n- 已在测试脚本中增加隔离包数据清理和 120 秒单项超时；这两项属于夹具稳定性修正，不改变产品行为。

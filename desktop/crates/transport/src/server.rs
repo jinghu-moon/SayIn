@@ -317,6 +317,12 @@ impl NetworkService {
         Ok(receiver)
     }
     pub async fn open_pairing(&self) -> Result<()> {
+        self.open_pairing_with_lifetime(Duration::from_secs(120)).await
+    }
+
+    /// Test fixture entry point; product callers use the fixed 120 second window.
+    #[doc(hidden)]
+    pub async fn open_pairing_with_lifetime(&self, lifetime: Duration) -> Result<()> {
         if *self.handle.stop.borrow() {
             return Err(Error::Protocol("SERVICE_UNAVAILABLE"));
         }
@@ -346,7 +352,7 @@ impl NetworkService {
             .module_dimensions(1, 1)
             .build()
             .into_bytes();
-        let expires = Instant::now() + Duration::from_secs(120);
+        let expires = Instant::now() + lifetime;
         let window = PairingWindow {
             id: info.window_id.clone(),
             code: Arc::new(Zeroizing::new(code.to_string())),

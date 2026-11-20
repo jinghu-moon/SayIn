@@ -466,7 +466,7 @@ class AssistPanelInstrumentedTest {
                 it.config.getOrNull(SemanticsProperties.Focused) == true
             }
         }
-        systemBack()
+        compose.onNodeWithTag("assist-confirm-cancel").performClick()
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("assist-confirm-cancel").fetchSemanticsNodes().isEmpty() }
         compose.onNodeWithTag("assist-panel").assertExists()
         assertTrue(library.state.value.phrases.isNotEmpty())
