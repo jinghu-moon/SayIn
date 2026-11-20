@@ -108,6 +108,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
     var showModels by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
     var usageDays by remember { mutableStateOf(7) }
+    var usagePurpose by remember { mutableStateOf<String?>(null) }
     val catalog = session.polish.catalog
     val candidates = (catalog?.modelsFor(editor.provider).orEmpty() +
         if (editor.provider == PolishProvider.Custom) session.polish.customModels.map {
@@ -355,11 +356,21 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                         colors = plainTextButtonColors())
                 }
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(null to R.string.polish_usage_all, "polish" to R.string.polish_usage_purpose_polish,
+                    "translation" to R.string.polish_usage_purpose_translation,
+                    "test" to R.string.polish_usage_purpose_test).forEach { (purpose, label) ->
+                    TextButton(stringResource(label), { usagePurpose = purpose }, minHeight = 34.dp,
+                        colors = plainTextButtonColors())
+                }
+            }
             val now = System.currentTimeMillis()
             val cutoff = if (usageDays == 0) {
                 java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
             } else now - usageDays * 24L * 60L * 60L * 1000L
-            val filtered = session.polish.stats.filter { it.timestamp >= cutoff }
+            val filtered = session.polish.stats.filter {
+                it.timestamp >= cutoff && (usagePurpose == null || it.purpose == usagePurpose)
+            }
             if (filtered.isEmpty()) {
                 Text(stringResource(R.string.polish_stats_empty), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary)
@@ -372,6 +383,14 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                     fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                 if (unknownCost > 0) Text(stringResource(R.string.polish_usage_unknown_cost, unknownCost),
                     fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                filtered.filter { it.costMicros != null && it.costCurrency != null }
+                    .groupBy { it.costCurrency!! }
+                    .forEach { (currency, entries) ->
+                        val micros = entries.sumOf { it.costMicros ?: 0L }
+                        Text(stringResource(R.string.polish_usage_cost_total,
+                            String.format(locale, "%.6f", micros / 1_000_000.0), currency),
+                            fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    }
                 filtered.take(20).forEach { entry -> StatsRow(entry, locale) }
             }
         }

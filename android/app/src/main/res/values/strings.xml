@@ -959,7 +959,10 @@
     <string name="polish_usage_purpose_polish">Polish</string>
     <string name="polish_usage_purpose_translation">Translation</string>
     <string name="polish_usage_purpose_test">Connection test</string>
+    <string name="polish_usage_all">All</string>
+    <string name="polish_usage_cost_total">Cost: %1$s %2$s</string>
 </resources>
+
 
 
 

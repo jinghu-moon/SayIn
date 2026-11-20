@@ -954,7 +954,10 @@
     <string name="polish_usage_purpose_polish">润色</string>
     <string name="polish_usage_purpose_translation">翻译</string>
     <string name="polish_usage_purpose_test">连接测试</string>
+    <string name="polish_usage_all">全部</string>
+    <string name="polish_usage_cost_total">费用：%1$s %2$s</string>
 </resources>
+
 
 
 
