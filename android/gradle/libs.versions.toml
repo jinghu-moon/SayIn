@@ -18,6 +18,7 @@ junit = "4.13.2"
 json-test = "20260814"
 exifinterface = "1.4.2"
 aboutlibraries = "15.3.0"
+work = "2.9.1"
 
 [libraries]
 androidx-exifinterface = { module = "androidx.exifinterface:exifinterface", version.ref = "exifinterface" }
@@ -48,6 +49,7 @@ test-junit = { module = "androidx.test.ext:junit", version.ref = "test-junit" }
 junit = { module = "junit:junit", version.ref = "junit" }
 mockwebserver = { module = "com.squareup.okhttp3:mockwebserver3", version.ref = "okhttp" }
 json-test = { module = "org.json:json", version.ref = "json-test" }
+work-runtime = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

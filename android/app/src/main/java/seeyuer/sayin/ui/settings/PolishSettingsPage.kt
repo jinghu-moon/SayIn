@@ -1,5 +1,6 @@
 package seeyuer.sayin.ui.settings
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -24,6 +25,7 @@ import seeyuer.sayin.polish.*
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.plainTextButtonColors
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -103,6 +105,13 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
     val locale = remember(configuration) { configuration.locales[0] }
     var confirmClear by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showModels by remember { mutableStateOf(false) }
+    var modelQuery by remember { mutableStateOf("") }
+    val catalog = session.polish.catalog
+    val candidates = (catalog?.modelsFor(editor.provider).orEmpty() +
+        if (editor.provider == PolishProvider.Custom) session.polish.customModels.map {
+            PolishCatalogModel(it, it, "custom", false, null, null, null)
+        } else emptyList()).distinctBy { it.id }
     val providers = listOf(PolishProvider.DeepSeek, PolishProvider.Qwen, PolishProvider.OpenAi,
         PolishProvider.Anthropic, PolishProvider.Custom)
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -191,6 +200,46 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 TextField(editor.model, { editor.model = it.take(120); editor.localError = null },
                     Modifier.fillMaxWidth().testTag("polish-model"), label = stringResource(R.string.polish_model),
                     singleLine = true, enabled = !saving)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TextButton(stringResource(R.string.polish_choose_model), {
+                        modelQuery = ""
+                        showModels = true
+                    }, minHeight = 40.dp, colors = plainTextButtonColors())
+                    TextButton(
+                        stringResource(if (session.polish.catalogChecking) R.string.polish_catalog_refreshing else R.string.polish_catalog_refresh),
+                        { session.polish.refreshCatalog() },
+                        minHeight = 40.dp,
+                        enabled = !session.polish.catalogChecking,
+                        colors = plainTextButtonColors(),
+                    )
+                }
+                Text(
+                    if (session.polish.catalogLastCheckedAt == 0L) stringResource(R.string.polish_catalog_never)
+                    else stringResource(R.string.polish_catalog_checked,
+                        SimpleDateFormat("MM-dd HH:mm", locale).format(Date(session.polish.catalogLastCheckedAt))),
+                    fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+                session.polish.catalogError?.let {
+                    Text(stringResource(R.string.polish_catalog_error, it), fontSize = 10.5.sp,
+                        color = MiuixTheme.colorScheme.error)
+                }
+                if (editor.provider == PolishProvider.Custom) {
+                    TextButton(
+                        stringResource(if (session.polish.customModelsLoading) R.string.polish_fetching_models else R.string.polish_fetch_models),
+                        {
+                            val error = editor.validate()
+                            if (error != null) { editor.localError = error; return@TextButton }
+                            session.polish.refreshCustomModels(editor.build())
+                        },
+                        minHeight = 40.dp,
+                        enabled = !session.polish.customModelsLoading,
+                        colors = plainTextButtonColors(),
+                    )
+                    session.polish.customModelsError?.let {
+                        Text(stringResource(R.string.polish_gateway_models_error, it), fontSize = 10.5.sp,
+                            color = MiuixTheme.colorScheme.error)
+                    }
+                }
                 if ((PolishConfig.presets.firstOrNull { it.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Messages &&
                     editor.provider == PolishProvider.Custom) {
                     TextField(editor.apiVersion, { editor.apiVersion = it.take(40) },
@@ -299,6 +348,43 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 color = MiuixTheme.colorScheme.onSurfaceSecondary)
         } else {
             session.polish.stats.take(10).forEach { entry -> StatsRow(entry, locale) }
+        }
+    }
+    if (showModels) {
+        val filtered = if (modelQuery.isBlank()) candidates
+        else candidates.filter {
+            it.id.contains(modelQuery, ignoreCase = true) || it.name.contains(modelQuery, ignoreCase = true)
+        }
+        OverlayBottomSheet(show = true, onDismissRequest = { showModels = false }) {
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(stringResource(R.string.polish_catalog_title), style = MiuixTheme.textStyles.title2)
+                TextField(modelQuery, { modelQuery = it.take(80) }, Modifier.fillMaxWidth(),
+                    label = stringResource(R.string.polish_search_model), singleLine = true)
+                if (filtered.isEmpty()) {
+                    Text(stringResource(R.string.polish_catalog_empty), fontSize = 12.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                } else {
+                    filtered.take(200).forEach { model ->
+                        Row(Modifier.fillMaxWidth().clickable {
+                            editor.model = model.id
+                            editor.localError = null
+                            showModels = false
+                        }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(model.name, fontSize = 13.sp)
+                                Text(model.id, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                            }
+                            if (editor.model == model.id) Icon(VoiceLinkIcon.Check.vector, null,
+                                Modifier.size(20.dp), tint = MiuixTheme.colorScheme.primary)
+                        }
+                    }
+                }
+                Text(stringResource(R.string.polish_manual_model_note), fontSize = 11.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                TextButton(stringResource(R.string.polish_cancel_action), { showModels = false },
+                    Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
+            }
         }
     }
     WindowDialog(

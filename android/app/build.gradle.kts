@@ -160,6 +160,7 @@ dependencies {
     androidTestImplementation(libs.test.junit)
     androidTestCompileOnly("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation(libs.okhttp)
+    implementation(libs.work.runtime)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)

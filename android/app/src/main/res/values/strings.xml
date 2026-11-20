@@ -935,7 +935,22 @@
     <string name="polish_delete_config_confirm">Delete this saved service and its key?</string>
     <string name="polish_delete_config_action">Delete</string>
     <string name="polish_config_active">Current</string>
+    <string name="polish_choose_model">Choose model</string>
+    <string name="polish_search_model">Search models</string>
+    <string name="polish_catalog_empty">No catalog candidates. You can still type a model ID.</string>
+    <string name="polish_catalog_refresh">Refresh model catalog</string>
+    <string name="polish_catalog_refreshing">Refreshing catalog…</string>
+    <string name="polish_catalog_checked">Catalog checked %1$s</string>
+    <string name="polish_catalog_never">Catalog not checked yet</string>
+    <string name="polish_catalog_error">Catalog refresh failed: %1$s</string>
+    <string name="polish_manual_model_note">The model ID remains editable and is never reset by a catalog refresh.</string>
+    <string name="polish_catalog_title">Model candidates</string>
+    <string name="polish_fetch_models">Fetch gateway models</string>
+    <string name="polish_fetching_models">Fetching gateway models…</string>
+    <string name="polish_gateway_models_error">Model list failed: %1$s</string>
 </resources>
+
+
 
 
 

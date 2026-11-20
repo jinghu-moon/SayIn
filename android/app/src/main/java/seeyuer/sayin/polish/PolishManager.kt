@@ -22,6 +22,7 @@ internal class PolishManager(context: Context) {
     private val appContext = context.applicationContext
     private val configStore = PolishConfigStore(appContext)
     private val statsStore = PolishStatsStore(appContext)
+    private val catalogStore = PolishCatalogStore(appContext)
     private val preferences = appContext.getSharedPreferences("polish", Context.MODE_PRIVATE)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val loading = AtomicBoolean(false)
@@ -38,6 +39,20 @@ internal class PolishManager(context: Context) {
         private set
     var saving by mutableStateOf(false)
         private set
+    var catalog by mutableStateOf<PolishCatalog?>(null)
+        private set
+    var catalogChecking by mutableStateOf(false)
+        private set
+    var catalogError by mutableStateOf<String?>(null)
+        private set
+    var catalogLastCheckedAt by mutableStateOf(0L)
+        private set
+    var customModels by mutableStateOf<List<String>>(emptyList())
+        private set
+    var customModelsLoading by mutableStateOf(false)
+        private set
+    var customModelsError by mutableStateOf<String?>(null)
+        private set
     var onConfigurationChanged: (() -> Unit)? = null
     var targetLanguage by mutableStateOf(preferences.getString("target_language", "en") ?: "en")
         private set
@@ -52,6 +67,14 @@ internal class PolishManager(context: Context) {
     var autoPolish by mutableStateOf(false)
         private set
     private var autoFingerprint: String? = preferences.getString("auto_fingerprint", null)
+    private var customModelsGeneration = 0
+
+    private fun invalidateCustomModels() {
+        customModelsGeneration++
+        customModelsLoading = false
+        customModels = emptyList()
+        customModelsError = null
+    }
 
     val config: PolishConfig? get() = configurations.firstOrNull { it.id == activeId }
     val ready: Boolean get() = config != null
@@ -73,8 +96,42 @@ internal class PolishManager(context: Context) {
                 }
             }
             stats = withContext(Dispatchers.IO) { statsStore.load() }
+            catalog = withContext(Dispatchers.IO) { catalogStore.load() }
+            catalogLastCheckedAt = catalogStore.lastCheckedAt()
             autoPolish = preferences.getBoolean("auto", false) &&
                 config?.fingerprint == autoFingerprint
+            syncCatalogWork()
+        }
+    }
+
+    private fun syncCatalogWork() {
+        PolishCatalogScheduler.sync(appContext, configurations.any { it.provider != PolishProvider.Custom })
+    }
+
+    fun refreshCustomModels(config: PolishConfig) {
+        if (customModelsLoading || config.provider != PolishProvider.Custom) return
+        val generation = ++customModelsGeneration
+        customModelsLoading = true
+        customModelsError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { PolishModelListClient(config).fetch() }
+            if (generation != customModelsGeneration) return@launch
+            customModelsLoading = false
+            customModels = result.models
+            customModelsError = result.error
+        }
+    }
+
+    fun refreshCatalog() {
+        if (catalogChecking) return
+        catalogChecking = true
+        catalogError = null
+        scope.launch {
+            val result = withContext(Dispatchers.IO) { catalogStore.refresh() }
+            catalogChecking = false
+            if (result.checkedAt > 0L) catalogLastCheckedAt = result.checkedAt
+            catalogError = result.error
+            if (result.error == null) catalog = withContext(Dispatchers.IO) { catalogStore.load() }
         }
     }
 
@@ -82,10 +139,12 @@ internal class PolishManager(context: Context) {
         val selected = configurations.firstOrNull { it.id == id } ?: return
         if (activeId == id) return
         activeId = id
+        invalidateCustomModels()
         persistActive(id)
         state = PolishConfigState.Ready(selected)
         testState = PolishTestState.Idle
         if (autoPolish) updateAutoPolish(false)
+        syncCatalogWork()
         onConfigurationChanged?.invoke()
     }
 
@@ -177,9 +236,11 @@ internal class PolishManager(context: Context) {
                 val becameActive = existingIndex < 0 || editedActive
                 configurations = next
                 activeId = nextActive
+                invalidateCustomModels()
                 state = PolishConfigState.Ready(next.first { it.id == nextActive })
                 testState = PolishTestState.Idle
                 if (autoPolish && (becameActive || previous != stored.fingerprint)) updateAutoPolish(false)
+                syncCatalogWork()
                 if (becameActive) onConfigurationChanged?.invoke()
                 onSaved(null)
             } else {
@@ -200,10 +261,12 @@ internal class PolishManager(context: Context) {
                 val set = PolishConfigSet(remaining, nextActive!!)
                 withContext(Dispatchers.IO) { configStore.save(set) }
                 configurations = remaining; activeId = nextActive
+                invalidateCustomModels()
                 state = PolishConfigState.Ready(set.active)
             }
             testState = PolishTestState.Idle
             if (autoPolish) updateAutoPolish(false)
+            syncCatalogWork()
             onConfigurationChanged?.invoke()
         }
     }
@@ -212,9 +275,11 @@ internal class PolishManager(context: Context) {
         scope.launch {
             withContext(Dispatchers.IO) { configStore.clear() }
             configurations = emptyList(); activeId = null
+            invalidateCustomModels()
             state = PolishConfigState.Missing
             testState = PolishTestState.Idle
             if (autoPolish) updateAutoPolish(false)
+            syncCatalogWork()
             onConfigurationChanged?.invoke()
         }
     }

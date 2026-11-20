@@ -930,7 +930,22 @@
     <string name="polish_delete_config_confirm">删除这份已保存的服务和 Key？</string>
     <string name="polish_delete_config_action">删除</string>
     <string name="polish_config_active">当前</string>
+    <string name="polish_choose_model">选择模型</string>
+    <string name="polish_search_model">搜索模型</string>
+    <string name="polish_catalog_empty">暂无候选，仍可手动填写模型 ID。</string>
+    <string name="polish_catalog_refresh">刷新模型目录</string>
+    <string name="polish_catalog_refreshing">正在刷新目录…</string>
+    <string name="polish_catalog_checked">目录检查于 %1$s</string>
+    <string name="polish_catalog_never">尚未检查目录</string>
+    <string name="polish_catalog_error">目录刷新失败：%1$s</string>
+    <string name="polish_manual_model_note">模型 ID 始终可手填，目录刷新不会重置它。</string>
+    <string name="polish_catalog_title">模型候选</string>
+    <string name="polish_fetch_models">获取中转站模型</string>
+    <string name="polish_fetching_models">正在获取中转站模型…</string>
+    <string name="polish_gateway_models_error">模型列表失败：%1$s</string>
 </resources>
+
+
 
 
 

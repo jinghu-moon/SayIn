@@ -121,9 +121,13 @@ internal class PolishClient(
             .put("messages", JSONArray()
                 .put(JSONObject().put("role", "system").put("content", system))
                 .put(JSONObject().put("role", "user").put("content", user)))
-        val field = if (config.maxTokensField == PolishMaxTokensField.MaxCompletionTokens) "max_completion_tokens" else "max_tokens"
+        // Only the exact verified profile may use its verified-only fields. A manually
+        // entered model falls back to the minimal Chat Completions contract.
+        val exactOpenAi = config.provider == PolishProvider.OpenAi && config.model == "gpt-6-luna"
+        val field = if (exactOpenAi && config.maxTokensField == PolishMaxTokensField.MaxCompletionTokens)
+            "max_completion_tokens" else "max_tokens"
         body.put(field, maxTokens)
-        if (config.provider == PolishProvider.OpenAi) body.put("reasoning_effort", "none")
+        if (exactOpenAi) body.put("reasoning_effort", "none")
         return body
     }
 
@@ -134,7 +138,8 @@ internal class PolishClient(
             .put("messages", JSONArray().put(JSONObject().put("role", "user").put("content", user)))
             .put("max_tokens", maxTokens)
             .put("stream", stream)
-        if (config.thinking == PolishThinking.DisabledLow) {
+        if (config.provider == PolishProvider.Anthropic && config.model == "claude-haiku-5-5" &&
+            config.thinking == PolishThinking.DisabledLow) {
             body.put("thinking", JSONObject().put("type", "disabled"))
             body.put("output_config", JSONObject().put("effort", "low"))
         }

@@ -28,7 +28,12 @@ class PolishClientTest {
     private fun base(provider: PolishProvider, protocol: PolishProtocol = PolishProtocol.Chat): PolishConfig =
         PolishConfig(
             provider = provider, protocol = protocol, baseUrl = server.url("/").toString().trimEnd('/'),
-            model = if (protocol == PolishProtocol.Chat) "test-chat" else "test-messages",
+            model = when {
+                provider == PolishProvider.OpenAi -> "gpt-6-luna"
+                provider == PolishProvider.Anthropic -> "claude-haiku-5-5"
+                protocol == PolishProtocol.Chat -> "test-chat"
+                else -> "test-messages"
+            },
             key = "secret-key", auth = if (protocol == PolishProtocol.Chat) PolishAuth.Bearer else PolishAuth.XApiKey,
             apiVersion = if (protocol == PolishProtocol.Messages) "2026-10-21" else "",
             maxTokensField = if (provider == PolishProvider.OpenAi) PolishMaxTokensField.MaxCompletionTokens else PolishMaxTokensField.MaxTokens,
@@ -81,6 +86,24 @@ class PolishClientTest {
         assertFalse(body.has("max_tokens"))
         assertEquals("none", body.getString("reasoning_effort"))
         assertFalse(body.has("temperature"))
+    }
+
+    @Test fun `unverified openai model does not inherit reasoning or completion field`() {
+        server.enqueue(response(body = chatResponse("ok")))
+        client(base(PolishProvider.OpenAi).copy(model = "custom-gpt")).call(PolishMode.Voice, text = "hello")
+        val body = JSONObject(server.takeRequest().body!!.utf8())
+        assertTrue(body.has("max_tokens"))
+        assertFalse(body.has("max_completion_tokens"))
+        assertFalse(body.has("reasoning_effort"))
+    }
+
+    @Test fun `unverified anthropic model does not inherit thinking fields`() {
+        server.enqueue(response(body = messagesResponse("ok")))
+        client(base(PolishProvider.Anthropic, PolishProtocol.Messages).copy(model = "custom-claude"))
+            .call(PolishMode.Voice, text = "hello")
+        val body = JSONObject(server.takeRequest().body!!.utf8())
+        assertFalse(body.has("thinking"))
+        assertFalse(body.has("output_config"))
     }
 
     @Test fun `anthropic success uses system and thinking fields`() {

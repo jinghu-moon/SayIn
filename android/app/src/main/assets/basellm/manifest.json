@@ -1,0 +1,9 @@
+{
+  "source": "https://basellm.github.io/llm-metadata/api/all.json",
+  "upstream": "https://github.com/basellm/llm-metadata",
+  "license": "Apache-2.0",
+  "formatVersion": 1,
+  "fetchedAt": "2026-11-20T11:23:20Z",
+  "sha256": "d26a9a5c8a8b9b05dd9ea414d55851cc973d1db92e0902caaefbce430830ff01",
+  "bytes": 721281
+}
