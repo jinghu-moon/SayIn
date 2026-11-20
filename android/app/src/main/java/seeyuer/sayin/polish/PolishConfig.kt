@@ -141,9 +141,11 @@ internal sealed interface PolishConfigLoad {
     data class Ready(val set: PolishConfigSet) : PolishConfigLoad
 }
 
-internal class PolishConfigStore(context: Context) {
-    private val file = AtomicFile(File(context.noBackupFilesDir, "polish-config.bin"))
-    private val alias = "sayin.ai.polish.v1"
+internal class PolishConfigStore(
+    context: Context,
+    private val file: AtomicFile = AtomicFile(File(context.noBackupFilesDir, "polish-config.bin")),
+    private val alias: String = "sayin.ai.polish.v1",
+) {
     private val aad = "SayIn/ai-polish/v1".toByteArray()
 
     private fun key(create: Boolean): SecretKey {
