@@ -123,7 +123,8 @@ internal class PolishUsageStore(context: Context, databaseName: String = "polish
         ).also { dao.insert(it) }
     }
 
-    suspend fun finish(callId: String, result: PolishCallResult, outcome: String, price: PolishPrice?) {
+    suspend fun finish(callId: String, result: PolishCallResult, outcome: String, price: PolishPrice?,
+                       responseModel: String? = null) {
         val usage = when (result) {
             is PolishCallResult.Success -> result.usage
             is PolishCallResult.Failure -> result.usage
@@ -140,7 +141,7 @@ internal class PolishUsageStore(context: Context, databaseName: String = "polish
                 is PolishCallResult.Failure -> result.httpStatus
             },
             outcome = outcome,
-            responseModel = null,
+            responseModel = responseModel,
             inputTotal = usage?.inputTotal,
             cacheRead = usage?.cacheRead,
             cacheWrite = usage?.cacheWrite,

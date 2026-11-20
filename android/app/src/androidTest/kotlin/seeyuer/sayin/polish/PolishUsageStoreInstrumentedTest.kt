@@ -34,18 +34,19 @@ class PolishUsageStoreInstrumentedTest {
                 text = "ok", usage = PolishUsage(1000, 200, null, 300, 80),
                 durationMillis = 42, httpStatus = 200,
             )
-            store.finish(completed.callId, result, "success", null)
+            store.finish(completed.callId, result, "success", null, responseModel = "actual-model")
             val finished = store.byId(completed.callId)!!
             assertEquals("success", finished.outcome)
             assertEquals(1000L, finished.inputTotal)
             assertEquals(200L, finished.cacheRead)
             assertEquals(80L, finished.outputReasoning)
-            store.finish(completed.callId, result, "success", null)
+            assertEquals("actual-model", finished.responseModel)
+            store.finish(completed.callId, result, "success", null, responseModel = "actual-model")
             assertEquals("success", store.byId(completed.callId)?.outcome)
 
             store.clear()
             assertTrue(store.recent().isEmpty())
-            store.finish(completed.callId, result, "success", null)
+            store.finish(completed.callId, result, "success", null, responseModel = "actual-model")
             assertNull(store.byId(completed.callId))
         } finally {
             store.close()

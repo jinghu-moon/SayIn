@@ -325,11 +325,12 @@ internal class PolishManager(context: Context) {
             }
             val purpose = entity?.purpose?.let { runCatching { PolishCallPurpose.valueOf(it.replaceFirstChar(Char::uppercase)) }.getOrNull() }
                 ?: PolishCallPurpose.Polish
+            val responseModel = (result as? PolishCallResult.Success)?.responseModel
             val price = if (entity == null) null else PolishPricing.estimate(
-                catalog, usage, PolishProvider.from(entity.provider), entity.requestModel, purpose,
-                atMillis = entity.startedAt,
+                catalog, usage, PolishProvider.from(entity.provider),
+                responseModel ?: entity.requestModel, purpose, atMillis = entity.startedAt,
             )
-            usageStore.finish(callId, result, outcome, price)
+            usageStore.finish(callId, result, outcome, price, responseModel)
             usageStore.recent().map { it.toStatsEntry() }
         }.also { stats = it }
     }

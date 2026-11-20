@@ -24,6 +24,7 @@ internal sealed interface PolishCallResult {
         val usage: PolishUsage?,
         val durationMillis: Long,
         val httpStatus: Int,
+        val responseModel: String? = null,
     ) : PolishCallResult {
         val inputTokens: Long? get() = usage?.inputTotal
         val outputTokens: Long? get() = usage?.outputTotal
@@ -171,6 +172,7 @@ internal class PolishClient(
                 var totalBytes = 0
                 var finishReason: String? = null
                 var usage: PolishUsage? = null
+                var responseModel: String? = null
                 var done = false
                 while (!done) {
                     val line = reader.readLine() ?: break
@@ -183,6 +185,7 @@ internal class PolishClient(
                     if (data == "[DONE]") { done = true; continue }
                     val json = runCatching { JSONObject(data) }.getOrNull()
                         ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed)
+                    json.optString("model").takeIf { it.isNotBlank() }?.let { responseModel = it }
                     when (config.protocol) {
                         PolishProtocol.Chat -> {
                             val choices = json.optJSONArray("choices")
@@ -239,7 +242,7 @@ internal class PolishClient(
                     if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,
                     response.code, elapsed, usage,
                 )
-                PolishCallResult.Success(text.toString(), usage, elapsed, response.code)
+                PolishCallResult.Success(text.toString(), usage, elapsed, response.code, responseModel)
             }
         } catch (_: SocketTimeoutException) {
             PolishCallResult.Failure(PolishFailure.Timeout, durationMillis = elapsed(started))
@@ -288,7 +291,8 @@ internal class PolishClient(
                 if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,
                 status, elapsed, usage,
             )
-        } else PolishCallResult.Success(text, usage, elapsed, status)
+        } else PolishCallResult.Success(text, usage, elapsed, status,
+            responseModel = json.optString("model").takeIf { it.isNotBlank() })
     }
 
     private fun parseMessages(json: JSONObject, status: Int, elapsed: Long,
@@ -320,7 +324,8 @@ internal class PolishClient(
                 if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,
                 status, elapsed, usage,
             )
-        } else PolishCallResult.Success(text, usage, elapsed, status)
+        } else PolishCallResult.Success(text, usage, elapsed, status,
+            responseModel = json.optString("model").takeIf { it.isNotBlank() })
     }
 
     private fun textContent(value: Any?): String? = when (value) {

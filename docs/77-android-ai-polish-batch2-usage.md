@@ -15,7 +15,7 @@
 ### Room 调用记录
 
 - 新增独立 `polish-usage.db`，按调用 ID 保存：起止时间、耗时、配置 ID/版本、服务、协议、用途、请求模型、HTTP 状态、终态、用量分项、费用来源/金额/币种/目录版本/规则。
-- 网络请求前写入 `pending`；完成时 `UPDATE ... WHERE outcome='pending'`，重复终态幂等。
+- 网络请求前写入 `pending`；完成时 `UPDATE ... WHERE outcome='pending'`，重复终态幂等。\n- 记录 Chat/Messages 响应实际回显的 `model`；费用估算优先用实际模型，缺省再用请求模型。
 - 启动时将遗留 `pending` 恢复为 `unknown`，保留已取得用量。
 - 按 90 天清理；清空后迟到 `UPDATE` 找不到行，不会复活。
 - 用途区分润色、翻译、连接测试；测试连接也单独记录。\n- 取消或新请求替换时立即把 `pending` 置为 `cancelled`，不等待下次启动。

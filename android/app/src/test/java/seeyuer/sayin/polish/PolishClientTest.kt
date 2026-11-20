@@ -44,6 +44,7 @@ class PolishClientTest {
         MockResponse.Builder().code(code).body(body).build()
 
     private fun chatResponse(content: String = "clean text", finish: String = "stop"): String = JSONObject()
+        .put("model", "actual-chat-model")
         .put("choices", JSONArray().put(JSONObject()
             .put("message", JSONObject().put("role", "assistant").put("content", content))
             .put("finish_reason", finish)))
@@ -51,6 +52,7 @@ class PolishClientTest {
         .toString()
 
     private fun messagesResponse(text: String = "译文", stop: String = "end_turn"): String = JSONObject()
+        .put("model", "actual-messages-model")
         .put("content", JSONArray().put(JSONObject().put("type", "text").put("text", text)))
         .put("stop_reason", stop)
         .put("usage", JSONObject().put("input_tokens", 7).put("output_tokens", 3))
@@ -76,6 +78,7 @@ class PolishClientTest {
         assertEquals("clean text", result.text)
         assertEquals(12L, result.inputTokens)
         assertEquals(5L, result.outputTokens)
+        assertEquals("actual-chat-model", result.responseModel)
         assertEquals(1, server.requestCount)
         val request = server.takeRequest(1, TimeUnit.SECONDS)!!
         assertEquals("Bearer secret-key", request.headers["Authorization"])
