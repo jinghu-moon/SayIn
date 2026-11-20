@@ -593,7 +593,11 @@ private fun RootPage(
                 ArrowPreference(
                     title = stringResource(R.string.settings_polish),
                     summary = polishSummary,
-                    startAction = startIcon(VoiceLinkIcon.Ai),
+                    startAction = {
+                        val configured = (polishState as? PolishConfigState.Ready)?.config?.provider
+                        if (configured != null) ProviderLogo(configured, Modifier.size(26.dp))
+                        else Icon(VoiceLinkIcon.Ai.vector, null, Modifier.size(22.dp))
+                    },
                     onClick = { onOpen(SettingsRoute.Polish) },
                 )
             }

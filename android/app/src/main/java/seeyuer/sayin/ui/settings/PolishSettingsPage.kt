@@ -95,7 +95,6 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
     var confirmClear by remember { mutableStateOf(false) }
     val providers = listOf(PolishProvider.DeepSeek, PolishProvider.Qwen, PolishProvider.OpenAi,
         PolishProvider.Anthropic, PolishProvider.Custom)
-    val providerIndex = providers.indexOf(editor.provider).coerceAtLeast(0)
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(stringResource(R.string.polish_upload_note), fontSize = 12.sp, lineHeight = 18.sp,
@@ -107,12 +106,20 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             is PolishConfigState.Ready -> Notice(stringResource(R.string.polish_saved))
         }
         Card {
+            val providerItems = providers.map { provider ->
+                DropdownItem(
+                    text = stringResource(providerLabel(provider)),
+                    selected = provider == editor.provider,
+                    onClick = { editor.selectProvider(provider) },
+                    icon = { iconModifier -> ProviderLogo(provider, iconModifier.size(24.dp)) },
+                )
+            }
             WindowDropdownPreference(
-                title = stringResource(R.string.polish_provider),
-                items = providers.map { stringResource(providerLabel(it)) },
-                selectedIndex = providerIndex,
-                startAction = { Icon(VoiceLinkIcon.Ai.vector, null, Modifier.size(22.dp)) },
-                onSelectedIndexChange = { editor.selectProvider(providers[it]) },
+                entry = DropdownEntry(items = providerItems),
+                title = stringResource(providerLabel(editor.provider)),
+                summary = editor.model,
+                startAction = { ProviderLogo(editor.provider, Modifier.size(26.dp)) },
+                showValue = false,
             )
             if (editor.provider == PolishProvider.Custom) {
                 WindowDropdownPreference(
