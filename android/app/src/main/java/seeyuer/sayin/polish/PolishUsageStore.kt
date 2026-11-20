@@ -213,6 +213,7 @@ internal class PolishUsageStore(context: Context, databaseName: String = "polish
 }
 
 internal fun PolishUsageEntity.toStatsEntry(): PolishStatsEntry = PolishStatsEntry(
+    callId = callId,
     timestamp = startedAt,
     provider = provider,
     model = requestModel,

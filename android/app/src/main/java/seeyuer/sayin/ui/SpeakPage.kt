@@ -317,7 +317,7 @@ internal fun SpeakPage(
         val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         val showHeader = maxHeight >= 260.dp * fontScale
         val showTools = maxHeight >= 240.dp * fontScale
-        val toolbarWidth = 48.dp * if (quick) 4 else 6
+        val toolbarWidth = 48.dp * if (quick) 5 else 6
         val cardMargin = if (showTools) ((maxWidth - toolbarWidth - 28.dp) / 2)
             .coerceIn(8.dp, 20.dp) else 20.dp
         val insetBudget = (maxWidth - toolbarWidth - cardMargin * 2).coerceIn(8.dp, 28.dp)
@@ -456,7 +456,7 @@ internal fun SpeakPage(
                             progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
                             when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
                         }
-                        if (!quick) DraftIcon(VoiceLinkIcon.Ai, R.string.polish_title, "polish-draft",
+                        DraftIcon(VoiceLinkIcon.Ai, R.string.polish_title, "polish-draft",
                             session.canOpenPolish, progress = session.polishState.running) {
                             session.cancelAutoSend(); showPolish = true
                         }

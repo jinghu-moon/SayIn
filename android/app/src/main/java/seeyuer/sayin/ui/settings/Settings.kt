@@ -160,6 +160,7 @@ internal fun SettingsHost(
     val cloudEditor = remember(cloudState.config) { CloudEditorState(cloudState.config) }
     val hotwordsDraft = remember(cloudState.config) { HotwordsDraft(cloudState.config) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var confirmClearUsage by remember { mutableStateOf(false) }
     fun leave() { route = route.parent ?: SettingsRoute.Root }
     fun hasUnsavedChanges() = when (route) {
         SettingsRoute.Cloud -> cloudEditor.dirty
@@ -206,6 +207,12 @@ internal fun SettingsHost(
                         stringResource(R.string.settings_hotwords_save),
                         onClick = { cloudEditor.save(cloudSettings) },
                         enabled = !cloudState.busy && cloudEditor.dirty && cloudEditor.filled,
+                        minHeight = 40.dp,
+                        colors = plainTextButtonColors(),
+                    )
+                    SettingsRoute.PolishUsage -> TextButton(
+                        stringResource(R.string.polish_stats_clear),
+                        onClick = { confirmClearUsage = true },
                         minHeight = 40.dp,
                         colors = plainTextButtonColors(),
                     )
@@ -288,6 +295,21 @@ internal fun SettingsHost(
                 if (route == SettingsRoute.Cloud) cloudEditor.reset(cloudState.config) else hotwordsDraft.reset(cloudState.config)
                 leave()
             }, modifier = Modifier.weight(1f).testTag("settings-discard-changes"))
+        }
+    }
+    WindowDialog(
+        title = stringResource(R.string.polish_stats_clear),
+        summary = stringResource(R.string.polish_stats_clear_summary),
+        show = confirmClearUsage,
+        onDismissRequest = { confirmClearUsage = false },
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.polish_cancel_action), { confirmClearUsage = false },
+                Modifier.weight(1f), minHeight = 48.dp)
+            TextButton(stringResource(R.string.polish_stats_clear), {
+                confirmClearUsage = false
+                session.polish.clearStats()
+            }, Modifier.weight(1f), minHeight = 48.dp, colors = plainTextButtonColors())
         }
     }
     }

@@ -3,6 +3,7 @@ package seeyuer.sayin.polish
 internal enum class PolishCostSource { Unknown, PresetNotConfigured, Estimated, Reported }
 
 internal data class PolishStatsEntry(
+    val callId: String = "",
     val timestamp: Long,
     val provider: String,
     val model: String,

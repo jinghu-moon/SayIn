@@ -37,7 +37,8 @@ internal fun PolishAppRulesPage(session: SpeakSession, modifier: Modifier,
                                 scroll: androidx.compose.foundation.ScrollState) {
     val manager = session.polish
     val current = session.receiver.foregroundApplication?.name
-    val known = (listOfNotNull(current) + session.receiver.historyApplications.keys + manager.appRules.keys)
+    val known = (listOfNotNull(current) + session.receiver.historyApplications.values.map { it.name } +
+        manager.appRules.keys)
         .map { it.trim() }.filter { it.isNotBlank() }
         .distinctBy { it.lowercase(java.util.Locale.ROOT) }
         .sorted()
@@ -47,7 +48,7 @@ internal fun PolishAppRulesPage(session: SpeakSession, modifier: Modifier,
     val effective = manager.sceneFor(current)
     Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Card {
-            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                 Text(stringResource(R.string.polish_app_current), fontSize = 12.sp,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary)
                 Text(current ?: stringResource(R.string.polish_app_none), fontSize = 16.sp)

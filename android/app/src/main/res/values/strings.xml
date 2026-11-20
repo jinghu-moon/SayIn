@@ -1043,7 +1043,14 @@
     <string name="polish_style_chat">Everyday chat</string>
     <string name="polish_style_formal">Formal writing</string>
     <string name="polish_style_tech">Technical</string>
+    <string name="polish_usage_request_model">Request model: %1$s</string>
+    <string name="polish_usage_response_model">Response model: %1$s</string>
+    <string name="polish_usage_cache">Cache read/write: %1$s / %2$s</string>
+    <string name="polish_usage_reasoning">Reasoning: %1$s</string>
+    <string name="polish_usage_price_source">Price: %1$s</string>
+    <string name="polish_usage_detail_hint">Tap a row for request details</string>
 </resources>
+
 
 
 

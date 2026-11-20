@@ -1038,7 +1038,14 @@
     <string name="polish_style_chat">日常聊天</string>
     <string name="polish_style_formal">正式书面</string>
     <string name="polish_style_tech">技术文档</string>
+    <string name="polish_usage_request_model">请求模型：%1$s</string>
+    <string name="polish_usage_response_model">响应模型：%1$s</string>
+    <string name="polish_usage_cache">缓存读/写：%1$s / %2$s</string>
+    <string name="polish_usage_reasoning">推理 Token：%1$s</string>
+    <string name="polish_usage_price_source">价格来源：%1$s</string>
+    <string name="polish_usage_detail_hint">点按明细行查看请求详情</string>
 </resources>
+
 
 
 

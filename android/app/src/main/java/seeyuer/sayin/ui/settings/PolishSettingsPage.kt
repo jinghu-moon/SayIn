@@ -333,8 +333,8 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
     var service by remember { mutableStateOf<String?>(null) }
     var model by remember { mutableStateOf<String?>(null) }
     var page by remember { mutableIntStateOf(0) }
-    var confirmClear by remember { mutableStateOf(false) }
     var displayCurrency by remember { mutableStateOf("USD") }
+    var expandedCallId by remember { mutableStateOf<String?>(null) }
     val exchangeRate = manager.exchangeRate
     var showFilters by remember { mutableStateOf(false) }
     var draftPurpose by remember { mutableStateOf<String?>(null) }
@@ -409,7 +409,9 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                     Text(SimpleDateFormat("MM-dd", locale).format(Date(entries.first().timestamp)),
                         fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         modifier = Modifier.padding(top = 4.dp))
-                    entries.forEach { StatsRow(it, locale, displayCurrency, exchangeRate) }
+                    entries.forEach { StatsRow(it, locale, displayCurrency, exchangeRate,
+                        expanded = expandedCallId == it.callId,
+                        onToggle = { expandedCallId = if (expandedCallId == it.callId) null else it.callId }) }
                 }
                 if (report.totals.calls > POLISH_USAGE_PAGE_SIZE) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -420,7 +422,6 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                 }
             }
         }
-        if (report != null) TextButton(stringResource(R.string.polish_stats_clear), { confirmClear = true }, minHeight = 48.dp)
     }
     if (showFilters) {
         OverlayBottomSheet(show = true, onDismissRequest = { showFilters = false }) {
@@ -453,17 +454,6 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                 TextButton(stringResource(R.string.polish_cancel_action), { showFilters = false },
                     Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
             }
-        }
-    }
-    WindowDialog(title = stringResource(R.string.polish_stats_clear), summary = stringResource(R.string.polish_stats_clear_summary),
-        show = confirmClear, onDismissRequest = { confirmClear = false }) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(stringResource(R.string.polish_cancel_action), { confirmClear = false }, Modifier.weight(1f), minHeight = 48.dp)
-            TextButton(stringResource(R.string.polish_stats_clear), {
-                confirmClear = false
-                page = 0
-                manager.clearStats()
-            }, Modifier.weight(1f), minHeight = 48.dp)
         }
     }
 }
@@ -751,8 +741,11 @@ private fun usagePurposeLabel(purpose: String): Int = when (purpose) {
 
 @Composable
 private fun StatsRow(entry: PolishStatsEntry, locale: Locale,
-                        displayCurrency: String = "USD", rate: PolishExchangeRate? = null) {
-    Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        displayCurrency: String = "USD", rate: PolishExchangeRate? = null,
+                        expanded: Boolean = false, onToggle: () -> Unit = {}) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onToggle)
+        .testTag("polish-usage-row-${entry.callId}").padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.responseModel ?: entry.model) + " · " +
                 stringResource(usagePurposeLabel(entry.purpose)), Modifier.weight(1f), fontSize = 12.sp)
@@ -778,6 +771,27 @@ private fun StatsRow(entry: PolishStatsEntry, locale: Locale,
             )
         } else stringResource(R.string.polish_stats_cost_unknown)
         Text(cost, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        if (expanded) {
+            Text(stringResource(R.string.polish_usage_request_model, entry.model), fontSize = 10.5.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            entry.responseModel?.let {
+                Text(stringResource(R.string.polish_usage_response_model, it), fontSize = 10.5.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
+            if (entry.cacheReadTokens != null || entry.cacheWriteTokens != null) {
+                Text(stringResource(R.string.polish_usage_cache,
+                    entry.cacheReadTokens?.toString() ?: "?", entry.cacheWriteTokens?.toString() ?: "?"),
+                    fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
+            entry.reasoningTokens?.let {
+                Text(stringResource(R.string.polish_usage_reasoning, it.toString()), fontSize = 10.5.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
+            entry.priceRule?.let {
+                Text(stringResource(R.string.polish_usage_price_source, it), fontSize = 10.5.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+            }
+        }
     }
 }
 
