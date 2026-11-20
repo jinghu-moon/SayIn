@@ -66,6 +66,13 @@ internal interface PolishUsageDao {
 
     @Query("""
         UPDATE polish_usage SET finishedAt=:finishedAt,
+            durationMillis=MAX(0, :finishedAt - startedAt), outcome='cancelled'
+        WHERE callId=:callId AND outcome='pending'
+    """)
+    suspend fun abandon(callId: String, finishedAt: Long): Int
+
+    @Query("""
+        UPDATE polish_usage SET finishedAt=:finishedAt,
             durationMillis=MAX(0, :finishedAt - startedAt), outcome='unknown'
         WHERE outcome='pending'
     """)
@@ -143,6 +150,10 @@ internal class PolishUsageStore(context: Context) {
             costMicros = price?.micros, costCurrency = price?.currency,
             catalogVersion = price?.catalogVersion, priceRule = price?.rule,
         )
+    }
+
+    suspend fun abandon(callId: String) {
+        dao.abandon(callId, System.currentTimeMillis())
     }
 
     suspend fun byId(callId: String): PolishUsageEntity? = dao.byId(callId)

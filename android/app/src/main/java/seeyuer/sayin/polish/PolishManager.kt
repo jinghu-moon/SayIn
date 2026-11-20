@@ -308,6 +308,10 @@ internal class PolishManager(context: Context) {
     suspend fun beginCall(config: PolishConfig, purpose: PolishCallPurpose): String =
         withContext(Dispatchers.IO) { usageStore.begin(config, purpose).callId }
 
+    suspend fun abandonCall(callId: String) {
+        withContext(Dispatchers.IO) { usageStore.abandon(callId) }
+    }
+
     suspend fun finishCall(callId: String, result: PolishCallResult) {
         val outcome = when (result) {
             is PolishCallResult.Success -> "success"

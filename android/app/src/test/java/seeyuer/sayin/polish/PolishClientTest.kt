@@ -171,7 +171,7 @@ class PolishClientTest {
     @Test fun `streaming chat emits partials and validates the final reason`() {
         val body = """
             data: {"choices":[{"delta":{"content":"clean "},"finish_reason":null}]}
-            data: {"choices":[{"delta":{"content":"text"},"finish_reason":"stop"}]}
+            data: {"choices":[{"delta":{"content":"text"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":2}}
             data: [DONE]
         """.trimIndent()
         server.enqueue(response(body = body))
@@ -180,7 +180,10 @@ class PolishClientTest {
             PolishMode.Voice, text = "嗯那个", onPartial = { partials += it },
         )
         assertTrue(result is PolishCallResult.Success)
-        assertEquals("clean text", (result as PolishCallResult.Success).text)
+        result as PolishCallResult.Success
+        assertEquals("clean text", result.text)
+        assertEquals(10L, result.usage?.inputTotal)
+        assertEquals(2L, result.usage?.outputTotal)
         assertEquals(listOf("clean ", "clean text"), partials)
         assertEquals(1, server.requestCount)
     }
@@ -189,14 +192,18 @@ class PolishClientTest {
         val body = """
             data: {"type":"content_block_start","content_block":{"type":"text","text":""}}
             data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"译"}}
-            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":7,"cache_read_input_tokens":3,"output_tokens":1}}
             data: {"type":"message_stop"}
         """.trimIndent()
         server.enqueue(response(body = body))
         val result = client(base(PolishProvider.Anthropic, PolishProtocol.Messages))
             .callStreaming(PolishMode.Voice, text = "x")
         assertTrue(result is PolishCallResult.Success)
-        assertEquals("译", (result as PolishCallResult.Success).text)
+        result as PolishCallResult.Success
+        assertEquals("译", result.text)
+        assertEquals(10L, result.usage?.inputTotal)
+        assertEquals(3L, result.usage?.cacheRead)
+        assertEquals(1L, result.usage?.outputTotal)
     }
 
     @Test fun `streaming truncation and tool blocks are rejected`() {

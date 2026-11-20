@@ -48,6 +48,7 @@ internal class SpeakSession(
     var polishState by mutableStateOf(PolishState()); private set
     private var polishJob: Job? = null
     private var polishCall: Call? = null
+    private var polishCallId: String? = null
     private var voiceOrigin = false
     private var typedSinceVoice = false
     private var recordingStartedEmpty = false
@@ -225,6 +226,7 @@ internal class SpeakSession(
 
     init {
         polish.onConfigurationChanged = {
+            abandonActivePolishCall()
             polishCall?.cancel()
             polishCall = null
             polishJob?.cancel()
@@ -574,12 +576,14 @@ internal class SpeakSession(
         polishState = PolishState(ticket = ticket, running = true)
         polishCall = null
         val useStreaming = polish.streamingPreview
+        abandonActivePolishCall()
         polishJob?.cancel()
         polishJob = scope.launch {
             val callId = runCatching {
                 polish.beginCall(config, if (mode == PolishMode.Translate) PolishCallPurpose.Translation
                 else PolishCallPurpose.Polish)
             }.getOrNull()
+            polishCallId = callId
             val result = withContext(Dispatchers.IO) {
                 val client = PolishClient(config)
                 if (useStreaming) {
@@ -604,7 +608,9 @@ internal class SpeakSession(
                 }
             }
             polishCall = null
-            if (callId != null) runCatching { polish.finishCall(callId, result) }
+            val finishedId = polishCallId
+            polishCallId = null
+            if (finishedId != null) runCatching { polish.finishCall(finishedId, result) }
             if (!isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch
             when (result) {
                 is PolishCallResult.Success -> {
@@ -645,8 +651,15 @@ internal class SpeakSession(
         }
     }
 
+    private fun abandonActivePolishCall() {
+        val id = polishCallId ?: return
+        polishCallId = null
+        scope.launch { runCatching { polish.abandonCall(id) } }
+    }
+
     fun cancelPolish() {
         if (!polishState.running) return
+        abandonActivePolishCall()
         polishCall?.cancel()
         polishCall = null
         polishJob?.cancel()
