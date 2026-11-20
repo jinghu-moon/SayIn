@@ -65,6 +65,8 @@ internal class PolishManager(context: Context) {
         private set
     var appRulesEnabled by mutableStateOf(preferences.getBoolean("app_rules", true))
         private set
+    var appRules by mutableStateOf<Map<String, PolishScene>>(loadAppRules())
+        private set
     var customRewrite by mutableStateOf(preferences.getString("custom_rewrite", "").orEmpty())
         private set
     var hotwords by mutableStateOf(preferences.getString("hotwords", "").orEmpty())
@@ -199,6 +201,35 @@ internal class PolishManager(context: Context) {
         appRulesEnabled = value
         preferences.edit().putBoolean("app_rules", value).apply()
     }
+
+    fun updateAppRule(application: String, scene: PolishScene?) {
+        val key = application.trim().lowercase(java.util.Locale.ROOT)
+        if (key.isBlank()) return
+        val next = if (scene == null) appRules - key else appRules + (key to scene)
+        appRules = next
+        val json = org.json.JSONObject()
+        next.forEach { (name, value) -> json.put(name, value.id) }
+        preferences.edit().putString("app_rules_map", json.toString()).apply()
+    }
+
+    fun sceneFor(application: String?): PolishScene? {
+        if (!appRulesEnabled) return null
+        val key = application?.trim()?.lowercase(java.util.Locale.ROOT).orEmpty()
+        if (key.isNotBlank()) appRules[key]?.let { return it }
+        return PolishScene.forApplication(application)
+    }
+
+    private fun loadAppRules(): Map<String, PolishScene> = runCatching {
+        val raw = preferences.getString("app_rules_map", null) ?: return emptyMap()
+        val json = org.json.JSONObject(raw)
+        buildMap {
+            val iterator = json.keys()
+            while (iterator.hasNext()) {
+                val key = iterator.next()
+                PolishScene.entries.firstOrNull { it.id == json.optString(key) }?.let { put(key, it) }
+            }
+        }
+    }.getOrDefault(emptyMap())
 
     fun updateCustomRewrite(value: String) {
         customRewrite = value.take(2000)

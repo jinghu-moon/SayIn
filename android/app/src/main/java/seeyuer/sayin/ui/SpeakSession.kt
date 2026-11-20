@@ -574,7 +574,7 @@ internal class SpeakSession(
         val sourceText = draft.text.substring(start, end)
         if (sourceText.isBlank()) return
         val appName = receiver.foregroundApplication?.name
-        val scene = if (polish.appRulesEnabled) PolishScene.forApplication(appName) else null
+        val scene = polish.sceneFor(appName)
         val custom = polish.customRewrite.takeIf { mode == PolishMode.Custom }
         val system = PolishPrompts.system(mode, language, appName, custom, scene, polish.hotwords)
         val ticket = PolishTicket(

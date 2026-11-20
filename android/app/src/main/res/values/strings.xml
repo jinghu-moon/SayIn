@@ -1008,7 +1008,31 @@
     <string name="polish_price_schedule_line">%1$s · %2$d windows</string>
     <string name="polish_price_missing">?</string>
     <string name="polish_price_candidate_line">%1$s / %2$s</string>
+    <string name="polish_app_rules_title">App style</string>
+    <string name="polish_app_current">Computer foreground app</string>
+    <string name="polish_app_none">No foreground app while disconnected. Saved rules remain editable.</string>
+    <string name="polish_app_add">Add app</string>
+    <string name="polish_app_name">App display name</string>
+    <string name="polish_app_duplicate">This app already has a rule.</string>
+    <string name="polish_app_auto">Auto match</string>
+    <string name="polish_app_general">General</string>
+    <string name="polish_terms_title">Terminology</string>
+    <string name="polish_terms_format">One term per line: source=preferred spelling</string>
+    <string name="polish_terms_invalid">Check each line: max 20 lines, 60 characters per line, and source=spelling format.</string>
+    <string name="polish_prompt_title">Additional requirements</string>
+    <string name="polish_prompt_summary">One line, up to 200 characters. Empty removes it.</string>
+    <string name="polish_prompt_invalid">Use one line without control characters, up to 200 characters.</string>
+    <string name="polish_text_preferences">Text preferences</string>
+    <string name="polish_scene_auto">Auto</string>
+    <string name="polish_scene_general">General</string>
+    <string name="polish_scene_chat">Chat</string>
+    <string name="polish_scene_email">Email</string>
+    <string name="polish_scene_code">Code / terminal</string>
+    <string name="polish_scene_docs">Document</string>
+    <string name="polish_scene_search">Search</string>
 </resources>
+
+
 
 
 

@@ -1003,7 +1003,31 @@
     <string name="polish_price_schedule_line">%1$s · %2$d 个时段</string>
     <string name="polish_price_missing">?</string>
     <string name="polish_price_candidate_line">%1$s / %2$s</string>
+    <string name="polish_app_rules_title">应用写法</string>
+    <string name="polish_app_current">电脑当前前台</string>
+    <string name="polish_app_none">未连接电脑时没有前台信息；已保存规则仍可编辑。</string>
+    <string name="polish_app_add">添加应用</string>
+    <string name="polish_app_name">应用显示名</string>
+    <string name="polish_app_duplicate">该应用已有规则。</string>
+    <string name="polish_app_auto">自动匹配</string>
+    <string name="polish_app_general">通用</string>
+    <string name="polish_terms_title">术语表</string>
+    <string name="polish_terms_format">每行一项：源词=写法</string>
+    <string name="polish_terms_invalid">请检查每行：最多 20 行、每行 60 字符，并使用源词=写法格式。</string>
+    <string name="polish_prompt_title">补充要求</string>
+    <string name="polish_prompt_summary">单行，最多 200 字符；清空即移除。</string>
+    <string name="polish_prompt_invalid">请使用单行、无控制字符、最多 200 字符。</string>
+    <string name="polish_text_preferences">文本偏好</string>
+    <string name="polish_scene_auto">自动匹配</string>
+    <string name="polish_scene_general">通用</string>
+    <string name="polish_scene_chat">聊天</string>
+    <string name="polish_scene_email">邮件</string>
+    <string name="polish_scene_code">代码／终端</string>
+    <string name="polish_scene_docs">文档</string>
+    <string name="polish_scene_search">搜索</string>
 </resources>
+
+
 
 
 

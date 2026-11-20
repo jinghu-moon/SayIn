@@ -130,6 +130,9 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Polish(Root),
     PolishServices(Polish),
     PolishUsage(Polish),
+    PolishApps(Polish),
+    PolishTerms(Polish),
+    PolishPrompt(Polish),
     Ball(Root),
     Background(Root),
     Clipboard(Root),
@@ -242,9 +245,16 @@ internal fun SettingsHost(
                     SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                     SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
                     SettingsRoute.Polish -> PolishSettingsPage(session, pageModifier, scrollFor(SettingsRoute.Polish),
-                        openServices = { route = SettingsRoute.PolishServices }, openUsage = { route = SettingsRoute.PolishUsage })
+                        openServices = { route = SettingsRoute.PolishServices },
+                        openUsage = { route = SettingsRoute.PolishUsage },
+                        openApps = { route = SettingsRoute.PolishApps },
+                        openTerms = { route = SettingsRoute.PolishTerms },
+                        openPrompt = { route = SettingsRoute.PolishPrompt })
                     SettingsRoute.PolishServices -> PolishServicesPage(session, pageModifier, scrollFor(SettingsRoute.PolishServices))
                     SettingsRoute.PolishUsage -> PolishUsagePage(session, pageModifier, scrollFor(SettingsRoute.PolishUsage))
+                    SettingsRoute.PolishApps -> PolishAppRulesPage(session, pageModifier, scrollFor(SettingsRoute.PolishApps))
+                    SettingsRoute.PolishTerms -> PolishTermsPage(session, pageModifier, scrollFor(SettingsRoute.PolishTerms))
+                    SettingsRoute.PolishPrompt -> PolishPromptPage(session, pageModifier, scrollFor(SettingsRoute.PolishPrompt))
                     SettingsRoute.Ball -> BallPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Ball))
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
@@ -296,6 +306,9 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Polish -> R.string.settings_polish
     SettingsRoute.PolishServices -> R.string.polish_services
     SettingsRoute.PolishUsage -> R.string.polish_stats
+    SettingsRoute.PolishApps -> R.string.polish_app_rules_title
+    SettingsRoute.PolishTerms -> R.string.polish_terms_title
+    SettingsRoute.PolishPrompt -> R.string.polish_prompt_title
     SettingsRoute.Ball -> R.string.settings_floating_ball_settings
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title

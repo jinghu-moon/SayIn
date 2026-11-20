@@ -94,7 +94,8 @@ internal class PolishEditorState(config: PolishConfig?, creating: Boolean = fals
 
 @Composable
 internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState,
-                                openServices: () -> Unit, openUsage: () -> Unit) {
+                                openServices: () -> Unit, openUsage: () -> Unit,
+                                openApps: () -> Unit = {}, openTerms: () -> Unit = {}, openPrompt: () -> Unit = {}) {
     val manager = session.polish
     val config = manager.config
     val configs = manager.configurations
@@ -166,9 +167,12 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 modifier = Modifier.testTag("polish-auto"), onCheckedChange = { enabled ->
                     if (enabled && !manager.autoPolishBound) confirmAuto = true else manager.updateAutoPolish(enabled)
                 })
-            SwitchPreference(title = stringResource(R.string.polish_app_rules),
-                summary = stringResource(R.string.polish_app_rules_summary), checked = manager.appRulesEnabled,
-                modifier = Modifier.testTag("polish-app-rules"), onCheckedChange = manager::updateAppRules)
+            BasicComponent(
+                title = stringResource(R.string.polish_app_rules),
+                summary = stringResource(R.string.polish_app_rules_summary),
+                onClick = openApps,
+                modifier = Modifier.testTag("polish-app-rules"),
+            )
             SwitchPreference(title = stringResource(R.string.polish_streaming),
                 summary = stringResource(R.string.polish_streaming_summary), checked = manager.streamingPreview,
                 modifier = Modifier.testTag("polish-streaming"), onCheckedChange = manager::updateStreamingPreview)
@@ -185,18 +189,20 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 modifier = Modifier.testTag("polish-usage"))
             summary?.let { UsageCosts(it) }
         }
-        var targetDraft by remember { mutableStateOf(manager.targetLanguage) }
-        TextField(targetDraft, {
-            targetDraft = it.take(35)
-            if (PolishPrompts.validateTargetLanguage(targetDraft) == null) manager.updateTargetLanguage(targetDraft)
-        }, Modifier.fillMaxWidth().testTag("polish-default-language"),
-            label = stringResource(R.string.polish_translation_language), singleLine = true)
-        TextField(manager.customRewrite, manager::updateCustomRewrite,
-            Modifier.fillMaxWidth().heightIn(min = 88.dp).testTag("polish-custom-rewrite"),
-            label = stringResource(R.string.polish_custom_rewrite_label))
-        TextField(manager.hotwords, manager::updateHotwords,
-            Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("polish-hotwords"),
-            label = stringResource(R.string.polish_hotwords))
+        Card {
+            BasicComponent(
+                title = stringResource(R.string.polish_terms_title),
+                summary = stringResource(R.string.polish_terms_format),
+                onClick = openTerms,
+                modifier = Modifier.testTag("polish-terms"),
+            )
+            BasicComponent(
+                title = stringResource(R.string.polish_prompt_title),
+                summary = stringResource(R.string.polish_prompt_summary),
+                onClick = openPrompt,
+                modifier = Modifier.testTag("polish-prompt"),
+            )
+        }
         Notice(stringResource(R.string.polish_upload_note))
     }
     if (showPrice) {
