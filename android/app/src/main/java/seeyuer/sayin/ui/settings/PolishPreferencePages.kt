@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import seeyuer.sayin.R
+import seeyuer.sayin.polish.PolishPreferenceRules
 import seeyuer.sayin.polish.PolishScene
 import seeyuer.sayin.ui.SpeakSession
 import top.yukonga.miuix.kmp.basic.BasicComponent
@@ -126,7 +127,7 @@ internal fun PolishTermsPage(session: SpeakSession, modifier: Modifier,
         if (error) Text(stringResource(R.string.polish_terms_invalid), fontSize = 12.sp,
             color = MiuixTheme.colorScheme.error)
         Button({
-            if (validTerms(draft)) manager.updateHotwords(draft.trim()) else error = true
+            if (PolishPreferenceRules.validTerms(draft)) manager.updateHotwords(draft.trim()) else error = true
         }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.polish_save)) }
     }
 }
@@ -145,7 +146,7 @@ internal fun PolishPromptPage(session: SpeakSession, modifier: Modifier,
         if (error) Text(stringResource(R.string.polish_prompt_invalid), fontSize = 12.sp,
             color = MiuixTheme.colorScheme.error)
         Button({
-            if (validPrompt(draft)) manager.updateCustomRewrite(draft.trim()) else error = true
+            if (PolishPreferenceRules.validPrompt(draft)) manager.updateCustomRewrite(draft.trim()) else error = true
         }, Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.polish_save)) }
     }
 }
@@ -164,20 +165,4 @@ private fun sceneLabel(scene: PolishScene?): Int = when (scene) {
     PolishScene.Docs -> R.string.polish_scene_docs
     PolishScene.Search -> R.string.polish_scene_search
     PolishScene.Clipboard -> R.string.polish_scene_general
-}
-
-private fun validTerms(value: String): Boolean {
-    val lines = value.lines().map { it.trim() }.filter { it.isNotEmpty() }
-    if (lines.size > 20) return false
-    return lines.all { line ->
-        val eq = line.indexOf('=')
-        line.codePointCount(0, line.length) <= 60 &&
-            eq in 1 until line.lastIndex &&
-            line.substring(0, eq).isNotBlank() && line.substring(eq + 1).isNotBlank()
-    }
-}
-
-private fun validPrompt(value: String): Boolean {
-    if (value.any { it == '\n' || it == '\r' || it.isISOControl() }) return false
-    return value.codePointCount(0, value.length) <= 200
 }
