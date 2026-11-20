@@ -1,5 +1,6 @@
 package seeyuer.sayin.polish
 
+import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
@@ -42,6 +43,34 @@ class PolishUsageStoreInstrumentedTest {
             assertTrue(store.recent().isEmpty())
             store.finish(completed.callId, result, "success", null)
             assertNull(store.byId(completed.callId))
+        } finally {
+            store.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test fun recordsOlderThanNinetyDaysArePruned() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(databaseName)
+        val now = System.currentTimeMillis()
+        val db = Room.databaseBuilder(context, PolishUsageDatabase::class.java, databaseName).build()
+        try {
+            db.dao().insert(PolishUsageEntity(
+                callId = "old-call", startedAt = now - 91L * 24 * 60 * 60 * 1000,
+                finishedAt = now, durationMillis = 10, configId = "config", configRevision = 1,
+                provider = "deepseek", protocol = "Chat", purpose = "polish",
+                requestModel = "deepseek-flash", responseModel = null, httpStatus = 200,
+                outcome = "success", inputTotal = 1, cacheRead = null, cacheWrite = null,
+                outputTotal = 1, outputReasoning = null, costSource = "Unknown",
+                costMicros = null, costCurrency = null, catalogVersion = null, priceRule = null,
+            ))
+        } finally {
+            db.close()
+        }
+        val store = PolishUsageStore(context, databaseName)
+        try {
+            store.recover()
+            assertTrue(store.recent().none { it.callId == "old-call" })
         } finally {
             store.close()
             context.deleteDatabase(databaseName)
