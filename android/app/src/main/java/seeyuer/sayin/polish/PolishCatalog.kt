@@ -19,6 +19,27 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
+internal data class PolishPriceRates(
+    val input: Double?,
+    val output: Double?,
+    val cacheRead: Double?,
+    val cacheWrite: Double?,
+)
+
+internal data class PolishPriceTier(val minContext: Long, val rates: PolishPriceRates)
+
+internal data class PolishPriceWindow(
+    val weekdays: Set<Int>,
+    val hours: List<Pair<Int, Int>>,
+    val rates: PolishPriceRates,
+)
+
+internal data class PolishPriceSchedule(
+    val zoneId: String,
+    val fallback: String,
+    val windows: List<PolishPriceWindow>,
+)
+
 internal data class PolishCatalogModel(
     val id: String,
     val name: String,
@@ -27,6 +48,9 @@ internal data class PolishCatalogModel(
     val inputUsdPerMillion: Double?,
     val outputUsdPerMillion: Double?,
     val cacheReadUsdPerMillion: Double?,
+    val cacheWriteUsdPerMillion: Double? = null,
+    val tiers: List<PolishPriceTier> = emptyList(),
+    val schedule: PolishPriceSchedule? = null,
 )
 
 internal data class PolishCatalog(
@@ -69,12 +93,68 @@ internal data class PolishCatalog(
                             inputUsdPerMillion = cost?.optDouble("input")?.takeIf { !it.isNaN() },
                             outputUsdPerMillion = cost?.optDouble("output")?.takeIf { !it.isNaN() },
                             cacheReadUsdPerMillion = cost?.optDouble("cache_read")?.takeIf { !it.isNaN() },
+                            cacheWriteUsdPerMillion = cost?.optDouble("cache_write")?.takeIf { !it.isNaN() },
+                            tiers = cost?.optJSONArray("tiers")?.let(::parseTiers).orEmpty(),
+                            schedule = cost?.optJSONObject("schedule")?.let(::parseSchedule),
                         ))
                     }
                 }.distinctBy { it.id }.sortedBy { it.name.lowercase() }
                 providers[providerId] = list
             }
             return PolishCatalog(version, source, fetchedAt, providers)
+        }
+
+        private fun parseTiers(array: org.json.JSONArray): List<PolishPriceTier> = buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val size = item.optJSONObject("tier")?.optLong("size", 0L) ?: 0L
+                if (size <= 0L) continue
+                add(PolishPriceTier(size, parseRates(item)))
+            }
+        }
+
+        private fun parseSchedule(json: JSONObject): PolishPriceSchedule? {
+            val zone = json.optString("timezone").ifBlank { "UTC" }
+            val windows = buildList {
+                val array = json.optJSONArray("windows") ?: return@buildList
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val weekdays = parseWeekdays(item.opt("weekdays"))
+                    val hours = parseHours(item.opt("hours"))
+                    if (hours.isEmpty()) continue
+                    add(PolishPriceWindow(weekdays, hours, parseRates(item)))
+                }
+            }
+            if (windows.isEmpty()) return null
+            return PolishPriceSchedule(zone, json.optString("fallback"), windows)
+        }
+
+        private fun parseRates(json: JSONObject): PolishPriceRates = PolishPriceRates(
+            input = json.optDouble("input")?.takeIf { !it.isNaN() },
+            output = json.optDouble("output")?.takeIf { !it.isNaN() },
+            cacheRead = json.optDouble("cache_read")?.takeIf { !it.isNaN() },
+            cacheWrite = json.optDouble("cache_write")?.takeIf { !it.isNaN() },
+        )
+
+        private fun parseWeekdays(value: Any?): Set<Int> = when (value) {
+            is org.json.JSONArray -> (0 until value.length()).mapNotNull { value.optInt(it, 0).takeIf { day -> day in 1..7 } }.toSet()
+            is String -> value.split(Regex("\\s+")).mapNotNull { it.toIntOrNull()?.takeIf { day -> day in 1..7 } }.toSet()
+            else -> emptySet()
+        }
+
+        private fun parseHours(value: Any?): List<Pair<Int, Int>> {
+            val text = when (value) {
+                is org.json.JSONArray -> (0 until value.length()).joinToString(" ") { value.optString(it) }
+                is String -> value
+                else -> return emptyList()
+            }
+            return text.split(Regex("\\s+")).mapNotNull { part ->
+                val pieces = part.split("-")
+                if (pieces.size != 2) return@mapNotNull null
+                val start = pieces[0].split(":").let { it.getOrNull(0)?.toIntOrNull()?.times(60)?.plus(it.getOrNull(1)?.toIntOrNull() ?: 0) }
+                val end = pieces[1].split(":").let { it.getOrNull(0)?.toIntOrNull()?.times(60)?.plus(it.getOrNull(1)?.toIntOrNull() ?: 0) }
+                if (start == null || end == null) null else start to end
+            }
         }
     }
 }

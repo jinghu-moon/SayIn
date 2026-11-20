@@ -327,6 +327,7 @@ internal class PolishManager(context: Context) {
                 ?: PolishCallPurpose.Polish
             val price = if (entity == null) null else PolishPricing.estimate(
                 catalog, usage, PolishProvider.from(entity.provider), entity.requestModel, purpose,
+                atMillis = entity.startedAt,
             )
             usageStore.finish(callId, result, outcome, price)
             usageStore.recent().map { it.toStatsEntry() }

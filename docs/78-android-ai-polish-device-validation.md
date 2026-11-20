@@ -6,7 +6,7 @@
 
 | 项目 | 命令 / 方式 | 结果 |
 | --- | --- | --- |
-| 完整 JVM | `scripts/gradle.ps1 :app:testDebugUnitTest` | 165 项通过，0 失败 |
+| 完整 JVM | `scripts/gradle.ps1 :app:testDebugUnitTest` | 167 项通过，0 失败 |
 | i18n | `python scripts/check_i18n.py` | 通过 |
 | Lint | `scripts/gradle.ps1 :app:lintDebug` | BUILD SUCCESSFUL |
 | Debug 构建 | `scripts/gradle.ps1 :app:assembleDebug` | BUILD SUCCESSFUL |
