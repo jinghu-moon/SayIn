@@ -303,16 +303,23 @@ private fun usageSummary(report: PolishUsageReport): String = stringResource(R.s
     report.totals.calls, report.totals.tokens.toString(), report.medianMillis)
 
 @Composable
-private fun UsageCosts(report: PolishUsageReport) {
+private fun UsageCosts(report: PolishUsageReport, displayCurrency: String = "USD",
+                             rate: PolishExchangeRate? = null) {
     val locale = LocalConfiguration.current.locales[0]
     if (report.totals.unknownCost > 0 || report.costs.isNotEmpty()) {
         Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
             report.costs.forEach { amount ->
+                val (text, currency) = convertedCost(amount, displayCurrency, rate, locale)
                 Notice(stringResource(if (amount.source == PolishCostSource.Reported.name)
-                    R.string.polish_stats_cost_reported else R.string.polish_stats_cost_estimated,
-                    String.format(locale, "%.6f", java.math.BigDecimal.valueOf(amount.micros, 6)), amount.currency))
+                    R.string.polish_stats_cost_reported else R.string.polish_stats_cost_estimated, text, currency))
             }
             if (report.totals.unknownCost > 0) Notice(stringResource(R.string.polish_usage_unknown_cost, report.totals.unknownCost))
+            if (displayCurrency == "CNY") {
+                if (rate != null) Notice(stringResource(R.string.polish_exchange_source,
+                    rate.cnyPerUsd.toPlainString(),
+                    SimpleDateFormat("MM-dd HH:mm", locale).format(Date(rate.fetchedAt))))
+                else Notice(stringResource(R.string.polish_exchange_failed), error = true)
+            }
         }
     }
 }
@@ -327,6 +334,8 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
     var model by remember { mutableStateOf<String?>(null) }
     var page by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
+    var displayCurrency by remember { mutableStateOf("USD") }
+    val exchangeRate = manager.exchangeRate
     var showFilters by remember { mutableStateOf(false) }
     var draftPurpose by remember { mutableStateOf<String?>(null) }
     var draftService by remember { mutableStateOf<String?>(null) }
@@ -368,9 +377,21 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                                 report.medianMillis.takeIf { it > 0 }?.let { "$it ms" } ?: "—")
                         }
                         HorizontalDivider(Modifier.padding(vertical = 10.dp))
-                        UsageCosts(report)
+                        UsageCosts(report, displayCurrency, exchangeRate)
+                        if (displayCurrency == "CNY" && exchangeRate == null && !manager.exchangeRateLoading) {
+                            TextButton(stringResource(R.string.polish_catalog_refresh), { manager.ensureExchangeRate(true) },
+                                minHeight = 36.dp, colors = plainTextButtonColors())
+                        }
                     }
                 }
+                TabRowWithContour(
+                    tabs = listOf(stringResource(R.string.polish_currency_usd), stringResource(R.string.polish_currency_cny)),
+                    selectedTabIndex = if (displayCurrency == "USD") 0 else 1,
+                    onTabSelected = { displayCurrency = if (it == 0) "USD" else "CNY"; if (displayCurrency == "CNY") manager.ensureExchangeRate() },
+                    modifier = Modifier.fillMaxWidth(),
+                    height = 36.dp,
+                    cornerRadius = 12.dp,
+                )
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(stringResource(R.string.polish_usage_details), Modifier.weight(1f), fontSize = 13.sp,
                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
@@ -388,7 +409,7 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
                     Text(SimpleDateFormat("MM-dd", locale).format(Date(entries.first().timestamp)),
                         fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                         modifier = Modifier.padding(top = 4.dp))
-                    entries.forEach { StatsRow(it, locale) }
+                    entries.forEach { StatsRow(it, locale, displayCurrency, exchangeRate) }
                 }
                 if (report.totals.calls > POLISH_USAGE_PAGE_SIZE) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -679,6 +700,15 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
     }
 }
 
+private fun convertedCost(amount: PolishUsageAmount, displayCurrency: String,
+                          rate: PolishExchangeRate?, locale: Locale): Pair<String, String> {
+    val original = java.math.BigDecimal.valueOf(amount.micros, 6)
+    if (displayCurrency == "CNY" && amount.currency == "USD" && rate != null) {
+        return String.format(locale, "%.6f", original.multiply(rate.cnyPerUsd)) to "CNY"
+    }
+    return String.format(locale, "%.6f", original) to amount.currency
+}
+
 @Composable
 private fun priceLine(label: String, usdPerMillion: Double?, currency: String,
                       rate: PolishExchangeRate?) {
@@ -720,7 +750,8 @@ private fun usagePurposeLabel(purpose: String): Int = when (purpose) {
 }
 
 @Composable
-private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
+private fun StatsRow(entry: PolishStatsEntry, locale: Locale,
+                        displayCurrency: String = "USD", rate: PolishExchangeRate? = null) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth()) {
             Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.responseModel ?: entry.model) + " · " +
@@ -739,11 +770,11 @@ private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
                 })),
             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         val cost = if (entry.costMicros != null && entry.costCurrency != null) {
+            val amount = PolishUsageAmount(entry.costCurrency, entry.costSource.name, entry.costMicros)
+            val (text, currency) = convertedCost(amount, displayCurrency, rate, locale)
             stringResource(
                 if (entry.costSource == PolishCostSource.Reported) R.string.polish_stats_cost_reported
-                else R.string.polish_stats_cost_estimated,
-                String.format(locale, "%.6f", entry.costMicros / 1_000_000.0),
-                entry.costCurrency,
+                else R.string.polish_stats_cost_estimated, text, currency,
             )
         } else stringResource(R.string.polish_stats_cost_unknown)
         Text(cost, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
