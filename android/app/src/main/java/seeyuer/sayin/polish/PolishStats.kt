@@ -6,6 +6,7 @@ internal data class PolishStatsEntry(
     val timestamp: Long,
     val provider: String,
     val model: String,
+    val responseModel: String? = null,
     val inputTokens: Long?,
     val outputTokens: Long?,
     val durationMillis: Long,

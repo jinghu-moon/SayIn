@@ -167,6 +167,7 @@ internal fun PolishUsageEntity.toStatsEntry(): PolishStatsEntry = PolishStatsEnt
     timestamp = startedAt,
     provider = provider,
     model = requestModel,
+    responseModel = responseModel,
     inputTokens = inputTotal,
     outputTokens = outputTotal,
     durationMillis = durationMillis,

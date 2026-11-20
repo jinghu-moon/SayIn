@@ -393,7 +393,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                     }
                 Text(stringResource(R.string.polish_usage_group_title), fontSize = 11.5.sp,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                filtered.groupBy { it.configId to it.model }.forEach { (key, entries) ->
+                filtered.groupBy { it.configId to (it.responseModel ?: it.model) }.forEach { (key, entries) ->
                     val configured = session.polish.configurations.firstOrNull { it.id == key.first }
                     val label = configured?.name?.takeIf { it.isNotBlank() }
                         ?: configured?.let { stringResource(providerLabel(it.provider)) }
@@ -493,7 +493,7 @@ private fun usagePurposeLabel(purpose: String): Int = when (purpose) {
 private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Row(Modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.model) + " · " +
+            Text(stringResource(R.string.polish_stats_entry_title, entry.provider, entry.responseModel ?: entry.model) + " · " +
                 stringResource(usagePurposeLabel(entry.purpose)), Modifier.weight(1f), fontSize = 12.sp)
             Text(SimpleDateFormat("MM-dd HH:mm", locale).format(Date(entry.timestamp)),
                 fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
