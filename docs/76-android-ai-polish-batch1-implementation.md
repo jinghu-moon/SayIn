@@ -37,7 +37,7 @@
 | 项目 | 命令 / 方式 | 结果 |
 | --- | --- | --- |
 | JVM | `scripts/gradle.ps1 :app:testDebugUnitTest --tests "seeyuer.sayin.polish.*" --tests "seeyuer.sayin.ui.settings.PolishEditorStateTest"` | 38 项通过，0 失败 |
-| 快照 | `python scripts/check_basellm_snapshot.py` | OK，SHA/字节/许可/4 个厂商候选通过 |
+| 快照 | `python scripts/check_basellm_snapshot.py` | OK，SHA/字节/许可/4 个厂商候选通过 |\n| 目录网络边界 | `:app:testDebugUnitTest --tests "seeyuer.sayin.polish.PolishCatalogFetcherTest"` | 3 项通过：200 校验并返回 ETag、304 条件请求、空/非法/超限拒绝；请求无服务凭据 |
 | i18n | `python scripts/check_i18n.py` | 通过 |
 | Lint | `scripts/gradle.ps1 :app:lintDebug` | BUILD SUCCESSFUL |
 | 构建 | `scripts/gradle.ps1 :app:assembleDebug` | BUILD SUCCESSFUL |
@@ -48,7 +48,7 @@
 
 ## 未通过 / 待补
 
-- 真机手动刷新目录当次返回 `Unable to resolve host "basellm.github.io"`。这是当前设备网络无法解析该域名，不是目录校验失败；随包快照仍可离线选模型。成功 `200`、`304` 和升级切换尚未在真实网络下记录。
+- 真机手动刷新目录当次返回 `Unable to resolve host "basellm.github.io"`。这是当前设备网络无法解析该域名，不是目录校验失败；随包快照仍可离线选模型。`200`/`304` 已由 MockWebServer 边界测试覆盖，真实网络和升级切换尚未记录。
 - “保存 DeepSeek + 中转站、重启切换、增删互不影响”的完整 UI 验收尚未执行；当前已迁移并保留原 DeepSeek 配置。
 - 真实 DeepSeek 手动润色本轮只验证连接，未重新跑固定样句；74 号文档已有的润色结果仍有效。
 - WorkManager 在系统调度下的实际执行结果尚未拿到；当前只确认任务已注册。

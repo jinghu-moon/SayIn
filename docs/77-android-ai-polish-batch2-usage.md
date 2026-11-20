@@ -39,7 +39,7 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| JVM | 44 项通过，0 失败（含新增 usage、pricing 测试） |
+| JVM | 全量 165 项通过，0 失败；其中本轮 usage/pricing 相关 44 项 |
 | i18n | `python scripts/check_i18n.py` 通过 |
 | Lint | `:app:lintDebug` BUILD SUCCESSFUL |
 | 构建/安装 | `:app:assembleDebug` 成功；root 覆盖安装成功 |

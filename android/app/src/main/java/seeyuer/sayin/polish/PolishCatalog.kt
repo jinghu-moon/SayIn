@@ -16,8 +16,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -90,12 +88,7 @@ internal data class PolishCatalogRefresh(
 internal class PolishCatalogStore(private val context: Context) {
     private val cacheFile = AtomicFile(File(context.filesDir, "polish-catalog.json"))
     private val preferences = context.getSharedPreferences("polish_catalog", Context.MODE_PRIVATE)
-    private val client = OkHttpClient.Builder()
-        .retryOnConnectionFailure(false)
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .callTimeout(45, TimeUnit.SECONDS)
-        .build()
+    private val fetcher = PolishCatalogFetcher(SOURCE)
 
     fun lastCheckedAt(): Long = preferences.getLong("checked_at", 0L)
     fun etag(): String? = preferences.getString("etag", null)
@@ -127,56 +120,30 @@ internal class PolishCatalogStore(private val context: Context) {
     suspend fun refresh(): PolishCatalogRefresh = mutex.withLock {
         val started = System.currentTimeMillis()
         val snapshot = loadSnapshot()
-        val builder = Request.Builder().url(SOURCE).get().header("Accept", "application/json")
-        etag()?.takeIf { it.isNotBlank() }?.let { builder.header("If-None-Match", it) }
-        return@withLock withContext(Dispatchers.IO) {
-            try {
-                client.newCall(builder.build()).execute().use { response ->
-                    if (response.code == 304) {
-                        preferences.edit().putLong("checked_at", started).apply()
-                        return@withContext PolishCatalogRefresh(started, false)
-                    }
-                    if (!response.isSuccessful) {
-                        return@withContext PolishCatalogRefresh(0L, false, "HTTP ${response.code}")
-                    }
-                    val bytes = response.body?.byteStream()?.let { input ->
-                        val output = java.io.ByteArrayOutputStream()
-                        val buffer = ByteArray(8192)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read < 0) break
-                            if (output.size() + read > 2_000_000) return@withContext PolishCatalogRefresh(
-                                0L, false, "目录超过大小限制",
-                            )
-                            output.write(buffer, 0, read)
-                        }
-                        output.toByteArray()
-                    } ?: return@withContext PolishCatalogRefresh(0L, false, "空响应")
-                    val text = Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(bytes)).toString()
-                    val json = JSONObject(text)
-                    val version = sha256(bytes)
-                    val catalog = PolishCatalog.parse(json, version, SOURCE, java.time.Instant.now().toString())
-                    require(catalog.modelsByProvider.values.any { it.isNotEmpty() })
-                    val payload = JSONObject()
-                        .put("version", version)
-                        .put("fetchedAt", java.time.Instant.now().toString())
-                        .put("catalog", json)
-                    val stream = cacheFile.startWrite()
-                    try {
-                        stream.write(payload.toString().toByteArray(Charsets.UTF_8))
-                        cacheFile.finishWrite(stream)
-                    } catch (error: Exception) {
-                        cacheFile.failWrite(stream)
-                        throw error
-                    }
-                    preferences.edit().putLong("checked_at", started)
-                        .putString("etag", response.header("ETag"))
-                        .putString("cache_snapshot", snapshot?.version)
-                        .apply()
-                    PolishCatalogRefresh(started, true)
+        when (val fetch = withContext(Dispatchers.IO) { fetcher.fetch(etag()) }) {
+            PolishCatalogFetch.NotModified -> {
+                preferences.edit().putLong("checked_at", started).apply()
+                PolishCatalogRefresh(started, false)
+            }
+            is PolishCatalogFetch.Failure -> PolishCatalogRefresh(0L, false, fetch.message)
+            is PolishCatalogFetch.Updated -> withContext(Dispatchers.IO) {
+                val payload = JSONObject()
+                    .put("version", fetch.catalog.version)
+                    .put("fetchedAt", fetch.catalog.fetchedAt)
+                    .put("catalog", JSONObject(fetch.rawJson))
+                val stream = cacheFile.startWrite()
+                try {
+                    stream.write(payload.toString().toByteArray(Charsets.UTF_8))
+                    cacheFile.finishWrite(stream)
+                } catch (error: Exception) {
+                    cacheFile.failWrite(stream)
+                    return@withContext PolishCatalogRefresh(0L, false, error.message ?: "写入失败")
                 }
-            } catch (error: Exception) {
-                PolishCatalogRefresh(0L, false, error.message ?: "刷新失败")
+                preferences.edit().putLong("checked_at", started)
+                    .putString("etag", fetch.etag)
+                    .putString("cache_snapshot", snapshot?.version)
+                    .apply()
+                PolishCatalogRefresh(started, true)
             }
         }
     }
