@@ -15,7 +15,7 @@
 | 真机普通润色 | DeepSeek 固定短样句 | 成功；输入 450 / 输出 58 Token，375 ms，估算 `0.000102 USD` |\n| 真机 SSE 润色 | 开启流式预览后 DeepSeek 固定短样句 | 成功；输入 450 / 输出 22 Token，436 ms，估算 `0.000043 USD` |
 | 模型候选 | 设置页“选择模型” | 本地快照候选显示；DeepSeek V4 Pro / V4.1 Flash |
 | 用量页 | 真机 | 今日/7 天/30 天筛选、调用数、Token、中位耗时、未知费用、用途均显示 |
-| 周期任务 | `dumpsys jobscheduler` | 已注册 WorkManager `SystemJobService` |
+| 周期任务 | `dumpsys jobscheduler` + `cmd jobscheduler run -f seeyuer.sayin 13` | 已注册并强制实际执行；Worker result RETRY（DNS 失败） |
 
 ## 未执行 / 未通过
 
@@ -27,7 +27,7 @@
 - **目标应用落字**：未执行真实目标应用的输入结果观察；此前文档中的 LAN/loopback 证据不能替代本轮应用落字。
 - **仪器化 UI**：未运行 AI 仪器化用例；MIUI 对 `adb install` 的限制仍在，日常包使用 root 安装。测试包安装与结果未记录。
 - **费用完整性**：上报金额、非 USD 币种、区域/套餐/时段、缓存写入费率、90 天清理和并发清空竞态仍待补。
-- **目录刷新与 WorkManager 实际执行**：只确认任务注册，未取得系统实际联网执行结果。
+- **目录刷新与 WorkManager 实际执行**：已强制系统实际执行，但设备 DNS 仍失败；成功联网结果未取得。
 
 ## 结论
 

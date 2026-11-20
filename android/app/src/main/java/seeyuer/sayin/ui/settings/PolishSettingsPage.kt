@@ -391,6 +391,17 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                             String.format(locale, "%.6f", micros / 1_000_000.0), currency),
                             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                     }
+                Text(stringResource(R.string.polish_usage_group_title), fontSize = 11.5.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                filtered.groupBy { it.configId to it.model }.forEach { (key, entries) ->
+                    val configured = session.polish.configurations.firstOrNull { it.id == key.first }
+                    val label = configured?.name?.takeIf { it.isNotBlank() }
+                        ?: configured?.let { stringResource(providerLabel(it.provider)) }
+                        ?: key.first.take(8)
+                    val tokens = entries.sumOf { (it.inputTokens ?: 0L) + (it.outputTokens ?: 0L) }
+                    Text(stringResource(R.string.polish_usage_group_line, label, key.second, entries.size, tokens.toString()),
+                        fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
                 filtered.take(20).forEach { entry -> StatsRow(entry, locale) }
             }
         }

@@ -44,14 +44,14 @@
 | 安装 | root `pm install -r --user 0` | Success；`versionName=0.1.0`，`lastUpdateTime=2026-11-20 19:37:51` |
 | 真机 UI | Redmi K40 | 已看到“已保存的服务”“添加服务”“选择模型”“刷新模型目录”；模型候选显示 DeepSeek V4 Pro / V4.1 Flash |
 | 真机连接 | 设置页“测试连接” | `连接成功 · 306 ms`，实际 DeepSeek 配置 |
-| 周期任务 | `dumpsys jobscheduler` | 已注册 `SystemJobService`（`JOB #u0a543/2`） |
+| 周期任务 | `dumpsys jobscheduler` / `cmd jobscheduler run -f seeyuer.sayin 13` | 已注册 `SystemJobService`；强制运行后日志为 `WM-WorkerWrapper: Worker result RETRY`（设备 DNS 无法访问 basellm，符合失败保留快照的预期） |
 
 ## 未通过 / 待补
 
 - 真机手动刷新目录当次返回 `Unable to resolve host "basellm.github.io"`。这是当前设备网络无法解析该域名，不是目录校验失败；随包快照仍可离线选模型。`200`/`304` 已由 MockWebServer 边界测试覆盖，真实网络和升级切换尚未记录。
 - “保存 DeepSeek + 中转站、重启切换、增删互不影响”的完整 UI 验收尚未执行；当前已迁移并保留原 DeepSeek 配置。
 - 真实 DeepSeek 手动润色本轮只验证连接，未重新跑固定样句；74 号文档已有的润色结果仍有效。
-- WorkManager 在系统调度下的实际执行结果尚未拿到；当前只确认任务已注册。
+- WorkManager 已通过 `cmd jobscheduler run -f` 实际执行；因设备 DNS 无法解析 basellm 返回 RETRY，成功路径仍未取得。
 - 中转站模型列表尚未连接真实中转站验证；JVM MockWebServer 已覆盖 GET 路径、鉴权、去重和 401。
 
 ## 命令
