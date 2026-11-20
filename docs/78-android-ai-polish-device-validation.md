@@ -15,7 +15,7 @@
 | 真机普通润色 | DeepSeek 固定短样句 | 成功；输入 450 / 输出 58 Token，375 ms，估算 `0.000102 USD` |\n| 真机 SSE 润色 | 开启流式预览后 DeepSeek 固定短样句 | 成功；输入 450 / 输出 22 Token，436 ms，估算 `0.000043 USD` |
 | 模型候选 | 设置页“选择模型” | 本地快照候选显示；DeepSeek V4 Pro / V4.1 Flash |
 | 用量页 | 真机 | 今日/7 天/30 天筛选、调用数、Token、中位耗时、未知费用、用途均显示 |
-| 周期任务 | `dumpsys jobscheduler` + `cmd jobscheduler run -f seeyuer.sayin 13` | 已注册并强制实际执行；Worker result RETRY（DNS 失败） |\n| X-ASR 仪器化 | `am instrument -w -e class seeyuer.sayin.asr.XAsrInstrumentedTest ...` | OK（2 项），15.816 s；真实 JNI/资源/CPU，混合中英与静音无麦克风 |\n| 多配置存储仪器化 | `am instrument -w -e class seeyuer.sayin.polish.PolishConfigStoreInstrumentedTest ...` | OK（1 项）；两份配置的 Key、端点、模型独立，切换 activeId 后互不覆盖 |
+| 周期任务 | `dumpsys jobscheduler` + `cmd jobscheduler run -f seeyuer.sayin 13` | 已注册并强制实际执行；Worker result RETRY（DNS 失败） |\n| X-ASR 仪器化 | `am instrument -w -e class seeyuer.sayin.asr.XAsrInstrumentedTest ...` | OK（2 项），15.816 s；真实 JNI/资源/CPU，混合中英与静音无麦克风 |\n| 多配置存储仪器化 | `am instrument -w -e class seeyuer.sayin.polish.PolishConfigStoreInstrumentedTest ...` | OK（1 项）；两份配置的 Key、端点、模型独立，切换 activeId 后互不覆盖 |\n| 用量库仪器化 | `am instrument -w -e class seeyuer.sayin.polish.PolishUsageStoreInstrumentedTest ...` | OK（1 项）；pending→unknown、终态幂等、清空后迟到完成不复活 |
 
 ## 未执行 / 未通过
 

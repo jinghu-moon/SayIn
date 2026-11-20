@@ -1,0 +1,50 @@
+package seeyuer.sayin.polish
+
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class PolishUsageStoreInstrumentedTest {
+    private val databaseName = "polish-usage-test.db"
+
+    @Test fun pendingRecoveryTerminalIdempotenceAndClear() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(databaseName)
+        val store = PolishUsageStore(context, databaseName)
+        try {
+            val config = PolishConfig.preset(PolishProvider.DeepSeek).copy(key = "test-key", model = "deepseek-flash")
+
+            val abandoned = store.begin(config, PolishCallPurpose.Polish)
+            assertEquals("pending", store.byId(abandoned.callId)?.outcome)
+            store.recover()
+            assertEquals("unknown", store.byId(abandoned.callId)?.outcome)
+            val completed = store.begin(config, PolishCallPurpose.Polish)
+            val result = PolishCallResult.Success(
+                text = "ok", usage = PolishUsage(1000, 200, null, 300, 80),
+                durationMillis = 42, httpStatus = 200,
+            )
+            store.finish(completed.callId, result, "success", null)
+            val finished = store.byId(completed.callId)!!
+            assertEquals("success", finished.outcome)
+            assertEquals(1000L, finished.inputTotal)
+            assertEquals(200L, finished.cacheRead)
+            assertEquals(80L, finished.outputReasoning)
+            store.finish(completed.callId, result, "success", null)
+            assertEquals("success", store.byId(completed.callId)?.outcome)
+
+            store.clear()
+            assertTrue(store.recent().isEmpty())
+            store.finish(completed.callId, result, "success", null)
+            assertNull(store.byId(completed.callId))
+        } finally {
+            store.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+}

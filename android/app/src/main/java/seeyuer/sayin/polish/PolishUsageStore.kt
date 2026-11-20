@@ -96,9 +96,9 @@ internal abstract class PolishUsageDatabase : RoomDatabase() {
     abstract fun dao(): PolishUsageDao
 }
 
-internal class PolishUsageStore(context: Context) {
+internal class PolishUsageStore(context: Context, databaseName: String = "polish-usage.db") {
     private val database = Room.databaseBuilder(
-        context.applicationContext, PolishUsageDatabase::class.java, "polish-usage.db",
+        context.applicationContext, PolishUsageDatabase::class.java, databaseName,
     ).setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
         .fallbackToDestructiveMigration(true).build()
     private val dao = database.dao()
