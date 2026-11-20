@@ -3,6 +3,10 @@ package seeyuer.sayin.polish
 import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -43,6 +47,30 @@ class PolishUsageStoreInstrumentedTest {
             assertTrue(store.recent().isEmpty())
             store.finish(completed.callId, result, "success", null)
             assertNull(store.byId(completed.callId))
+        } finally {
+            store.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
+    @Test fun concurrentTerminalWritesKeepEveryRow() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(databaseName)
+        val store = PolishUsageStore(context, databaseName)
+        try {
+            val config = PolishConfig.preset(PolishProvider.DeepSeek).copy(key = "test-key", model = "deepseek-flash")
+            val calls = (0 until 4).map { store.begin(config, PolishCallPurpose.Polish) }
+            coroutineScope {
+                calls.map { call ->
+                    async(Dispatchers.IO) {
+                        store.finish(call.callId, PolishCallResult.Success(
+                            text = "ok", usage = PolishUsage(10, null, null, 2), durationMillis = 5,
+                            httpStatus = 200,
+                        ), "success", null)
+                    }
+                }.awaitAll()
+            }
+            assertEquals(4, store.recent().count { it.outcome == "success" })
         } finally {
             store.close()
             context.deleteDatabase(databaseName)
