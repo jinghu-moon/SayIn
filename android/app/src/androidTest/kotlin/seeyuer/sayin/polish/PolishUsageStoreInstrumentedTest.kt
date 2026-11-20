@@ -78,6 +78,30 @@ class PolishUsageStoreInstrumentedTest {
         }
     }
 
+    @Test fun clearRacingWithFinishNeverResurrectsARow() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(databaseName)
+        val store = PolishUsageStore(context, databaseName)
+        try {
+            val config = PolishConfig.preset(PolishProvider.DeepSeek).copy(key = "test-key", model = "deepseek-flash")
+            repeat(20) {
+                val call = store.begin(config, PolishCallPurpose.Polish)
+                val result = PolishCallResult.Success(
+                    text = "ok", usage = PolishUsage(10, null, null, 2), durationMillis = 1, httpStatus = 200,
+                )
+                coroutineScope {
+                    val finish = async(Dispatchers.IO) { store.finish(call.callId, result, "success", null) }
+                    val clear = async(Dispatchers.IO) { store.clear() }
+                    finish.await(); clear.await()
+                }
+                assertNull(store.byId(call.callId))
+            }
+        } finally {
+            store.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     @Test fun recordsOlderThanNinetyDaysArePruned() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(databaseName)
