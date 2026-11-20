@@ -922,7 +922,16 @@
     <string name="polish_preview">预览</string>
     <string name="polish_streaming">流式预览</string>
     <string name="polish_streaming_summary">生成过程中显示文本；只有响应完整并通过校验后才替换草稿。</string>
+    <string name="polish_saved_configs">已保存的服务</string>
+    <string name="polish_add_config">添加服务</string>
+    <string name="polish_config_name">配置名称</string>
+    <string name="polish_new_config">新服务</string>
+    <string name="polish_delete_config">删除当前服务</string>
+    <string name="polish_delete_config_confirm">删除这份已保存的服务和 Key？</string>
+    <string name="polish_delete_config_action">删除</string>
+    <string name="polish_config_active">当前</string>
 </resources>
+
 
 
 

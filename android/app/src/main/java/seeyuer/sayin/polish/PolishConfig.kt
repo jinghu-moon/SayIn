@@ -7,6 +7,7 @@ import android.util.AtomicFile
 import java.io.File
 import java.security.KeyStore
 import java.security.MessageDigest
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
@@ -34,10 +35,13 @@ internal data class PolishConfig(
     val apiVersion: String,
     val maxTokensField: PolishMaxTokensField,
     val thinking: PolishThinking,
+    val id: String = UUID.randomUUID().toString(),
+    val name: String = "",
+    val revision: Long = 1L,
 ) {
     val normalizedBaseUrl: String get() = baseUrl.trim().trimEnd('/')
     val fingerprint: String get() = sha256(
-        listOf(provider.id, protocol.name, normalizedBaseUrl, model.trim(), auth.name,
+        listOf(id, provider.id, protocol.name, normalizedBaseUrl, model.trim(), auth.name,
             apiVersion, maxTokensField.name, thinking.name).joinToString("\u0000")
     )
     fun withKey(value: String) = copy(key = value.trim())
@@ -53,7 +57,10 @@ internal data class PolishConfig(
     }
 
     fun toJson(): JSONObject = JSONObject()
-        .put("version", 1)
+        .put("version", 2)
+        .put("id", id)
+        .put("name", name)
+        .put("revision", revision)
         .put("provider", provider.id)
         .put("protocol", protocol.name)
         .put("baseUrl", normalizedBaseUrl)
@@ -91,7 +98,7 @@ internal data class PolishConfig(
                 PolishMaxTokensField.MaxTokens, PolishThinking.None)
 
         fun fromJson(json: JSONObject): PolishConfig {
-            require(json.getInt("version") == 1)
+            require(json.getInt("version") in 1..2)
             val protocol = PolishProtocol.valueOf(json.getString("protocol"))
             val config = PolishConfig(
                 provider = PolishProvider.from(json.getString("provider")),
@@ -103,6 +110,9 @@ internal data class PolishConfig(
                 apiVersion = json.optString("apiVersion"),
                 maxTokensField = PolishMaxTokensField.valueOf(json.getString("maxTokensField")),
                 thinking = PolishThinking.valueOf(json.getString("thinking")),
+                id = json.optString("id").takeIf { it.isNotBlank() } ?: UUID.randomUUID().toString(),
+                name = json.optString("name"),
+                revision = json.optLong("revision", 1L).coerceAtLeast(1L),
             )
             require(config.normalizedBaseUrl.length <= 300 && config.model.length <= 120 && config.key.length <= 8192)
             require(config.validate() == null)
@@ -116,6 +126,19 @@ internal sealed interface PolishConfigState {
     data object Corrupt : PolishConfigState
     data object Unauthorized : PolishConfigState
     data class Ready(val config: PolishConfig) : PolishConfigState
+}
+
+internal data class PolishConfigSet(
+    val configurations: List<PolishConfig>,
+    val activeId: String,
+) {
+    val active: PolishConfig get() = configurations.first { it.id == activeId }
+}
+
+internal sealed interface PolishConfigLoad {
+    data object Missing : PolishConfigLoad
+    data object Corrupt : PolishConfigLoad
+    data class Ready(val set: PolishConfigSet) : PolishConfigLoad
 }
 
 internal class PolishConfigStore(context: Context) {
@@ -136,7 +159,7 @@ internal class PolishConfigStore(context: Context) {
         }
     }
 
-    fun load(): PolishConfigState {
+    fun load(): PolishConfigLoad {
         val encrypted = try {
             file.openRead().use { stream ->
                 val output = java.io.ByteArrayOutputStream()
@@ -144,35 +167,63 @@ internal class PolishConfigStore(context: Context) {
                 while (true) {
                     val count = stream.read(buffer)
                     if (count < 0) break
-                    require(output.size() + count <= 65_536)
+                    require(output.size() + count <= 1_048_576)
                     output.write(buffer, 0, count)
                 }
                 output.toByteArray()
             }
         } catch (_: java.io.FileNotFoundException) {
-            return if (file.baseFile.exists()) PolishConfigState.Corrupt else PolishConfigState.Missing
+            return if (file.baseFile.exists()) PolishConfigLoad.Corrupt else PolishConfigLoad.Missing
         } catch (_: Exception) {
-            return PolishConfigState.Corrupt
+            return PolishConfigLoad.Corrupt
         }
         return try {
-            require(encrypted.size in 29..65_536)
+            require(encrypted.size in 29..1_048_576)
             val cipher = Cipher.getInstance("AES/GCM/NoPadding")
             cipher.init(Cipher.DECRYPT_MODE, key(false), GCMParameterSpec(128, encrypted.copyOfRange(0, 12)))
             cipher.updateAAD(aad)
             val json = JSONObject(cipher.doFinal(encrypted.copyOfRange(12, encrypted.size)).toString(Charsets.UTF_8))
-            PolishConfigState.Ready(PolishConfig.fromJson(json))
+            when (json.getInt("version")) {
+                1 -> {
+                    // Migration from the first single-config build. Persist the generated
+                    // stable id immediately so it survives the next restart.
+                    val config = PolishConfig.fromJson(json)
+                    val set = PolishConfigSet(listOf(config), config.id)
+                    runCatching { save(set) }
+                    PolishConfigLoad.Ready(set)
+                }
+                2 -> {
+                    val array = json.getJSONArray("configurations")
+                    require(array.length() in 1..32)
+                    val configurations = buildList {
+                        for (index in 0 until array.length()) add(PolishConfig.fromJson(array.getJSONObject(index)))
+                    }
+                    require(configurations.map { it.id }.toSet().size == configurations.size)
+                    val activeId = json.getString("activeId")
+                    require(configurations.any { it.id == activeId })
+                    PolishConfigLoad.Ready(PolishConfigSet(configurations, activeId))
+                }
+                else -> error("Unsupported polish config version")
+            }
         } catch (_: Exception) {
-            PolishConfigState.Corrupt
+            PolishConfigLoad.Corrupt
         }
     }
 
-    fun save(config: PolishConfig) {
-        val error = config.validate()
-        check(error == null) { error ?: "" }
+    fun save(set: PolishConfigSet) {
+        require(set.configurations.isNotEmpty() && set.configurations.size <= 32)
+        require(set.configurations.any { it.id == set.activeId })
+        set.configurations.forEach { config -> check(config.validate() == null) { config.validate() ?: "" } }
+        val json = JSONObject()
+            .put("version", 2)
+            .put("activeId", set.activeId)
+            .put("configurations", org.json.JSONArray().also { array ->
+                set.configurations.forEach { array.put(it.toJson()) }
+            })
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(true))
         cipher.updateAAD(aad)
-        val bytes = cipher.iv + cipher.doFinal(config.toJson().toString().toByteArray(Charsets.UTF_8))
+        val bytes = cipher.iv + cipher.doFinal(json.toString().toByteArray(Charsets.UTF_8))
         val stream = file.startWrite()
         try {
             stream.write(bytes)

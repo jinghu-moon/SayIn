@@ -224,6 +224,14 @@ internal class SpeakSession(
     val requestLocked get() = submitted?.state in setOf("saved", "accepted", "held", "executing", "review", "uncertain")
 
     init {
+        polish.onConfigurationChanged = {
+            polishCall?.cancel()
+            polishCall = null
+            polishJob?.cancel()
+            polishJob = null
+            polishState = PolishState()
+            invalidateTranslation()
+        }
         scope.launch { recognition.state.collect { result ->
             if (result.phase == RecognitionPhase.Listening && asr.phase != RecognitionPhase.Listening) recordingStartedAtMillis = SystemClock.elapsedRealtime()
             if (acceptRecognition && asr.phase == RecognitionPhase.Listening && result.phase != RecognitionPhase.Listening)
@@ -560,6 +568,7 @@ internal class SpeakSession(
         val ticket = PolishTicket(
             id = UUID.randomUUID().toString(), draftId = draftId, version = interaction.version,
             start = start, end = end, sourceText = sourceText, mode = mode, targetLanguage = language,
+            configId = config.id, configRevision = config.revision,
             configFingerprint = config.fingerprint, promptHash = PolishPrompts.hash(system),
         )
         polishState = PolishState(ticket = ticket, running = true)
@@ -596,6 +605,8 @@ internal class SpeakSession(
             when (result) {
                 is PolishCallResult.Success -> {
                     if (draftId != ticket.draftId || interaction.version != ticket.version ||
+                        polish.config?.id != ticket.configId ||
+                        polish.config?.revision != ticket.configRevision ||
                         polish.config?.fingerprint != ticket.configFingerprint ||
                         draft.text.substring(ticket.start, ticket.end) != ticket.sourceText) {
                         polishState = PolishState(ticket = ticket, outcome = PolishOutcome.Cancelled)

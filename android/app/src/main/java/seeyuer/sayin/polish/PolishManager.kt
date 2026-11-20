@@ -28,12 +28,17 @@ internal class PolishManager(context: Context) {
 
     var state by mutableStateOf<PolishConfigState>(PolishConfigState.Missing)
         private set
+    var configurations by mutableStateOf<List<PolishConfig>>(emptyList())
+        private set
+    var activeId by mutableStateOf<String?>(null)
+        private set
     var testState by mutableStateOf<PolishTestState>(PolishTestState.Idle)
         private set
     var stats by mutableStateOf<List<PolishStatsEntry>>(emptyList())
         private set
     var saving by mutableStateOf(false)
         private set
+    var onConfigurationChanged: (() -> Unit)? = null
     var targetLanguage by mutableStateOf(preferences.getString("target_language", "en") ?: "en")
         private set
     var appRulesEnabled by mutableStateOf(preferences.getBoolean("app_rules", true))
@@ -48,17 +53,45 @@ internal class PolishManager(context: Context) {
         private set
     private var autoFingerprint: String? = preferences.getString("auto_fingerprint", null)
 
-    val config: PolishConfig? get() = (state as? PolishConfigState.Ready)?.config
+    val config: PolishConfig? get() = configurations.firstOrNull { it.id == activeId }
     val ready: Boolean get() = config != null
     val autoPolishBound: Boolean get() = autoPolish && config != null && autoFingerprint == config?.fingerprint
 
     init {
         scope.launch {
-            state = withContext(Dispatchers.IO) { configStore.load() }
+            when (val loaded = withContext(Dispatchers.IO) { configStore.load() }) {
+                PolishConfigLoad.Missing -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Missing
+                }
+                PolishConfigLoad.Corrupt -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Corrupt
+                }
+                is PolishConfigLoad.Ready -> {
+                    configurations = loaded.set.configurations
+                    activeId = loaded.set.activeId
+                    state = PolishConfigState.Ready(loaded.set.active)
+                }
+            }
             stats = withContext(Dispatchers.IO) { statsStore.load() }
             autoPolish = preferences.getBoolean("auto", false) &&
-                (state as? PolishConfigState.Ready)?.config?.fingerprint == autoFingerprint
+                config?.fingerprint == autoFingerprint
         }
+    }
+
+    fun selectConfig(id: String) {
+        val selected = configurations.firstOrNull { it.id == id } ?: return
+        if (activeId == id) return
+        activeId = id
+        persistActive(id)
+        state = PolishConfigState.Ready(selected)
+        testState = PolishTestState.Idle
+        if (autoPolish) updateAutoPolish(false)
+        onConfigurationChanged?.invoke()
+    }
+
+    private fun persistActive(id: String) {
+        val set = PolishConfigSet(configurations, id)
+        scope.launch { withContext(Dispatchers.IO) { configStore.save(set) } }
     }
 
     fun updateTargetLanguage(value: String) {
@@ -98,7 +131,19 @@ internal class PolishManager(context: Context) {
     fun refresh() {
         if (!loading.compareAndSet(false, true)) return
         scope.launch {
-            state = withContext(Dispatchers.IO) { configStore.load() }
+            when (val loaded = withContext(Dispatchers.IO) { configStore.load() }) {
+                PolishConfigLoad.Missing -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Missing
+                }
+                PolishConfigLoad.Corrupt -> {
+                    configurations = emptyList(); activeId = null; state = PolishConfigState.Corrupt
+                }
+                is PolishConfigLoad.Ready -> {
+                    configurations = loaded.set.configurations
+                    activeId = loaded.set.activeId
+                    state = PolishConfigState.Ready(loaded.set.active)
+                }
+            }
             stats = withContext(Dispatchers.IO) { statsStore.load() }
             loading.set(false)
         }
@@ -110,13 +155,32 @@ internal class PolishManager(context: Context) {
         if (error != null) { onSaved(error); return }
         saving = true
         scope.launch {
-            val result = runCatching { withContext(Dispatchers.IO) { configStore.save(config) } }
+            val existingIndex = configurations.indexOfFirst { it.id == config.id }
+            val stored = if (existingIndex >= 0) {
+                config.copy(revision = config.revision + 1, name = config.name.ifBlank { config.model })
+            } else {
+                config.copy(revision = 1L, name = config.name.ifBlank { config.model })
+            }
+            val next = if (existingIndex >= 0) {
+                configurations.toMutableList().also { it[existingIndex] = stored }
+            } else {
+                (configurations + stored).take(32)
+            }
+            val previous = this@PolishManager.config?.fingerprint
+            val nextActive = if (activeId == null || existingIndex < 0) stored.id else activeId!!
+            val set = PolishConfigSet(next, nextActive)
+            val result = runCatching { withContext(Dispatchers.IO) { configStore.save(set) } }
             saving = false
             if (result.isSuccess) {
-                val previous = this@PolishManager.config?.fingerprint
-                state = PolishConfigState.Ready(config)
+                val activeBefore = activeId
+                val editedActive = existingIndex >= 0 && activeBefore == config.id
+                val becameActive = existingIndex < 0 || editedActive
+                configurations = next
+                activeId = nextActive
+                state = PolishConfigState.Ready(next.first { it.id == nextActive })
                 testState = PolishTestState.Idle
-                if (previous != null && previous != config.fingerprint && autoPolish) updateAutoPolish(false)
+                if (autoPolish && (becameActive || previous != stored.fingerprint)) updateAutoPolish(false)
+                if (becameActive) onConfigurationChanged?.invoke()
                 onSaved(null)
             } else {
                 onSaved("保存失败")
@@ -124,12 +188,34 @@ internal class PolishManager(context: Context) {
         }
     }
 
+    fun deleteConfig(id: String) {
+        val remaining = configurations.filterNot { it.id == id }
+        val nextActive = activeId.takeIf { active -> remaining.any { it.id == active } } ?: remaining.firstOrNull()?.id
+        scope.launch {
+            if (remaining.isEmpty()) {
+                withContext(Dispatchers.IO) { configStore.clear() }
+                configurations = emptyList(); activeId = null
+                state = PolishConfigState.Missing
+            } else {
+                val set = PolishConfigSet(remaining, nextActive!!)
+                withContext(Dispatchers.IO) { configStore.save(set) }
+                configurations = remaining; activeId = nextActive
+                state = PolishConfigState.Ready(set.active)
+            }
+            testState = PolishTestState.Idle
+            if (autoPolish) updateAutoPolish(false)
+            onConfigurationChanged?.invoke()
+        }
+    }
+
     fun clear() {
         scope.launch {
             withContext(Dispatchers.IO) { configStore.clear() }
+            configurations = emptyList(); activeId = null
             state = PolishConfigState.Missing
             testState = PolishTestState.Idle
             if (autoPolish) updateAutoPolish(false)
+            onConfigurationChanged?.invoke()
         }
     }
 

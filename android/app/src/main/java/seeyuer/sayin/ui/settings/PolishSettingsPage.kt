@@ -31,6 +31,9 @@ import top.yukonga.miuix.kmp.window.WindowDialog
 
 internal class PolishEditorState(config: PolishConfig?) {
     private val original = config
+    private val id = config?.id ?: java.util.UUID.randomUUID().toString()
+    private val revision = config?.revision ?: 1L
+    var name by mutableStateOf(config?.name.orEmpty())
     var provider by mutableStateOf(config?.provider ?: PolishProvider.DeepSeek)
     var protocol by mutableStateOf(config?.protocol ?: PolishProtocol.Chat)
     var baseUrl by mutableStateOf(config?.baseUrl ?: PolishConfig.preset(PolishProvider.DeepSeek).baseUrl)
@@ -67,6 +70,9 @@ internal class PolishEditorState(config: PolishConfig?) {
     fun build(): PolishConfig {
         val preset = PolishConfig.presets.firstOrNull { it.provider == provider }
         return (preset ?: PolishConfig.custom(protocol)).copy(
+            id = id,
+            name = name.trim(),
+            revision = revision,
             protocol = if (preset != null) preset.protocol else protocol,
             baseUrl = baseUrl.trim(),
             model = model.trim(),
@@ -87,12 +93,16 @@ internal class PolishEditorState(config: PolishConfig?) {
 internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     val configState = session.polish.state
     val config = (configState as? PolishConfigState.Ready)?.config
-    val editor = remember(config?.fingerprint) { PolishEditorState(config) }
+    var creating by remember { mutableStateOf(false) }
+    var newSeed by remember { mutableStateOf(PolishConfig.preset(PolishProvider.DeepSeek)) }
+    val editorSource = if (creating) newSeed else config
+    val editor = remember(creating, editorSource?.fingerprint) { PolishEditorState(editorSource) }
     val test = session.polish.testState
     val saving = session.polish.saving
     val configuration = LocalConfiguration.current
     val locale = remember(configuration) { configuration.locales[0] }
     var confirmClear by remember { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
     val providers = listOf(PolishProvider.DeepSeek, PolishProvider.Qwen, PolishProvider.OpenAi,
         PolishProvider.Anthropic, PolishProvider.Custom)
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
@@ -105,6 +115,38 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 Notice(stringResource(R.string.polish_config_corrupt), error = true)
             is PolishConfigState.Ready -> Notice(stringResource(R.string.polish_saved))
         }
+        if (session.polish.configurations.isNotEmpty()) {
+            Card {
+                val savedItems = session.polish.configurations.map { saved ->
+                    DropdownItem(
+                        text = saved.name.ifBlank { stringResource(providerLabel(saved.provider)) },
+                        summary = saved.model,
+                        selected = !creating && saved.id == config?.id,
+                        onClick = {
+                            creating = false
+                            session.polish.selectConfig(saved.id)
+                        },
+                        icon = { iconModifier -> ProviderLogo(saved.provider, iconModifier.size(24.dp)) },
+                    )
+                }
+                WindowDropdownPreference(
+                    entry = DropdownEntry(items = savedItems),
+                    title = stringResource(R.string.polish_saved_configs),
+                    summary = if (creating) stringResource(R.string.polish_new_config) else null,
+                    startAction = { ProviderLogo(if (creating) editor.provider else config?.provider ?: editor.provider, Modifier.size(26.dp)) },
+                    showValue = false,
+                )
+            }
+        }
+        TextButton(
+            stringResource(R.string.polish_add_config),
+            onClick = {
+                creating = true
+                newSeed = PolishConfig.preset(PolishProvider.DeepSeek)
+            },
+            minHeight = 44.dp,
+            colors = plainTextButtonColors(),
+        )
         Card {
             val providerItems = providers.map { provider ->
                 DropdownItem(
@@ -140,6 +182,9 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
         }
         Card {
             Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                TextField(editor.name, { editor.name = it.take(80) },
+                    Modifier.fillMaxWidth().testTag("polish-config-name"),
+                    label = stringResource(R.string.polish_config_name), singleLine = true, enabled = !saving)
                 TextField(editor.baseUrl, { editor.updateBaseUrl(it.take(300)) },
                     Modifier.fillMaxWidth().testTag("polish-base-url"), label = stringResource(R.string.polish_base_url),
                     singleLine = true, enabled = !saving)
@@ -178,7 +223,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             Button({
                 val error = editor.validate()
                 if (error != null) { editor.localError = error; return@Button }
-                session.polish.save(editor.build()) { }
+                session.polish.save(editor.build()) { error -> if (error == null) creating = false }
             }, Modifier.weight(1f).testTag("polish-save"), enabled = !saving) {
                 Text(stringResource(if (saving) R.string.polish_saving else R.string.polish_save))
             }
@@ -234,6 +279,10 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             label = stringResource(R.string.polish_hotwords), singleLine = false)
         Text(stringResource(R.string.polish_hotwords_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary)
+        if (!creating && config != null) {
+            TextButton(stringResource(R.string.polish_delete_config), { confirmDelete = true }, minHeight = 48.dp,
+                colors = plainTextButtonColors())
+        }
         if (config != null) {
             TextButton(stringResource(R.string.polish_clear), { confirmClear = true }, minHeight = 48.dp,
                 colors = plainTextButtonColors())
@@ -265,6 +314,22 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 confirmClear = false
                 session.polish.clear()
             }, modifier = Modifier.weight(1f).testTag("polish-clear-confirm"), minHeight = 48.dp,
+                colors = plainTextButtonColors())
+        }
+    }
+    WindowDialog(
+        title = stringResource(R.string.polish_delete_config),
+        summary = stringResource(R.string.polish_delete_config_confirm),
+        show = confirmDelete,
+        onDismissRequest = { confirmDelete = false },
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.polish_cancel_action), { confirmDelete = false },
+                modifier = Modifier.weight(1f), minHeight = 48.dp)
+            TextButton(stringResource(R.string.polish_delete_config_action), {
+                confirmDelete = false
+                config?.let { session.polish.deleteConfig(it.id) }
+            }, modifier = Modifier.weight(1f).testTag("polish-delete-confirm"), minHeight = 48.dp,
                 colors = plainTextButtonColors())
         }
     }

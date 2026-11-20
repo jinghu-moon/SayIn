@@ -12,6 +12,8 @@ internal data class PolishTicket(
     val sourceText: String,
     val mode: PolishMode,
     val targetLanguage: String?,
+    val configId: String,
+    val configRevision: Long,
     val configFingerprint: String,
     val promptHash: String,
 ) {

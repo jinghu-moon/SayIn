@@ -11,11 +11,28 @@ class PolishConfigTest {
     private fun config(provider: PolishProvider = PolishProvider.DeepSeek) =
         PolishConfig.preset(provider).copy(key = "key")
 
-    @Test fun `json round trip preserves protocol and key`() {
-        val original = config(PolishProvider.Anthropic)
+    @Test fun `json round trip preserves identity revision and key`() {
+        val original = config(PolishProvider.Anthropic).copy(name = "Claude work", revision = 7)
         val parsed = PolishConfig.fromJson(JSONObject(original.toJson().toString()))
         assertEquals(original, parsed)
+        assertEquals(original.id, parsed.id)
+        assertEquals("Claude work", parsed.name)
+        assertEquals(7L, parsed.revision)
         assertEquals(original.fingerprint, parsed.fingerprint)
+    }
+
+    @Test fun `legacy v1 json gets a stable identity on migration`() {
+        val legacy = JSONObject(config().toJson().toString()).apply {
+            remove("id")
+            remove("name")
+            remove("revision")
+            put("version", 1)
+        }
+        val first = PolishConfig.fromJson(JSONObject(legacy.toString()))
+        val second = PolishConfig.fromJson(JSONObject(legacy.toString()))
+        assertTrue(first.id.isNotBlank())
+        assertNotEquals(first.id, second.id)
+        assertEquals(1L, first.revision)
     }
 
     @Test fun `fingerprint changes with endpoint and model but not key`() {

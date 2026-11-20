@@ -7,6 +7,18 @@ import seeyuer.sayin.polish.PolishConfig
 import seeyuer.sayin.polish.PolishProvider
 
 class PolishEditorStateTest {
+    @Test fun `editing preserves stable identity name and revision`() {
+        val original = PolishConfig.preset(PolishProvider.DeepSeek)
+            .copy(id = "stable-id", name = "Work", revision = 4, key = "key")
+        val editor = PolishEditorState(original)
+        editor.model = "deepseek-v4-flash"
+        val built = editor.build()
+        assertEquals("stable-id", built.id)
+        assertEquals("Work", built.name)
+        assertEquals(4L, built.revision)
+        assertEquals("deepseek-v4-flash", built.model)
+    }
+
     @Test fun `switching provider loads its preset and clears the old key`() {
         val editor = PolishEditorState(PolishConfig.preset(PolishProvider.DeepSeek).copy(key = "old"))
         editor.selectProvider(PolishProvider.Anthropic)

@@ -927,7 +927,16 @@
     <string name="polish_preview">Preview</string>
     <string name="polish_streaming">Streaming preview</string>
     <string name="polish_streaming_summary">Show text while the model is generating. The draft is only replaced when the response completes and validates.</string>
+    <string name="polish_saved_configs">Saved services</string>
+    <string name="polish_add_config">Add service</string>
+    <string name="polish_config_name">Configuration name</string>
+    <string name="polish_new_config">New service</string>
+    <string name="polish_delete_config">Delete this service</string>
+    <string name="polish_delete_config_confirm">Delete this saved service and its key?</string>
+    <string name="polish_delete_config_action">Delete</string>
+    <string name="polish_config_active">Current</string>
 </resources>
+
 
 
 
