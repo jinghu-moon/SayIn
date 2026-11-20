@@ -37,7 +37,7 @@
 | 项目 | 命令 / 方式 | 结果 |
 | --- | --- | --- |
 | JVM | `scripts/gradle.ps1 :app:testDebugUnitTest --tests "seeyuer.sayin.polish.*" --tests "seeyuer.sayin.ui.settings.PolishEditorStateTest"` | 38 项通过，0 失败 |
-| 快照 | `python scripts/check_basellm_snapshot.py` | OK，SHA/字节/许可/4 个厂商候选通过 |\n| 目录网络边界 | `:app:testDebugUnitTest --tests "seeyuer.sayin.polish.PolishCatalogFetcherTest"` | 3 项通过：200 校验并返回 ETag、304 条件请求、空/非法/超限拒绝；请求无服务凭据 |\n| 多配置存储 | `am instrument ... PolishConfigStoreInstrumentedTest` | 1 项通过：两份配置 Key/端点/模型独立，activeId 切换后互不覆盖 |\n| 目录缓存选择 | `am instrument ... PolishCatalogStoreInstrumentedTest` | 1 项通过：缓存匹配/升级后忽略旧缓存/坏缓存回退随包快照 |
+| 快照 | `python scripts/check_basellm_snapshot.py` | OK，SHA/字节/许可/4 个厂商候选通过 |\n| 目录网络边界 | `:app:testDebugUnitTest --tests "seeyuer.sayin.polish.PolishCatalogFetcherTest"` | 3 项通过：200 校验并返回 ETag、304 条件请求、空/非法/超限拒绝；请求无服务凭据 |\n| 多配置存储 | `am instrument ... PolishConfigStoreInstrumentedTest` | 1 项通过：两份配置 Key/端点/模型独立，activeId 切换后互不覆盖 |\n| 多配置 UI | K40 手工 | 新增 Second、切回 DeepSeek、重启保持、删除 Second；配置加密文件回到 499 字节 |\n| 目录缓存选择 | `am instrument ... PolishCatalogStoreInstrumentedTest` | 1 项通过：缓存匹配/升级后忽略旧缓存/坏缓存回退随包快照 |
 | i18n | `python scripts/check_i18n.py` | 通过 |
 | Lint | `scripts/gradle.ps1 :app:lintDebug` | BUILD SUCCESSFUL |
 | 构建 | `scripts/gradle.ps1 :app:assembleDebug` | BUILD SUCCESSFUL |
