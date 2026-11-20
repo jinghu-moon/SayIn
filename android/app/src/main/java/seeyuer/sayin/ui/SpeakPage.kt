@@ -309,7 +309,6 @@ internal fun SpeakPage(
         microphone()
     }
     BoxWithConstraints(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("page-Speak")) {
-        val availableHeight = maxHeight
         val fontScale = LocalDensity.current.fontScale
         val compact = maxHeight < 300.dp * fontScale
         val minimal = maxHeight < 170.dp * fontScale
@@ -318,6 +317,12 @@ internal fun SpeakPage(
         val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         val showHeader = maxHeight >= 260.dp * fontScale
         val showTools = maxHeight >= 240.dp * fontScale
+        val toolbarWidth = 48.dp * if (quick) 4 else 6
+        val cardMargin = if (showTools) ((maxWidth - toolbarWidth - 28.dp) / 2)
+            .coerceIn(8.dp, 20.dp) else 20.dp
+        val insetBudget = (maxWidth - toolbarWidth - cardMargin * 2).coerceIn(8.dp, 28.dp)
+        val cardStartInset = if (showTools) (insetBudget / 2 + 2.dp).coerceAtMost(insetBudget - 4.dp) else 16.dp
+        val cardEndInset = if (showTools) insetBudget - cardStartInset else 12.dp
         SideEffect { toolsShown = showTools }
         val busy = session.busy
         val locked = session.requestLocked || session.draftRestoring
@@ -353,11 +358,12 @@ internal fun SpeakPage(
                 actionIconPadding = 20.dp,
             )
             Column(Modifier.weight(1f).fillMaxWidth()
-                .padding(start = 20.dp, end = 20.dp,
+                .padding(start = cardMargin, end = cardMargin,
                     top = if (minimal) 0.dp else if (quick) 0.dp else 16.dp,
                     bottom = if (minimal) 0.dp else if (quick) 16.dp else 16.dp)
                 .clip(RoundedCornerShape(28.dp)).background(color.surface)
-                .padding(start = 16.dp, end = 12.dp, top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
+                .padding(start = cardStartInset, end = cardEndInset,
+                    top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (!inlineEditingActions) DraftInformation(state, draft, effectiveSendMode) {
                     if (!showTools) DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist-fallback",
                         session.assistEditable && !busy && !locked) { openAssist() }
@@ -427,7 +433,7 @@ internal fun SpeakPage(
                     )
                 }
                 if (showTools) {
-                    Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically,
+                    FlowRow(Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween) {
                         DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist",
                             session.assistEditable && !busy && !locked,

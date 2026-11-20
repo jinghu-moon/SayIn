@@ -9,12 +9,26 @@ import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.withTransaction
 import java.util.UUID
 
 internal const val POLISH_USAGE_RETENTION_DAYS = 90L
 private const val POLISH_USAGE_RETENTION_MILLIS = POLISH_USAGE_RETENTION_DAYS * 24L * 60L * 60L * 1000L
 
 internal enum class PolishCallPurpose { Polish, Translation, Test }
+
+private const val USAGE_FILTER = "startedAt >= :since AND (:purpose IS NULL OR purpose = :purpose) AND (:configId IS NULL OR configId = :configId) AND (:model IS NULL OR COALESCE(responseModel, requestModel) = :model)"
+internal const val POLISH_USAGE_PAGE_SIZE = 30
+
+internal data class PolishUsageTotals(val calls: Long, val tokens: Long, val unknownCost: Long)
+internal data class PolishUsageAmount(val currency: String, val source: String, val micros: Long)
+internal data class PolishUsageReport(
+    val totals: PolishUsageTotals,
+    val costs: List<PolishUsageAmount>,
+    val medianMillis: Long,
+    val entries: List<PolishStatsEntry>,
+    val models: List<String>,
+)
 
 @Entity(tableName = "polish_usage")
 internal data class PolishUsageEntity(
@@ -86,6 +100,25 @@ internal interface PolishUsageDao {
 
     @Query("SELECT * FROM polish_usage ORDER BY startedAt DESC LIMIT :limit")
     suspend fun recent(limit: Int): List<PolishUsageEntity>
+
+    @Query("SELECT COUNT(*) AS calls, COALESCE(SUM(COALESCE(inputTotal, 0) + COALESCE(outputTotal, 0)), 0) AS tokens, " +
+        "COALESCE(SUM(CASE WHEN costMicros IS NULL AND outcome NOT IN ('unsent', 'pending') THEN 1 ELSE 0 END), 0) AS unknownCost " +
+        "FROM polish_usage WHERE " + USAGE_FILTER)
+    suspend fun totals(since: Long, purpose: String?, configId: String?, model: String?): PolishUsageTotals
+
+    @Query("SELECT costCurrency AS currency, costSource AS source, SUM(costMicros) AS micros FROM polish_usage WHERE " +
+        USAGE_FILTER + " AND costCurrency IS NOT NULL AND costMicros IS NOT NULL GROUP BY costCurrency, costSource ORDER BY costCurrency, costSource")
+    suspend fun costs(since: Long, purpose: String?, configId: String?, model: String?): List<PolishUsageAmount>
+
+    @Query("SELECT durationMillis FROM polish_usage WHERE " + USAGE_FILTER + " AND outcome NOT IN ('pending', 'unsent') ORDER BY durationMillis")
+    suspend fun durations(since: Long, purpose: String?, configId: String?, model: String?): List<Long>
+
+    @Query("SELECT * FROM polish_usage WHERE " + USAGE_FILTER + " ORDER BY startedAt DESC, callId DESC LIMIT :limit OFFSET :offset")
+    suspend fun page(since: Long, purpose: String?, configId: String?, model: String?, limit: Int, offset: Int): List<PolishUsageEntity>
+
+    @Query("SELECT DISTINCT COALESCE(responseModel, requestModel) FROM polish_usage WHERE startedAt >= :since " +
+        "AND (:configId IS NULL OR configId = :configId) ORDER BY 1")
+    suspend fun models(since: Long, configId: String?): List<String>
 
     @Query("SELECT * FROM polish_usage WHERE callId=:callId")
     suspend fun byId(callId: String): PolishUsageEntity?
@@ -159,6 +192,22 @@ internal class PolishUsageStore(context: Context, databaseName: String = "polish
 
     suspend fun byId(callId: String): PolishUsageEntity? = dao.byId(callId)
     suspend fun recent(limit: Int = 500): List<PolishUsageEntity> = dao.recent(limit)
+    suspend fun report(since: Long, purpose: String?, configId: String?, model: String?, page: Int,
+                       includeDetails: Boolean = true): PolishUsageReport =
+        database.withTransaction {
+            val durations = dao.durations(since, purpose, configId, model)
+            val median = if (durations.isEmpty()) 0L else {
+                val low = durations[(durations.size - 1) / 2]
+                val high = durations[durations.size / 2]
+                low + (high - low) / 2
+            }
+            PolishUsageReport(
+                dao.totals(since, purpose, configId, model), dao.costs(since, purpose, configId, model), median,
+                if (includeDetails) dao.page(since, purpose, configId, model, POLISH_USAGE_PAGE_SIZE, page * POLISH_USAGE_PAGE_SIZE)
+                    .map { it.toStatsEntry() } else emptyList(),
+                if (includeDetails) dao.models(since, configId) else emptyList(),
+            )
+        }
     suspend fun clear() = dao.clear()
     suspend fun close() = database.close()
 }

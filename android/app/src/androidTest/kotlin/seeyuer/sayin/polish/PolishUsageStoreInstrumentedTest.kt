@@ -18,6 +18,32 @@ import org.junit.runner.RunWith
 class PolishUsageStoreInstrumentedTest {
     private val databaseName = "polish-usage-test.db"
 
+    @Test fun reportSummarizesAllCallsWhilePagingDetails() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.deleteDatabase(databaseName)
+        val store = PolishUsageStore(context, databaseName)
+        try {
+            val config = PolishConfig.preset(PolishProvider.DeepSeek).copy(key = "test-key")
+            val result = PolishCallResult.Success("ok", PolishUsage(10, null, null, 2), 5, 200)
+            val price = PolishPrice(5, "USD", PolishCostSource.Estimated.name, "version", "rate")
+            repeat(501) {
+                val call = store.begin(config, PolishCallPurpose.Polish)
+                store.finish(call.callId, result, "success", price)
+            }
+            val first = store.report(0, "polish", config.id, config.model, 0)
+            val last = store.report(0, "polish", config.id, config.model, 16)
+            assertEquals(501L, first.totals.calls)
+            assertEquals(6012L, first.totals.tokens)
+            assertEquals(2505L, first.costs.single().micros)
+            assertEquals(30, first.entries.size)
+            assertEquals(21, last.entries.size)
+            assertEquals(first.totals, last.totals)
+        } finally {
+            store.close()
+            context.deleteDatabase(databaseName)
+        }
+    }
+
     @Test fun pendingRecoveryTerminalIdempotenceAndClear() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         context.deleteDatabase(databaseName)

@@ -959,6 +959,22 @@
     <string name="polish_usage_group_title">按服务与模型</string>
     <string name="polish_usage_group_line">%1$s · %2$s：%3$d 次 · %4$s Token</string>
     <string name="polish_stats_unsent">未发送</string>
+    <string name="polish_select_service">选择服务</string>
+    <string name="polish_services">管理服务</string>
+    <string name="polish_save_failed">无法保存服务设置</string>
+    <string name="polish_translation_language">AI 翻译目标语言</string>
+    <string name="polish_usage_amount">%1$s · %2$s %3$s</string>
+    <string name="polish_usage_period">统计周期</string>
+    <string name="polish_usage_purpose">用途</string>
+    <string name="polish_usage_service">服务</string>
+    <string name="polish_usage_load_failed">无法读取用量</string>
+    <string name="polish_usage_loading">正在读取用量…</string>
+    <string name="polish_usage_previous">上一页</string>
+    <string name="polish_usage_next">下一页</string>
+    <string name="polish_stats_clear_summary">删除此手机上的全部 AI 用量记录？</string>
+    <string name="polish_catalog_refresh_failed">无法刷新模型目录，仍可使用当前模型。</string>
+    <string name="polish_models_refresh_failed">无法获取该服务的模型列表。</string>
+    <string name="polish_use_model_id">使用 %1$s</string>
 </resources>
 
 

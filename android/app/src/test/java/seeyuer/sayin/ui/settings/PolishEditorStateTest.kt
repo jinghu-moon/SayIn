@@ -7,6 +7,12 @@ import seeyuer.sayin.polish.PolishConfig
 import seeyuer.sayin.polish.PolishProvider
 
 class PolishEditorStateTest {
+    @Test fun `two new editors seeded from the same preset have distinct ids`() {
+        val preset = PolishConfig.preset(PolishProvider.DeepSeek)
+        val first = PolishEditorState(preset, creating = true).build()
+        val second = PolishEditorState(preset, creating = true).build()
+        assertTrue(first.id != second.id && first.id != preset.id && second.id != preset.id)
+    }
     @Test fun `editing preserves stable identity name and revision`() {
         val original = PolishConfig.preset(PolishProvider.DeepSeek)
             .copy(id = "stable-id", name = "Work", revision = 4, key = "key")

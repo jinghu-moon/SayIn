@@ -128,6 +128,8 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     OfflineModel(Recognition),
     Translation(Root),
     Polish(Root),
+    PolishServices(Polish),
+    PolishUsage(Polish),
     Ball(Root),
     Background(Root),
     Clipboard(Root),
@@ -239,7 +241,10 @@ internal fun SettingsHost(
                         modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
                     SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
                     SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
-                    SettingsRoute.Polish -> PolishSettingsPage(session, pageModifier, scrollFor(SettingsRoute.Polish))
+                    SettingsRoute.Polish -> PolishSettingsPage(session, pageModifier, scrollFor(SettingsRoute.Polish),
+                        openServices = { route = SettingsRoute.PolishServices }, openUsage = { route = SettingsRoute.PolishUsage })
+                    SettingsRoute.PolishServices -> PolishServicesPage(session, pageModifier, scrollFor(SettingsRoute.PolishServices))
+                    SettingsRoute.PolishUsage -> PolishUsagePage(session, pageModifier, scrollFor(SettingsRoute.PolishUsage))
                     SettingsRoute.Ball -> BallPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Ball))
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
@@ -289,6 +294,8 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.OfflineModel -> R.string.settings_offline_model_title
     SettingsRoute.Translation -> R.string.settings_translation_title
     SettingsRoute.Polish -> R.string.settings_polish
+    SettingsRoute.PolishServices -> R.string.polish_services
+    SettingsRoute.PolishUsage -> R.string.polish_stats
     SettingsRoute.Ball -> R.string.settings_floating_ball_settings
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title

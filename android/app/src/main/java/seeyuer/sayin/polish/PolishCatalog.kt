@@ -14,6 +14,8 @@ import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -170,17 +172,32 @@ internal class PolishCatalogStore(
     private val cacheFile: AtomicFile = AtomicFile(File(context.filesDir, "polish-catalog.json")),
     private val preferences: android.content.SharedPreferences =
         context.getSharedPreferences("polish_catalog", Context.MODE_PRIVATE),
+    private val fetch: (String?) -> PolishCatalogFetch = PolishCatalogFetcher(SOURCE)::fetch,
 ) {
-    private val fetcher = PolishCatalogFetcher(SOURCE)
+    private val mutex = Mutex()
+    private val current = MutableStateFlow<Pair<PolishCatalog?, Long>?>(null)
+    val state = current.asStateFlow()
+    @Volatile private var lastRefresh: PolishCatalogRefresh? = null
 
-    fun lastCheckedAt(): Long = preferences.getLong("checked_at", 0L)
-    fun etag(): String? = preferences.getString("etag", null)
+    private data class Cache(val catalog: PolishCatalog, val etag: String?, val checkedAt: Long)
 
     fun load(): PolishCatalog? {
         val snapshot = loadSnapshot() ?: return null
-        val cache = loadCache()
-        return if (cache != null && preferences.getString("cache_snapshot", null) == snapshot.version) cache else snapshot
+        return loadCache(snapshot.version)?.catalog ?: snapshot
     }
+
+    suspend fun initialize() = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            if (current.value == null) {
+                val snapshot = loadSnapshot()
+                val cache = snapshot?.let { loadCache(it.version) }
+                current.value = (cache?.catalog ?: snapshot) to checkedAt(cache)
+            }
+        }
+    }
+
+    private fun checkedAt(cache: Cache?): Long = if (cache == null) 0L else
+        maxOf(cache.checkedAt, preferences.getLong("checked_${cache.catalog.version}", 0L))
 
     private fun loadSnapshot(): PolishCatalog? = runCatching {
         val manifest = JSONObject(context.assets.open("basellm/manifest.json").use { it.readBytes().toString(Charsets.UTF_8) })
@@ -191,49 +208,83 @@ internal class PolishCatalogStore(
         PolishCatalog.parse(json, sha, manifest.getString("source"), manifest.getString("fetchedAt"))
     }.getOrNull()
 
-    private fun loadCache(): PolishCatalog? = runCatching {
-        val encoded = cacheFile.openRead().use { it.readBytes() }
-        require(encoded.size <= 2_500_000)
+    private fun loadCache(snapshotVersion: String): Cache? = runCatching {
+        val encoded = cacheFile.openRead().use { input ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                require(output.size() + count <= 4_000_000)
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        }
         val json = JSONObject(encoded.toString(Charsets.UTF_8))
-        val catalog = json.getJSONObject("catalog")
+        require(json.getString("snapshotVersion") == snapshotVersion)
+        val raw = json.getString("catalog")
         val version = json.getString("version")
-        PolishCatalog.parse(catalog, version, SOURCE, json.optString("fetchedAt"))
+        require(sha256(raw.toByteArray(Charsets.UTF_8)) == version)
+        val catalog = PolishCatalog.parse(JSONObject(raw), version, SOURCE, json.getString("fetchedAt"))
+        require(catalog.modelsByProvider.values.any { it.isNotEmpty() })
+        Cache(catalog, json.optString("etag").takeIf { it.isNotBlank() }, json.getLong("checkedAt"))
     }.getOrNull()
 
-    suspend fun refresh(): PolishCatalogRefresh = mutex.withLock {
+    suspend fun refresh(): PolishCatalogRefresh {
+        val previous = lastRefresh
+        return withContext(Dispatchers.IO) { mutex.withLock {
+            lastRefresh?.takeIf { it !== previous } ?: refreshLocked().also { lastRefresh = it }
+        } }
+    }
+
+    private fun refreshLocked(): PolishCatalogRefresh {
         val started = System.currentTimeMillis()
-        val snapshot = loadSnapshot()
-        when (val fetch = withContext(Dispatchers.IO) { fetcher.fetch(etag()) }) {
+        val snapshot = loadSnapshot() ?: return PolishCatalogRefresh(0L, false, "snapshot")
+        val cache = loadCache(snapshot.version)
+        if (current.value == null) current.value = (cache?.catalog ?: snapshot) to checkedAt(cache)
+        return when (val fetch = fetch(cache?.etag)) {
             PolishCatalogFetch.NotModified -> {
-                preferences.edit().putLong("checked_at", started).apply()
+                if (cache?.etag == null) return PolishCatalogRefresh(0L, false, "invalid_304")
+                preferences.edit().clear().putLong("checked_${cache.catalog.version}", started).apply()
+                current.value = cache.catalog to started
                 PolishCatalogRefresh(started, false)
             }
             is PolishCatalogFetch.Failure -> PolishCatalogRefresh(0L, false, fetch.message)
-            is PolishCatalogFetch.Updated -> withContext(Dispatchers.IO) {
+            is PolishCatalogFetch.Updated -> {
+                val unchanged = fetch.catalog.version == cache?.catalog?.version
+                val catalog = if (unchanged) checkNotNull(cache).catalog else fetch.catalog
                 val payload = JSONObject()
-                    .put("version", fetch.catalog.version)
-                    .put("fetchedAt", fetch.catalog.fetchedAt)
-                    .put("catalog", JSONObject(fetch.rawJson))
-                val stream = cacheFile.startWrite()
+                    .put("version", catalog.version)
+                    .put("snapshotVersion", snapshot.version)
+                    .put("fetchedAt", catalog.fetchedAt)
+                    .put("checkedAt", started)
+                    .put("etag", fetch.etag)
+                    .put("catalog", fetch.rawJson)
+                val encoded = payload.toString().toByteArray(Charsets.UTF_8)
+                if (encoded.size > 4_000_000) return PolishCatalogRefresh(0L, false, "cache_size")
                 try {
-                    stream.write(payload.toString().toByteArray(Charsets.UTF_8))
-                    cacheFile.finishWrite(stream)
-                } catch (error: Exception) {
-                    cacheFile.failWrite(stream)
-                    return@withContext PolishCatalogRefresh(0L, false, error.message ?: "写入失败")
+                    val stream = cacheFile.startWrite()
+                    try {
+                        stream.write(encoded)
+                        cacheFile.finishWrite(stream)
+                    } catch (error: Exception) {
+                        cacheFile.failWrite(stream)
+                        throw error
+                    }
+                } catch (_: Exception) {
+                    return PolishCatalogRefresh(0L, false, "cache_write")
                 }
-                preferences.edit().putLong("checked_at", started)
-                    .putString("etag", fetch.etag)
-                    .putString("cache_snapshot", snapshot?.version)
-                    .apply()
-                PolishCatalogRefresh(started, true)
+                current.value = catalog to started
+                PolishCatalogRefresh(started, !unchanged)
             }
         }
     }
 
     companion object {
         const val SOURCE = "https://basellm.github.io/llm-metadata/api/all.json"
-        private val mutex = Mutex()
+        private var shared: PolishCatalogStore? = null
+        @Synchronized fun shared(context: Context): PolishCatalogStore =
+            shared ?: PolishCatalogStore(context.applicationContext).also { shared = it }
         private fun sha256(bytes: ByteArray): String =
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
     }
@@ -241,7 +292,7 @@ internal class PolishCatalogStore(
 
 internal class PolishCatalogWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result =
-        if (PolishCatalogStore(applicationContext).refresh().error == null) Result.success() else Result.retry()
+        if (PolishCatalogStore.shared(applicationContext).refresh().error == null) Result.success() else Result.retry()
 }
 
 internal object PolishCatalogScheduler {

@@ -13,11 +13,11 @@ internal data class PolishPrice(
 
 internal object PolishPricing {
     /** Prices in basellm are USD per million tokens; one micro-USD is 1e-6 USD. */
-    fun estimate(catalog: PolishCatalog?, usage: PolishUsage?, provider: PolishProvider,
+    fun estimate(catalog: PolishCatalog?, usage: PolishUsage?, provider: String?,
                  model: String, purpose: PolishCallPurpose,
                  atMillis: Long = System.currentTimeMillis()): PolishPrice? {
         if (purpose == PolishCallPurpose.Test || catalog == null || usage == null) return null
-        val entry = catalog.modelsFor(provider).firstOrNull { it.id == model } ?: return null
+        val entry = catalog.modelsByProvider[provider]?.firstOrNull { it.id == model } ?: return null
         val input = usage.ordinaryInput ?: return null
         val cacheRead = usage.cacheRead ?: 0L
         val cacheWrite = usage.cacheWrite ?: 0L
@@ -25,19 +25,23 @@ internal object PolishPricing {
         val tier = entry.tiers.filter { input + cacheRead + cacheWrite > it.minContext }
             .maxByOrNull { it.minContext }
         val window = matchWindow(entry.schedule, atMillis)
+        // The published DeepSeek peak schedule has holiday exceptions absent from the catalog.
+        if (provider == "deepseek" && window != null) return null
         val rates = window?.rates ?: tier?.rates ?: PolishPriceRates(
             entry.inputUsdPerMillion, entry.outputUsdPerMillion,
             entry.cacheReadUsdPerMillion, entry.cacheWriteUsdPerMillion,
         )
         val inputRate = rates.input ?: return null
         val outputRate = rates.output ?: return null
+        if (cacheRead > 0L && rates.cacheRead == null) return null
         val cacheReadRate = rates.cacheRead ?: 0.0
         if (cacheWrite > 0L && rates.cacheWrite == null) return null
+        if (listOfNotNull(inputRate, outputRate, cacheReadRate, rates.cacheWrite).any { !it.isFinite() || it < 0 }) return null
         val micros = BigDecimal.valueOf(input).multiply(BigDecimal.valueOf(inputRate))
             .add(BigDecimal.valueOf(cacheRead).multiply(BigDecimal.valueOf(cacheReadRate)))
             .add(BigDecimal.valueOf(cacheWrite).multiply(BigDecimal.valueOf(rates.cacheWrite ?: 0.0)))
             .add(BigDecimal.valueOf(output).multiply(BigDecimal.valueOf(outputRate)))
-            .setScale(0, RoundingMode.HALF_UP).longValueExact()
+            .setScale(0, RoundingMode.HALF_UP).let { runCatching { it.longValueExact() }.getOrNull() } ?: return null
         return PolishPrice(
             micros = micros,
             currency = "USD",

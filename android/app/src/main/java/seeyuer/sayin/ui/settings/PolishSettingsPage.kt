@@ -1,6 +1,7 @@
 package seeyuer.sayin.ui.settings
 
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,10 +32,10 @@ import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
-internal class PolishEditorState(config: PolishConfig?) {
+internal class PolishEditorState(config: PolishConfig?, creating: Boolean = false) {
     private val original = config
-    private val id = config?.id ?: java.util.UUID.randomUUID().toString()
-    private val revision = config?.revision ?: 1L
+    private val id = config?.id?.takeUnless { creating } ?: java.util.UUID.randomUUID().toString()
+    private val revision = config?.revision?.takeUnless { creating } ?: 1L
     var name by mutableStateOf(config?.name.orEmpty())
     var provider by mutableStateOf(config?.provider ?: PolishProvider.DeepSeek)
     var protocol by mutableStateOf(config?.protocol ?: PolishProtocol.Chat)
@@ -92,72 +93,212 @@ internal class PolishEditorState(config: PolishConfig?) {
 }
 
 @Composable
-internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
-    val configState = session.polish.state
-    val config = (configState as? PolishConfigState.Ready)?.config
-    var creating by remember { mutableStateOf(false) }
-    var newSeed by remember { mutableStateOf(PolishConfig.preset(PolishProvider.DeepSeek)) }
-    val editorSource = if (creating) newSeed else config
-    val editor = remember(creating, editorSource?.fingerprint) { PolishEditorState(editorSource) }
-    val test = session.polish.testState
-    val saving = session.polish.saving
-    val configuration = LocalConfiguration.current
-    val locale = remember(configuration) { configuration.locales[0] }
+internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState,
+                                openServices: () -> Unit, openUsage: () -> Unit) {
+    val manager = session.polish
+    val config = manager.config
+    val configs = manager.configurations
+    Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        Card {
+            if (configs.isNotEmpty()) {
+                WindowDropdownPreference(
+                    title = config?.let { configLabel(it) } ?: stringResource(R.string.polish_select_service),
+                    summary = config?.model,
+                    entry = DropdownEntry(items = configs.map { saved ->
+                        DropdownItem(text = configLabel(saved), summary = saved.model,
+                            selected = config?.id == saved.id,
+                            onClick = { manager.selectConfig(saved.id) },
+                            icon = { ProviderLogo(saved.provider, it.size(24.dp)) })
+                    }),
+                    showValue = false,
+                    startAction = config?.let { current -> { ProviderLogo(current.provider, Modifier.size(26.dp)) } },
+                )
+            }
+            BasicComponent(title = stringResource(R.string.polish_services), onClick = openServices,
+                modifier = Modifier.testTag("polish-services"))
+        }
+        if (manager.configWriteFailed) Notice(stringResource(R.string.polish_save_failed), error = true)
+        Card {
+            SwitchPreference(title = stringResource(R.string.polish_auto),
+                summary = stringResource(R.string.polish_auto_summary),
+                checked = manager.autoPolishBound, enabled = config != null && !manager.saving,
+                modifier = Modifier.testTag("polish-auto"), onCheckedChange = manager::updateAutoPolish)
+            SwitchPreference(title = stringResource(R.string.polish_app_rules),
+                summary = stringResource(R.string.polish_app_rules_summary), checked = manager.appRulesEnabled,
+                modifier = Modifier.testTag("polish-app-rules"), onCheckedChange = manager::updateAppRules)
+            SwitchPreference(title = stringResource(R.string.polish_streaming),
+                summary = stringResource(R.string.polish_streaming_summary), checked = manager.streamingPreview,
+                modifier = Modifier.testTag("polish-streaming"), onCheckedChange = manager::updateStreamingPreview)
+        }
+        val usageVersion by manager.usageVersion.collectAsState()
+        val summary by produceState<PolishUsageReport?>(null, usageVersion) {
+            try { value = manager.usageReport(30, includeDetails = false) }
+            catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (_: Exception) { value = null }
+        }
+        Card {
+            BasicComponent(title = stringResource(R.string.polish_stats),
+                summary = summary?.let { usageSummary(it) }, onClick = openUsage,
+                modifier = Modifier.testTag("polish-usage"))
+            summary?.let { UsageCosts(it) }
+        }
+        var targetDraft by remember { mutableStateOf(manager.targetLanguage) }
+        TextField(targetDraft, {
+            targetDraft = it.take(35)
+            if (PolishPrompts.validateTargetLanguage(targetDraft) == null) manager.updateTargetLanguage(targetDraft)
+        }, Modifier.fillMaxWidth().testTag("polish-default-language"),
+            label = stringResource(R.string.polish_translation_language), singleLine = true)
+        TextField(manager.customRewrite, manager::updateCustomRewrite,
+            Modifier.fillMaxWidth().heightIn(min = 88.dp).testTag("polish-custom-rewrite"),
+            label = stringResource(R.string.polish_custom_rewrite_label))
+        TextField(manager.hotwords, manager::updateHotwords,
+            Modifier.fillMaxWidth().heightIn(min = 72.dp).testTag("polish-hotwords"),
+            label = stringResource(R.string.polish_hotwords))
+        Notice(stringResource(R.string.polish_upload_note))
+    }
+}
+
+@Composable
+private fun configLabel(config: PolishConfig): String =
+    config.name.ifBlank { stringResource(providerLabel(config.provider)) }
+
+@Composable
+private fun usageSummary(report: PolishUsageReport): String = stringResource(R.string.polish_usage_summary,
+    report.totals.calls, report.totals.tokens.toString(), report.medianMillis)
+
+@Composable
+private fun UsageCosts(report: PolishUsageReport) {
+    val locale = LocalConfiguration.current.locales[0]
+    if (report.totals.unknownCost > 0 || report.costs.isNotEmpty()) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 12.dp)) {
+            report.costs.forEach { amount ->
+                val label = stringResource(if (amount.source == PolishCostSource.Reported.name)
+                    R.string.polish_stats_cost_reported else R.string.polish_stats_cost_estimated)
+                Notice(stringResource(R.string.polish_usage_amount, label,
+                    String.format(locale, "%.6f", java.math.BigDecimal.valueOf(amount.micros, 6)), amount.currency))
+            }
+            if (report.totals.unknownCost > 0) Notice(stringResource(R.string.polish_usage_unknown_cost, report.totals.unknownCost))
+        }
+    }
+}
+
+@Composable
+internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val manager = session.polish
+    val version by manager.usageVersion.collectAsState()
+    var days by remember { mutableIntStateOf(30) }
+    var purpose by remember { mutableStateOf<String?>(null) }
+    var service by remember { mutableStateOf<String?>(null) }
+    var model by remember { mutableStateOf<String?>(null) }
+    var page by remember { mutableIntStateOf(0) }
     var confirmClear by remember { mutableStateOf(false) }
+    val state by produceState<Result<PolishUsageReport>?>(null, version, days, purpose, service, model, page) {
+        value = null
+        value = try { Result.success(manager.usageReport(days, purpose, service, model, page)) }
+        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { Result.failure(error) }
+    }
+    val report = state?.getOrNull()
+    val configurations = manager.configurations
+    val all = stringResource(R.string.polish_usage_all)
+    val purposes = listOf(null, "polish", "translation", "test")
+    val locale = LocalConfiguration.current.locales[0]
+    Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        WindowDropdownPreference(title = stringResource(R.string.polish_usage_period),
+            items = listOf(R.string.polish_usage_today, R.string.polish_usage_7d, R.string.polish_usage_30d).map { stringResource(it) },
+            selectedIndex = listOf(1, 7, 30).indexOf(days),
+            onSelectedIndexChange = { days = listOf(1, 7, 30)[it]; page = 0; model = null })
+        WindowDropdownPreference(title = stringResource(R.string.polish_usage_purpose),
+            items = purposes.map { if (it == null) all else stringResource(usagePurposeLabel(it)) },
+            selectedIndex = purposes.indexOf(purpose),
+            onSelectedIndexChange = { purpose = purposes[it]; page = 0 })
+        if (configurations.isNotEmpty()) {
+            WindowDropdownPreference(title = stringResource(R.string.polish_usage_service),
+                items = listOf(all) + configurations.map { configLabel(it) },
+                selectedIndex = configurations.indexOfFirst { it.id == service } + 1,
+                onSelectedIndexChange = { service = configurations.getOrNull(it - 1)?.id; page = 0; model = null })
+        }
+        val models = report?.models.orEmpty()
+        if (models.isNotEmpty()) {
+            WindowDropdownPreference(title = stringResource(R.string.polish_model), items = listOf(all) + models,
+                selectedIndex = models.indexOf(model) + 1,
+                onSelectedIndexChange = { model = models.getOrNull(it - 1); page = 0 })
+        }
+        when {
+            state?.isFailure == true -> Notice(stringResource(R.string.polish_usage_load_failed), error = true)
+            report == null -> Notice(stringResource(R.string.polish_usage_loading))
+            report.totals.calls == 0L -> Notice(stringResource(R.string.polish_stats_empty))
+            else -> {
+                Notice(usageSummary(report))
+                UsageCosts(report)
+                report.entries.forEach { StatsRow(it, locale) }
+                if (report.totals.calls > POLISH_USAGE_PAGE_SIZE) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        TextButton(stringResource(R.string.polish_usage_previous), { page-- }, minHeight = 48.dp, enabled = page > 0)
+                        TextButton(stringResource(R.string.polish_usage_next), { page++ }, minHeight = 48.dp,
+                            enabled = (page + 1L) * POLISH_USAGE_PAGE_SIZE < report.totals.calls)
+                    }
+                }
+            }
+        }
+        if (report != null) TextButton(stringResource(R.string.polish_stats_clear), { confirmClear = true }, minHeight = 48.dp)
+    }
+    WindowDialog(title = stringResource(R.string.polish_stats_clear), summary = stringResource(R.string.polish_stats_clear_summary),
+        show = confirmClear, onDismissRequest = { confirmClear = false }) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TextButton(stringResource(R.string.polish_cancel_action), { confirmClear = false }, Modifier.weight(1f), minHeight = 48.dp)
+            TextButton(stringResource(R.string.polish_stats_clear), {
+                confirmClear = false
+                page = 0
+                manager.clearStats()
+            }, Modifier.weight(1f), minHeight = 48.dp)
+        }
+    }
+}
+
+@Composable
+internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+    val manager = session.polish
+    var editingId by remember { mutableStateOf<String?>(null) }
+    var creating by remember { mutableStateOf(false) }
+    val config = manager.configurations.firstOrNull { it.id == editingId }
+    if (!creating && config == null) {
+        Column(modifier.verticalScroll(scroll).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (manager.state == PolishConfigState.Corrupt) Notice(stringResource(R.string.polish_config_corrupt), error = true)
+            manager.configurations.forEach { saved ->
+                BasicComponent(
+                    title = configLabel(saved),
+                    summary = saved.model,
+                    startAction = { ProviderLogo(saved.provider, Modifier.size(24.dp)) },
+                    onClick = { editingId = saved.id; manager.resetEditorResults() },
+                )
+            }
+            Button(onClick = { creating = true; manager.resetEditorResults() },
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("polish-add"), enabled = !manager.saving) {
+                Text(stringResource(R.string.polish_add_config))
+            }
+        }
+        return
+    }
+    fun closeEditor() { editingId = null; creating = false; manager.resetEditorResults() }
+    BackHandler { if (!manager.saving) closeEditor() }
+    val editor = remember(creating, config?.id, config?.revision) { PolishEditorState(config, creating) }
+    val test = manager.testResultFor(editor.build())
+    val saving = manager.saving
+    val locale = LocalConfiguration.current.locales[0]
     var confirmDelete by remember { mutableStateOf(false) }
     var showModels by remember { mutableStateOf(false) }
     var modelQuery by remember { mutableStateOf("") }
-    var usageDays by remember { mutableStateOf(7) }
-    var usagePurpose by remember { mutableStateOf<String?>(null) }
-    val catalog = session.polish.catalog
-    val candidates = (catalog?.modelsFor(editor.provider).orEmpty() +
-        if (editor.provider == PolishProvider.Custom) session.polish.customModels.map {
-            PolishCatalogModel(it, it, "custom", false, null, null, null)
-        } else emptyList()).distinctBy { it.id }
+    val catalog by manager.catalogState.collectAsState()
+    val candidates = (catalog?.first?.modelsByProvider?.get(editor.build().officialCatalogProvider).orEmpty() +
+        manager.modelsFor(editor.build()).map { PolishCatalogModel(it, it, "custom", false, null, null, null) })
+        .distinctBy { it.id }
     val providers = listOf(PolishProvider.DeepSeek, PolishProvider.Qwen, PolishProvider.OpenAi,
         PolishProvider.Anthropic, PolishProvider.Custom)
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(stringResource(R.string.polish_upload_note), fontSize = 12.sp, lineHeight = 18.sp,
-            color = MiuixTheme.colorScheme.onSurfaceSecondary)
-        when (configState) {
-            PolishConfigState.Missing -> Notice(stringResource(R.string.polish_config_missing))
-            PolishConfigState.Corrupt, PolishConfigState.Unauthorized ->
-                Notice(stringResource(R.string.polish_config_corrupt), error = true)
-            is PolishConfigState.Ready -> Notice(stringResource(R.string.polish_saved))
-        }
-        if (session.polish.configurations.isNotEmpty()) {
-            Card {
-                val savedItems = session.polish.configurations.map { saved ->
-                    DropdownItem(
-                        text = saved.name.ifBlank { stringResource(providerLabel(saved.provider)) },
-                        summary = saved.model,
-                        selected = !creating && saved.id == config?.id,
-                        onClick = {
-                            creating = false
-                            session.polish.selectConfig(saved.id)
-                        },
-                        icon = { iconModifier -> ProviderLogo(saved.provider, iconModifier.size(24.dp)) },
-                    )
-                }
-                WindowDropdownPreference(
-                    entry = DropdownEntry(items = savedItems),
-                    title = stringResource(R.string.polish_saved_configs),
-                    summary = if (creating) stringResource(R.string.polish_new_config) else null,
-                    startAction = { ProviderLogo(if (creating) editor.provider else config?.provider ?: editor.provider, Modifier.size(26.dp)) },
-                    showValue = false,
-                )
-            }
-        }
-        TextButton(
-            stringResource(R.string.polish_add_config),
-            onClick = {
-                creating = true
-                newSeed = PolishConfig.preset(PolishProvider.DeepSeek)
-            },
-            minHeight = 44.dp,
-            colors = plainTextButtonColors(),
-        )
+        TextButton(stringResource(R.string.polish_services), { closeEditor() }, minHeight = 48.dp,
+            enabled = !saving, colors = plainTextButtonColors())
         Card {
             val providerItems = providers.map { provider ->
                 DropdownItem(
@@ -199,49 +340,12 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 TextField(editor.baseUrl, { editor.updateBaseUrl(it.take(300)) },
                     Modifier.fillMaxWidth().testTag("polish-base-url"), label = stringResource(R.string.polish_base_url),
                     singleLine = true, enabled = !saving)
-                TextField(editor.model, { editor.model = it.take(120); editor.localError = null },
-                    Modifier.fillMaxWidth().testTag("polish-model"), label = stringResource(R.string.polish_model),
-                    singleLine = true, enabled = !saving)
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TextButton(stringResource(R.string.polish_choose_model), {
-                        modelQuery = ""
-                        showModels = true
-                    }, minHeight = 40.dp, colors = plainTextButtonColors())
-                    TextButton(
-                        stringResource(if (session.polish.catalogChecking) R.string.polish_catalog_refreshing else R.string.polish_catalog_refresh),
-                        { session.polish.refreshCatalog() },
-                        minHeight = 40.dp,
-                        enabled = !session.polish.catalogChecking,
-                        colors = plainTextButtonColors(),
-                    )
-                }
-                Text(
-                    if (session.polish.catalogLastCheckedAt == 0L) stringResource(R.string.polish_catalog_never)
-                    else stringResource(R.string.polish_catalog_checked,
-                        SimpleDateFormat("MM-dd HH:mm", locale).format(Date(session.polish.catalogLastCheckedAt))),
-                    fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                BasicComponent(
+                    title = stringResource(R.string.polish_model),
+                    summary = editor.model.ifBlank { null },
+                    onClick = { modelQuery = ""; showModels = true },
+                    modifier = Modifier.testTag("polish-model"),
                 )
-                session.polish.catalogError?.let {
-                    Text(stringResource(R.string.polish_catalog_error, it), fontSize = 10.5.sp,
-                        color = MiuixTheme.colorScheme.error)
-                }
-                if (editor.provider == PolishProvider.Custom) {
-                    TextButton(
-                        stringResource(if (session.polish.customModelsLoading) R.string.polish_fetching_models else R.string.polish_fetch_models),
-                        {
-                            val error = editor.validate()
-                            if (error != null) { editor.localError = error; return@TextButton }
-                            session.polish.refreshCustomModels(editor.build())
-                        },
-                        minHeight = 40.dp,
-                        enabled = !session.polish.customModelsLoading,
-                        colors = plainTextButtonColors(),
-                    )
-                    session.polish.customModelsError?.let {
-                        Text(stringResource(R.string.polish_gateway_models_error, it), fontSize = 10.5.sp,
-                            color = MiuixTheme.colorScheme.error)
-                    }
-                }
                 if ((PolishConfig.presets.firstOrNull { it.provider == editor.provider }?.protocol ?: editor.protocol) == PolishProtocol.Messages &&
                     editor.provider == PolishProvider.Custom) {
                     TextField(editor.apiVersion, { editor.apiVersion = it.take(40) },
@@ -274,7 +378,9 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
             Button({
                 val error = editor.validate()
                 if (error != null) { editor.localError = error; return@Button }
-                session.polish.save(editor.build()) { error -> if (error == null) creating = false }
+                session.polish.save(editor.build()) { error ->
+                    if (error == null) closeEditor() else editor.localError = R.string.polish_save_failed
+                }
             }, Modifier.weight(1f).testTag("polish-save"), enabled = !saving) {
                 Text(stringResource(if (saving) R.string.polish_saving else R.string.polish_save))
             }
@@ -287,123 +393,9 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
         }
         Text(stringResource(R.string.polish_key_binding_note), fontSize = 11.5.sp, lineHeight = 17.sp,
             color = MiuixTheme.colorScheme.onSurfaceSecondary)
-        Card {
-            Column(Modifier.padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                SwitchPreference(
-                    title = stringResource(R.string.polish_auto),
-                    summary = stringResource(if (config == null) R.string.polish_auto_unbound
-                    else if (session.polish.autoPolishBound) R.string.polish_auto_bound else R.string.polish_auto_summary),
-                    checked = session.polish.autoPolishBound,
-                    enabled = config != null,
-                    modifier = Modifier.testTag("polish-auto"),
-                    onCheckedChange = { session.polish.updateAutoPolish(it) },
-                )
-                SwitchPreference(
-                    title = stringResource(R.string.polish_app_rules),
-                    summary = stringResource(R.string.polish_app_rules_summary),
-                    checked = session.polish.appRulesEnabled,
-                    modifier = Modifier.testTag("polish-app-rules"),
-                    onCheckedChange = { session.polish.updateAppRules(it) },
-                )
-                SwitchPreference(
-                    title = stringResource(R.string.polish_streaming),
-                    summary = stringResource(R.string.polish_streaming_summary),
-                    checked = session.polish.streamingPreview,
-                    modifier = Modifier.testTag("polish-streaming"),
-                    onCheckedChange = { session.polish.updateStreamingPreview(it) },
-                )
-            }
-        }
-        var targetDraft by remember { mutableStateOf(session.polish.targetLanguage) }
-        TextField(targetDraft, {
-            targetDraft = it.take(35)
-            if (PolishPrompts.validateTargetLanguage(targetDraft) == null) session.polish.updateTargetLanguage(targetDraft)
-        }, Modifier.fillMaxWidth().testTag("polish-default-language"),
-            label = stringResource(R.string.polish_target_language), singleLine = true)
-        TextField(session.polish.customRewrite, { session.polish.updateCustomRewrite(it) },
-            Modifier.fillMaxWidth().testTag("polish-custom-rewrite").heightIn(min = 88.dp),
-            label = stringResource(R.string.polish_custom_rewrite_label), singleLine = false)
-        Text(stringResource(R.string.polish_custom_rewrite_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
-            color = MiuixTheme.colorScheme.onSurfaceSecondary)
-        TextField(session.polish.hotwords, { session.polish.updateHotwords(it) },
-            Modifier.fillMaxWidth().testTag("polish-hotwords").heightIn(min = 72.dp),
-            label = stringResource(R.string.polish_hotwords), singleLine = false)
-        Text(stringResource(R.string.polish_hotwords_summary), fontSize = 11.5.sp, lineHeight = 17.sp,
-            color = MiuixTheme.colorScheme.onSurfaceSecondary)
         if (!creating && config != null) {
-            TextButton(stringResource(R.string.polish_delete_config), { confirmDelete = true }, minHeight = 48.dp,
-                colors = plainTextButtonColors())
-        }
-        if (config != null) {
-            TextButton(stringResource(R.string.polish_clear), { confirmClear = true }, minHeight = 48.dp,
-                colors = plainTextButtonColors())
-        }
-        Spacer(Modifier.height(4.dp))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.polish_stats), Modifier.weight(1f), fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-            if (session.polish.stats.isNotEmpty()) TextButton(stringResource(R.string.polish_stats_clear), {
-                session.polish.clearStats()
-            }, minHeight = 36.dp, colors = plainTextButtonColors())
-        }
-        if (session.polish.stats.isEmpty()) {
-            Text(stringResource(R.string.polish_stats_empty), fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary)
-        } else {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to R.string.polish_usage_today, 7 to R.string.polish_usage_7d,
-                    30 to R.string.polish_usage_30d).forEach { (days, label) ->
-                    TextButton(stringResource(label), { usageDays = days }, minHeight = 36.dp,
-                        colors = plainTextButtonColors())
-                }
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(null to R.string.polish_usage_all, "polish" to R.string.polish_usage_purpose_polish,
-                    "translation" to R.string.polish_usage_purpose_translation,
-                    "test" to R.string.polish_usage_purpose_test).forEach { (purpose, label) ->
-                    TextButton(stringResource(label), { usagePurpose = purpose }, minHeight = 34.dp,
-                        colors = plainTextButtonColors())
-                }
-            }
-            val now = System.currentTimeMillis()
-            val cutoff = if (usageDays == 0) {
-                java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-            } else now - usageDays * 24L * 60L * 60L * 1000L
-            val filtered = session.polish.stats.filter {
-                it.timestamp >= cutoff && (usagePurpose == null || it.purpose == usagePurpose)
-            }
-            if (filtered.isEmpty()) {
-                Text(stringResource(R.string.polish_stats_empty), fontSize = 12.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
-            } else {
-                val knownTokens = filtered.sumOf { (it.inputTokens ?: 0L) + (it.outputTokens ?: 0L) }
-                val durations = filtered.map { it.durationMillis }.sorted()
-                val median = durations.getOrElse(durations.size / 2) { 0L }
-                val unknownCost = filtered.count { it.costMicros == null && it.outcome != "unsent" }
-                Text(stringResource(R.string.polish_usage_summary, filtered.size, knownTokens.toString(), median),
-                    fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                if (unknownCost > 0) Text(stringResource(R.string.polish_usage_unknown_cost, unknownCost),
-                    fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                filtered.filter { it.costMicros != null && it.costCurrency != null }
-                    .groupBy { it.costCurrency!! }
-                    .forEach { (currency, entries) ->
-                        val micros = entries.sumOf { it.costMicros ?: 0L }
-                        Text(stringResource(R.string.polish_usage_cost_total,
-                            String.format(locale, "%.6f", micros / 1_000_000.0), currency),
-                            fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                    }
-                Text(stringResource(R.string.polish_usage_group_title), fontSize = 11.5.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                filtered.groupBy { it.configId to (it.responseModel ?: it.model) }.forEach { (key, entries) ->
-                    val configured = session.polish.configurations.firstOrNull { it.id == key.first }
-                    val label = configured?.name?.takeIf { it.isNotBlank() }
-                        ?: configured?.let { stringResource(providerLabel(it.provider)) }
-                        ?: key.first.take(8)
-                    val tokens = entries.sumOf { (it.inputTokens ?: 0L) + (it.outputTokens ?: 0L) }
-                    Text(stringResource(R.string.polish_usage_group_line, label, key.second, entries.size, tokens.toString()),
-                        fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                }
-                filtered.take(20).forEach { entry -> StatsRow(entry, locale) }
-            }
+            TextButton(stringResource(R.string.polish_delete_config), { confirmDelete = true },
+                minHeight = 48.dp, enabled = !saving, colors = plainTextButtonColors())
         }
     }
     if (showModels) {
@@ -413,50 +405,43 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
         }
         OverlayBottomSheet(show = true, onDismissRequest = { showModels = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                .imePadding().navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.polish_catalog_title), style = MiuixTheme.textStyles.title2)
-                TextField(modelQuery, { modelQuery = it.take(80) }, Modifier.fillMaxWidth(),
+                TextField(modelQuery, { modelQuery = it.take(120) }, Modifier.fillMaxWidth(),
                     label = stringResource(R.string.polish_search_model), singleLine = true)
-                if (filtered.isEmpty()) {
-                    Text(stringResource(R.string.polish_catalog_empty), fontSize = 12.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                } else {
-                    filtered.take(200).forEach { model ->
-                        Row(Modifier.fillMaxWidth().clickable {
-                            editor.model = model.id
-                            editor.localError = null
-                            showModels = false
-                        }.padding(vertical = 9.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(model.name, fontSize = 13.sp)
-                                Text(model.id, fontSize = 10.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                            }
-                            if (editor.model == model.id) Icon(VoiceLinkIcon.Check.vector, null,
-                                Modifier.size(20.dp), tint = MiuixTheme.colorScheme.primary)
-                        }
-                    }
+                if (editor.build().officialCatalogProvider != null) {
+                    TextButton(stringResource(if (manager.catalogChecking) R.string.polish_catalog_refreshing else R.string.polish_catalog_refresh),
+                        { manager.refreshCatalog() }, minHeight = 48.dp, enabled = !manager.catalogChecking)
+                    val checked = catalog?.second ?: 0L
+                    if (checked > 0) Notice(stringResource(R.string.polish_catalog_checked,
+                        SimpleDateFormat("MM-dd HH:mm", locale).format(Date(checked))))
+                    if (manager.catalogError != null) Notice(stringResource(R.string.polish_catalog_refresh_failed), error = true)
+                } else if (editor.provider == PolishProvider.Custom) {
+                    TextButton(stringResource(if (manager.customModelsLoading) R.string.polish_fetching_models else R.string.polish_fetch_models),
+                        { manager.refreshCustomModels(editor.build()) }, minHeight = 48.dp,
+                        enabled = !manager.customModelsLoading && editor.key.isNotBlank())
+                    if (manager.customModelsErrorFor(editor.build())) Notice(stringResource(R.string.polish_models_refresh_failed), error = true)
                 }
-                Text(stringResource(R.string.polish_manual_model_note), fontSize = 11.sp,
-                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                if (modelQuery.isNotBlank() && filtered.none { it.id == modelQuery.trim() }) {
+                    TextButton(stringResource(R.string.polish_use_model_id, modelQuery.trim()), {
+                        editor.model = modelQuery.trim()
+                        editor.localError = null
+                        showModels = false
+                    }, minHeight = 48.dp)
+                }
+                if (filtered.isEmpty()) Notice(stringResource(R.string.polish_catalog_empty))
+                filtered.forEach { model ->
+                    BasicComponent(title = model.name, summary = model.id, onClick = {
+                        editor.model = model.id
+                        editor.localError = null
+                        showModels = false
+                    }, endActions = {
+                        if (editor.model == model.id) Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(20.dp))
+                    })
+                }
                 TextButton(stringResource(R.string.polish_cancel_action), { showModels = false },
                     Modifier.fillMaxWidth(), minHeight = 48.dp, colors = plainTextButtonColors())
             }
-        }
-    }
-    WindowDialog(
-        title = stringResource(R.string.polish_clear),
-        summary = stringResource(R.string.polish_confirm_clear),
-        show = confirmClear,
-        onDismissRequest = { confirmClear = false },
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(stringResource(R.string.polish_cancel_action), { confirmClear = false },
-                modifier = Modifier.weight(1f), minHeight = 48.dp)
-            TextButton(stringResource(R.string.polish_remove), {
-                confirmClear = false
-                session.polish.clear()
-            }, modifier = Modifier.weight(1f).testTag("polish-clear-confirm"), minHeight = 48.dp,
-                colors = plainTextButtonColors())
         }
     }
     WindowDialog(
@@ -470,7 +455,9 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 modifier = Modifier.weight(1f), minHeight = 48.dp)
             TextButton(stringResource(R.string.polish_delete_config_action), {
                 confirmDelete = false
-                config?.let { session.polish.deleteConfig(it.id) }
+                config?.let { session.polish.deleteConfig(it.id) { error ->
+                    if (error == null) closeEditor() else editor.localError = R.string.polish_save_failed
+                } }
             }, modifier = Modifier.weight(1f).testTag("polish-delete-confirm"), minHeight = 48.dp,
                 colors = plainTextButtonColors())
         }

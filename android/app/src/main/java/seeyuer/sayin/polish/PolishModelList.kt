@@ -25,16 +25,16 @@ internal class PolishModelListClient(
 ) {
     fun fetch(): PolishModelListResult {
         if (config.protocol != PolishProtocol.Chat) return PolishModelListResult(error = "需要 OpenAI 兼容协议")
-        if (config.validate(allowLoopbackHttp) != null) return PolishModelListResult(error = "配置不完整")
+        if (config.copy(model = "models").validate(allowLoopbackHttp) != null) return PolishModelListResult(error = "配置不完整")
         val base = config.normalizedBaseUrl
-        val url = if (base.endsWith("/models")) base else "$base/models"
-        val request = Request.Builder().url(url).get().header("Accept", "application/json").apply {
+        val url = if (base.endsWith("/models")) base else "${base.removeSuffix("/chat/completions")}/models"
+        return try {
+            val request = Request.Builder().url(url).get().header("Accept", "application/json").apply {
             when (config.auth) {
                 PolishAuth.Bearer -> header("Authorization", "Bearer ${config.key}")
                 PolishAuth.XApiKey -> header("x-api-key", config.key)
             }
-        }.build()
-        return try {
+            }.build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return PolishModelListResult(error = "HTTP ${response.code}")
                 val input = response.body?.byteStream() ?: return PolishModelListResult(error = "空响应")

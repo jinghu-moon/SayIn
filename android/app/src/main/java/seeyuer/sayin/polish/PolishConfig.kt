@@ -40,6 +40,15 @@ internal data class PolishConfig(
     val revision: Long = 1L,
 ) {
     val normalizedBaseUrl: String get() = baseUrl.trim().trimEnd('/')
+    val officialCatalogProvider: String? get() = when (Triple(provider, protocol, normalizedBaseUrl)) {
+        Triple(PolishProvider.DeepSeek, PolishProtocol.Chat, "https://api.deepseek.com"),
+        Triple(PolishProvider.DeepSeek, PolishProtocol.Chat, "https://api.deepseek.com/v1") -> "deepseek"
+        Triple(PolishProvider.Qwen, PolishProtocol.Chat, "https://dashscope.aliyuncs.com/compatible-mode/v1") -> "alibaba-cn"
+        Triple(PolishProvider.Qwen, PolishProtocol.Chat, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1") -> "alibaba"
+        Triple(PolishProvider.OpenAi, PolishProtocol.Chat, "https://api.openai.com/v1") -> "openai"
+        Triple(PolishProvider.Anthropic, PolishProtocol.Messages, "https://api.anthropic.com/v1") -> "anthropic"
+        else -> null
+    }
     val fingerprint: String get() = sha256(
         listOf(id, provider.id, protocol.name, normalizedBaseUrl, model.trim(), auth.name,
             apiVersion, maxTokensField.name, thinking.name).joinToString("\u0000")
@@ -130,9 +139,9 @@ internal sealed interface PolishConfigState {
 
 internal data class PolishConfigSet(
     val configurations: List<PolishConfig>,
-    val activeId: String,
+    val activeId: String?,
 ) {
-    val active: PolishConfig get() = configurations.first { it.id == activeId }
+    val active: PolishConfig? get() = configurations.firstOrNull { it.id == activeId }
 }
 
 internal sealed interface PolishConfigLoad {
@@ -201,8 +210,8 @@ internal class PolishConfigStore(
                         for (index in 0 until array.length()) add(PolishConfig.fromJson(array.getJSONObject(index)))
                     }
                     require(configurations.map { it.id }.toSet().size == configurations.size)
-                    val activeId = json.getString("activeId")
-                    require(configurations.any { it.id == activeId })
+                    val activeId = if (json.isNull("activeId")) null else json.getString("activeId")
+                    require(activeId == null || configurations.any { it.id == activeId })
                     PolishConfigLoad.Ready(PolishConfigSet(configurations, activeId))
                 }
                 else -> error("Unsupported polish config version")
@@ -214,11 +223,11 @@ internal class PolishConfigStore(
 
     fun save(set: PolishConfigSet) {
         require(set.configurations.isNotEmpty() && set.configurations.size <= 32)
-        require(set.configurations.any { it.id == set.activeId })
+        require(set.activeId == null || set.configurations.any { it.id == set.activeId })
         set.configurations.forEach { config -> check(config.validate() == null) { config.validate() ?: "" } }
         val json = JSONObject()
             .put("version", 2)
-            .put("activeId", set.activeId)
+            .put("activeId", set.activeId ?: JSONObject.NULL)
             .put("configurations", org.json.JSONArray().also { array ->
                 set.configurations.forEach { array.put(it.toJson()) }
             })

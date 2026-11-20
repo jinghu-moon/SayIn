@@ -203,9 +203,10 @@ class PolishClientTest {
 
     @Test fun `streaming anthropic accepts text deltas and end turn`() {
         val body = """
+            data: {"type":"message_start","message":{"model":"actual-claude","usage":{"input_tokens":7,"cache_read_input_tokens":3,"cache_creation_input_tokens":2,"output_tokens":0}}}
             data: {"type":"content_block_start","content_block":{"type":"text","text":""}}
             data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"译"}}
-            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":7,"cache_read_input_tokens":3,"output_tokens":1}}
+            data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}
             data: {"type":"message_stop"}
         """.trimIndent()
         server.enqueue(response(body = body))
@@ -214,11 +215,24 @@ class PolishClientTest {
         assertTrue(result is PolishCallResult.Success)
         result as PolishCallResult.Success
         assertEquals("译", result.text)
-        assertEquals(10L, result.usage?.inputTotal)
+        assertEquals("actual-claude", result.responseModel)
+        assertEquals(12L, result.usage?.inputTotal)
         assertEquals(3L, result.usage?.cacheRead)
+        assertEquals(2L, result.usage?.cacheWrite)
         assertEquals(1L, result.usage?.outputTotal)
     }
 
+    @Test fun `failed anthropic stream retains received usage and model`() {
+        server.enqueue(response(body = """
+            data: {"type":"message_start","message":{"model":"actual-claude","usage":{"input_tokens":7,"cache_read_input_tokens":3}}}
+            data: {"type":"error"}
+        """.trimIndent()))
+        val result = client(base(PolishProvider.Anthropic, PolishProtocol.Messages))
+            .callStreaming(PolishMode.Voice, text = "x") as PolishCallResult.Failure
+        assertEquals("actual-claude", result.responseModel)
+        assertEquals(10L, result.usage?.inputTotal)
+        assertEquals(3L, result.usage?.cacheRead)
+    }
     @Test fun `streaming truncation and tool blocks are rejected`() {
         server.enqueue(response(body = """
             data: {"choices":[{"delta":{"content":"half"},"finish_reason":"length"}]}

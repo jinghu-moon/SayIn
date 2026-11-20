@@ -4,6 +4,7 @@ import android.util.AtomicFile
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -41,21 +42,37 @@ class PolishCatalogStoreInstrumentedTest {
         })
         val snapshotSha = manifest.getString("sha256")
 
-        writeCache(cachedCatalog("cached-model"))
-        preferences.edit().putString("cache_snapshot", snapshotSha).commit()
+        writeCache(cachedCatalog("cached-model"), snapshotSha)
         assertEquals("cached-model", store.load()!!.modelsFor(PolishProvider.DeepSeek).single().id)
 
         // A cache built from a different bundled snapshot is ignored after upgrade.
-        preferences.edit().putString("cache_snapshot", "old-snapshot").commit()
+        writeCache(cachedCatalog("cached-model"), "old-snapshot")
         assertTrue(store.load()!!.modelsFor(PolishProvider.DeepSeek).none { it.id == "cached-model" })
 
         // Corrupt cache falls back to the bundled snapshot even when the marker matches.
         val corrupt = file.startWrite()
         corrupt.write("not-json".toByteArray())
         file.finishWrite(corrupt)
-        preferences.edit().putString("cache_snapshot", snapshotSha).commit()
         assertNotNull(store.load())
         assertTrue(store.load()!!.modelsFor(PolishProvider.DeepSeek).isNotEmpty())
+    }
+
+    @Test fun invalidCacheDoesNotSendItsEtagAndRefreshPublishesTheNewCatalog() = runBlocking {
+        val json = cachedCatalog("refreshed-model")
+        val raw = json.toString()
+        val refreshed = PolishCatalog.parse(json, sha256(raw), PolishCatalogStore.SOURCE, "now")
+        val validators = mutableListOf<String?>()
+        writeCache(cachedCatalog("old-model"), "old-snapshot", "old-etag")
+        val store = PolishCatalogStore(context, file, preferences) { etag ->
+            validators.add(etag)
+            if (etag == null) PolishCatalogFetch.Updated(refreshed, raw, "fresh") else PolishCatalogFetch.NotModified
+        }
+        store.initialize()
+        assertTrue(store.state.value!!.first!!.modelsFor(PolishProvider.DeepSeek).none { it.id == "refreshed-model" })
+        assertTrue(store.refresh().updated)
+        assertEquals("refreshed-model", store.state.value!!.first!!.modelsFor(PolishProvider.DeepSeek).single().id)
+        assertTrue(!store.refresh().updated)
+        assertEquals(listOf(null, "fresh"), validators)
     }
 
     private fun cachedCatalog(model: String): JSONObject = JSONObject()
@@ -63,11 +80,15 @@ class PolishCatalogStoreInstrumentedTest {
             .put("id", model).put("name", model)
             .put("modalities", JSONObject().put("output", org.json.JSONArray().put("text"))))))
 
-    private fun writeCache(catalog: JSONObject) {
+    private fun writeCache(catalog: JSONObject, snapshot: String, etag: String? = null) {
+        val raw = catalog.toString()
         val payload = JSONObject()
-            .put("version", "cached")
+            .put("version", sha256(raw))
+            .put("snapshotVersion", snapshot)
             .put("fetchedAt", "now")
-            .put("catalog", catalog)
+            .put("checkedAt", 1L)
+            .put("etag", etag)
+            .put("catalog", raw)
         val stream = file.startWrite()
         stream.write(payload.toString().toByteArray(Charsets.UTF_8))
         file.finishWrite(stream)

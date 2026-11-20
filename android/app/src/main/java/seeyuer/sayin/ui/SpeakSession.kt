@@ -46,9 +46,23 @@ internal class SpeakSession(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     val polish = PolishManager(appContext)
     var polishState by mutableStateOf(PolishState()); private set
-    private var polishJob: Job? = null
-    private var polishCall: Call? = null
-    private var polishCallId: String? = null
+    private var polishRequest: PolishRequest? = null
+
+    private class PolishRequest {
+        @Volatile var cancelled = false
+            private set
+        @Volatile private var call: Call? = null
+
+        fun attach(value: Call) {
+            call = value
+            if (cancelled) value.cancel()
+        }
+
+        fun cancel() {
+            cancelled = true
+            call?.cancel()
+        }
+    }
     private var voiceOrigin = false
     private var typedSinceVoice = false
     private var recordingStartedEmpty = false
@@ -226,12 +240,8 @@ internal class SpeakSession(
 
     init {
         polish.onConfigurationChanged = {
-            abandonActivePolishCall()
-            polishCall?.cancel()
-            polishCall = null
-            polishJob?.cancel()
-            polishJob = null
-            polishState = PolishState()
+            cancelPolish()
+            polishState = PolishState(confirmationPending = polishState.confirmationPending)
             invalidateTranslation()
         }
         scope.launch { recognition.state.collect { result ->
@@ -573,24 +583,27 @@ internal class SpeakSession(
             configId = config.id, configRevision = config.revision,
             configFingerprint = config.fingerprint, promptHash = PolishPrompts.hash(system),
         )
-        polishState = PolishState(ticket = ticket, running = true)
-        polishCall = null
+        polishRequest?.cancel()
+        val request = PolishRequest()
+        polishRequest = request
+        polishState = PolishState(ticket = ticket, running = true, confirmationPending = polishState.confirmationPending)
         val useStreaming = polish.streamingPreview
-        abandonActivePolishCall()
-        polishJob?.cancel()
-        polishJob = scope.launch {
-            val callId = runCatching {
+        val hotwords = polish.hotwords
+        scope.launch {
+            val accounting = runCatching {
                 polish.beginCall(config, if (mode == PolishMode.Translate) PolishCallPurpose.Translation
                 else PolishCallPurpose.Polish)
             }.getOrNull()
-            polishCallId = callId
-            val result = withContext(Dispatchers.IO) {
+            val result = if (accounting == null) {
+                PolishCallResult.Failure(PolishFailure.Unknown, requestSent = false)
+            } else withContext(NonCancellable + Dispatchers.IO) {
+                if (request.cancelled) return@withContext PolishCallResult.Failure(PolishFailure.Unknown, requestSent = false)
                 val client = PolishClient(config)
                 if (useStreaming) {
                     client.callStreaming(
                         mode = mode, targetLanguage = language, appName = appName, scene = scene,
-                        customRewrite = custom, text = sourceText, hotwords = polish.hotwords,
-                        onCall = { polishCall = it },
+                        customRewrite = custom, text = sourceText, hotwords = hotwords,
+                        onCall = request::attach,
                         onPartial = { partial ->
                             scope.launch {
                                 if (polishState.running && polishState.ticket?.id == ticket.id) {
@@ -602,16 +615,16 @@ internal class SpeakSession(
                 } else {
                     client.call(
                         mode = mode, targetLanguage = language, appName = appName, scene = scene,
-                        customRewrite = custom, text = sourceText, hotwords = polish.hotwords,
-                        onCall = { polishCall = it },
+                        customRewrite = custom, text = sourceText, hotwords = hotwords,
+                        onCall = request::attach,
                     )
                 }
             }
-            polishCall = null
-            val finishedId = polishCallId
-            polishCallId = null
-            if (finishedId != null) runCatching { polish.finishCall(finishedId, result) }
-            if (!isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch
+            withContext(NonCancellable) {
+                if (accounting != null) runCatching { polish.finishCall(accounting, result, request.cancelled) }
+            }
+            if (polishRequest !== request || !isActive || polishState.ticket?.id != ticket.id || !polishState.running) return@launch
+            polishRequest = null
             when (result) {
                 is PolishCallResult.Success -> {
                     if (draftId != ticket.draftId || interaction.version != ticket.version ||
@@ -651,19 +664,10 @@ internal class SpeakSession(
         }
     }
 
-    private fun abandonActivePolishCall() {
-        val id = polishCallId ?: return
-        polishCallId = null
-        scope.launch { runCatching { polish.abandonCall(id) } }
-    }
-
     fun cancelPolish() {
         if (!polishState.running) return
-        abandonActivePolishCall()
-        polishCall?.cancel()
-        polishCall = null
-        polishJob?.cancel()
-        polishJob = null
+        polishRequest?.cancel()
+        polishRequest = null
         polishState = PolishState(ticket = polishState.ticket, outcome = PolishOutcome.Cancelled,
             confirmationPending = polishState.confirmationPending)
     }
@@ -928,7 +932,7 @@ internal class SpeakSession(
     }
 
     override fun close() {
-        cancelAutoSend(); polishCall?.cancel(); translator.close(); recognition.close(); scope.cancel()
+        cancelAutoSend(); polishRequest?.cancel(); translator.close(); recognition.close(); scope.cancel()
     }
 }
 

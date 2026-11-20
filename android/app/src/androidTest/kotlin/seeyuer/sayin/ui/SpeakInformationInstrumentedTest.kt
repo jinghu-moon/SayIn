@@ -118,7 +118,7 @@ class SpeakInformationInstrumentedTest {
                 assertTrue(editor.height > 0 && editor.top >= undo.bottom - 1 && editor.bottom <= bar.top + 1)
                 if (variant.second >= 240 * variant.third) {
                     val tools = if (quick) listOf("open-assist", "choose-image", "translate-draft", "clear-draft")
-                    else listOf("open-assist", "choose-image", "translate-draft", "copy-draft", "clear-draft")
+                    else listOf("open-assist", "choose-image", "translate-draft", "polish-draft", "copy-draft", "clear-draft")
                     for (tag in tools) {
                         val tool = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
                         assertTrue(tool.width >= 48 * compose.activity.resources.displayMetrics.density - 1)

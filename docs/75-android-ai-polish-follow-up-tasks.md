@@ -2,7 +2,7 @@
 
 父设计见 [73 · Android AI 润色](73-android-ai-polish-design.md)，已有功能与测试证据见 [74 · 实施记录](74-android-ai-polish-implementation.md)。第一批实施进度与未通过项见 [76 · 第一批实施记录](76-android-ai-polish-batch1-implementation.md)；第二批用量与费用见 [77 · 第二批实施记录](77-android-ai-polish-batch2-usage.md)；第三批与真机验收边界见 [78 · 真机验收记录](78-android-ai-polish-device-validation.md)。
 
-已有手动和自动润色、AI 翻译、流式预览、术语表及前后对比。用户已跑通 DeepSeek 润色。当前代码只保存一份服务配置，模型靠手填，近 100 条调用记录只覆盖基础 Token 和耗时，费用缺少可用价目。74 号文档中的厂商实测、ASR 实录和目标应用落字仍需补齐证据。
+本任务制定时只支持单份服务配置、手填模型和最近 100 条基础统计。现已接入多配置、basellm 快照与周期刷新、模型选择、Room 用量及官方估价。以下保留原任务和验收条件，实际结果以 76–78 号记录为准。真实录音、目标应用落字与部分厂商实测仍待验收。
 
 ## 第一批 · 服务配置和模型可选
 

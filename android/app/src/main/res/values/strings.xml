@@ -964,6 +964,22 @@
     <string name="polish_usage_group_title">By service and model</string>
     <string name="polish_usage_group_line">%1$s · %2$s: %3$d calls · %4$s tokens</string>
     <string name="polish_stats_unsent">Not sent</string>
+    <string name="polish_select_service">Choose service</string>
+    <string name="polish_services">Manage services</string>
+    <string name="polish_save_failed">Couldn’t save service settings</string>
+    <string name="polish_translation_language">AI translation language</string>
+    <string name="polish_usage_amount">%1$s · %2$s %3$s</string>
+    <string name="polish_usage_period">Period</string>
+    <string name="polish_usage_purpose">Purpose</string>
+    <string name="polish_usage_service">Service</string>
+    <string name="polish_usage_load_failed">Couldn’t load usage</string>
+    <string name="polish_usage_loading">Loading usage…</string>
+    <string name="polish_usage_previous">Previous page</string>
+    <string name="polish_usage_next">Next page</string>
+    <string name="polish_stats_clear_summary">Delete all AI usage records from this phone?</string>
+    <string name="polish_catalog_refresh_failed">Couldn’t refresh the model catalog. Current models are still available.</string>
+    <string name="polish_models_refresh_failed">Couldn’t load models from this service.</string>
+    <string name="polish_use_model_id">Use %1$s</string>
 </resources>
 
 

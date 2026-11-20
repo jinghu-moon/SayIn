@@ -35,6 +35,7 @@ internal sealed interface PolishCallResult {
         val durationMillis: Long = 0,
         val usage: PolishUsage? = null,
         val requestSent: Boolean = true,
+        val responseModel: String? = null,
     ) : PolishCallResult
 }
 
@@ -159,65 +160,82 @@ internal class PolishClient(
         val request = runCatching { request(system, user, maxTokens, stream = true) }.getOrElse {
             return PolishCallResult.Failure(PolishFailure.InvalidResponse, requestSent = false)
         }
+        var usage: PolishUsage? = null
+        var responseModel: String? = null
+        var status: Int? = null
+        val messagesUsage = JSONObject()
+        fun mergeMessagesUsage(update: JSONObject?) {
+            if (update == null) return
+            val keys = update.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                if (!update.isNull(key)) messagesUsage.put(key, update.get(key))
+            }
+            usage = PolishUsage.fromMessages(messagesUsage)
+        }
+        fun failure(kind: PolishFailure) = PolishCallResult.Failure(
+            kind, status, elapsed(started), usage, responseModel = responseModel,
+        )
         return try {
             client.newCall(request).also(onCall).execute().use { response ->
-                val elapsed = (System.nanoTime() - started) / 1_000_000
+                status = response.code
                 if (!response.isSuccessful) {
-                    return PolishCallResult.Failure(httpFailure(response.code), response.code, elapsed)
+                    return failure(httpFailure(response.code))
                 }
-                val reader = response.body?.byteStream()?.bufferedReader() ?: return PolishCallResult.Failure(
-                    PolishFailure.InvalidResponse, response.code, elapsed,
-                )
+                val reader = response.body.source()
                 val text = StringBuilder()
                 var totalBytes = 0
                 var finishReason: String? = null
-                var usage: PolishUsage? = null
-                var responseModel: String? = null
                 var done = false
                 while (!done) {
-                    val line = reader.readLine() ?: break
-                    totalBytes += line.length + 1
-                    if (totalBytes > MAX_RESPONSE_BYTES) return PolishCallResult.Failure(
-                        PolishFailure.TooLarge, response.code, elapsed,
-                    )
+                    val previousLength = text.length
+                    if (reader.exhausted()) break
+                    val remaining = MAX_RESPONSE_BYTES - totalBytes
+                    val newline = reader.indexOf('\n'.code.toByte(), 0L, remaining.toLong())
+                    if (newline < 0L && reader.buffer.size >= remaining) return failure(PolishFailure.TooLarge)
+                    val lineBytes = reader.readByteArray(if (newline < 0L) reader.buffer.size else newline + 1)
+                    totalBytes += lineBytes.size
+                    val line = decodeStrict(lineBytes) ?: return failure(PolishFailure.InvalidResponse)
                     if (!line.startsWith("data:")) continue
                     val data = line.removePrefix("data:").trim()
-                    if (data == "[DONE]") { done = true; continue }
+                    if (data == "[DONE]" && config.protocol == PolishProtocol.Chat) { done = true; continue }
                     val json = runCatching { JSONObject(data) }.getOrNull()
-                        ?: return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed)
+                        ?: return failure(PolishFailure.InvalidResponse)
                     json.optString("model").takeIf { it.isNotBlank() }?.let { responseModel = it }
                     when (config.protocol) {
                         PolishProtocol.Chat -> {
                             val choices = json.optJSONArray("choices")
                             val choice = choices?.optJSONObject(0)
                             val delta = choice?.optJSONObject("delta")
+                            if (delta?.has("tool_calls") == true) return failure(PolishFailure.InvalidResponse)
                             delta?.opt("content")?.let { textContent(it) }?.let { text.append(it) }
                             choice?.optString("finish_reason")?.takeIf { it.isNotBlank() }?.let { finishReason = it }
-                            json.optJSONObject("usage")?.let { usage = PolishUsage.fromChat(it) }
+                            PolishUsage.fromChat(json.optJSONObject("usage"))?.let { usage = it }
                         }
                         PolishProtocol.Messages -> {
                             when (json.optString("type")) {
+                                "message_start" -> {
+                                    val message = json.optJSONObject("message")
+                                    message?.optString("model")?.takeIf { it.isNotBlank() }?.let { responseModel = it }
+                                    mergeMessagesUsage(message?.optJSONObject("usage"))
+                                }
                                 "content_block_start" -> {
                                     val block = json.optJSONObject("content_block")
-                                    if (block?.optString("type") != "text") return PolishCallResult.Failure(
-                                        PolishFailure.InvalidResponse, response.code, elapsed,
-                                    )
+                                    if (block?.optString("type") != "text") return failure(PolishFailure.InvalidResponse)
                                     block.optString("text").takeIf { it.isNotEmpty() }?.let(text::append)
                                 }
                                 "content_block_delta" -> {
                                     val delta = json.optJSONObject("delta")
-                                    if (delta?.optString("type") != "text_delta") return PolishCallResult.Failure(
-                                        PolishFailure.InvalidResponse, response.code, elapsed,
-                                    )
+                                    if (delta?.optString("type") != "text_delta") return failure(PolishFailure.InvalidResponse)
                                     text.append(delta.optString("text"))
                                 }
                                 "message_delta" -> {
                                     json.optJSONObject("delta")?.optString("stop_reason")?.takeIf { it.isNotBlank() }
                                         ?.let { finishReason = it }
-                                    json.optJSONObject("usage")?.let { usage = PolishUsage.fromMessages(it) }
+                                    mergeMessagesUsage(json.optJSONObject("usage"))
                                 }
                                 "message_stop" -> done = true
-                                "error" -> return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed)
+                                "error" -> return failure(PolishFailure.InvalidResponse)
                                 else -> Unit
                             }
                         }
@@ -225,31 +243,28 @@ internal class PolishClient(
                     val current = text.toString()
                     if (current.codePointCount(0, current.length) > MAX_OUTPUT_CODEPOINTS ||
                         current.toByteArray(Charsets.UTF_8).size > MAX_OUTPUT_BYTES) {
-                        return PolishCallResult.Failure(PolishFailure.TooLarge, response.code, elapsed)
+                        return failure(PolishFailure.TooLarge)
                     }
-                    onPartial(text.toString())
+                    if (text.length != previousLength) onPartial(current)
                 }
-                if (!done) return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed, usage)
+                if (!done) return failure(PolishFailure.InvalidResponse)
                 when (finishReason) {
                     "stop", "end_turn" -> Unit
                     "length", "max_tokens", "model_context_window_exceeded" ->
-                        return PolishCallResult.Failure(PolishFailure.Truncated, response.code, elapsed, usage)
-                    "content_filter", "refusal" -> return PolishCallResult.Failure(PolishFailure.Refused, response.code, elapsed, usage)
-                    else -> return PolishCallResult.Failure(PolishFailure.InvalidResponse, response.code, elapsed, usage)
+                        return failure(PolishFailure.Truncated)
+                    "content_filter", "refusal" -> return failure(PolishFailure.Refused)
+                    else -> return failure(PolishFailure.InvalidResponse)
                 }
                 val problem = PolishPrompts.outputProblem(text.toString())
-                if (problem != null) return PolishCallResult.Failure(
-                    if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse,
-                    response.code, elapsed, usage,
-                )
-                PolishCallResult.Success(text.toString(), usage, elapsed, response.code, responseModel)
+                if (problem != null) return failure(if (problem == "too_long") PolishFailure.TooLarge else PolishFailure.InvalidResponse)
+                PolishCallResult.Success(text.toString(), usage, elapsed(started), response.code, responseModel)
             }
         } catch (_: SocketTimeoutException) {
-            PolishCallResult.Failure(PolishFailure.Timeout, durationMillis = elapsed(started))
+            failure(PolishFailure.Timeout)
         } catch (_: IOException) {
-            PolishCallResult.Failure(PolishFailure.Network, durationMillis = elapsed(started))
+            failure(PolishFailure.Network)
         } catch (_: Exception) {
-            PolishCallResult.Failure(PolishFailure.Unknown, durationMillis = elapsed(started))
+            failure(PolishFailure.Unknown)
         }
     }
 
