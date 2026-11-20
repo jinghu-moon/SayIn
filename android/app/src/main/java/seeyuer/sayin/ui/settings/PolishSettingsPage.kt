@@ -378,7 +378,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
                 val knownTokens = filtered.sumOf { (it.inputTokens ?: 0L) + (it.outputTokens ?: 0L) }
                 val durations = filtered.map { it.durationMillis }.sorted()
                 val median = durations.getOrElse(durations.size / 2) { 0L }
-                val unknownCost = filtered.count { it.costMicros == null }
+                val unknownCost = filtered.count { it.costMicros == null && it.outcome != "unsent" }
                 Text(stringResource(R.string.polish_usage_summary, filtered.size, knownTokens.toString(), median),
                     fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                 if (unknownCost > 0) Text(stringResource(R.string.polish_usage_unknown_cost, unknownCost),
@@ -502,7 +502,11 @@ private fun StatsRow(entry: PolishStatsEntry, locale: Locale) {
             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         Text(stringResource(R.string.polish_stats_duration, entry.durationMillis.toInt()) + " · " +
             stringResource(R.string.polish_stats_outcome,
-                stringResource(if (entry.outcome == "success" || entry.outcome == "test") R.string.polish_stats_success else R.string.polish_stats_failure)),
+                stringResource(when (entry.outcome) {
+                    "success", "test" -> R.string.polish_stats_success
+                    "unsent" -> R.string.polish_stats_unsent
+                    else -> R.string.polish_stats_failure
+                })),
             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
         val cost = if (entry.costMicros != null && entry.costCurrency != null) {
             stringResource(

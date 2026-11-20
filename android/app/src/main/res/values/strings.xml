@@ -963,7 +963,9 @@
     <string name="polish_usage_cost_total">Cost: %1$s %2$s</string>
     <string name="polish_usage_group_title">By service and model</string>
     <string name="polish_usage_group_line">%1$s · %2$s: %3$d calls · %4$s tokens</string>
+    <string name="polish_stats_unsent">Not sent</string>
 </resources>
+
 
 
 

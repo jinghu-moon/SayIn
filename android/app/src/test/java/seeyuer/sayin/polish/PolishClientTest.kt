@@ -58,6 +58,16 @@ class PolishClientTest {
 
     private fun client(config: PolishConfig) = PolishClient(config, allowLoopbackHttp = true)
 
+    @Test fun `missing configuration is marked unsent without a request`() {
+        val result = client(base(PolishProvider.DeepSeek).copy(key = ""))
+            .call(PolishMode.Voice, text = "hello")
+        assertTrue(result is PolishCallResult.Failure)
+        result as PolishCallResult.Failure
+        assertEquals(PolishFailure.MissingConfig, result.kind)
+        assertFalse(result.requestSent)
+        assertEquals(0, server.requestCount)
+    }
+
     @Test fun `chat success uses one request and parses usage`() {
         server.enqueue(response(body = chatResponse()))
         val result = client(base(PolishProvider.DeepSeek)).call(PolishMode.Voice, text = "嗯那个")

@@ -958,7 +958,9 @@
     <string name="polish_usage_cost_total">费用：%1$s %2$s</string>
     <string name="polish_usage_group_title">按服务与模型</string>
     <string name="polish_usage_group_line">%1$s · %2$s：%3$d 次 · %4$s Token</string>
+    <string name="polish_stats_unsent">未发送</string>
 </resources>
+
 
 
 

@@ -315,7 +315,7 @@ internal class PolishManager(context: Context) {
     suspend fun finishCall(callId: String, result: PolishCallResult) {
         val outcome = when (result) {
             is PolishCallResult.Success -> "success"
-            is PolishCallResult.Failure -> result.kind.name.lowercase()
+            is PolishCallResult.Failure -> if (!result.requestSent) "unsent" else result.kind.name.lowercase()
         }
         withContext(Dispatchers.IO) {
             val entity = usageStore.byId(callId)

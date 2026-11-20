@@ -39,7 +39,7 @@
 
 | 项目 | 结果 |
 | --- | --- |
-| JVM | 全量 167 项通过，0 失败；其中本轮 usage/pricing 相关 46 项 |
+| JVM | 全量 168 项通过，0 失败；其中本轮 usage/pricing 相关 47 项 |
 | i18n | `python scripts/check_i18n.py` 通过 |
 | Lint | `:app:lintDebug` BUILD SUCCESSFUL |
 | 构建/安装 | `:app:assembleDebug` 成功；root 覆盖安装成功 |
@@ -50,7 +50,7 @@
 
 - DeepSeek 普通响应和 SSE 均已真机复测（`0.000102 USD` / `0.000043 USD`）。
 - 上报金额、非 USD 币种、套餐/区域仍未接入；时段按本地星期/小时匹配，法定节假日等上游未表达规则仍需未知。
-- “已知未发送”和“可能计费的未知调用”尚未在 UI 分开呈现；当前统一显示未知费用。
+- “已知未发送”与可能的计费失败已分开：配置校验失败记录为 `unsent`，不计入未知费用。
 - 取消请求已立即标记为 `cancelled`，pending→unknown 和清空竞态已由仪器化测试覆盖；进程被杀/写入失败仍未覆盖。
 - 90 天清理、清空与迟到完成、并发写入尚未做设备/仪器化竞态验证。
 - SSE 用量已有 Chat/Messages 断言和真实 DeepSeek 流式记录。

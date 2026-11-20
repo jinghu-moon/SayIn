@@ -33,6 +33,7 @@ internal sealed interface PolishCallResult {
         val httpStatus: Int? = null,
         val durationMillis: Long = 0,
         val usage: PolishUsage? = null,
+        val requestSent: Boolean = true,
     ) : PolishCallResult
 }
 
@@ -63,10 +64,10 @@ internal class PolishClient(
     fun callRaw(system: String, user: String, maxTokens: Int, onCall: (Call) -> Unit = {},
                 acceptTruncated: Boolean = false): PolishCallResult {
         val error = config.validate(allowLoopbackHttp)
-        if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig)
+        if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig, requestSent = false)
         val started = System.nanoTime()
         val request = runCatching { request(system, user, maxTokens, stream = false) }.getOrElse {
-            return PolishCallResult.Failure(PolishFailure.InvalidResponse)
+            return PolishCallResult.Failure(PolishFailure.InvalidResponse, requestSent = false)
         }
         return try {
             client.newCall(request).also(onCall).execute().use { response ->
@@ -152,10 +153,10 @@ internal class PolishClient(
     private fun streamRaw(system: String, user: String, maxTokens: Int,
                           onCall: (Call) -> Unit, onPartial: (String) -> Unit): PolishCallResult {
         val error = config.validate(allowLoopbackHttp)
-        if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig)
+        if (error != null) return PolishCallResult.Failure(PolishFailure.MissingConfig, requestSent = false)
         val started = System.nanoTime()
         val request = runCatching { request(system, user, maxTokens, stream = true) }.getOrElse {
-            return PolishCallResult.Failure(PolishFailure.InvalidResponse)
+            return PolishCallResult.Failure(PolishFailure.InvalidResponse, requestSent = false)
         }
         return try {
             client.newCall(request).also(onCall).execute().use { response ->
