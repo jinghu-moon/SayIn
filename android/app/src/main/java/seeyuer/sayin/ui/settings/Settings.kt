@@ -636,9 +636,7 @@ private fun RootPage(
                     title = stringResource(R.string.settings_polish),
                     summary = polishSummary,
                     startAction = {
-                        val configured = (polishState as? PolishConfigState.Ready)?.config?.provider
-                        if (configured != null) ProviderLogo(configured, Modifier.size(26.dp))
-                        else Icon(VoiceLinkIcon.Ai.vector, null, Modifier.size(22.dp))
+                        Icon(VoiceLinkIcon.Ai.vector, null, Modifier.size(24.dp))
                     },
                     onClick = { onOpen(SettingsRoute.Polish) },
                 )
