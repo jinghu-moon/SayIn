@@ -15,6 +15,9 @@ import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -25,6 +28,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
@@ -32,6 +37,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -42,11 +48,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
@@ -97,6 +110,15 @@ import seeyuer.sayin.ui.AppSendPolicy
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.CloudEditorState
 import seeyuer.sayin.ui.CloudSettingsCard
+import seeyuer.sayin.ui.DraftTool
+import seeyuer.sayin.ui.DRAFT_TOOL_SIDE_CHOICE_MAX
+import seeyuer.sayin.ui.DraftToolEntry
+import seeyuer.sayin.ui.DraftToolSide
+import seeyuer.sayin.ui.DraftToolSurface
+import seeyuer.sayin.ui.DraftTools
+import seeyuer.sayin.ui.defaultDraftTools
+import seeyuer.sayin.ui.defaultQuickDraftTools
+import seeyuer.sayin.ui.moveDraftTool
 import seeyuer.sayin.ui.plainTextButtonColors
 import seeyuer.sayin.ui.localization.AppLanguage
 import seeyuer.sayin.ui.localization.AppLanguages
@@ -107,6 +129,9 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
+import sh.calvin.reorderable.DragGestureDetector
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import com.mikepenz.aboutlibraries.ui.compose.android.produceLibraries
 
 internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
@@ -122,6 +147,7 @@ internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
 internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Root(null),
     SendPolicy(Root),
+    DraftToolbar(Root),
     Recognition(Root),
     Cloud(Recognition),
     Hotwords(Recognition),
@@ -239,6 +265,7 @@ internal fun SettingsHost(
                     SettingsRoute.SendPolicy -> SendPolicyPage(
                         session, clientState, pageModifier, scrollFor(SettingsRoute.SendPolicy),
                     )
+                    SettingsRoute.DraftToolbar -> DraftToolbarPage(pageModifier)
                     SettingsRoute.Recognition -> RecognitionPage(
                         session, cloudState, onOpenCloud = { route = SettingsRoute.Cloud },
                         onOpenHotwords = { route = SettingsRoute.Hotwords },
@@ -320,6 +347,7 @@ private fun SettingsRoute.depth(): Int = parent?.let { it.depth() + 1 } ?: 0
 private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Root -> R.string.settings_title
     SettingsRoute.SendPolicy -> R.string.settings_send_policy
+    SettingsRoute.DraftToolbar -> R.string.settings_draft_toolbar
     SettingsRoute.Recognition -> R.string.settings_voice_recognition
     SettingsRoute.Cloud -> R.string.settings_cloud_title
     SettingsRoute.Hotwords -> R.string.settings_hotwords_title
@@ -544,6 +572,244 @@ private fun PolicyAppIcon(application: ForegroundApplication, size: androidx.com
     }
 }
 
+/**
+ * Order and visibility of the draft card's tool row. Reordering previews locally and persists
+ * only on a real pointer release, matching the phrase reorder rules; visibility commits at once.
+ */
+@Composable
+internal fun DraftToolbarPage(modifier: Modifier) {
+    val context = LocalContext.current
+    var surface by rememberSaveable { mutableStateOf(DraftToolSurface.Page) }
+    val pageEntries by DraftTools.entriesFor(DraftToolSurface.Page).collectAsStateWithLifecycle()
+    val quickEntries by DraftTools.entriesFor(DraftToolSurface.Quick).collectAsStateWithLifecycle()
+    val pageSide by DraftTools.sideFor(DraftToolSurface.Page).collectAsStateWithLifecycle()
+    val quickSide by DraftTools.sideFor(DraftToolSurface.Quick).collectAsStateWithLifecycle()
+    var entries by remember { mutableStateOf(pageEntries) }
+    var side by remember { mutableStateOf(pageSide) }
+    var focusTarget by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(surface, pageEntries, quickEntries, pageSide, quickSide) {
+        if (surface == DraftToolSurface.Page) {
+            entries = pageEntries; side = pageSide
+        } else {
+            entries = quickEntries; side = quickSide
+        }
+    }
+    fun persist() { DraftTools.replace(context, surface, entries) }
+    fun toggle(tool: DraftTool, visible: Boolean) {
+        entries = entries.map { if (it.tool == tool) it.copy(visible = visible) else it }
+        persist()
+    }
+    fun move(tool: DraftTool, delta: Int) {
+        val index = entries.indexOfFirst { it.tool == tool }
+        if (index < 0) return
+        val target = (index + delta).coerceIn(0, entries.lastIndex)
+        if (target == index) return
+        val moved = entries.toMutableList()
+        moved.add(target, moved.removeAt(index))
+        entries = moved
+        persist()
+        focusTarget = tool.id
+    }
+    val reorderState = rememberReorderableLazyListState(listState, scrollThreshold = 48.dp) { from, to ->
+        val fromTool = DraftTool.entries.firstOrNull { it.id == from.key }
+        val toTool = DraftTool.entries.firstOrNull { it.id == to.key }
+        if (fromTool != null && toTool != null) entries = moveDraftTool(entries, fromTool, toTool)
+    }
+    LazyColumn(
+        state = listState,
+        modifier = modifier.testTag("settings-draft-toolbar"),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        item {
+            TabRowWithContour(
+                tabs = listOf(
+                    stringResource(R.string.settings_draft_toolbar_surface_page),
+                    stringResource(R.string.settings_draft_toolbar_surface_quick),
+                ),
+                selectedTabIndex = if (surface == DraftToolSurface.Quick) 1 else 0,
+                onTabSelected = { index ->
+                    surface = if (index == 1) DraftToolSurface.Quick else DraftToolSurface.Page
+                    val targetEntries = if (surface == DraftToolSurface.Page) pageEntries else quickEntries
+                    entries = targetEntries
+                    side = if (surface == DraftToolSurface.Page) pageSide else quickSide
+                },
+                colors = TabRowDefaults.tabRowColors(
+                    backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    selectedBackgroundColor = MiuixTheme.colorScheme.surface,
+                    selectedContentColor = MiuixTheme.colorScheme.primary,
+                ),
+                modifier = Modifier.fillMaxWidth().testTag("settings-draft-toolbar-surface"),
+            )
+        }
+        item {
+            Text(
+                stringResource(R.string.settings_draft_toolbar_note),
+                Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                fontSize = 12.sp, lineHeight = 18.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+        }
+        // The row only stops spanning the card below four buttons, so the choice is offered then.
+        if (entries.count { it.visible } <= DRAFT_TOOL_SIDE_CHOICE_MAX) {
+            item {
+                Column(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                        .background(MiuixTheme.colorScheme.surface).padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.settings_draft_toolbar_side),
+                        Modifier.padding(horizontal = 4.dp),
+                        fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    )
+                    TabRowWithContour(
+                        tabs = listOf(
+                            stringResource(R.string.settings_draft_toolbar_side_left),
+                            stringResource(R.string.settings_draft_toolbar_side_right),
+                        ),
+                        selectedTabIndex = if (side == DraftToolSide.End) 1 else 0,
+                        onTabSelected = { index ->
+                            val chosen = if (index == 1) DraftToolSide.End else DraftToolSide.Start
+                            side = chosen
+                            DraftTools.setSide(context, surface, chosen)
+                        },
+                        colors = TabRowDefaults.tabRowColors(
+                            backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            selectedBackgroundColor = MiuixTheme.colorScheme.surface,
+                            selectedContentColor = MiuixTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier.fillMaxWidth().testTag("settings-draft-toolbar-side"),
+                    )
+                }
+            }
+        }
+        itemsIndexed(entries, key = { _, entry -> entry.tool.id }) { index, entry ->
+            ReorderableItem(reorderState, key = entry.tool.id) { dragging ->
+                var released by remember { mutableStateOf(false) }
+                val gestureDetector = remember {
+                    DragGestureDetector { start, end, cancel, drag ->
+                        detectVerticalDragGestures(
+                            onDragStart = { released = false; start(it) },
+                            onDragEnd = { released = true; end() },
+                            onDragCancel = cancel,
+                            onVerticalDrag = { change, amount -> drag(change, Offset(0f, amount)) },
+                        )
+                    }
+                }
+                DraftToolRow(
+                    entry = entry,
+                    index = index,
+                    total = entries.size,
+                    dragging = dragging,
+                    focusTarget = focusTarget,
+                    onFocusHandled = { focusTarget = null },
+                    onMove = { delta -> move(entry.tool, delta) },
+                    onVisibleChange = { toggle(entry.tool, it) },
+                    gripModifier = Modifier.draggableHandle(
+                        dragGestureDetector = gestureDetector,
+                        onDragStopped = { if (released) persist() },
+                    ),
+                )
+            }
+        }
+        item {
+            TextButton(
+                stringResource(R.string.settings_draft_toolbar_reset),
+                onClick = {
+                    entries = if (surface == DraftToolSurface.Page) defaultDraftTools() else defaultQuickDraftTools()
+                    side = DraftToolSide.Start
+                    DraftTools.reset(context, surface)
+                },
+                minHeight = 48.dp,
+                colors = plainTextButtonColors(),
+                modifier = Modifier.fillMaxWidth().testTag("settings-draft-toolbar-reset"),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DraftToolRow(
+    entry: DraftToolEntry,
+    index: Int,
+    total: Int,
+    dragging: Boolean,
+    focusTarget: String?,
+    onFocusHandled: () -> Unit,
+    onMove: (Int) -> Unit,
+    onVisibleChange: (Boolean) -> Unit,
+    gripModifier: Modifier,
+) {
+    val label = stringResource(entry.tool.labelRes)
+    val reorderDescription = stringResource(R.string.assist_reorder_for, label)
+    val positionDescription = stringResource(R.string.assist_moved, index + 1, total)
+    val moveUp = stringResource(R.string.assist_move_up)
+    val moveDown = stringResource(R.string.assist_move_down)
+    val reorderLabel = stringResource(R.string.assist_reorder)
+    val gripFocus = remember(entry.tool.id) { FocusRequester() }
+    val shape = RoundedCornerShape(16.dp)
+    val elevation by animateDpAsState(
+        if (dragging) 6.dp else 0.dp,
+        spring(stiffness = Spring.StiffnessMediumLow),
+    )
+    LaunchedEffect(focusTarget) {
+        if (focusTarget == entry.tool.id) {
+            runCatching { gripFocus.requestFocus() }
+            onFocusHandled()
+        }
+    }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .shadow(elevation, shape)
+            .clip(shape)
+            .background(MiuixTheme.colorScheme.surface),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(48.dp).focusRequester(gripFocus).focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (event.key) {
+                        Key.DirectionUp -> { onMove(-1); true }
+                        Key.DirectionDown -> { onMove(1); true }
+                        else -> false
+                    }
+                }
+                .then(gripModifier)
+                .semantics {
+                    contentDescription = reorderDescription
+                    role = Role.Button
+                    stateDescription = positionDescription
+                    customActions = listOf(
+                        CustomAccessibilityAction(moveUp) { onMove(-1); true },
+                        CustomAccessibilityAction(moveDown) { onMove(1); true },
+                    )
+                }
+                .testTag("draft-tool-grip-${entry.tool.id}"),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                VoiceLinkIcon.GripVertical.vector,
+                reorderLabel,
+                Modifier.size(22.dp),
+                tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+        }
+        Icon(entry.tool.icon.vector, null, Modifier.size(22.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+        Spacer(Modifier.width(12.dp))
+        Text(label, Modifier.weight(1f), fontSize = 15.sp, maxLines = 1)
+        Switch(
+            checked = entry.visible,
+            onCheckedChange = onVisibleChange,
+            colors = settingsSwitchColors(),
+            modifier = Modifier.padding(end = 12.dp).testTag("draft-tool-visible-${entry.tool.id}"),
+        )
+    }
+}
+
 @Composable
 private fun RootPage(
     session: SpeakSession,
@@ -556,6 +822,10 @@ private fun RootPage(
     listState: androidx.compose.foundation.lazy.LazyListState,
 ) {
     val context = LocalContext.current
+    val pageToolEntries by DraftTools.entriesFor(DraftToolSurface.Page).collectAsStateWithLifecycle()
+    val quickToolEntries by DraftTools.entriesFor(DraftToolSurface.Quick).collectAsStateWithLifecycle()
+    val shownToolCount = pageToolEntries.count { it.visible }
+    val shownQuickToolCount = quickToolEntries.count { it.visible }
     val appName = stringResource(R.string.app_name)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val prefs = remember(context) { context.getSharedPreferences("presentation", 0) }
@@ -686,6 +956,13 @@ private fun RootPage(
         item { GroupHeader(R.string.settings_group_experience) }
         item {
             SettingsCard {
+                ArrowPreference(
+                    title = stringResource(R.string.settings_draft_toolbar),
+                    summary = stringResource(R.string.settings_draft_toolbar_summary, shownToolCount, shownQuickToolCount),
+                    startAction = startIcon(VoiceLinkIcon.Clipboard),
+                    modifier = Modifier.testTag("settings-draft-toolbar"),
+                    onClick = { onOpen(SettingsRoute.DraftToolbar) },
+                )
                 val appearance by Appearance.mode.collectAsStateWithLifecycle()
                 val appearanceModes = AppearanceMode.entries
                 WindowDropdownPreference(

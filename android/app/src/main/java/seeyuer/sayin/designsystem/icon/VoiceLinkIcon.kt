@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 
 /** Feature UI references meaning; upstream icon names remain within the design system. */
 enum class VoiceLinkIcon {
-    Input, Computer, Send, Microphone, History, Search, Filter, Download, Settings, Scan, Wifi, Check, Alert, Shield, Close, Stop, Clear, ChevronRight, ChevronDown, Cloud, Phone, More, Undo, Redo, Translate, Photo, Copy, Automatic, Ai, ArrowUp, Retry, Clipboard, Plus, ArrowLeft, GripVertical,
+    Input, Computer, Send, Microphone, History, Search, Filter, Download, Settings, Scan, Wifi, Check, Alert, Shield, Close, Stop, Clear, ChevronRight, ChevronDown, Cloud, Phone, More, Undo, Redo, Translate, Photo, Copy, Automatic, Ai, ArrowUp, Retry, Clipboard, Plus, ArrowLeft, GripVertical, Share,
     DeviceDesktopCheck, DeviceDesktopMinus, DeviceDesktopPlus, DeviceDesktopPause,
     DeviceDesktopExclamation, DeviceDesktopX, ArrowsLeftRight, Loader2, Radar, Dots, Hourglass, Eye, EyeOff, ArrowsDiagonal;
 
@@ -45,6 +45,7 @@ enum class VoiceLinkIcon {
             Plus -> TablerVectors.Plus
             ArrowLeft -> TablerVectors.ArrowLeft
             GripVertical -> TablerVectors.GripVertical
+            Share -> TablerVectors.Share
             DeviceDesktopCheck -> TablerVectors.DeviceDesktopCheck
             DeviceDesktopMinus -> TablerVectors.DeviceDesktopMinus
             DeviceDesktopPlus -> TablerVectors.DeviceDesktopPlus

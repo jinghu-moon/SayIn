@@ -117,12 +117,17 @@ class SpeakInformationInstrumentedTest {
                 assertTrue(redo.width >= 48 * compose.activity.resources.displayMetrics.density - 1)
                 assertTrue(editor.height > 0 && editor.top >= undo.bottom - 1 && editor.bottom <= bar.top + 1)
                 if (variant.second >= 240 * variant.third) {
-                    val tools = if (quick) listOf("open-assist", "choose-image", "translate-draft", "clear-draft")
-                    else listOf("open-assist", "choose-image", "translate-draft", "polish-draft", "copy-draft", "clear-draft")
+                    // The full page wraps every enabled tool; the quick card renders the first five.
+                    val tools = if (quick) listOf("open-assist", "choose-image", "translate-draft", "polish-draft", "copy-draft")
+                    else listOf(
+                        "open-assist", "choose-image", "translate-draft", "polish-draft", "copy-draft", "clear-draft",
+                        "send-mode", "engine", "save-phrase", "share-draft",
+                    )
                     for (tag in tools) {
                         val tool = compose.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
                         assertTrue(tool.width >= 48 * compose.activity.resources.displayMetrics.density - 1)
                     }
+                    if (quick) compose.onNodeWithTag("clear-draft").assertDoesNotExist()
                 }
                 val output = File(context.filesDir, "ui-verification/54-information-$index.png")
                 output.parentFile!!.mkdirs()

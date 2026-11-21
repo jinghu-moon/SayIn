@@ -333,7 +333,7 @@
 - 协议权威说明见[01 v2 通信方案](docs/01-voicelink-protocol-v2.md)，代码/证据见[10 配对与 Android 通信实施记录](docs/10-secure-pairing-and-android-transport.md)。短码仅经固定版本的 1Password CPace 使用，扫码和短码均通过 TLS 主机固定且在电脑批准；不信任任意证书。
 - Android Outbox 以 host/device 双重范围隔离。同连接查询先于旧请求处理；unknown 必须人工核对，相同请求 UUID 只在用户明确操作后重试，uncertain 永不自动重试。持久凭据/载荷丢失或加密校验失败时停止发送，不静默新建身份。
 - 已支持代码协议和手工 IPv4/二维码；已支持有界 IPv4 mDNS/NSD，无空闲后台保活（用户主动录音期间的前台服务见第 19 节）。Windows 自动优先物理局域网及记住的可用路径，Private/Domain/Public 均不要求应用内网络许可；正常流程不提供网卡必选项。监听精确绑定网卡 GUID、IPv4、Windows 网络 GUID/类别集合，启动前及约每 2 秒核对，查询失败/超时或范围变化停止旧服务并暂停输入，再自动发现/重建。网络恢复只轮换新输入范围，不释放旧 held；主动暂停、待核对、存储阻断不得自动越过。首次直接展示邀请，已有手机只恢复监听，不重开配对。Windows 分类/防火墙不自动修改。手机先连保存地址，失败后通过有界 NSD 找回同一身份，完整认证后才持久更新 IPv4/端口；连接帮助内手动维护仍保留，详见 40。详见 [29 接收页重构](docs/29-desktop-receive-ui-refactor.md)；11 为历史策略。周期检测存在有界检测窗口，不声称网络变更与 socket 输入原子联动。
-- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，当前包含 115 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
+- 双端通信回归统一用 `scripts/verify_android_transport.ps1 -FullSuite`，只安装 `seeyuer.sayin.imagetest` 隔离包，当前包含 155 项常规界面/文字及另一个独立电脑身份的 4 项图片测试；旧的日常包测试实现和重复图片脚本已删除。运行前须手动解锁手机；默认普通安装，已授权的 Root 设备可加 `-UseExistingRootInstall`，`-SkipInstall` 仅复用本轮已安装隔离包。完整套件通过 `adb reverse` 连接 loopback 专用假输入服务，单独 `-Lan` 仅验证真实局域网图片数据，不能与 `-FullSuite` 同用。自动批准仅在测试 fixture，不能挪到产品；各组必须使用独立 host/device、数据目录与随机端口，不覆盖日常配对或 Outbox。
 - 当前没有实测 p50/p95/p99、续航或普通目标应用落字证据。查看 [10 实施 JSON](docs/research/10-secure-pairing-verification-2026-11-12.json) 核对本机 Android 仪器化测试是否能安装运行。
 
 ---
@@ -464,3 +464,14 @@
 - 设计、实现和验证见 [67 记录页](docs/67-android-history-card-refactor.md)。手机历史目标只能使用原请求执行时的 status.application 快照；实时 foreground 不补历史。名称最多 96 码点、PNG 48×48/12KiB，禁止把路径、窗口标题或进程身份发给手机。
 - Room schema 4 加密保存绑定 host/device/request 的快照；historyHidden 只影响记录页。内部状态和 pending 查询继续看见隐藏行，不能借删除取消请求、解除 uncertain、释放 held 或重放。
 - 图片历史按需解密采样；64dp Fit 缩略图，详情有界 1600px。复制通过不可导出、只读、系统 URI grant 的提供者与有界解密管道，不产生明文缓存、不触发电脑输入。隐藏记录不再允许新读取。
+
+## 27. Android 草稿工具栏配置
+
+- 显示、隐藏、顺序与短行位置的选择端实现见 [81 草稿工具栏配置](docs/81-android-draft-toolbar-configuration.md)。设置入口在“使用体验 → 草稿工具栏”，使用 Miuix `Switch`、`TabRowWithContour` 与现有 Reorderable 源码；拖动松手才落盘。
+- 成员判定必须只来自 `DraftTools`（`visibleDraftTools`）一处，禁止在工具栏、窄屏兜底、内联兜底或快捷卡分别写例外；用户隐藏=不渲染，运行时不可用=保留禁用态。动作文案、启用条件与执行分支集中在 `SpeakPage` 的 `toolLabel/toolEnabled/runTool`。
+- 持久化只用 `presentation` 的四项：`draft_tools` / `quick_draft_tools`（完整有序 `id=1,id=0` 列表）与 `draft_tool_side` / `quick_draft_tool_side`（`start|end`）。未知 id 丢弃、重复取首、缺失的新工具在完整页追加且默认可见、在快捷卡追加且默认隐藏；纯展示偏好坏值回默认，不阻断会话。快捷卡首次加载从完整页派生（前 5 个可见、其余隐藏、顺序不变、对齐继承），之后两份配置独立。
+- 设置页顶部用 `TabRowWithContour` 切换“完整页 / 快捷卡”，分别编辑顺序、开关与短行对齐；根页摘要为“完整页 N 个 · 快捷卡 M 个”。
+- 完整页显示全部开启的按钮；超过一行容量时按可用宽度自动换成均衡多行（360dp 约 6 个/行），每行铺满卡片宽度，末行不足时居中均匀分布；卡片边距固定 20dp、文本内缩 16/12dp。快捷卡使用自己的配置，同样按宽度换行。0 个时整行消失，≤3 个时按 `start|end` 对齐，≥4 个铺满。
+- 扩展动作：发送模式（`SendModeSheet`，复用 `changeSendMode/changeAutoSendSeconds`，当前应用规则优先）、识别引擎（`RecognitionEngineSheet`，复用 `selectSource`）、存为常用语（直接 `phrases.add` 并提示结果）、分享（系统 chooser，不触发电脑发送）。四个动作都不得改动草稿或触发 Outbox。
+- 三个新 sheet 与 `PolishSheet` 一样依赖 miuix 根 `Scaffold` 宿主；直接渲染 `SpeakPage` 的 Compose 测试必须包一层 `Scaffold`，否则 `OverlayBottomSheet` 内容不进入语义树。
+- 修改后运行 `python scripts/check_i18n.py`、`:app:testDebugUnitTest`、`:app:lintDebug`；设备回归用 `scripts/verify_android_transport.ps1 -FullSuite`（当前 155 项文字/UI + 4 项图片），并覆盖安装日常 Debug 包。

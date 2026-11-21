@@ -11,6 +11,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.test.*
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
@@ -19,9 +20,11 @@ import android.view.WindowManager
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -42,8 +45,9 @@ import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ForegroundApplication
 import seeyuer.sayin.data.OutboxItem
 import seeyuer.sayin.designsystem.VoiceLinkTheme
-import top.yukonga.miuix.kmp.basic.Text
+import seeyuer.sayin.ui.settings.DraftToolbarPage
 import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.basic.Text
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
@@ -620,6 +624,217 @@ class MobileShellInstrumentedTest {
         assertEquals(0, sends)
     }
 
+    @Test fun draftToolbarUsesSavedOrderAndVisibility() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        try {
+            val order = listOf(DraftTool.Clear) + original.map { it.tool }.filter { it != DraftTool.Clear }
+            DraftTools.replace(context, DraftToolSurface.Page, order.map { DraftToolEntry(it, it != DraftTool.Image) })
+            setTestContent {
+                VoiceLinkTheme {
+                    TestSpeakPage(ready(), TextFieldValue("保留草稿"), {}, {}, SpeakInputSource.Keyboard, {},
+                        SpeakSendMode.Manual, {})
+                }
+            }
+            compose.onNodeWithTag("choose-image").assertDoesNotExist()
+            compose.onNodeWithTag("clear-draft").assertExists()
+            val clearLeft = compose.onNodeWithTag("clear-draft").fetchSemanticsNode().boundsInRoot.left
+            val assistLeft = compose.onNodeWithTag("open-assist").fetchSemanticsNode().boundsInRoot.left
+            assertTrue("saved order must place Clear left of Assist", clearLeft < assistLeft)
+            compose.onNodeWithTag("draft").assertTextContains("保留草稿")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+        }
+    }
+
+    @Test fun shortDraftToolRowFollowsTheSideChoice() {
+        val originalEntries = DraftTools.entriesFor(DraftToolSurface.Page).value
+        val originalSide = DraftTools.sideFor(DraftToolSurface.Page).value
+        try {
+            DraftTools.replace(context, DraftToolSurface.Page, DraftTools.entriesFor(DraftToolSurface.Page).value.map {
+                DraftToolEntry(it.tool, it.tool in setOf(DraftTool.Assist, DraftTool.Image, DraftTool.Clear))
+            })
+            DraftTools.setSide(context, DraftToolSurface.Page, DraftToolSide.Start)
+            setTestContent {
+                VoiceLinkTheme {
+                    TestSpeakPage(ready(), TextFieldValue("保留草稿"), {}, {}, SpeakInputSource.Keyboard, {},
+                        SpeakSendMode.Manual, {})
+                }
+            }
+            val startLeft = compose.onNodeWithTag("open-assist").fetchSemanticsNode().boundsInRoot.left
+            screenshot("draft-toolbar-short-start")
+            compose.runOnIdle { DraftTools.setSide(context, DraftToolSurface.Page, DraftToolSide.End) }
+            compose.waitForIdle()
+            val endLeft = compose.onNodeWithTag("open-assist").fetchSemanticsNode().boundsInRoot.left
+            screenshot("draft-toolbar-short-end")
+            assertTrue("an end-aligned short row moves the first tool to the other edge", endLeft > startLeft + 100f)
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, originalEntries)
+            DraftTools.setSide(context, DraftToolSurface.Page, originalSide)
+        }
+    }
+
+    @Test fun draftToolbarSettingsTogglesVisibilityAndRestoresDefaults() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        val originalSide = DraftTools.sideFor(DraftToolSurface.Page).value
+        val originalQuick = DraftTools.entriesFor(DraftToolSurface.Quick).value
+        val originalQuickSide = DraftTools.sideFor(DraftToolSurface.Quick).value
+        try {
+            DraftTools.reset(context, DraftToolSurface.Page)
+            setTestContent { VoiceLinkTheme { DraftToolbarPage(Modifier.fillMaxSize()) } }
+            compose.onNodeWithTag("settings-draft-toolbar-side").assertDoesNotExist()
+            fun toggleOff(id: String) {
+                val tag = "draft-tool-visible-$id"
+                compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag(tag))
+                compose.onNodeWithTag(tag).performClick()
+            }
+            // Ten tools are visible after reset, so seven switches must go off to reach three.
+            listOf("copy", "translate", "polish", "send_mode", "engine", "save_phrase", "share").forEach(::toggleOff)
+            compose.waitForIdle()
+            assertEquals(3, DraftTools.entriesFor(DraftToolSurface.Page).value.count { it.visible })
+            assertFalse(DraftTools.entriesFor(DraftToolSurface.Page).value.first { it.tool == DraftTool.Copy }.visible)
+            compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag("settings-draft-toolbar-side"))
+            compose.onNodeWithTag("settings-draft-toolbar-side").assertExists()
+            screenshot("draft-toolbar-settings")
+            compose.onNodeWithText(context.getString(R.string.settings_draft_toolbar_side_right)).performClick()
+            compose.waitForIdle()
+            assertEquals(DraftToolSide.End, DraftTools.sideFor(DraftToolSurface.Page).value)
+            compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag("settings-draft-toolbar-reset"))
+            compose.onNodeWithTag("settings-draft-toolbar-reset").performClick()
+            compose.waitForIdle()
+            assertTrue(DraftTools.entriesFor(DraftToolSurface.Page).value.all { it.visible })
+            assertEquals(DraftTool.entries.map { it.id }, DraftTools.entriesFor(DraftToolSurface.Page).value.map { it.tool.id })
+            assertEquals(DraftToolSide.Start, DraftTools.sideFor(DraftToolSurface.Page).value)
+            compose.onNodeWithTag("settings-draft-toolbar-side").assertDoesNotExist()
+
+            // The quick card keeps its own profile; editing it must not touch the page list.
+            val pageBeforeQuickEdit = DraftTools.entriesFor(DraftToolSurface.Page).value
+            compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag("settings-draft-toolbar-surface"))
+            compose.onNodeWithText(context.getString(R.string.settings_draft_toolbar_surface_quick)).performClick()
+            compose.waitForIdle()
+            assertEquals(5, DraftTools.entriesFor(DraftToolSurface.Quick).value.count { it.visible })
+            compose.waitForIdle()
+            compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag("draft-tool-visible-copy"))
+            compose.onNodeWithTag("draft-tool-visible-copy").performClick()
+            compose.waitForIdle()
+            assertFalse(DraftTools.entriesFor(DraftToolSurface.Quick).value.first { it.tool == DraftTool.Copy }.visible)
+            assertEquals(pageBeforeQuickEdit, DraftTools.entriesFor(DraftToolSurface.Page).value)
+            compose.onNodeWithTag("settings-draft-toolbar").performScrollToNode(hasTestTag("settings-draft-toolbar-reset"))
+            compose.onNodeWithTag("settings-draft-toolbar-reset").performClick()
+            compose.waitForIdle()
+            assertEquals(defaultQuickDraftTools(), DraftTools.entriesFor(DraftToolSurface.Quick).value)
+            assertEquals(DraftToolSide.Start, DraftTools.sideFor(DraftToolSurface.Quick).value)
+            screenshot("draft-toolbar-quick-settings")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+            DraftTools.setSide(context, DraftToolSurface.Page, originalSide)
+            DraftTools.replace(context, DraftToolSurface.Quick, originalQuick)
+            DraftTools.setSide(context, DraftToolSurface.Quick, originalQuickSide)
+        }
+    }
+
+    @Test fun sendModeShortcutChangesTheSessionPolicy() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        try {
+            DraftTools.reset(context, DraftToolSurface.Page)
+            setTestContent {
+                VoiceLinkTheme {
+                    Scaffold {
+                        TestSpeakPage(ready(), TextFieldValue("保留草稿"), {}, {}, SpeakInputSource.Keyboard, {},
+                            SpeakSendMode.Manual, {})
+                    }
+                }
+            }
+            compose.onNodeWithTag("send-mode").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithTag("send-mode-tabs").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("send-mode-tabs").assertExists()
+            compose.onNodeWithText(context.getString(R.string.settings_policy_auto)).performClick()
+            compose.waitForIdle()
+            assertEquals(SpeakSendMode.Automatic, currentTestSession.sendMode)
+            screenshot("draft-toolbar-send-mode")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+        }
+    }
+
+    @Test fun engineShortcutSwitchesTheRecognitionSource() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        try {
+            DraftTools.reset(context, DraftToolSurface.Page)
+            setTestContent {
+                VoiceLinkTheme {
+                    Scaffold {
+                        TestSpeakPage(ready(), TextFieldValue("保留草稿"), {}, {}, SpeakInputSource.Keyboard, {},
+                            SpeakSendMode.Manual, {})
+                    }
+                }
+            }
+            compose.onNodeWithTag("engine").performClick()
+            compose.waitUntil(5_000) {
+                compose.onAllNodesWithTag("engine-tabs").fetchSemanticsNodes().isNotEmpty()
+            }
+            compose.onNodeWithTag("engine-tabs").assertExists()
+            compose.onNodeWithText(context.getString(R.string.settings_engine_cloud)).performClick()
+            compose.waitForIdle()
+            assertEquals(SpeakInputSource.Cloud, currentTestSession.source)
+            screenshot("draft-toolbar-engine")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+        }
+    }
+
+    @Test fun savePhraseShortcutStoresTheDraftAndReportsDuplicates() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        try {
+            DraftTools.reset(context, DraftToolSurface.Page)
+            setTestContent {
+                VoiceLinkTheme {
+                    Scaffold {
+                        TestSpeakPage(ready(), TextFieldValue("这句要留着"), {}, {}, SpeakInputSource.Keyboard, {},
+                            SpeakSendMode.Manual, {})
+                    }
+                }
+            }
+            compose.waitUntil(5_000) {
+                val nodes = compose.onAllNodesWithTag("save-phrase").fetchSemanticsNodes()
+                nodes.isNotEmpty() && !nodes.first().config.contains(SemanticsProperties.Disabled)
+            }
+            compose.onNodeWithTag("save-phrase").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText(context.getString(R.string.draft_tool_phrase_saved)).assertExists()
+            compose.onNodeWithText(context.getString(R.string.assist_phrase_duplicate)).assertDoesNotExist()
+            compose.onNodeWithTag("save-phrase").performClick()
+            compose.waitForIdle()
+            compose.onNodeWithText(context.getString(R.string.assist_phrase_duplicate)).assertExists()
+            screenshot("draft-toolbar-save-phrase")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+        }
+    }
+
+    @Test fun draftToolbarSettingsDragReordersAndPersists() {
+        val original = DraftTools.entriesFor(DraftToolSurface.Page).value
+        try {
+            DraftTools.reset(context, DraftToolSurface.Page)
+            setTestContent { VoiceLinkTheme { DraftToolbarPage(Modifier.fillMaxSize()) } }
+            val before = DraftTools.entriesFor(DraftToolSurface.Page).value.map { it.tool.id }
+            val grip = compose.onNodeWithTag("draft-tool-grip-assist")
+            val rowHeight = grip.fetchSemanticsNode().boundsInRoot.height
+            grip.performTouchInput {
+                swipe(start = center, end = center + androidx.compose.ui.geometry.Offset(0f, rowHeight * 2f),
+                    durationMillis = 400)
+            }
+            compose.waitForIdle()
+            val after = DraftTools.entriesFor(DraftToolSurface.Page).value.map { it.tool.id }
+            assertTrue("dragging must persist a new order", after != before)
+            assertTrue("the dragged tool leaves its first slot", after.indexOf(DraftTool.Assist.id) > 0)
+            screenshot("draft-toolbar-reordered")
+        } finally {
+            DraftTools.replace(context, DraftToolSurface.Page, original)
+        }
+    }
+
     private fun openRecognitionSettings() {
         compose.onNodeWithTag("nav-Settings").performClick()
         compose.onNode(
@@ -663,6 +878,7 @@ class MobileShellInstrumentedTest {
         cloudConfig: seeyuer.sayin.asr.CloudConfiguration? = null, onConfigureCloud: () -> Unit = {}) {
         val context = LocalContext.current
         val session = remember { SpeakSession(context, draft, onDraftChange).also { it.selectSource(source); it.changeSendMode(sendMode) } }
+        currentTestSession = session
         SideEffect { session.updateReceiver(state); session.onSendReady = { onSend() } }
         DisposableEffect(session) { onDispose { session.close() } }
         SpeakPage(state, session, rememberTestPhraseLibrary(), onSend, onConnect, cloudConfig, onConfigureCloud)

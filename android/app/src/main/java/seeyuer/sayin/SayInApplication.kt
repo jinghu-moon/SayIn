@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import seeyuer.sayin.ui.DraftTools
 import seeyuer.sayin.ui.VoiceLinkViewModel
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.data.EncryptedPhraseStorage
@@ -29,6 +30,7 @@ class SayInApplication : Application(), ViewModelStoreOwner {
     override fun onCreate() {
         super.onCreate()
         Appearance.init(this)
+        DraftTools.init(this)
         phrases = PhraseLibrary(EncryptedPhraseStorage(this), phraseScope).apply { start() }
     }
 

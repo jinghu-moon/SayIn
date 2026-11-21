@@ -182,6 +182,16 @@ internal object TablerVectors {
         )
     }
 
+    val Share: ImageVector by lazy {
+        outline("Tabler.share-2",
+            "M3 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+            "M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+            "M15 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
+            "M8.59 13.51l6.83 3.98",
+            "M15.41 6.51l-6.82 3.98"
+        )
+    }
+
     val Undo: ImageVector by lazy {
         outline("Tabler.arrow-back-up",
             "M9 14l-4 -4l4 -4",

@@ -54,12 +54,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import seeyuer.sayin.R
 import seeyuer.sayin.asr.*
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.PhraseLibrary
+import seeyuer.sayin.data.PhraseWriteResult
 import seeyuer.sayin.data.normalizedText
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.ui.assist.AssistDismissReason
@@ -93,6 +95,11 @@ internal fun SpeakPage(
     val keyboard = LocalSoftwareKeyboardController.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val context = LocalContext.current
+    val toolSurface = if (quick) DraftToolSurface.Quick else DraftToolSurface.Page
+    val toolEntries by DraftTools.entriesFor(toolSurface).collectAsStateWithLifecycle()
+    val toolSide by DraftTools.sideFor(toolSurface).collectAsStateWithLifecycle()
+    // Membership and the row/overflow split come from the saved order; the row stays one line.
+    val visibleTools = remember(toolEntries) { visibleDraftTools(toolEntries) }
     val owner = remember { Any() }
     var showPreview by remember { mutableStateOf(false) }
     var showTranslationPreparation by remember { mutableStateOf(false) }
@@ -102,11 +109,16 @@ internal fun SpeakPage(
     var assistTicket by remember { mutableStateOf<AssistInsertion?>(null) }
     var assistTab by remember { mutableStateOf(AssistTab.Clipboard) }
     var assistNotice by remember { mutableStateOf<Int?>(null) }
+    var toolNotice by remember { mutableStateOf<Int?>(null) }
+    var showSendMode by remember { mutableStateOf(false) }
+    var showEngine by remember { mutableStateOf(false) }
     var assistWasOpen by remember { mutableStateOf(false) }
     var toolsShown by remember { mutableStateOf(true) }
     var assistEntryFocused by remember { mutableStateOf(false) }
     val assistEntryFocus = remember { FocusRequester() }
     val presentation = remember(context) { context.getSharedPreferences("presentation", 0) }
+    val phrasesReady by phrases.ready.collectAsStateWithLifecycle()
+    val phrasesIssue by phrases.issue.collectAsStateWithLifecycle()
     var focused by remember { mutableStateOf(false) }
     var permissionPending by remember { mutableStateOf(false) }
     var permissionGranted by remember { mutableStateOf(false) }
@@ -197,6 +209,10 @@ internal fun SpeakPage(
     LaunchedEffect(assistNotice) {
         val current = assistNotice
         if (current != null) { kotlinx.coroutines.delay(4_000); if (assistNotice == current) assistNotice = null }
+    }
+    LaunchedEffect(toolNotice) {
+        val current = toolNotice
+        if (current != null) { kotlinx.coroutines.delay(4_000); if (toolNotice == current) toolNotice = null }
     }
     LaunchedEffect(showAssist) {
         if (showAssist) { assistWasOpen = true; return@LaunchedEffect }
@@ -308,6 +324,77 @@ internal fun SpeakPage(
         autoRecordConsumed = autoRecordVersion
         microphone()
     }
+    val busy = session.busy
+    val locked = session.requestLocked || session.draftRestoring
+    val toolsEnabled = !busy && !locked && !session.translation.running && !session.translationStopping && draft.composition == null
+    val canChangeDelivery = !busy && !locked && !session.translation.running &&
+        !session.translationStopping && !session.translationPreparing
+    val shareChooserTitle = stringResource(R.string.draft_tool_share_chooser)
+    fun toolLabel(tool: DraftTool): Int = when (tool) {
+        DraftTool.Translate -> when {
+            session.translation.running || session.translationPreparing -> R.string.translation_cancel
+            session.translationShown -> R.string.translation_show_original
+            session.translation.complete -> R.string.translation_show_cached
+            else -> R.string.translation_action
+        }
+        else -> tool.labelRes
+    }
+    fun toolEnabled(tool: DraftTool): Boolean = when (tool) {
+        DraftTool.Assist -> session.assistEditable && !busy && !locked
+        DraftTool.Image -> state.paired && state.storageHealthy && !busy && !locked
+        DraftTool.Translate -> session.canTranslateDraft || session.translation.running || session.translationPreparing
+        DraftTool.Polish -> session.canOpenPolish
+        DraftTool.Copy -> draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping
+        DraftTool.Clear -> toolsEnabled && draft.text.isNotEmpty()
+        DraftTool.SendMode, DraftTool.Engine -> canChangeDelivery
+        DraftTool.SavePhrase -> draft.text.isNotBlank() && !busy && !locked &&
+            !session.translation.running && !session.translationStopping && phrasesReady && !phrasesIssue
+        DraftTool.Share -> draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping
+    }
+    fun toolProgress(tool: DraftTool): Boolean = when (tool) {
+        DraftTool.Translate -> session.translation.running || session.translationPreparing
+        DraftTool.Polish -> session.polishState.running
+        else -> false
+    }
+    fun toolSelected(tool: DraftTool): Boolean = tool == DraftTool.Translate && session.translationShown
+    suspend fun savedPhraseMessage(): Int = when (phrases.add(draft.text)) {
+        PhraseWriteResult.SAVED -> R.string.draft_tool_phrase_saved
+        PhraseWriteResult.DUPLICATE -> R.string.assist_phrase_duplicate
+        PhraseWriteResult.FULL -> R.string.assist_phrase_full
+        PhraseWriteResult.TOO_LONG -> R.string.assist_phrase_too_long
+        PhraseWriteResult.INVALID -> R.string.assist_phrase_invalid
+        PhraseWriteResult.EMPTY -> R.string.assist_phrase_empty
+        PhraseWriteResult.UNAVAILABLE, PhraseWriteResult.CONFLICT -> R.string.assist_library_issue
+    }
+    fun shareDraft() {
+        val text = draft.text
+        if (text.isEmpty()) return
+        val send = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        val chooser = Intent.createChooser(send, shareChooserTitle)
+        runCatching { context.startActivity(chooser) }
+            .onFailure { toolNotice = R.string.draft_tool_share_failed }
+    }
+    fun runTool(tool: DraftTool) {
+        session.cancelAutoSend()
+        when (tool) {
+            DraftTool.Assist -> openAssist()
+            DraftTool.Image -> onImage()
+            DraftTool.Translate -> when {
+                session.translation.running -> session.stopTranslation()
+                session.translationPreparing -> session.cancelModelPreparation()
+                else -> translate()
+            }
+            DraftTool.Polish -> showPolish = true
+            DraftTool.Copy -> uiScope.launch {
+                clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("", draft.text)))
+            }
+            DraftTool.Clear -> session.clearDraft()
+            DraftTool.SendMode -> showSendMode = true
+            DraftTool.Engine -> showEngine = true
+            DraftTool.SavePhrase -> uiScope.launch { toolNotice = savedPhraseMessage() }
+            DraftTool.Share -> shareDraft()
+        }
+    }
     BoxWithConstraints(Modifier.widthIn(max = 640.dp).fillMaxSize().testTag("page-Speak")) {
         val fontScale = LocalDensity.current.fontScale
         val compact = maxHeight < 300.dp * fontScale
@@ -317,16 +404,23 @@ internal fun SpeakPage(
         val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
         val showHeader = maxHeight >= 260.dp * fontScale
         val showTools = maxHeight >= 240.dp * fontScale
-        val toolbarWidth = 48.dp * if (quick) 5 else 6
-        val cardMargin = if (showTools) ((maxWidth - toolbarWidth - 28.dp) / 2)
-            .coerceIn(8.dp, 20.dp) else 20.dp
-        val insetBudget = (maxWidth - toolbarWidth - cardMargin * 2).coerceIn(8.dp, 28.dp)
-        val cardStartInset = if (showTools) (insetBudget / 2 + 2.dp).coerceAtMost(insetBudget - 4.dp) else 16.dp
-        val cardEndInset = if (showTools) insetBudget - cardStartInset else 12.dp
-        SideEffect { toolsShown = showTools }
-        val busy = session.busy
-        val locked = session.requestLocked || session.draftRestoring
-        val toolsEnabled = !busy && !locked && !session.translation.running && !session.translationStopping && draft.composition == null
+        val toolsRow = showTools && visibleTools.isNotEmpty()
+        // Fixed card margins; the row wraps into balanced lines when more tools are enabled than
+        // fit on one line, so every enabled button is visible without a "more" step.
+        val cardMargin = 20.dp
+        val cardStartInset = 16.dp
+        val cardEndInset = 12.dp
+        val iconCapacity = ((maxWidth - cardMargin * 2 - cardStartInset - cardEndInset) / 48.dp)
+            .toInt().coerceAtLeast(1)
+        val toolsPerLine = when {
+            visibleTools.size <= iconCapacity -> visibleTools.size
+            else -> {
+                val lines = (visibleTools.size + iconCapacity - 1) / iconCapacity
+                (visibleTools.size + lines - 1) / lines
+            }
+        }
+        // Only the in-card Assist entry carries the focus requester used after the sheet closes.
+        SideEffect { toolsShown = toolsRow && DraftTool.Assist in visibleTools }
         val color = MiuixTheme.colorScheme
         Column(Modifier.fillMaxSize()) {
             if (showHeader) SmallTopAppBar(
@@ -363,10 +457,12 @@ internal fun SpeakPage(
                     bottom = if (minimal) 0.dp else if (quick) 16.dp else 16.dp)
                 .clip(RoundedCornerShape(28.dp)).background(color.surface)
                 .padding(start = cardStartInset, end = cardEndInset,
-                    top = if (showTools) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
+                    top = if (toolsRow) 10.dp else 0.dp, bottom = if (minimal) 0.dp else 6.dp)) {
                 if (!inlineEditingActions) DraftInformation(state, draft, effectiveSendMode) {
-                    if (!showTools) DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist-fallback",
-                        session.assistEditable && !busy && !locked) { openAssist() }
+                    if (!toolsRow && DraftTool.Assist in visibleTools) DraftIcon(
+                        VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist-fallback",
+                        session.assistEditable && !busy && !locked,
+                    ) { openAssist() }
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
                     DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
                 }
@@ -432,46 +528,42 @@ internal fun SpeakPage(
                         stringResource(R.string.receipt_automatic_target_changed), fontSize = 12.sp, color = color.onSurfaceSecondary,
                     )
                 }
-                if (showTools) {
-                    FlowRow(Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween) {
-                        DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist",
-                            session.assistEditable && !busy && !locked,
-                            modifier = Modifier.focusRequester(assistEntryFocus)
-                                .onFocusChanged { assistEntryFocused = it.isFocused }.focusable()) {
-                            openAssist()
+                if (toolsRow) {
+                    val toolRows = visibleTools.chunked(toolsPerLine.coerceAtLeast(1))
+                    Column(Modifier.fillMaxWidth().testTag("draft-tools"),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        toolRows.forEach { rowTools ->
+                            Row(Modifier.fillMaxWidth(),
+                                horizontalArrangement = when {
+                                    // Every line is distributed across the full card width; a short
+                                    // last line is centered instead of being packed to one edge.
+                                    rowTools.size < toolRows.first().size -> Arrangement.SpaceEvenly
+                                    toolRows.size > 1 || rowTools.size > DRAFT_TOOL_SIDE_CHOICE_MAX ->
+                                        Arrangement.SpaceBetween
+                                    toolSide == DraftToolSide.End -> Arrangement.spacedBy(4.dp, Alignment.End)
+                                    else -> Arrangement.spacedBy(4.dp, Alignment.Start)
+                                },
+                                verticalAlignment = Alignment.CenterVertically) {
+                                rowTools.forEach { tool ->
+                                    DraftIcon(tool.icon, toolLabel(tool), tool.testTag(), toolEnabled(tool),
+                                        progress = toolProgress(tool), selected = toolSelected(tool),
+                                        modifier = if (tool == DraftTool.Assist) Modifier.focusRequester(assistEntryFocus)
+                                            .onFocusChanged { assistEntryFocused = it.isFocused }.focusable() else Modifier) {
+                                        runTool(tool)
+                                    }
+                                }
+                            }
                         }
-                        DraftIcon(VoiceLinkIcon.Photo, R.string.image_choose, "choose-image",
-                            state.paired && state.storageHealthy && !busy && !locked) {
-                            session.cancelAutoSend(); onImage()
-                        }
-                        DraftIcon(VoiceLinkIcon.Translate,
-                            when {
-                                session.translation.running || session.translationPreparing -> R.string.translation_cancel
-                                session.translationShown -> R.string.translation_show_original
-                                session.translation.complete -> R.string.translation_show_cached
-                                else -> R.string.translation_action
-                            }, "translate-draft",
-                            session.canTranslateDraft || session.translation.running || session.translationPreparing,
-                            progress = session.translation.running || session.translationPreparing, selected = session.translationShown) {
-                            when { session.translation.running -> session.stopTranslation(); session.translationPreparing -> session.cancelModelPreparation(); else -> translate() }
-                        }
-                        DraftIcon(VoiceLinkIcon.Ai, R.string.polish_title, "polish-draft",
-                            session.canOpenPolish, progress = session.polishState.running) {
-                            session.cancelAutoSend(); showPolish = true
-                        }
-                        if (!quick) DraftIcon(VoiceLinkIcon.Copy, R.string.speak_copy_draft, "copy-draft", draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping) {
-                            session.cancelAutoSend(); uiScope.launch { clipboard.setClipEntry(ClipEntry(android.content.ClipData.newPlainText("", draft.text))) }
-                        }
-                        DraftIcon(VoiceLinkIcon.Clear, R.string.speak_clear_draft, "clear-draft", toolsEnabled && draft.text.isNotEmpty()) { session.clearDraft() }
                     }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = if (minimal) 0.dp else 10.dp).height(controlSize), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (inlineEditingActions) 0.dp else 10.dp)) {
                 if (inlineEditingActions) {
-                    if (!showTools) DraftIcon(VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist-fallback",
-                        session.assistEditable && !busy && !locked) { openAssist() }
+                    if (!toolsRow && DraftTool.Assist in visibleTools) DraftIcon(
+                        VoiceLinkIcon.Clipboard, R.string.assist_open, "open-assist-fallback",
+                        session.assistEditable && !busy && !locked,
+                    ) { openAssist() }
                     DraftIcon(VoiceLinkIcon.Undo, R.string.speak_undo, "undo-draft", session.canUndo, onClick = session::undo)
                     DraftIcon(VoiceLinkIcon.Redo, R.string.speak_redo, "redo-draft", session.canRedo, onClick = session::redo)
                 }
@@ -655,9 +747,20 @@ internal fun SpeakPage(
                 Text(stringResource(message), fontSize = 13.sp, color = color.surface)
             }
         }
+        toolNotice?.let { message ->
+            Row(Modifier.align(Alignment.BottomCenter)
+                .padding(bottom = if (assistNotice != null || clearNotice) 140.dp else 84.dp)
+                .padding(horizontal = 16.dp)
+                .background(color.onSurface, RoundedCornerShape(28.dp)).padding(horizontal = 16.dp, vertical = 12.dp)
+                .semantics { liveRegion = LiveRegionMode.Polite }.testTag("tool-notice")) {
+                Text(stringResource(message), fontSize = 13.sp, color = color.surface)
+            }
+        }
     }
     TranslationPreparationSheet(session, showTranslationPreparation) { showTranslationPreparation = false }
     PolishSheet(session, showPolish, { showPolish = false }, onConfigurePolish)
+    SendModeSheet(session, showSendMode) { showSendMode = false }
+    RecognitionEngineSheet(session, cloudConfig != null, showEngine, { showEngine = false }, onConfigureCloud)
     AssistPanel(
         show = showAssist,
         openGeneration = assistGeneration,
