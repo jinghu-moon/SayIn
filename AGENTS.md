@@ -428,7 +428,7 @@
 - 图片资源先有界校验、DPAPI 加密同步落盘，再以 WAL/FULL 接受事务绑定 schema 6 的收据、资源与历史。每设备一张、主机两张、完整解码并发一；10MiB 编码、1600 万像素、单边 8192、块正文 48KiB。
 - 图片意图受当前连接、范围、暂停、撤销约束；重连先 query，不自动上传、submit 或 release。旧图片 held 不支持 release，不能复用旧光标意图。原有文字与 Enter 保持原语义。
 - 生产 NativeInput 读取并校验受保护原图，再捕获前台进程。电脑设置和历史菜单可为可执行文件配置图片接收方式，完整路径按 Windows 不区分大小写的序数规则匹配。完整路径规则优先于默认值，默认 Windows Terminal 复制文件路径，其他应用粘贴图片。持久 executing 后原子保存原图，默认目录为系统下载目录下的 SayIn。路径方式发布 Unicode 文本，回执为 `clipboard_image_path`。图片方式发布 PNG/DIBV5，核对剪贴板序列与持有者后提交一次 Ctrl+V，回执为 `clipboard_image`。两种方式都设置剪贴板历史与云排除标记。部分输入进入 uncertain，只补释放本次仍按下的键。路径只留在电脑端。
-- Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
+- Android Room schema 3 使用 noBackupFilesDir/Keystore 图片文件，冻结载荷与独立图片配额；完整说话页/快捷卡共用明确选图、预览、发送和回执面板，不参与语音自动倒计时。图片草稿是单次输入意图：`injected` 终态后删除草稿并清空 `imageDraft`/`imageRequest`，下次打开直接进入选图；`failed`/`cancelled`/`expired`/`uncertain` 保留草稿供重试或查看，启动时不得把已 `injected` 的旧草稿读回来。删草稿不删除仍被历史引用的原图。电脑历史后台加载有界缩略图，提供 Yue 原图对话框、复制和原生另存为；历史操作不额外粘贴。
 - 阶段和实际验收见 [45 图片实施](docs/45-image-input-implementation.md)。15 次 LAN 临时 RichEdit 粘贴、受控慢速 25 张、取消/暂停、51 项 JVM、44 项常规设备、3 组发现和 137 项桌面回归通过；首版有限验收已完成，用户确认浏览器/Word、聊天草稿、透明 PNG、历史操作和渲染正常；最低系统改为 Android 10/API 29，API 29/33 各 44 项、API 37 系统权限及图片数据补验通过，见 [49](docs/49-android-platform-support-and-validation.md)。精确应用版本、真正差 Wi-Fi/长期负载、真实多网卡/LAN 换 IPv4 及 VRAM 仍有证据边界，见 [46](docs/46-image-input-production-validation.md)。30 张历史/60 次原图开关发现并修复显式 atlas 释放，见 [48](docs/48-desktop-image-render-resource-lifecycle.md)，不能只用工作集或 CPU 引用推断渲染资源已回收。不把有限 fake/合成负载、旧网络测速或构建通过冒充整链路验收。图片及发现设备测试使用独立 `seeyuer.sayin.imagetest`，文字和图片使用不同临时电脑身份，绝不替换日常应用。
 
 ## 22. Android 本地中译英

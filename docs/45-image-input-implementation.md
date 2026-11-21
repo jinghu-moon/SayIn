@@ -74,6 +74,16 @@ Android 新增纯 Kotlin 元数据/块编码及私有资源文件基础。图片
 
 资源持久化与收据分开：后台校验/DPAPI 落盘 → 注册有期限的单次授权 → 原控制连接 submit → 图片引用/去重/接受顺序/历史同一 WAL/FULL 事务 → 串行原生输入。未接受资源使用有限所有权；异步 future 在等待 spawn_blocking 期间被取消，返回值无人接收也会触发资源回收。独立有界清理线程执行 unlink，不在 UI/账本线程做图片文件 I/O；清理完成前仍占临时额度，清理失败阻断新资源。
 
+### 单次草稿生命周期（2026-11-21）
+
+用户反馈发送成功后再次打开图片入口仍显示上一张图，必须先移除才能选图。根因是 `injected` 终态只清请求载荷，未清 `image_drafts`；启动 `loadDraft()` 又会把已花费的草稿读回来。现在：
+
+- `injected` 终态在更新请求的同一 actor 中删除图片草稿并清空 `imageDraft`/`imageRequest`；下一次打开图片入口直接回到选图状态。
+- `failed`、`cancelled`、`expired`、`uncertain` 保留草稿，供用户重试或查看；只有在明确移除或重新选图时替换。
+- 启动时若草稿对应的请求已 `injected` 且载荷为空，则直接清理，避免进程重启把旧图带回。
+- 资源文件仍按 `imageResource` 服务历史；删草稿不会删除仍被历史引用的原图。
+
+验证：`scripts/verify_android_transport.ps1 -UseExistingRootInstall` 图片套件 4 项通过（含新增“injected 后草稿为空、未提交草稿跨重启恢复”断言），1 次 fake 输入、无重放。
 单次图片授权同时受控制连接存活与本地意图闸门约束。新会话/撤销立即失效，暂停与换范围失效，恢复不复活旧授权；恢复后的新图片可重新获得新意图。prepared 最多 60 秒，账本定时维护回收；接受后的 30 秒不因上传/人工操作而续期。旧图片 held 不做 release，防止重新使用旧光标意图；文字人工 release 不变。
 
 生产 NativeInput 复用阶段 1 已验证的 PNG/DIBV5/隐私标记实现，DPAPI 读取与解码先于目标捕获，执行标记先于剪贴板写入。发布后再次核对 clipboard sequence/owner、焦点、输入桌面、权限和暂停代次，单批 Ctrl+V，不追加 Enter；部分提交保守 uncertain，只补释放键，不重复粘贴。账本 schema 6 保留原身份/收据，新增资源引用。旧 schema 测试改为实际移除新增结构后再模拟升级，不能仅调低版本号冒充旧库。

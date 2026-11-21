@@ -79,6 +79,7 @@ internal interface OutboxDao {
     }
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun saveImageDraft(item: ImageDraftEntity)
     @Query("SELECT * FROM image_drafts WHERE hostId=:hostId AND deviceId=:deviceId LIMIT 1") suspend fun imageDraft(hostId: String, deviceId: String): ImageDraftEntity?
+    @Query("SELECT * FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND imageResource=:resourceId ORDER BY createdAt DESC LIMIT 1") suspend fun imageRequest(hostId: String, deviceId: String, resourceId: String): OutboxItem?
     @Query("DELETE FROM image_drafts WHERE hostId=:hostId AND deviceId=:deviceId") suspend fun deleteImageDraft(hostId: String, deviceId: String)
     @Query("SELECT imageResource FROM outbox WHERE imageResource IS NOT NULL UNION SELECT resourceId FROM image_drafts") suspend fun imageResources(): List<String>
     @Query("SELECT EXISTS(SELECT 1 FROM outbox WHERE imageResource=:id UNION ALL SELECT 1 FROM image_drafts WHERE resourceId=:id)") suspend fun imageReferenced(id: String): Boolean

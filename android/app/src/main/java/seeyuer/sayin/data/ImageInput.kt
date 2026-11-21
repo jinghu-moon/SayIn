@@ -24,6 +24,11 @@ import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
 internal enum class ImageIssue { INVALID, NOT_READY, NOT_SUPPORTED, CONNECTION, STORAGE, QUOTA, CANCELLED }
+
+/** A committed input spends the image intention: the next open starts from the picker. Cancelled,
+ * failed and uncertain inputs keep the prepared image so the user can retry or inspect it. */
+private const val IMAGE_CONSUMED_STATE = "injected"
+
 internal data class LocalImageDraft(val image: ImageReference, val preview: ByteArray)
 internal sealed interface ImageEvent {
     data class Select(val uri: Uri) : ImageEvent
@@ -71,7 +76,17 @@ internal class ImageInput(
     suspend fun hostChanged() { ticket++; preparation?.cancel(); preparation=null; interrupt(); loadDraft(); state.update { it.copy(imagePreparing=false) } }
     private suspend fun loadDraft() {
         val saved = host()
-        val draft = saved?.let { dao.imageDraft(it.hostId, it.deviceId) }
+        var draft = saved?.let { dao.imageDraft(it.hostId, it.deviceId) }
+        // A finished request must not resurface as the next upload. The resource row is retained
+        // for history, but the input draft is single-use.
+        if (saved != null && draft != null) {
+            val request = dao.imageRequest(saved.hostId, saved.deviceId, draft.resourceId)
+            if (request != null && request.payload == null && request.state == IMAGE_CONSUMED_STATE) {
+                dao.deleteImageDraft(saved.hostId, saved.deviceId)
+                if (!dao.imageReferenced(draft.resourceId)) files.remove(draft.resourceId)
+                draft = null
+            }
+        }
         val displayed = if (saved != null && draft != null) {
             val image = decodeReference(draft.reference)
             require(image.resourceId == draft.resourceId)
@@ -223,13 +238,30 @@ internal class ImageInput(
         }
         if (run === current) { run = null; state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure) } }
     }
-    fun status(item: OutboxItem) {
+    suspend fun status(item: OutboxItem, status: String, terminal: Boolean) {
         if (item.id == state.value.imageRequest && item.kind == "image") state.update { it.copy(imageIssue = null) }
-        val current = run ?: return
-        if (item.id != current.item.id || item.hostId != current.item.hostId || item.deviceId != current.item.deviceId) return
-        // The immutable reference has now been consumed by a durable receipt.
-        current.stop(); run = null
-        state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = null) }
+        val current = run
+        if (current != null && item.id == current.item.id && item.hostId == current.item.hostId && item.deviceId == current.item.deviceId) {
+            // The immutable reference has now been consumed by a durable receipt.
+            current.stop(); run = null
+            state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = null) }
+        }
+        if (terminal && status == IMAGE_CONSUMED_STATE) dropFinishedDraft(item)
+    }
+
+    /** Removes the single-use input draft once its request can never be uploaded again. */
+    private suspend fun dropFinishedDraft(item: OutboxItem) {
+        val saved = host() ?: return
+        val draft = dao.imageDraft(saved.hostId, saved.deviceId) ?: return
+        if (item.imageResource != draft.resourceId) return
+        dao.deleteImageDraft(saved.hostId, saved.deviceId)
+        if (!dao.imageReferenced(draft.resourceId)) files.remove(draft.resourceId)
+        state.update {
+            it.copy(
+                imageDraft = null, imagePreparing = false,
+                imageRequest = if (it.imageRequest == item.id) null else it.imageRequest,
+            )
+        }
     }
     suspend fun preview(resourceId: String, edge: Int): Bitmap? = withContext(Dispatchers.IO) {
         val saved = host() ?: return@withContext null

@@ -158,9 +158,16 @@ class ImageInputInstrumentedTest {
             val thumbnail = checkNotNull(repository.historyImage(first.id, 256))
             assertTrue(thumbnail.width <= 256 && thumbnail.height <= 256); thumbnail.recycle()
             waitFor { it.historyApplications[first.id]?.name == "Fixture Editor" }
-            repository.sendImage(image.resourceId);repository.cancelImage()
+            // A committed image spends the single-use draft; the sheet starts from the picker again.
+            waitFor { it.imageDraft == null }
+            repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
+            val second=waitFor{it.imageDraft!=null&&!it.imagePreparing}.imageDraft!!.image
+            repository.sendImage(second.resourceId);repository.cancelImage()
             waitFor{it.history.any{row->row.state=="cancelled"&&row.reason=="image_not_submitted"}}
             assertEquals(2,repository.state.value.history.size)
+            // An uncommitted draft still survives a process restart.
+            repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
+            val pendingDraft=waitFor{it.imageDraft!=null&&!it.imagePreparing}.imageDraft!!.image
             val paired=PairedHost(checkNotNull(ProtectedStore(context).load()))
             repository.foreground(false);waitFor{it.connection==Connection.OFFLINE};repository.close();delay(200)
             val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").build()
@@ -173,7 +180,7 @@ class ImageInputInstrumentedTest {
             repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()})
             waitFor{it.connection==Connection.OFFLINE};repository.foreground(true)
             val restored=waitFor{it.ready&&!it.recovering&&it.history.any{row->row.id==pendingId&&row.state=="review"}}
-            assertNotNull(restored.imageDraft);assertEquals(image,restored.imageDraft!!.image)
+            assertEquals(pendingDraft,restored.imageDraft!!.image)
             assertNotNull(restored.history.single{it.id==pendingId}.payload)
             repository.action(pendingId,"retry");delay(250)
             assertEquals("review",repository.state.value.history.single{it.id==pendingId}.state)

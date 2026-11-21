@@ -599,7 +599,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             }
             catch (_: Exception) { storageFailed(); return }
         }
-        if (status != "unknown" && item.kind == "image") imageInput?.status(item)
+        if (status != "unknown" && item.kind == "image") imageInput?.status(item, status, terminal)
         queries.replaceAll { _, refs -> refs - id }
     }
     private suspend fun saveAndSend(event: Event.Send) {
