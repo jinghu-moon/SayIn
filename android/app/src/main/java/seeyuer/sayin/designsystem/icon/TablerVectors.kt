@@ -222,9 +222,9 @@ internal object TablerVectors {
 
     val Ai: ImageVector by lazy {
         outline("Tabler.ai",
-            "M8 16v-6a2 2 0 1 1 4 0v6",
-            "M8 13h4",
-            "M16 8v8"
+            "M4 21v-13a5 5 0 0 1 10 0v13",
+            "M4 12h10",
+            "M20 3v18"
         )
     }
 
