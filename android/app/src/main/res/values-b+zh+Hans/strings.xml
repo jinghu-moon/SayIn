@@ -611,8 +611,6 @@
     <string name="settings_unsaved_message">当前编辑内容尚未保存。</string>
     <string name="settings_keep_editing">继续编辑</string>
     <string name="settings_discard_changes">放弃修改</string>
-    <string name="settings_section_local">离线</string>
-    <string name="settings_section_cloud">云端</string>
     <string name="settings_offline_model_sub">中英识别</string>
     <string name="settings_cloud_service_name">豆包语音识别</string>
     <string name="settings_cloud_service_sub">火山引擎 · 流式</string>

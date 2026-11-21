@@ -615,8 +615,6 @@
     <string name="settings_unsaved_message">Your edits have not been saved.</string>
     <string name="settings_keep_editing">Keep editing</string>
     <string name="settings_discard_changes">Discard</string>
-    <string name="settings_section_local">Offline</string>
-    <string name="settings_section_cloud">Cloud</string>
     <string name="settings_offline_model_sub">Chinese and English</string>
     <string name="settings_cloud_service_name">Doubao recognition</string>
     <string name="settings_cloud_service_sub">Volcengine · streaming</string>

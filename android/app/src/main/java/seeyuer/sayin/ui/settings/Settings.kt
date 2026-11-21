@@ -1097,53 +1097,56 @@ private fun RecognitionPage(
             }
         }
 
-        SectionLabel(stringResource(R.string.settings_section_local), Modifier.padding(top = 10.dp, start = 4.dp, bottom = 6.dp))
-        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-            BasicComponent(
-                title = stringResource(R.string.settings_offline_model),
-                summary = stringResource(R.string.settings_offline_model_sub),
-                startAction = startIcon(VoiceLinkIcon.Computer),
-                onClick = onOpenModel,
-                endActions = {
-                    Text(modelStatus(session), fontSize = 13.sp, color = modelStatusColor(session))
-                    Spacer(Modifier.width(4.dp))
-                    Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
-                        tint = MiuixTheme.colorScheme.onSurfaceSecondary)
-                },
-            )
-        }
+        Spacer(Modifier.height(12.dp))
 
-        SectionLabel(stringResource(R.string.settings_section_cloud), Modifier.padding(top = 14.dp, start = 4.dp, bottom = 6.dp))
-        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-            Column {
+        if (cloud) {
+            // Only the selected engine's settings stay on screen; the tab is the engine choice.
+            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+                Column {
+                    BasicComponent(
+                        title = stringResource(cloudState.profiles.selected.titleRes()),
+                        summary = stringResource(R.string.cloud_streaming),
+                        startAction = startIcon(VoiceLinkIcon.Cloud),
+                        endActions = {
+                            Text(cloudStatusText(cloudState), fontSize = 13.sp, color = cloudStatusColor(cloudState))
+                            Spacer(Modifier.width(4.dp))
+                            Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+                        },
+                        onClick = onOpenCloud,
+                    )
+                    HorizontalDivider()
+                    BasicComponent(
+                        title = stringResource(R.string.settings_hotwords),
+                        startAction = startIcon(VoiceLinkIcon.Input),
+                        endActions = {
+                            Text(
+                                if (cloudConfigured) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
+                                else stringResource(R.string.settings_engine_cloud_missing_short),
+                                fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
+                                tint = MiuixTheme.colorScheme.onSurfaceSecondary)
+                        },
+                        enabled = cloudConfigured && !cloudState.busy,
+                        onClick = onOpenHotwords,
+                    )
+                }
+            }
+        } else {
+            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
                 BasicComponent(
-                    title = stringResource(cloudState.profiles.selected.titleRes()),
-                    summary = stringResource(R.string.cloud_streaming),
-                    startAction = startIcon(VoiceLinkIcon.Cloud),
+                    title = stringResource(R.string.settings_offline_model),
+                    summary = stringResource(R.string.settings_offline_model_sub),
+                    startAction = startIcon(VoiceLinkIcon.Computer),
+                    onClick = onOpenModel,
                     endActions = {
-                        Text(cloudStatusText(cloudState), fontSize = 13.sp, color = cloudStatusColor(cloudState))
+                        Text(modelStatus(session), fontSize = 13.sp, color = modelStatusColor(session))
                         Spacer(Modifier.width(4.dp))
                         Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
                             tint = MiuixTheme.colorScheme.onSurfaceSecondary)
                     },
-                    onClick = onOpenCloud,
-                )
-                HorizontalDivider()
-                BasicComponent(
-                    title = stringResource(R.string.settings_hotwords),
-                    startAction = startIcon(VoiceLinkIcon.Input),
-                    endActions = {
-                        Text(
-                            if (cloudConfigured) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
-                            else stringResource(R.string.settings_engine_cloud_missing_short),
-                            fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
-                        )
-                        Spacer(Modifier.width(4.dp))
-                        Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceSecondary)
-                    },
-                    enabled = cloudConfigured && !cloudState.busy,
-                    onClick = onOpenHotwords,
                 )
             }
         }
