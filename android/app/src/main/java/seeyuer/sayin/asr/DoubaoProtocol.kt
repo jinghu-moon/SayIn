@@ -66,14 +66,4 @@ internal object DoubaoProtocol {
         return Packet(text, kind == 9 && flags and 2 != 0, errorCode)
     }
 
-    fun pcm16(samples: FloatArray): ByteArray {
-        val bytes = ByteArray(samples.size * 2)
-        samples.forEachIndexed { index, value ->
-            require(value.isFinite())
-            val pcm = (value.coerceIn(-1f, 1f) * 32768f).toInt().coerceIn(-32768, 32767)
-            bytes[index * 2] = pcm.toByte()
-            bytes[index * 2 + 1] = (pcm shr 8).toByte()
-        }
-        return bytes
-    }
 }

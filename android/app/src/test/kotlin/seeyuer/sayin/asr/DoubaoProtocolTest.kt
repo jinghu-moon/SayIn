@@ -8,7 +8,7 @@ import org.junit.Test
 
 class DoubaoProtocolTest {
     @Test fun audioIsLittleEndianAndLastFrameHasNoSequence() {
-        val pcm = DoubaoProtocol.pcm16(floatArrayOf(-1f, 0f, 0.5f, 1f))
+        val pcm = encodePcm16(floatArrayOf(-1f, 0f, 0.5f, 1f))
         assertArrayEquals(byteArrayOf(0, -128, 0, 0, 0, 64, -1, 127), pcm)
         val frame = DoubaoProtocol.audio(pcm, true)
         assertEquals(0x22, frame[1].toInt())
@@ -70,8 +70,8 @@ class DoubaoProtocolTest {
     @Test fun configRejectsHeaderInjectionAndSecretsAreRedacted() {
         val config = config()
         assertFalse(config.toString().contains("test-secret"))
-        assertThrows(IllegalArgumentException::class.java) { CloudConfiguration(DoubaoAuth.AppKey, "secret\r\nX:1", "", "", emptyList()) }
-        assertThrows(IllegalArgumentException::class.java) { CloudConfiguration(DoubaoAuth.AppIdToken, "stray", "id", "token", emptyList()) }
+        assertThrows(IllegalArgumentException::class.java) { CloudConfiguration(DoubaoCredentials(DoubaoAuth.AppKey, "secret\r\nX:1", "", ""), emptyList()) }
+        assertThrows(IllegalArgumentException::class.java) { CloudConfiguration(DoubaoCredentials(DoubaoAuth.AppIdToken, "stray", "id", "token"), emptyList()) }
         assertThrows(IllegalArgumentException::class.java) { parseHotwords("很".repeat(81)) }
         assertEquals(listOf("SayIn", "你好"), parseHotwords("SayIn\n\n你好\nSayIn"))
     }
@@ -85,7 +85,7 @@ class DoubaoProtocolTest {
     }.toByteArray()
 }
 
-internal fun config() = CloudConfiguration(DoubaoAuth.AppKey, "test-secret", "", "", listOf("SayIn"))
+internal fun config() = CloudConfiguration(DoubaoCredentials(DoubaoAuth.AppKey, "test-secret", "", ""), listOf("SayIn"))
 internal fun serverPacket(json: String, final: Boolean): ByteArray {
     val payload = json.toByteArray()
     return ByteBuffer.allocate(8 + payload.size).put(0x11).put(if (final) 0x92.toByte() else 0x90.toByte())

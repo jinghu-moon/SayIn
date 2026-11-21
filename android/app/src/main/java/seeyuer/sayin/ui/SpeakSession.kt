@@ -81,7 +81,6 @@ internal class SpeakSession(
             .coerceIn(SpeakInteraction.MIN_DELAY_SECONDS, SpeakInteraction.MAX_DELAY_SECONDS),
     ); private set
     var appSendPolicies by mutableStateOf(loadAppSendPolicies()); private set
-    var voiceCommandsEnabled by mutableStateOf(preferences.getBoolean("voice_commands", false)); private set
     var interaction by mutableStateOf(SpeakInteraction()); private set
     var asr by mutableStateOf(RecognitionState()); private set
     var model by mutableStateOf(LocalModelPhase.Unloaded); private set
@@ -251,15 +250,9 @@ internal class SpeakSession(
             asr = result
             val range = insertion
             if (acceptRecognition && range != null && result.session == expectedRecognitionSession && result.session != 0L) {
-                var finalCommands = emptySet<VoiceCommand>()
                 if (result.transcript.isNotEmpty() || recognitionHadText) {
                     recognitionHadText = result.transcript.isNotEmpty()
                     val value = if (result.transcript.isEmpty()) originalDraft ?: TextFieldValue(range.original, TextRange(range.start, range.end))
-                        else if (!result.busy && voiceCommandsEnabled) {
-                            val processed = VoiceCommands.process(range.original, range.start, range.end, result.transcript)
-                            finalCommands = processed.commands
-                            TextFieldValue(processed.text, TextRange(processed.cursor))
-                        }
                         else TextFieldValue(range.text(result.transcript), TextRange(range.cursor(result.transcript)))
                     changeDraft(value, fromRecognition = true)
                 }
@@ -271,12 +264,10 @@ internal class SpeakSession(
                     sendAfterFinal = false
                     if (result.finished && explicitFinish && result.transcript.isNotBlank() && visible) {
                         when {
-                            VoiceCommand.Translate in finalCommands -> translateDraft()
                             direct -> onSendReady(null)
                             recordingMode == SpeakSendMode.Automatic -> completeInput(
                                 recordingMode, recordingDestination, fromRecording = true,
                             )
-                            VoiceCommand.Send in finalCommands && receiver.ready -> onSendReady(null)
                             else -> {
                                 completeInput(SpeakSendMode.Manual)
                                 if (shouldAutoPolish(recordingStartedEmpty, typedSinceVoice, polish.autoPolishBound)) {
@@ -460,12 +451,6 @@ internal class SpeakSession(
                 }
             }
         }.getOrDefault(emptyMap())
-    }
-
-    fun changeVoiceCommands(value: Boolean) {
-        if (busy || requestLocked) return
-        voiceCommandsEnabled = value
-        preferences.edit().putBoolean("voice_commands", value).apply()
     }
 
     fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {

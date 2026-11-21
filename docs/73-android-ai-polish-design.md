@@ -101,6 +101,8 @@ internal enum class FinalIntent {
 
 当前 `SpeakSession` 在 ASR final 后按优先级分派（[SpeakSession.kt:227](../android/app/src/main/java/seeyuer/sayin/ui/SpeakSession.kt)）：
 
+> 2026-11-21 语音编辑指令已完整移除，下列 `VoiceCommand.*` 意图不复存在；当前分派为 direct → Automatic → 留在草稿。见 [83](83-remove-spoken-editing-commands.md)。
+
 1. `VoiceCommand.Translate` → 翻译；
 2. `direct`（“结束并发送”且接收范围仍有效）→ 立即发送；
 3. `recordingMode == Automatic` → 自动发送；

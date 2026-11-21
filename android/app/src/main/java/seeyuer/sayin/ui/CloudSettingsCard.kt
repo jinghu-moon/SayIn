@@ -24,36 +24,60 @@ import seeyuer.sayin.asr.*
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
-internal class CloudEditorState(config: CloudConfiguration?) {
-    var auth by mutableStateOf(config?.auth ?: DoubaoAuth.AppKey)
-    var appKey by mutableStateOf(config?.appKey.orEmpty())
-    var appId by mutableStateOf(config?.appId.orEmpty())
-    var token by mutableStateOf(config?.accessToken.orEmpty())
-    var words by mutableStateOf(config?.hotwords?.joinToString("\n").orEmpty())
+internal class CloudEditorState(profiles: CloudProfiles) {
+    var auth by mutableStateOf(DoubaoAuth.AppKey)
+    var appKey by mutableStateOf("")
+    var appId by mutableStateOf("")
+    var token by mutableStateOf("")
+    var qwenKey by mutableStateOf("")
+    var workspaceId by mutableStateOf("")
     var reveal by mutableStateOf(false)
-    private var base = config
+    private var base = profiles
 
-    val dirty: Boolean get() = if (base == null) {
-        auth != DoubaoAuth.AppKey || appKey.isNotBlank() || appId.isNotBlank() ||
-            token.isNotBlank() || words.isNotBlank()
-    } else auth != base!!.auth || appKey != base!!.appKey ||
-        appId != base!!.appId || token != base!!.accessToken || words != base!!.hotwords.joinToString("\n")
-    val filled: Boolean get() = if (auth == DoubaoAuth.AppKey) appKey.isNotBlank() else appId.isNotBlank() && token.isNotBlank()
+    init { reset(profiles) }
 
-    fun reset(config: CloudConfiguration?) {
-        base = config
-        auth = config?.auth ?: DoubaoAuth.AppKey
-        appKey = config?.appKey.orEmpty()
-        appId = config?.appId.orEmpty()
-        token = config?.accessToken.orEmpty()
-        words = config?.hotwords?.joinToString("\n").orEmpty()
+    val dirty: Boolean get() = when (base.selected) {
+        CloudProvider.Doubao -> {
+            val saved = base.doubao
+            auth != (saved?.auth ?: DoubaoAuth.AppKey) || appKey != saved?.appKey.orEmpty() ||
+                appId != saved?.appId.orEmpty() || token != saved?.accessToken.orEmpty()
+        }
+        CloudProvider.Qwen -> qwenKey != base.qwen?.apiKey.orEmpty() || workspaceId != base.qwen?.workspaceId.orEmpty()
+    }
+    val filled: Boolean get() = when (base.selected) {
+        CloudProvider.Doubao -> if (auth == DoubaoAuth.AppKey) appKey.isNotBlank() else appId.isNotBlank() && token.isNotBlank()
+        CloudProvider.Qwen -> qwenKey.isNotBlank() && workspaceId.isNotBlank()
+    }
+
+    fun reset(profiles: CloudProfiles) {
+        base = profiles
+        auth = profiles.doubao?.auth ?: DoubaoAuth.AppKey
+        appKey = profiles.doubao?.appKey.orEmpty()
+        appId = profiles.doubao?.appId.orEmpty()
+        token = profiles.doubao?.accessToken.orEmpty()
+        qwenKey = profiles.qwen?.apiKey.orEmpty()
+        workspaceId = profiles.qwen?.workspaceId.orEmpty()
         reveal = false
     }
 
-    fun save(settings: CloudSettings) = settings.save(auth, appKey, appId, token, words)
+    fun save(settings: CloudSettings) = settings.saveCredentials {
+        when (base.selected) {
+            CloudProvider.Doubao -> when (auth) {
+                DoubaoAuth.AppKey -> DoubaoCredentials(auth, appKey.trim(), "", "")
+                DoubaoAuth.AppIdToken -> DoubaoCredentials(auth, "", appId.trim(), token.trim())
+            }
+            CloudProvider.Qwen -> QwenCredentials(qwenKey.trim(), workspaceId.trim())
+        }
+    }
+}
+
+internal fun CloudProvider.titleRes() = when (this) {
+    CloudProvider.Doubao -> R.string.settings_cloud_service_name
+    CloudProvider.Qwen -> R.string.cloud_qwen
 }
 
 @Composable
@@ -65,17 +89,23 @@ internal fun CloudSettingsCard(
     hotwordCount: Int = 0,
 ) {
     val config = state.config
+    val provider = state.profiles.selected
+    val providers = CloudProvider.entries
     var confirmClear by remember { mutableStateOf(false) }
     val transformation = if (editor.reveal) androidx.compose.ui.text.input.VisualTransformation.None
         else PasswordVisualTransformation()
     val status = cloudStatus(editor, state)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-            BasicComponent(
-                title = stringResource(R.string.settings_cloud_service_name),
-                summary = stringResource(R.string.settings_cloud_service_sub),
+            WindowDropdownPreference(
+                title = stringResource(R.string.settings_cloud_service),
+                items = providers.map { stringResource(it.titleRes()) },
+                selectedIndex = provider.ordinal,
+                summary = status.first,
+                enabled = !state.busy && !editor.dirty && state.issue != CloudIssue.Storage,
                 startAction = { Icon(VoiceLinkIcon.Cloud.vector, null, Modifier.size(24.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary) },
-                endActions = { Text(status.first, fontSize = 13.sp, color = status.second) },
+                modifier = Modifier.testTag("cloud-provider"),
+                onSelectedIndexChange = { settings.select(providers[it]) },
             )
         }
 
@@ -98,68 +128,54 @@ internal fun CloudSettingsCard(
 
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(16.dp)) {
             Column {
-                Text(stringResource(R.string.settings_cloud_auth_method), fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                Spacer(Modifier.height(8.dp))
-                TabRowWithContour(
-                    tabs = listOf(stringResource(R.string.cloud_app_key), stringResource(R.string.settings_cloud_auth_token)),
-                    selectedTabIndex = if (editor.auth == DoubaoAuth.AppKey) 0 else 1,
-                    onTabSelected = {
-                        if (!state.busy) {
-                            editor.auth = if (it == 0) DoubaoAuth.AppKey else DoubaoAuth.AppIdToken
-                            editor.appKey = ""; editor.appId = ""; editor.token = ""
-                        }
-                    },
-                    colors = TabRowDefaults.tabRowColors(
-                        backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
-                        contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
-                        selectedBackgroundColor = MiuixTheme.colorScheme.surface,
-                        selectedContentColor = MiuixTheme.colorScheme.primary,
-                    ),
-                    modifier = Modifier.fillMaxWidth().alpha(if (state.busy) .5f else 1f).testTag("cloud-auth-method"),
-                )
-                if (editor.auth == DoubaoAuth.AppKey) {
-                    Spacer(Modifier.height(12.dp))
-                    TextField(editor.appKey, { if (it.length <= 4096) editor.appKey = it },
-                        Modifier.fillMaxWidth().testTag("cloud-app-key"),
-                        label = stringResource(R.string.cloud_app_key), singleLine = true, enabled = !state.busy,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                        visualTransformation = transformation,
-                        trailingIcon = {
-                            IconButton(onClick = { editor.reveal = !editor.reveal },
-                                modifier = Modifier.size(48.dp).testTag("cloud-reveal")) {
-                                Icon(
-                                    (if (editor.reveal) VoiceLinkIcon.EyeOff else VoiceLinkIcon.Eye).vector,
-                                    stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
-                                    Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
-                                )
-                            }
-                        })
-                } else {
-                    Spacer(Modifier.height(12.dp))
-                    TextField(editor.appId, { if (it.length <= 4096) editor.appId = it },
-                        Modifier.fillMaxWidth().testTag("cloud-app-id"),
-                        label = stringResource(R.string.cloud_app_id), singleLine = true, enabled = !state.busy,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                        visualTransformation = transformation)
+                if (provider == CloudProvider.Qwen) {
+                    Text(QwenRecognition.MODEL, fontSize = 12.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
                     Spacer(Modifier.height(10.dp))
-                    TextField(editor.token, { if (it.length <= 4096) editor.token = it },
-                        Modifier.fillMaxWidth().testTag("cloud-token"),
-                        label = stringResource(R.string.cloud_token), singleLine = true, enabled = !state.busy,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
-                        visualTransformation = transformation,
-                        trailingIcon = {
-                            IconButton(onClick = { editor.reveal = !editor.reveal },
-                                modifier = Modifier.size(48.dp).testTag("cloud-reveal")) {
-                                Icon(
-                                    (if (editor.reveal) VoiceLinkIcon.EyeOff else VoiceLinkIcon.Eye).vector,
-                                    stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
-                                    Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
-                                )
+                    TextField(editor.workspaceId, { if (it.length <= 63) editor.workspaceId = it },
+                        Modifier.fillMaxWidth().testTag("cloud-qwen-workspace"),
+                        label = stringResource(R.string.cloud_qwen_workspace), singleLine = true, enabled = !state.busy,
+                        keyboardOptions = KeyboardOptions(autoCorrectEnabled = false))
+                    Spacer(Modifier.height(10.dp))
+                    SecretField(editor.qwenKey, { editor.qwenKey = it }, editor, !state.busy,
+                        R.string.cloud_qwen_api_key, "cloud-qwen-key")
+                } else {
+                    Text(stringResource(R.string.settings_cloud_auth_method), fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    Spacer(Modifier.height(8.dp))
+                    TabRowWithContour(
+                        tabs = listOf(stringResource(R.string.cloud_app_key), stringResource(R.string.settings_cloud_auth_token)),
+                        selectedTabIndex = if (editor.auth == DoubaoAuth.AppKey) 0 else 1,
+                        onTabSelected = {
+                            if (!state.busy) {
+                                editor.auth = if (it == 0) DoubaoAuth.AppKey else DoubaoAuth.AppIdToken
+                                editor.appKey = ""; editor.appId = ""; editor.token = ""
                             }
-                        })
+                        },
+                        colors = TabRowDefaults.tabRowColors(
+                            backgroundColor = MiuixTheme.colorScheme.surfaceContainerHigh,
+                            contentColor = MiuixTheme.colorScheme.onSurfaceSecondary,
+                            selectedBackgroundColor = MiuixTheme.colorScheme.surface,
+                            selectedContentColor = MiuixTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier.fillMaxWidth().alpha(if (state.busy) .5f else 1f).testTag("cloud-auth-method"),
+                    )
+                    if (editor.auth == DoubaoAuth.AppKey) {
+                        Spacer(Modifier.height(12.dp))
+                        SecretField(editor.appKey, { editor.appKey = it }, editor, !state.busy,
+                            R.string.cloud_app_key, "cloud-app-key")
+                    } else {
+                        Spacer(Modifier.height(12.dp))
+                        TextField(editor.appId, { if (it.length <= 4096) editor.appId = it },
+                            Modifier.fillMaxWidth().testTag("cloud-app-id"),
+                            label = stringResource(R.string.cloud_app_id), singleLine = true, enabled = !state.busy,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+                            visualTransformation = transformation)
+                        Spacer(Modifier.height(10.dp))
+                        SecretField(editor.token, { editor.token = it }, editor, !state.busy,
+                            R.string.cloud_token, "cloud-token")
+                    }
                 }
-                val message = state.issue?.let(::cloudIssueText) ?: when (state.status) {
+                val message = state.issue?.let { cloudIssueText(it, provider) } ?: when (state.status) {
                     CloudSettingsStatus.Loading -> R.string.cloud_loading
                     CloudSettingsStatus.Saving -> R.string.cloud_saving
                     CloudSettingsStatus.Clearing -> R.string.cloud_clearing
@@ -221,7 +237,7 @@ internal fun CloudSettingsCard(
     }
     WindowDialog(
         title = stringResource(R.string.cloud_clear_confirm_title),
-        summary = stringResource(R.string.cloud_clear_confirm_message),
+        summary = stringResource(if (state.issue == CloudIssue.Storage) R.string.cloud_reset_all_summary else R.string.cloud_clear_confirm_message),
         show = confirmClear,
         onDismissRequest = { confirmClear = false },
     ) {
@@ -236,8 +252,29 @@ internal fun CloudSettingsCard(
 }
 
 @Composable
+private fun SecretField(value: String, update: (String) -> Unit, editor: CloudEditorState, enabled: Boolean,
+                        label: Int, tag: String) {
+    val transformation = if (editor.reveal) androidx.compose.ui.text.input.VisualTransformation.None
+        else PasswordVisualTransformation()
+    TextField(value, { if (it.length <= 4096) update(it) }, Modifier.fillMaxWidth().testTag(tag),
+        label = stringResource(label), singleLine = true, enabled = enabled,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, autoCorrectEnabled = false),
+        visualTransformation = transformation,
+        trailingIcon = {
+            IconButton(onClick = { editor.reveal = !editor.reveal }, enabled = enabled,
+                modifier = Modifier.size(48.dp).testTag("cloud-reveal")) {
+                Icon(
+                    (if (editor.reveal) VoiceLinkIcon.EyeOff else VoiceLinkIcon.Eye).vector,
+                    stringResource(if (editor.reveal) R.string.cloud_hide_secret else R.string.cloud_show_secret),
+                    Modifier.size(20.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+            }
+        })
+}
+
+@Composable
 private fun cloudStatus(editor: CloudEditorState, state: CloudSettingsState): Pair<String, Color> {
-    val blank = editor.appKey.isBlank() && editor.appId.isBlank() && editor.token.isBlank()
+    val blank = !editor.dirty
     return when {
         state.issue == CloudIssue.Storage -> stringResource(R.string.settings_engine_cloud_read_error) to MiuixTheme.colorScheme.error
         state.busy && state.status == CloudSettingsStatus.Saving -> stringResource(R.string.cloud_saving) to MiuixTheme.colorScheme.primary
@@ -256,12 +293,15 @@ private fun warningColor(): Color = if (MiuixTheme.colorScheme.background.lumina
 @Composable
 private fun successColor(): Color = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.SuccessDark else YuePalette.SuccessLight
 
-private fun cloudIssueText(issue: CloudIssue): Int = when (issue) {
+private fun cloudIssueText(issue: CloudIssue, provider: CloudProvider): Int = when (issue) {
     CloudIssue.Configuration -> R.string.cloud_error_configuration
     CloudIssue.Storage -> R.string.cloud_error_storage
     CloudIssue.Network -> R.string.cloud_test_error_network
     CloudIssue.Authentication -> R.string.cloud_error_authentication
-    CloudIssue.AccessDenied -> R.string.cloud_error_access_denied
+    CloudIssue.AccessDenied -> when (provider) {
+        CloudProvider.Doubao -> R.string.cloud_error_doubao_access_denied
+        CloudProvider.Qwen -> R.string.cloud_error_qwen_access_denied
+    }
     CloudIssue.Quota -> R.string.cloud_error_quota
     CloudIssue.Timeout -> R.string.cloud_test_error_timeout
     CloudIssue.Protocol -> R.string.cloud_test_error_protocol

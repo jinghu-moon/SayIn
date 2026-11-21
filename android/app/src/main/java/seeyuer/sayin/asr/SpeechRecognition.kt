@@ -118,9 +118,9 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         issue = RecognitionIssue.Recognition
                     }
                     val text = if (cloud != null) {
-                        DoubaoRecognition().recognize(cloud, ::openMicrophone, ::listening) { text ->
+                        recognizeCloud(cloud, ::openMicrophone, ::listening) { text ->
                             mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
-                        }
+                        }.text
                     } else modelLock.withLock {
                         val local = checkNotNull(decoder)
                         try {

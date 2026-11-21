@@ -177,7 +177,7 @@
     <string name="cloud_use_key">Use API Key</string>
     <string name="cloud_hotwords">Hotwords (optional)</string>
     <string name="cloud_hotwords_help">One term per line, up to 20 terms and 80 characters in total. These hints are sent to Doubao; recognition is not guaranteed. The streaming service has a 100-token limit and may truncate them.</string>
-    <string name="cloud_setup_hint">Set up Doubao in Settings before recording.</string>
+    <string name="cloud_setup_hint">Set up cloud recognition in Settings before recording.</string>
     <string name="cloud_ready">Tap to speak · audio is sent to Doubao.</string>
     <string name="cloud_configure">Set up cloud</string>
     <string name="cloud_start">Start speaking</string>
@@ -200,12 +200,12 @@
     <string name="cloud_error_timeout">Timed out waiting for the cloud service. The draft is kept; it has not been sent automatically.</string>
     <string name="cloud_error_protocol">The cloud response was incomplete or invalid. The draft is kept; start a new recording to retry.</string>
     <string name="cloud_error_service">The cloud service rejected this recognition session. Check the service configuration or try a new recording later.</string>
-    <string name="cloud_connecting">Connecting to Doubao…</string>
+    <string name="cloud_connecting">Connecting to the recognition service…</string>
     <string name="cloud_too_slow">The network cannot keep up with recording. The draft is kept. Check the connection before starting a new recording.</string>
     <string name="cloud_test_error_network">The connection was interrupted before verification completed. Check your Internet connection and try again.</string>
     <string name="cloud_test_error_timeout">Timed out waiting for the service response. Try again.</string>
     <string name="cloud_test_error_protocol">The service returned an invalid response; verification did not complete. Try again later.</string>
-    <string name="cloud_error_access_denied">Access denied (HTTP 403). Check your credentials and whether ASR 2.0 hourly service is enabled for this API Key’s project (or the legacy application). Projects and applications do not share access.</string>
+    <string name="cloud_error_access_denied">Access denied. Check that the selected workspace or project has access to the recognition model.</string>
     <string name="connection_computer">Computer</string>
     <string name="connection_pair_saved">Pairing saved</string>
     <string name="connection_storage_label">Storage issue</string>
@@ -235,8 +235,8 @@
     <string name="speak_model_warming">Model loaded, warming up…</string>
     <string name="speak_local_ready">On-device recognition ready</string>
     <string name="speak_local_listening">Recognizing on this phone…</string>
-    <string name="speak_cloud_listening">Recognizing with Doubao…</string>
-    <string name="speak_cloud_idle">Doubao · Audio sent to the cloud</string>
+    <string name="speak_cloud_listening">Recognizing speech in the cloud…</string>
+    <string name="speak_cloud_idle">Cloud recognition · Audio uploaded while recording</string>
     <string name="speak_keyboard_idle">Use your keyboard to enter text</string>
     <plurals name="speak_character_count">
         <item quantity="one">%1$d char</item>
@@ -542,8 +542,8 @@
     <string name="settings_about_summary">Version %1$s</string>
     <string name="settings_engine_local">Offline recognition</string>
     <string name="settings_engine_cloud">Cloud recognition</string>
-    <string name="settings_engine_cloud_configured">Doubao configured</string>
-    <string name="settings_engine_cloud_missing">Doubao not configured</string>
+    <string name="settings_engine_cloud_configured">%1$s configured</string>
+    <string name="settings_engine_cloud_missing">%1$s not configured</string>
     <string name="settings_engine_cloud_read_error">Configuration read error</string>
     <string name="settings_engine_summary">%1$s · %2$s</string>
     <string name="settings_recognition_method">Recognition method</string>
@@ -563,7 +563,7 @@
     <string name="settings_hotwords_help">One word per line. Up to 20 unique words, 80 characters total, 40 per word.</string>
     <string name="settings_hotwords_count">%1$d words · %2$d characters</string>
     <string name="settings_hotwords_save">Save</string>
-    <string name="settings_cloud_title">Doubao voice configuration</string>
+    <string name="settings_cloud_title">Cloud recognition</string>
     <string name="settings_translation_title">Translation and model</string>
     <string name="settings_translation_ready">Model ready</string>
     <string name="settings_translation_bundled">Included in app</string>
@@ -609,7 +609,7 @@
     <string name="cloud_hide_secret">Hide</string>
     <string name="settings_debug_build">Debug build</string>
     <string name="cloud_clear_confirm_title">Remove cloud configuration?</string>
-    <string name="cloud_clear_confirm_message">The credential and its hotwords will be deleted. Pairing, drafts and history are kept.</string>
+    <string name="cloud_clear_confirm_message">Remove the selected service credentials from this device?</string>
     <string name="cloud_clear_confirm">Remove</string>
     <string name="settings_unsaved_title">Discard unsaved changes?</string>
     <string name="settings_unsaved_message">Your edits have not been saved.</string>
@@ -620,9 +620,9 @@
     <string name="settings_offline_model_sub">Chinese and English</string>
     <string name="settings_cloud_service_name">Doubao recognition</string>
     <string name="settings_cloud_service_sub">Volcengine · streaming</string>
-    <string name="settings_cloud_upload_note">Voice is uploaded to Volcengine servers</string>
+    <string name="settings_cloud_upload_note">Voice is uploaded to the selected cloud service</string>
     <string name="settings_local_private_note">Processed on device; voice is not uploaded</string>
-    <string name="settings_cloud_need_config">Voice is uploaded to Volcengine; configure credentials first</string>
+    <string name="settings_cloud_need_config">Configure a cloud service before recording</string>
     <string name="settings_engine_cloud_configured_short">Configured</string>
     <string name="settings_engine_cloud_missing_short">Not configured</string>
     <string name="settings_hotwords_count_only">%1$d</string>
@@ -707,10 +707,6 @@
     <string name="share_text_conflict">Your current draft is not empty. Replace the draft, append the shared text, or cancel.</string>
     <string name="share_text_replace">Replace draft</string>
     <string name="share_text_append">Append to draft</string>
-
-    <string name="settings_voice_commands">Spoken editing commands</string>
-    <string name="settings_voice_commands_summary">Applies whole command phrases only</string>
-    <string name="settings_voice_commands_help">With this on, a separate phrase such as “newline”, “delete previous sentence”, “clear”, “translate” or “send” edits the finished draft. Command words inside a sentence stay text. Off by default. “Send” submits the finished draft to the computer; it still requires an active connection.</string>
 
     <string name="settings_offline_model_title">Offline model</string>
     <string name="settings_translation_model">Model</string>
@@ -1071,6 +1067,14 @@
     <string name="polish_usage_reasoning">Reasoning: %1$s</string>
     <string name="polish_usage_price_source">Price: %1$s</string>
     <string name="polish_usage_detail_hint">Tap a row for request details</string>
+    <string name="cloud_qwen">Qwen</string>
+    <string name="cloud_qwen_workspace">Beijing workspace ID</string>
+    <string name="cloud_qwen_api_key">Bailian API Key</string>
+    <string name="settings_cloud_provider_summary">%1$s · %2$s</string>
+    <string name="cloud_streaming">Streaming recognition</string>
+    <string name="cloud_reset_all_summary">Reset all saved cloud ASR credentials and hotwords to recover the encrypted configuration?</string>
+    <string name="cloud_error_doubao_access_denied">Access denied. Check that Doubao streaming ASR 2.0 hourly service is enabled for the configured project or application.</string>
+    <string name="cloud_error_qwen_access_denied">In Bailian, enable Qwen Audio 3.1 streaming recognition for this Beijing workspace and check that the API key has access.</string>
 </resources>
 
 

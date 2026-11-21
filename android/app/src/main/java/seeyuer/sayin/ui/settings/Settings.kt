@@ -103,6 +103,7 @@ import seeyuer.sayin.quick.SpeakTileService
 import seeyuer.sayin.polish.PolishConfigState
 import seeyuer.sayin.translation.ModelPreparationProgress
 import seeyuer.sayin.translation.ModelPreparationStage
+import seeyuer.sayin.ui.titleRes
 import seeyuer.sayin.ui.SpeakInputSource
 import seeyuer.sayin.ui.SpeakInteraction
 import seeyuer.sayin.ui.SpeakSendMode
@@ -134,12 +135,12 @@ import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 import com.mikepenz.aboutlibraries.ui.compose.android.produceLibraries
 
-internal class HotwordsDraft(config: seeyuer.sayin.asr.CloudConfiguration?) {
-    var text by mutableStateOf(config?.hotwords?.joinToString("\n").orEmpty())
-    private var base = config?.hotwords?.joinToString("\n").orEmpty()
+internal class HotwordsDraft(profiles: seeyuer.sayin.asr.CloudProfiles) {
+    var text by mutableStateOf(profiles.hotwords.joinToString("\n"))
+    private var base = profiles.hotwords.joinToString("\n")
     val dirty: Boolean get() = text != base
-    fun reset(config: seeyuer.sayin.asr.CloudConfiguration?) {
-        base = config?.hotwords?.joinToString("\n").orEmpty()
+    fun reset(profiles: seeyuer.sayin.asr.CloudProfiles) {
+        base = profiles.hotwords.joinToString("\n")
         text = base
     }
 }
@@ -183,8 +184,8 @@ internal fun SettingsHost(
 ) {
     var route by rememberSaveable { mutableStateOf(initialRoute) }
     LaunchedEffect(initialRoute) { route = initialRoute }
-    val cloudEditor = remember(cloudState.config) { CloudEditorState(cloudState.config) }
-    val hotwordsDraft = remember(cloudState.config) { HotwordsDraft(cloudState.config) }
+    val cloudEditor = remember(cloudState.profiles) { CloudEditorState(cloudState.profiles) }
+    val hotwordsDraft = remember(cloudState.profiles.hotwords) { HotwordsDraft(cloudState.profiles) }
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmClearUsage by remember { mutableStateOf(false) }
     fun leave() { route = route.parent ?: SettingsRoute.Root }
@@ -242,10 +243,10 @@ internal fun SettingsHost(
                         minHeight = 40.dp,
                         colors = plainTextButtonColors(),
                     )
-                    SettingsRoute.Hotwords -> cloudState.config?.let { config ->
+                    SettingsRoute.Hotwords -> {
                         TextButton(
                             stringResource(R.string.settings_hotwords_save),
-                            onClick = { cloudSettings.save(config.auth, config.appKey, config.appId, config.accessToken, hotwordsDraft.text) },
+                            onClick = { cloudSettings.saveHotwords(hotwordsDraft.text) },
                             enabled = !cloudState.busy && hotwordsDraft.dirty,
                             minHeight = 40.dp,
                             colors = plainTextButtonColors(),
@@ -319,7 +320,7 @@ internal fun SettingsHost(
                 modifier = Modifier.weight(1f).testTag("settings-keep-editing"))
             TextButton(stringResource(R.string.settings_discard_changes), onClick = {
                 confirmLeave = false
-                if (route == SettingsRoute.Cloud) cloudEditor.reset(cloudState.config) else hotwordsDraft.reset(cloudState.config)
+                if (route == SettingsRoute.Cloud) cloudEditor.reset(cloudState.profiles) else hotwordsDraft.reset(cloudState.profiles)
                 leave()
             }, modifier = Modifier.weight(1f).testTag("settings-discard-changes"))
         }
@@ -858,8 +859,9 @@ private fun RootPage(
     val engine = session.lastVoiceSource
     val cloudText = when {
         cloudState.issue == CloudIssue.Storage -> stringResource(R.string.settings_engine_cloud_read_error)
-        cloudState.config != null -> stringResource(R.string.settings_engine_cloud_configured)
-        else -> stringResource(R.string.settings_engine_cloud_missing)
+        cloudState.config != null -> stringResource(R.string.settings_engine_cloud_configured,
+            stringResource(cloudState.profiles.selected.titleRes()))
+        else -> stringResource(R.string.settings_engine_cloud_missing, stringResource(cloudState.profiles.selected.titleRes()))
     }
     val engineText = stringResource(
         R.string.settings_engine_summary,
@@ -1064,7 +1066,7 @@ private fun RecognitionPage(
     }
     val warning = cloud && (cloudError || !cloudConfigured)
     val noteColor = if (warning) warningColor() else MiuixTheme.colorScheme.onSurfaceSecondary
-    val hotwordCount = cloudState.config?.hotwords?.size ?: 0
+    val hotwordCount = cloudState.profiles.hotwords.size
     Column(
         modifier = modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
@@ -1095,23 +1097,6 @@ private fun RecognitionPage(
             }
         }
 
-        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-            Column {
-                SwitchPreference(
-                    title = stringResource(R.string.settings_voice_commands),
-                    summary = stringResource(R.string.settings_voice_commands_summary),
-                    checked = session.voiceCommandsEnabled,
-                    enabled = !session.busy && !session.requestLocked,
-                    switchColors = settingsSwitchColors(),
-                    modifier = Modifier.testTag("voice-commands"),
-                    onCheckedChange = session::changeVoiceCommands,
-                )
-            }
-        }
-        Text(stringResource(R.string.settings_voice_commands_help),
-            Modifier.padding(top = 2.dp, start = 4.dp, end = 4.dp),
-            fontSize = 11.5.sp, lineHeight = 16.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
-
         SectionLabel(stringResource(R.string.settings_section_local), Modifier.padding(top = 10.dp, start = 4.dp, bottom = 6.dp))
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
             BasicComponent(
@@ -1132,8 +1117,8 @@ private fun RecognitionPage(
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
             Column {
                 BasicComponent(
-                    title = stringResource(R.string.settings_cloud_service_name),
-                    summary = stringResource(R.string.settings_cloud_service_sub),
+                    title = stringResource(cloudState.profiles.selected.titleRes()),
+                    summary = stringResource(R.string.cloud_streaming),
                     startAction = startIcon(VoiceLinkIcon.Cloud),
                     endActions = {
                         Text(cloudStatusText(cloudState), fontSize = 13.sp, color = cloudStatusColor(cloudState))
@@ -1220,7 +1205,7 @@ private fun CloudPage(editor: CloudEditorState, settings: CloudSettings, state: 
     onOpenHotwords: () -> Unit, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp)) {
         CloudSettingsCard(editor, settings, state, onOpenHotwords = onOpenHotwords,
-            hotwordCount = state.config?.hotwords?.size ?: 0)
+            hotwordCount = state.profiles.hotwords.size)
     }
 }
 

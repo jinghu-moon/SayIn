@@ -40,6 +40,10 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import seeyuer.sayin.R
+import seeyuer.sayin.asr.CloudConfigurationStore
+import seeyuer.sayin.asr.CloudProvider
+import seeyuer.sayin.asr.CloudSettings
+import seeyuer.sayin.asr.CloudSettingsStatus
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ForegroundApplication
@@ -52,6 +56,32 @@ import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class MobileShellInstrumentedTest {
+    @Test fun cloudServiceDropdownSwitchesCredentialFieldsAndPersistsSelection() {
+        val store = CloudConfigurationStore(context)
+        val original = store.load()
+        val settings = compose.runOnUiThread { CloudSettings(context.applicationContext as android.app.Application) }
+        try {
+            setTestContent {
+                val state by settings.state.collectAsState()
+                val editor = remember(state.profiles) { CloudEditorState(state.profiles) }
+                VoiceLinkTheme { CloudSettingsCard(editor, settings, state) }
+            }
+            compose.waitUntil(5_000) { settings.state.value.status != CloudSettingsStatus.Loading }
+            compose.runOnIdle { settings.select(CloudProvider.Doubao) }
+            compose.waitUntil(5_000) { !settings.state.value.busy && settings.state.value.profiles.selected == CloudProvider.Doubao }
+            compose.onNodeWithTag("cloud-app-key").assertExists()
+            compose.onNodeWithTag("cloud-provider").performClick()
+            compose.onNode(hasText(context.getString(R.string.cloud_qwen)) and hasClickAction()).performClick()
+            compose.waitUntil(5_000) { settings.state.value.profiles.selected == CloudProvider.Qwen }
+            compose.onNodeWithTag("cloud-qwen-workspace").assertExists()
+            compose.onNodeWithTag("cloud-qwen-key").assertExists()
+            compose.onNodeWithTag("cloud-app-key").assertDoesNotExist()
+            assertEquals(CloudProvider.Qwen, store.load()?.selected)
+        } finally {
+            if (original == null) store.clear() else store.save(original)
+        }
+    }
+
     @Test fun tabClicksSwitchPagesWithoutTransportActions() {
         val state = ready()
         setTestContent { VoiceLinkTheme { TestVoiceLinkContent(state, TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
@@ -184,13 +214,10 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithText(context.getString(R.string.history_export_passphrase_short)).assertExists()
     }
 
-    @Test fun settingsExposeVoiceCommandsModelManagementAndFloatingButtonOptions() {
+    @Test fun settingsExposeModelManagementAndFloatingButtonOptions() {
         setTestContent { VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
         compose.onNodeWithTag("nav-Settings").performClick()
         compose.onNodeWithText(context.getString(R.string.settings_voice_recognition)).performClick()
-        compose.onNodeWithTag("voice-commands").assertExists()
-        compose.onNodeWithTag("voice-commands").performClick()
-        assertTrue(currentTestSession.voiceCommandsEnabled)
         compose.onNodeWithText(context.getString(R.string.settings_offline_model)).performClick()
         compose.onNodeWithTag("settings-page-OfflineModel").assertExists()
         compose.onNodeWithText(context.getString(R.string.settings_asr_model_spec_value)).assertExists()

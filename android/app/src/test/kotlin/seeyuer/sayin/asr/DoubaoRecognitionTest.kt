@@ -22,17 +22,17 @@ import org.junit.Test
 class DoubaoRecognitionTest {
     @Test fun headersUseExactlyOneCredentialFormatAndHotwordsUseCorpusString() {
         val engine = DoubaoRecognition()
-        val key = engine.request(config())
+        val key = engine.request(config().credentials as DoubaoCredentials)
         assertEquals("test-secret", key.header("X-Api-Key"))
         assertNull(key.header("X-Api-App-Key"))
         assertNull(key.header("X-Api-Access-Key"))
         assertEquals(DoubaoRecognition.RESOURCE, key.header("X-Api-Resource-Id"))
         assertEquals(DoubaoRecognition.ENDPOINT, key.url.toString().replace("https://", "wss://"))
-        val legacy = engine.request(CloudConfiguration(DoubaoAuth.AppIdToken, "", "1234", "legacy-secret", emptyList()))
+        val legacy = engine.request(DoubaoCredentials(DoubaoAuth.AppIdToken, "", "1234", "legacy-secret"))
         assertNull(legacy.header("X-Api-Key"))
         assertEquals("1234", legacy.header("X-Api-App-Key"))
         assertEquals("legacy-secret", legacy.header("X-Api-Access-Key"))
-        val json = engine.parameters(config())
+        val json = engine.parameters(config().hotwords)
         assertFalse(json.contains("test-secret"))
         val request = JSONObject(json).getJSONObject("request")
         assertEquals("full", request.getString("result_type"))
@@ -57,7 +57,7 @@ class DoubaoRecognitionTest {
         }) { engine, _ ->
             val microphone = Samples(5)
             val seen = mutableListOf<String>()
-            val text = engine.recognize(config(), { microphone }, {}, { seen += it })
+            val text = engine.recognize(config().credentials as DoubaoCredentials, { microphone }, {}, { seen += it })
             assertEquals(listOf("你", "你好", "你好，SayIn。"), seen)
             assertEquals("你好，SayIn。", text)
             assertTrue(microphone.closed)
@@ -77,7 +77,7 @@ class DoubaoRecognitionTest {
             }
         }) { engine, _ ->
             var last = ""
-            val error = try { engine.recognize(config(), { Samples(1) }, {}, { last = it }); null }
+            val error = try { engine.recognize(config().credentials as DoubaoCredentials, { Samples(1) }, {}, { last = it }); null }
             catch (failure: CloudRecognitionException) { failure }
             assertEquals("草稿", last)
             assertEquals(CloudIssue.Network, error?.issue)
@@ -87,7 +87,7 @@ class DoubaoRecognitionTest {
     @Test fun missingFinalTimesOutAndReleasesMicrophone() = runBlocking {
         withServer(object : WebSocketListener() {}) { engine, _ ->
             val microphone = Samples(1)
-            val error = try { engine.recognize(config(), { microphone }, {}, {}); null }
+            val error = try { engine.recognize(config().credentials as DoubaoCredentials, { microphone }, {}, {}); null }
             catch (failure: CloudRecognitionException) { failure }
             assertEquals(CloudIssue.Timeout, error?.issue)
             assertTrue(microphone.closed)
@@ -105,7 +105,7 @@ class DoubaoRecognitionTest {
                 override fun requestStop() = Unit
                 override fun close() = Unit
             }
-            val error = try { withTimeout(3000) { engine.recognize(config(), { source }, {}, {}) }; null }
+            val error = try { withTimeout(3000) { engine.recognize(config().credentials as DoubaoCredentials, { source }, {}, {}) }; null }
             catch (failure: CloudRecognitionException) { failure }
             assertEquals(CloudIssue.Protocol, error?.issue)
         }
@@ -118,7 +118,7 @@ class DoubaoRecognitionTest {
                 server.start()
                 val engine = DoubaoRecognition(endpoint = server.url("/").toString())
                 var opened = false
-                val error = try { engine.recognize(config(), { opened = true; Samples(1) }, {}, {}); null }
+                val error = try { engine.recognize(config().credentials as DoubaoCredentials, { opened = true; Samples(1) }, {}, {}); null }
                 catch (failure: CloudRecognitionException) { failure }
                 assertEquals(issue, error?.issue)
                 assertFalse(opened)
@@ -142,7 +142,7 @@ class DoubaoRecognitionTest {
                 override fun close() { closed = true }
             }
             var completed = false
-            val job = launch(Dispatchers.Default) { engine.recognize(config(), { source }, { entered.complete(Unit) }, {}); completed = true }
+            val job = launch(Dispatchers.Default) { engine.recognize(config().credentials as DoubaoCredentials, { source }, { entered.complete(Unit) }, {}); completed = true }
             withTimeout(3000) { entered.await() }
             job.cancelAndJoin()
             assertTrue(source.closed)

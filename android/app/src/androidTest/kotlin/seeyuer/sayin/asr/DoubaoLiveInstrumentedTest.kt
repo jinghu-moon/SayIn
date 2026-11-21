@@ -23,7 +23,7 @@ class DoubaoLiveInstrumentedTest {
         val config = liveConfiguration()
         val client = OkHttpClient.Builder().retryOnConnectionFailure(false).followRedirects(false).build()
         val result = CompletableDeferred<String?>()
-        val socket = client.newWebSocket(DoubaoRecognition().request(config), object : WebSocketListener() {
+        val socket = client.newWebSocket(DoubaoRecognition().request(config.credentials as DoubaoCredentials), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) { result.complete(null); webSocket.close(1000, null) }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 // Read only on phone. Export a fixed vocabulary, never body, headers or identifiers.
@@ -60,15 +60,15 @@ class DoubaoLiveInstrumentedTest {
 
     @Test fun savedConfigurationCompletesTheSettingsSilenceProbe() = runBlocking {
         val config = liveConfiguration()
-        val result = DoubaoRecognition().recognize(config, ::cloudProbeSource, {}, {})
-        assertTrue("Silence must not invent text", result.isBlank())
+        val result = recognizeCloud(config, ::cloudProbeSource, {}, {})
+        assertTrue("Silence must not invent text", result.text.isBlank())
     }
 
     private fun liveConfiguration(): CloudConfiguration {
         assumeTrue("Live cloud test requires explicit opt-in", InstrumentationRegistry.getArguments().getString("liveCloud") == "true")
         val config = CloudConfigurationStore(InstrumentationRegistry.getInstrumentation().targetContext).load()
-        assumeTrue("No saved cloud configuration", config != null)
-        return checkNotNull(config)
+        assumeTrue("No saved cloud configuration", config?.doubao != null)
+        return CloudConfiguration(checkNotNull(config?.doubao), config.hotwords)
     }
 
     @Test fun savedConfigurationRecognizesFixtureAndReceivesFinal() = runBlocking {
@@ -78,7 +78,7 @@ class DoubaoLiveInstrumentedTest {
         val buffer = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
         val samples = FloatArray(buffer.remaining()) { buffer.get() / 32768f }
         var partialSeen = false
-        val final = DoubaoRecognition().recognize(checkNotNull(config), {
+        val final = recognizeCloud(checkNotNull(config), {
             object : PcmSource {
                 private var offset = 0
                 override fun read(): FloatArray? {
@@ -91,6 +91,6 @@ class DoubaoLiveInstrumentedTest {
                 override fun close() = Unit
             }
         }, {}, { if (it.isNotBlank()) partialSeen = true })
-        assertTrue("Expected speech from fixture", partialSeen && final.isNotBlank())
+        assertTrue("Expected speech from fixture", partialSeen && final.text.isNotBlank())
     }
 }

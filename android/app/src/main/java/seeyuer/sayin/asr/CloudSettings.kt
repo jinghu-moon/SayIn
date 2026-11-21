@@ -12,10 +12,11 @@ import kotlinx.coroutines.withContext
 
 internal enum class CloudSettingsStatus { Loading, Ready, Saved, Testing, Tested, Saving, Clearing }
 internal data class CloudSettingsState(
-    val config: CloudConfiguration? = null,
+    val profiles: CloudProfiles = CloudProfiles(),
     val status: CloudSettingsStatus = CloudSettingsStatus.Loading,
     val issue: CloudIssue? = null,
 ) {
+    val config: CloudConfiguration? = profiles.credentials?.let { CloudConfiguration(it, profiles.hotwords) }
     val busy get() = status in setOf(CloudSettingsStatus.Loading, CloudSettingsStatus.Saving, CloudSettingsStatus.Testing, CloudSettingsStatus.Clearing)
 }
 
@@ -27,33 +28,62 @@ internal class CloudSettings(application: Application) : AndroidViewModel(applic
     init {
         scope.launch {
             try {
-                val config = withContext(Dispatchers.IO) { store.load() }
-                mutableState.value = CloudSettingsState(config, CloudSettingsStatus.Ready)
+                val profiles = withContext(Dispatchers.IO) { store.load() } ?: CloudProfiles()
+                mutableState.value = CloudSettingsState(profiles, CloudSettingsStatus.Ready)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { mutableState.value = CloudSettingsState(status = CloudSettingsStatus.Ready, issue = CloudIssue.Storage) }
         }
     }
-    fun save(auth: DoubaoAuth, appKey: String, appId: String, token: String, hotwords: String) {
-        if (mutableState.value.busy) return
-        val config = try {
-            CloudConfiguration(auth, if (auth == DoubaoAuth.AppKey) appKey.trim() else "",
-                if (auth == DoubaoAuth.AppIdToken) appId.trim() else "",
-                if (auth == DoubaoAuth.AppIdToken) token.trim() else "", parseHotwords(hotwords))
-        } catch (_: Exception) {
+    fun saveCredentials(build: () -> CloudCredentials) {
+        val snapshot = mutableState.value
+        if (snapshot.busy || snapshot.issue == CloudIssue.Storage) return
+        val next = try {
+            when (val credentials = build()) {
+                is DoubaoCredentials -> snapshot.profiles.copy(selected = CloudProvider.Doubao, doubao = credentials)
+                is QwenCredentials -> snapshot.profiles.copy(selected = CloudProvider.Qwen, qwen = credentials)
+            }
+        } catch (_: IllegalArgumentException) {
             mutableState.value = mutableState.value.copy(issue = CloudIssue.Configuration)
             return
         }
-        mutableState.value = mutableState.value.copy(status = CloudSettingsStatus.Saving, issue = null)
+        persist(next)
+    }
+    fun select(provider: CloudProvider) {
+        val profiles = mutableState.value.profiles
+        if (provider != profiles.selected) persist(profiles.copy(selected = provider))
+    }
+    fun saveHotwords(text: String) {
+        val words = try { parseHotwords(text) } catch (_: IllegalArgumentException) {
+            mutableState.value = mutableState.value.copy(issue = CloudIssue.Configuration)
+            return
+        }
+        persist(mutableState.value.profiles.copy(hotwords = words))
+    }
+    private fun persist(profiles: CloudProfiles, status: CloudSettingsStatus = CloudSettingsStatus.Saving) {
+        val snapshot = mutableState.value
+        if (snapshot.busy || snapshot.issue == CloudIssue.Storage) return
+        mutableState.value = snapshot.copy(status = status, issue = null)
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { store.save(config) }
-                mutableState.value = CloudSettingsState(config, CloudSettingsStatus.Saved)
+                withContext(Dispatchers.IO) { store.save(profiles) }
+                mutableState.value = CloudSettingsState(profiles, if (status == CloudSettingsStatus.Clearing) CloudSettingsStatus.Ready
+                    else CloudSettingsStatus.Saved)
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { mutableState.value = mutableState.value.copy(status = CloudSettingsStatus.Ready, issue = CloudIssue.Storage) }
+            catch (_: Exception) { mutableState.value = snapshot.copy(status = CloudSettingsStatus.Ready, issue = CloudIssue.Storage) }
         }
     }
     fun clear() {
-        if (mutableState.value.busy) return
+        val snapshot = mutableState.value
+        if (snapshot.busy) return
+        if (snapshot.issue != CloudIssue.Storage) {
+            val profiles = snapshot.profiles
+            val next = when (profiles.selected) {
+                CloudProvider.Doubao -> profiles.copy(doubao = null)
+                CloudProvider.Qwen -> profiles.copy(qwen = null)
+            }
+            persist(next, CloudSettingsStatus.Clearing)
+            return
+        }
         mutableState.value = mutableState.value.copy(status = CloudSettingsStatus.Clearing, issue = null)
         scope.launch {
             try {
@@ -71,7 +101,7 @@ internal class CloudSettings(application: Application) : AndroidViewModel(applic
         mutableState.value = snapshot.copy(status = CloudSettingsStatus.Testing, issue = null)
         scope.launch {
             try {
-                DoubaoRecognition().recognize(config, ::cloudProbeSource, {}, {})
+                recognizeCloud(config, ::cloudProbeSource, {}, {})
                 mutableState.value = mutableState.value.copy(status = CloudSettingsStatus.Tested)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {

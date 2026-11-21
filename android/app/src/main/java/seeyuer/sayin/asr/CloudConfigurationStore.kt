@@ -31,7 +31,7 @@ internal class CloudConfigurationStore(context: Context, private val suffix: Str
             generateKey()
         }
     }
-    fun load(): CloudConfiguration? = synchronized(processLock) {
+    fun load(): CloudProfiles? = synchronized(processLock) {
         val bytes = try { file.openRead().use { stream ->
             val output = java.io.ByteArrayOutputStream()
             val buffer = ByteArray(4096)
@@ -49,12 +49,28 @@ internal class CloudConfigurationStore(context: Context, private val suffix: Str
         val json = JSONObject(cipher.doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8))
         check(json.getInt("version") == 1)
         val words = json.getJSONArray("hotwords")
-        CloudConfiguration(DoubaoAuth.valueOf(json.getString("auth")), json.getString("appKey"),
-            json.getString("appId"), json.getString("accessToken"), List(words.length()) { words.getString(it) })
+        CloudProfiles(
+            selected = CloudProvider.valueOf(json.optString("selected", CloudProvider.Doubao.name)),
+            doubao = json.optString("auth").takeIf(String::isNotEmpty)?.let {
+                DoubaoCredentials(DoubaoAuth.valueOf(it), json.getString("appKey"),
+                    json.getString("appId"), json.getString("accessToken"))
+            },
+            qwen = json.optJSONObject("qwen")?.let {
+                QwenCredentials(it.getString("apiKey"), it.getString("workspaceId"))
+            },
+            hotwords = List(words.length()) { words.getString(it) },
+        )
     }
-    fun save(config: CloudConfiguration) = synchronized(processLock) {
-        val json = JSONObject().put("version", 1).put("auth", config.auth.name).put("appKey", config.appKey)
-            .put("appId", config.appId).put("accessToken", config.accessToken).put("hotwords", JSONArray(config.hotwords))
+    fun save(profiles: CloudProfiles) = synchronized(processLock) {
+        val json = JSONObject().put("version", 1).put("selected", profiles.selected.name)
+            .put("hotwords", JSONArray(profiles.hotwords))
+        profiles.doubao?.let {
+            json.put("auth", it.auth.name).put("appKey", it.appKey).put("appId", it.appId)
+                .put("accessToken", it.accessToken)
+        }
+        profiles.qwen?.let {
+            json.put("qwen", JSONObject().put("apiKey", it.apiKey).put("workspaceId", it.workspaceId))
+        }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key(true))
         cipher.updateAAD(aad)
