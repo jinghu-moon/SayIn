@@ -33,9 +33,8 @@ internal interface LocalSpeechDecoder : Closeable {
 /** These sherpa model exports decode after the recording finishes. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
-    // All offline models may preview, but the RTF guard disables previews that
-    // cannot keep up on the current device.
-    private var previewEnabled = artifact.id in setOf("qwen-06", "qwen-17", "fun-int8")
+    private val preview = OfflinePreviewPolicies.forModel(artifact.id)
+    private var previewEnabled = preview != null
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
@@ -66,6 +65,12 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         ),
     )
 
+    override fun warmUp() {
+        if (preview == null) return
+        // Warm the offline graph on silence so the first live preview is not cold.
+        runCatching { decode(FloatArray(SAMPLE_RATE)) }
+    }
+
     internal fun decode(samples: FloatArray): String {
         val stream = recognizer.createStream()
         try {
@@ -95,12 +100,14 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         val transcript = StreamingTranscript()
         var previewBudgetMisses = 0
         if (previewEnabled) {
+            val policy = checkNotNull(preview)
             while (capture.isActive) {
-                delay(PREVIEW_INTERVAL)
+                delay(policy.intervalMs)
+                if (!capture.isActive) break
                 val total = samples.get()
-                if (total < PREVIEW_MIN) continue
+                if (total < policy.minSamples) continue
                 val snapshot = synchronized(lock) {
-                    val start = (total - PREVIEW_MAX).coerceAtLeast(0)
+                    val start = (total - policy.maxSamples).coerceAtLeast(0)
                     val audio = FloatArray(total - start)
                     var offset = 0
                     var cursor = 0
@@ -119,7 +126,7 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
                 val started = System.nanoTime()
                 val preview = decode(snapshot)
                 val elapsedMs = (System.nanoTime() - started) / 1_000_000
-                if (elapsedMs.toDouble() > snapshot.size.toDouble() / SAMPLE_RATE * 1_000 * PREVIEW_RTF_BUDGET) {
+                if (elapsedMs.toDouble() > snapshot.size.toDouble() / SAMPLE_RATE * 1_000 * policy.rtfBudget) {
                     previewBudgetMisses++
                     if (previewBudgetMisses >= 2) previewEnabled = false
                 } else {
@@ -159,10 +166,6 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         const val SAMPLE_RATE = 16000
         const val DECODE_WINDOW = 20 * SAMPLE_RATE
         const val RECORDING_LIMIT = 120 * SAMPLE_RATE
-        const val PREVIEW_MIN = 2 * SAMPLE_RATE
-        const val PREVIEW_MAX = 20 * SAMPLE_RATE
-        const val PREVIEW_INTERVAL = 2_000L
-        const val PREVIEW_RTF_BUDGET = 0.20
     }
 }
 
