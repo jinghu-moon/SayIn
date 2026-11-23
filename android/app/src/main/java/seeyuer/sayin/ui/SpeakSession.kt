@@ -515,7 +515,7 @@ internal class SpeakSession(
         recordingScope = receiver.receptionScope
         recordingMode = effectiveSendMode()
         recordingDestination = receiver.autoSendDestination
-        finishOnSilence = !holdToSpeak && !continuousDictation
+        finishOnSilence = RecordingEndpointPolicy.finishOnSilence(holdToSpeak, continuousDictation)
         pendingCloud = if (source == SpeakInputSource.Cloud) cloud else null
         preparingToRecord = true
         waitingForTranslationStop = true
