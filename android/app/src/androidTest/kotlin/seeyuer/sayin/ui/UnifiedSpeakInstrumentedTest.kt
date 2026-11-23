@@ -106,6 +106,18 @@ class UnifiedSpeakInstrumentedTest {
         compose.runOnIdle { assertNull(session.interaction.countdown); assertEquals(text, session.draft.text); assertEquals(0, sends) }
     }
 
+    @Test fun continuousDictationDoesNotFinishOnSilence() {
+        mount()
+        compose.runOnIdle { session.changeContinuousDictation(true); session.start(null) }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "partial", speechPause = true) }
+        compose.runOnIdle {
+            assertEquals(RecognitionPhase.Listening, session.asr.phase)
+            engine.emit(RecognitionPhase.Idle, "final text", finished = true)
+            assertEquals("final text", session.draft.text)
+            assertTrue(session.continuousDictation)
+        }
+    }
+
     @Test fun tapRecordingFinishesOnSilenceButHoldWaitsForRelease() {
         mount()
         compose.runOnIdle {
