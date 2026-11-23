@@ -45,15 +45,22 @@ internal class PunctuationRestorer(private val context: Context) : Closeable {
 
 internal object PunctuationGuard {
     private val terminal = setOf('。', '！', '？', '.', '!', '?')
+    private val punctuation = terminal + setOf('，', '、', '；', '：', ',', ';', ':', '…', '—', '（', '）', '(', ')')
     private val whitespace = setOf(' ', '\u00a0', '\t', '\n', '\r')
 
     fun needsTerminal(text: String): Boolean = text.isNotBlank() && text.last() !in terminal
 
     fun accept(original: String, candidate: String): String {
+        if (original.isBlank()) return original
+        // Never rewrite a user's existing terminal punctuation.
+        if (original.last() in terminal) return original
         val trimmed = candidate.trimEnd()
-        if (trimmed.length < original.length + 1 || trimmed.length > original.length + 3) return original
-        val appended = trimmed.removePrefix(original)
-        if (appended.isEmpty() || appended.any { it !in terminal && it !in whitespace }) return original
+        if (trimmed == original) return original
+        if (trimmed.length > original.length + 8) return original
+        // The model may add commas/terminal marks, but must not change正文.
+        if (normalize(trimmed) != normalize(original)) return original
         return trimmed
     }
+
+    private fun normalize(value: String): String = value.filterNot { it in punctuation || it in whitespace }
 }

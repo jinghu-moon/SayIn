@@ -14,8 +14,12 @@ class PunctuationModelInstrumentedTest {
         val restorer = PunctuationRestorer(context)
         try {
             val result = restorer.restore("今天天气不错")
+            val mixed = restorer.restore("After tomorrow 是星期三")
+            android.util.Log.i("SayInPunct", "mixed=$mixed")
             assertTrue(result.startsWith("今天天气不错"))
             assertTrue(result.last() in setOf('。', '！', '？', '.', '!', '?'))
+            assertTrue(mixed.replace(" ", "").startsWith("Aftertomorrow是星期三"))
+            assertTrue(mixed.last() in setOf('。', '！', '？', '.', '!', '?'))
         } finally {
             restorer.close()
         }
