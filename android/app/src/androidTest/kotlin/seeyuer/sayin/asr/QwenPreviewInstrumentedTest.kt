@@ -4,7 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import kotlinx.coroutines.runBlocking
-import org.junit.Assert.assertFalse
+import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -15,6 +15,7 @@ class QwenPreviewInstrumentedTest {
     fun qwenPublishesTextBeforeCaptureFinishes() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.noBackupFilesDir, "local-models/qwen-06")
+        assumeTrue("Qwen 0.6 model is not imported on this device", directory.isDirectory)
         val testAssets = InstrumentationRegistry.getInstrumentation().context.assets
         val pcm = testAssets.open("x-asr-smoke.pcm").use { it.readBytes() }
         val samples = FloatArray(pcm.size / 2) { index ->
