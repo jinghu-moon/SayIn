@@ -202,6 +202,12 @@ val verifyLocalAsr = tasks.register<Exec>("verifyLocalAsr") {
 }
 tasks.named("preBuild") { dependsOn(verifyLocalAsr) }
 
+val verifyVadAssets = tasks.register<Exec>("verifyVadAssets") {
+    workingDir(repositoryRoot)
+    commandLine("python", repositoryRoot.resolve("scripts/check_vad_assets.py").absolutePath)
+}
+tasks.named("preBuild") { dependsOn(verifyVadAssets) }
+
 val verifyLocalAsrFixtures = tasks.register<Exec>("verifyLocalAsrFixtures") {
     workingDir(repositoryRoot)
     commandLine("python", repositoryRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-only")
