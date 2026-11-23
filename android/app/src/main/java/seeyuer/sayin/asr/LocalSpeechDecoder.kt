@@ -33,7 +33,9 @@ internal interface LocalSpeechDecoder : Closeable {
 /** These sherpa model exports decode after the recording finishes. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
-    private var previewEnabled = artifact.id == "qwen-06"
+    // All offline models may preview, but the RTF guard disables previews that
+    // cannot keep up on the current device.
+    private var previewEnabled = artifact.id in setOf("qwen-06", "qwen-17", "fun-int8")
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
