@@ -53,6 +53,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private var generation = 0L
     private val modelLock = Mutex()
     private var decoder: LocalSpeechDecoder? = null
+    private var punctuation: PunctuationRestorer? = null
     var localArtifact: () -> LocalVoiceArtifact? = { null }
     private var preparation: Job? = null
     private var closed = false
@@ -163,9 +164,10 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         val local = checkNotNull(decoder)
                         val source = openMicrophone()
                         listening()
-                        local.recognize(source) { text ->
+                        val raw = local.recognize(source) { text ->
                             mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
                         }
+                        if (local is XAsrDecoder) punctuate(raw) else raw
                     }
                     ensureActive()
                     // Only Finish may authorize completion, even if a provider stops on its own.
@@ -209,6 +211,14 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
         synchronized(microphoneLock) { microphone?.requestStop() }
     }
 
+    @Synchronized
+    private fun punctuate(text: String): String {
+        if (text.isBlank()) return text
+        return runCatching {
+            (punctuation ?: PunctuationRestorer(application).also { punctuation = it }).restore(text)
+        }.getOrDefault(text)
+    }
+
     override fun clearResult() {
         if (job == null) mutableState.value = RecognitionState(session = generation)
     }
@@ -228,6 +238,8 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
         // The mutex waits for in-flight native inference before releasing its weights.
         scope.launch(NonCancellable + Dispatchers.Default) {
             modelLock.withLock { decoder?.close(); decoder = null }
+            punctuation?.close()
+            punctuation = null
         }
         scope.cancel()
     }

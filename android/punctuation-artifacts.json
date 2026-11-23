@@ -1,0 +1,20 @@
+{
+  "model": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
+  "provider": "sherpa-onnx OfflinePunctuation",
+  "license": "Apache-2.0",
+  "source": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+  "files": {
+    "model.int8.onnx": 75519198,
+    "tokens.json": 4207480,
+    "config.yaml": 810,
+    "README.md": 1487,
+    "LICENSE": 11358
+  },
+  "sha256": {
+    "model.int8.onnx": "65a3fb9f5ad7bfb96bf69e0dc4481df97f6ee60513c1d94ce981ba6effd524b1",
+    "tokens.json": "c960ab87bccea4aa15cf49a59f71973c2c330b46668048cd8da253749ec71ee3",
+    "config.yaml": "a56ec10925b06fa976ad51af373396be2b13e1eb8dc62a5426b5adebaba7071d",
+    "README.md": "c4653586d436602e27aa3f12b080fe4417600204193ad46ed1235b42c20f6936",
+    "LICENSE": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+  }
+}

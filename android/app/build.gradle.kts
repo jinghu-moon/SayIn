@@ -208,6 +208,12 @@ val verifyVadAssets = tasks.register<Exec>("verifyVadAssets") {
 }
 tasks.named("preBuild") { dependsOn(verifyVadAssets) }
 
+val verifyPunctuationAssets = tasks.register<Exec>("verifyPunctuationAssets") {
+    workingDir(repositoryRoot)
+    commandLine("python", repositoryRoot.resolve("scripts/check_punctuation_assets.py").absolutePath)
+}
+tasks.named("preBuild") { dependsOn(verifyPunctuationAssets) }
+
 val verifyLocalAsrFixtures = tasks.register<Exec>("verifyLocalAsrFixtures") {
     workingDir(repositoryRoot)
     commandLine("python", repositoryRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-only")
