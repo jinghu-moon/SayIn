@@ -119,6 +119,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
             var issue = RecognitionIssue.Model
             try {
                 withContext(Dispatchers.Default) {
+                    val stallFallbackEnabled = cloud != null || decoder is XAsrDecoder
                     fun openMicrophone(): PcmSource {
                         ensureActive()
                         issue = RecognitionIssue.Microphone
@@ -137,7 +138,8 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                             val paused = progress?.ended ?: fallbackPause.update(rms, samples)
                             val ending = progress?.ending == true
                             val noSpeech = progress?.noSpeech == true ||
-                                (progress?.heardSpeech == true && mutableState.value.transcript.isBlank() &&
+                                (stallFallbackEnabled && progress?.heardSpeech == true &&
+                                    mutableState.value.transcript.isBlank() &&
                                     SystemClock.elapsedRealtime() - lastTranscriptAtMillis >= 5_000)
                             mutableState.update {
                                 if (it.session == session && it.phase == RecognitionPhase.Listening) {
