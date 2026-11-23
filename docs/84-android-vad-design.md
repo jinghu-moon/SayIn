@@ -18,7 +18,7 @@ SayIn 的语音输入以无感、省心、流畅为目标。用户点一下就�
 | 无文本/慢预览兜底 | 已完成代码 | `0654ca6` + `92443de`：流式文本停滞兜底、离线模型不误触发、预览 RTF 门控 |
 | 底噪自动校准 | 已完成单元测试 | `5fe1d63` + `ff19c19`：底噪阈值估计；Silero 资产集成测试已通过 |
 
-真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。测试安装重置了日常包数据；手机模型位于 `/sdcard/0-store/model/ASR`，已从中导入 X-ASR 和 Qwen 0.6B 到应用私有目录验证。已确认无语音 10 秒自动停止；外放 WAV 被识别时界面进入“快结束了…”，随后自动结束并保留草稿。JVM 209 项、VAD 模型测试 1 项、标点模型测试 1 项、Qwen 0.6B/1.7B 与 Fun-ASR 录音中预览测试各 1 项通过。连续录音功耗、音频路由/外放噪声及完整回归仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
+真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。测试安装重置了日常包数据；手机模型位于 `/sdcard/0-store/model/ASR`，已从中导入 X-ASR 和 Qwen 0.6B 到应用私有目录验证。已确认无语音 10 秒自动停止；外放 WAV 被识别时界面进入“快结束了…”，随后自动结束并保留草稿。JVM 212 项、VAD 模型测试 1 项、标点模型测试 1 项、Qwen 0.6B/1.7B 与 Fun-ASR 录音中预览测试各 1 项、`UnifiedSpeakInstrumentedTest` 14 项通过。连续录音功耗、音频路由/外放噪声及云端真实服务仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
 
 
 ## 1. 首版范围
