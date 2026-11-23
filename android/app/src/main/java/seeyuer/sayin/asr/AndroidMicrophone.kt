@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 
 internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_AUDIO) constructor(
     context: Context,
+    private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
     private val onAudio: (rms: Float, samples: Int, pcm: FloatArray) -> Unit,
 ) : PcmSource {
     private val lock = Any()
@@ -27,7 +28,7 @@ internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_
         val minimum = AudioRecord.getMinBufferSize(16000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         check(minimum > 0) { "Unsupported recording format" }
         recorder = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            .setAudioSource(audioSource)
             .setAudioFormat(AudioFormat.Builder().setSampleRate(16000)
                 .setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
             .setBufferSizeInBytes(maxOf(minimum * 2, 32000)).build()
