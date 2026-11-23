@@ -33,13 +33,14 @@ internal interface LocalSpeechDecoder : Closeable {
 /** These sherpa model exports decode after the recording finishes. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
+    // 4 threads measured faster than 2 on K40 for the two heavy offline models;\n    // Qwen 0.6B keeps 2 to avoid unnecessary contention.\n    private val decodeThreads = if (artifact.id == "qwen-17" || artifact.id == "fun-int8") 4 else 2
     private val preview = OfflinePreviewPolicies.forModel(artifact.id)
     private var previewEnabled = preview != null
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = SAMPLE_RATE, featureDim = 80),
-            modelConfig = OfflineModelConfig(numThreads = 2, provider = "cpu").apply {
+            modelConfig = OfflineModelConfig(numThreads = decodeThreads, provider = "cpu").apply {
                 fun path(name: String) = File(artifact.directory, name).absolutePath
                 when (artifact.id) {
                     "qwen-06", "qwen-17" -> {
