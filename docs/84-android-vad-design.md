@@ -16,9 +16,9 @@ SayIn 的语音输入以无感、省心、流畅为目标。用户点一下就�
 | 本地录音中出字 | Qwen 0.6B 已接入；1.7B/Fun-ASR 仍待性能验收 | `9f4bccf`：录音中分段预览、预览 RTF 降级 |
 | 连续听写 | 已完成最小模式 | `e743cde`：连续录音到手动停止、云端 `end_window_size`/`max_sentence_silence` 调整 |
 | 无文本/慢预览兜底 | 已完成代码 | `0654ca6`：识别文本停滞兜底、Qwen 预览 RTF 门控 |
-| 底噪自动校准 | 已完成单元测试 | `5fe1d63` + `ff19c19`：底噪阈值估计；Silero 资产集成测试已加入，设备锁定未执行 |
+| 底噪自动校准 | 已完成单元测试 | `5fe1d63` + `ff19c19`：底噪阈值估计；Silero 资产集成测试已通过 |
 
-尚未完成真机验收：设备已解锁，但 MIUI 仍拒绝 ADB 覆盖安装（`INSTALL_FAILED_USER_RESTRICTED`）；实际麦克风、VAD 模型推理、标点模型冷启动、连续录音功耗、音频路由/外放和 1.7B/Fun-ASR 预览仍需在放开安装权限后执行。当前状态不能描述为“全部阶段已通过真机验收”。
+真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。尚未覆盖真实麦克风自动收尾、连续录音功耗、音频路由/外放、1.7B/Fun-ASR 预览和完整录音 UI 回归；当前状态不能描述为“全部阶段已通过真机验收”。
 
 
 ## 1. 首版范围
