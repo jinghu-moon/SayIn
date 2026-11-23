@@ -12,7 +12,7 @@ SayIn 的语音输入以无感、省心、流畅为目标。用户点一下就�
 | --- | --- | --- |
 | 模型资产与端点计时 | 已完成 | `ffd48e1`：Silero int8/fp32、资产摘要校验、`VadEndpointTimer` 单元测试 |
 | 点按智能结束 | 已完成代码与 JVM/构建验证 | `0758c63`：VAD 自动收尾、手动模式收尾、无语音/无有效文本超时、自动结束提示 |
-| X-ASR 标点 | 已完成基础接入 | `5beffcc`：CT-Transformer INT8 资产、保守句末标点保护与单元测试 |
+| X-ASR 标点 | 已完成基础接入与设备测试 | `5beffcc` + `be05657`：CT-Transformer INT8 资产、句末保护；中英混说设备测试通过 |
 | 本地录音中出字 | Qwen 0.6B 已接入；1.7B/Fun-ASR 仍待性能验收 | `9f4bccf`：录音中分段预览、预览 RTF 降级 |
 | 连续听写 | 已完成最小模式 | `e743cde`：连续录音到手动停止、云端 `end_window_size`/`max_sentence_silence` 调整 |
 | 无文本/慢预览兜底 | 已完成代码 | `0654ca6`：识别文本停滞兜底、Qwen 预览 RTF 门控 |
