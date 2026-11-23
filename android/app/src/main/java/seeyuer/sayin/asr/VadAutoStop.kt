@@ -47,10 +47,12 @@ internal class VadAutoStop(
     private var threshold = defaultThreshold
     private var frameCount = 0
     private var done = false
+    private var noSpeechDone = false
+    private var heardSpeech = false
 
     fun accept(samples: FloatArray): VadProgress {
-        if (done) return VadProgress(heardSpeech = true, ended = true)
-        var result = VadProgress()
+        if (done) return VadProgress(heardSpeech = heardSpeech, ended = !noSpeechDone, noSpeech = noSpeechDone)
+        var result = VadProgress(heardSpeech = heardSpeech)
         var offset = 0
         while (offset < samples.size) {
             val count = minOf(WINDOW_SIZE - frameCount, samples.size - offset)
@@ -70,7 +72,11 @@ internal class VadAutoStop(
         val probability = vad.compute(frame)
         calibrator.observe(probability, WINDOW_SIZE)?.let { threshold = it }
         val state = timer.accept(probability, threshold, WINDOW_SIZE)
-        if (state.ended || state.noSpeech) done = true
+        if (state.ended || state.noSpeech) {
+            done = true
+            noSpeechDone = state.noSpeech
+            heardSpeech = state.heardSpeech
+        }
         return VadProgress(state.heardSpeech, state.ending, state.ended, state.noSpeech)
     }
 
