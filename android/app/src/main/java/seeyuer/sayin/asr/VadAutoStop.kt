@@ -21,14 +21,14 @@ internal data class VadProgress(
 internal class VadAutoStop(
     context: Context,
     model: String = DEFAULT_MODEL,
-    private val threshold: Float = 0.45f,
+    private val defaultThreshold: Float = 0.45f,
 ) : Closeable {
     private val vad = Vad(
         assetManager = context.applicationContext.assets,
         config = VadModelConfig(
             sileroVadModelConfig = SileroVadModelConfig(
                 model = model,
-                threshold = threshold,
+                threshold = defaultThreshold,
                 // compute() is called per window; these internal durations are not
                 // the product endpoint timer.
                 minSilenceDuration = 0.01f,
@@ -43,6 +43,8 @@ internal class VadAutoStop(
     )
     private val frame = FloatArray(WINDOW_SIZE)
     private val timer = VadEndpointTimer()
+    private val calibrator = VadNoiseCalibrator(defaultThreshold = defaultThreshold)
+    private var threshold = defaultThreshold
     private var frameCount = 0
     private var done = false
 
@@ -65,7 +67,9 @@ internal class VadAutoStop(
     }
 
     private fun acceptFrame(): VadProgress {
-        val state = timer.accept(vad.compute(frame), threshold, WINDOW_SIZE)
+        val probability = vad.compute(frame)
+        calibrator.observe(probability, WINDOW_SIZE)?.let { threshold = it }
+        val state = timer.accept(probability, threshold, WINDOW_SIZE)
         if (state.ended || state.noSpeech) done = true
         return VadProgress(state.heardSpeech, state.ending, state.ended, state.noSpeech)
     }
