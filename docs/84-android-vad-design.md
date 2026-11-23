@@ -13,12 +13,12 @@ SayIn 的语音输入以无感、省心、流畅为目标。用户点一下就�
 | 模型资产与端点计时 | 已完成 | `ffd48e1`：Silero int8/fp32、资产摘要校验、`VadEndpointTimer` 单元测试 |
 | 点按智能结束 | 已完成代码与 JVM/构建验证 | `0758c63`：VAD 自动收尾、手动模式收尾、无语音/无有效文本超时、自动结束提示 |
 | X-ASR 标点 | 已完成基础接入与设备测试 | `5beffcc` + `be05657`：CT-Transformer INT8 资产、句末保护；中英混说设备测试通过 |
-| 本地录音中出字 | 0.6B 设备测试通过；1.7B/Fun-ASR 代码已接入但待性能验收 | `9f4bccf` + `7666074`：全部离线模型录音中预览、RTF 降级 |
+| 本地录音中出字 | Qwen 0.6B/1.7B 设备测试通过；Fun-ASR 待性能验收 | `9f4bccf` + `7666074` + `e7e5562`：全部离线模型录音中预览、RTF 降级 |
 | 连续听写 | 已完成最小模式 | `e743cde`：连续录音到手动停止、云端 `end_window_size`/`max_sentence_silence` 调整 |
 | 无文本/慢预览兜底 | 已完成代码 | `0654ca6` + `92443de`：流式文本停滞兜底、离线模型不误触发、预览 RTF 门控 |
 | 底噪自动校准 | 已完成单元测试 | `5fe1d63` + `ff19c19`：底噪阈值估计；Silero 资产集成测试已通过 |
 
-真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。测试安装重置了日常包数据；手机模型位于 `/sdcard/0-store/model/ASR`，已从中导入 X-ASR 和 Qwen 0.6B 到应用私有目录验证。已确认无语音 10 秒自动停止；外放 WAV 被识别时界面进入“快结束了…”，随后自动结束并保留草稿。JVM 209 项、VAD 模型测试 1 项、标点模型测试 1 项、Qwen 录音中预览测试 1 项通过。连续录音功耗、音频路由/外放噪声、1.7B/Fun-ASR 及完整回归仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
+真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。测试安装重置了日常包数据；手机模型位于 `/sdcard/0-store/model/ASR`，已从中导入 X-ASR 和 Qwen 0.6B 到应用私有目录验证。已确认无语音 10 秒自动停止；外放 WAV 被识别时界面进入“快结束了…”，随后自动结束并保留草稿。JVM 209 项、VAD 模型测试 1 项、标点模型测试 1 项、Qwen 0.6B/1.7B 录音中预览测试各 1 项通过。连续录音功耗、音频路由/外放噪声、Fun-ASR 及完整回归仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
 
 
 ## 1. 首版范围
