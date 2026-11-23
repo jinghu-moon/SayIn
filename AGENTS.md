@@ -340,9 +340,9 @@
 
 ## 15. SayIn 品牌
 
-- 产品名称在简体中文与 English 中统一为 **SayIn**；采用用户确认的 `assets/sayin-icons/B-field`（光标入框）原始图标，F-yan 仅保留源方案。
+- 产品名称在简体中文与 English 中统一为 **SayIn**；采用用户确认的 `assets/sayin-icons/F-yan`（暖白底 #F5F4F0 深色言字标）图标；B-field 保留为历史方案。
 - 通过 `python scripts/sync_brand_assets.py` 同步双端品牌资源及来源 SHA-256 清单，不重画或改色；业务功能图标继续使用 Tabler。
-- Android Launcher 可按官方自适应图标规范等比调整内部留白：108dp 图层、中心直径 66dp 安全圆，当前 B-field 图形宽 48dp；前景与单色层几何一致。不得连带缩小背景底板或修改品牌颜色，详见 [35 Android 启动器图标](docs/35-android-launcher-icon-safe-zone.md)。
+- Android Launcher 可按官方自适应图标规范等比调整内部留白：108dp 图层、中心直径 66dp 安全圆。当前 F-yan 的前景/单色层按 0.5714 缩放（图形高约 48dp），确保落在 66dp 安全圆内；B-field 的调整仅作为历史记录；不得连带缩小背景底板或修改品牌颜色，详见 [35 Android 启动器图标](docs/35-android-launcher-icon-safe-zone.md)。
 - Android 最终包名为 `seeyuer.sayin`，详见第 10 节；Windows app_id、既有数据目录、配对/历史身份及 Rust 内部 crate 名称保留。Windows 运行产物为 `sayin.exe`。
 - 接入范围与验收证据见 [21 SayIn 命名与图标](docs/21-sayin-brand-name-and-icons.md)。
 

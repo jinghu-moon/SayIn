@@ -10,6 +10,82 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StreamingRecognitionTest {
+    @Test fun r2t2FinishesAtExactDecodeBoundaryWithoutReplacingConfirmedText() = runBlocking {
+        val end = CountDownLatch(1)
+        val updates = mutableListOf<String>()
+        val prefixes = mutableListOf<Pair<String, Boolean>>()
+        val microphone = object : PcmSource {
+            private var delivered = false
+            override fun read(): FloatArray? {
+                if (delivered) {
+                    check(end.await(5, TimeUnit.SECONDS))
+                    return null
+                }
+                delivered = true
+                return FloatArray(32_000)
+            }
+            override fun requestStop() { end.countDown() }
+            override fun close() = Unit
+        }
+        val result = recognizeR2t2(
+            microphone,
+            decode = { pcm, prefix, final, preview ->
+                assertEquals(32_000, pcm.size)
+                prefixes += prefix to final
+                if (final) " world.".encodeToByteArray()
+                else {
+                    val bytes = "language English<asr_text>Hello\uFFFD".encodeToByteArray()
+                    preview.publish(bytes)
+                    assertEquals(listOf("Hello"), updates)
+                    bytes
+                }
+            },
+            finishInput = {},
+        ) {
+            updates += it
+            end.countDown()
+        }
+        assertEquals(listOf("" to false, "language English<asr_text>Hello" to true), prefixes)
+        assertEquals(listOf("Hello", "Hello world."), updates)
+        assertEquals("Hello world.", result)
+    }
+
+    @Test fun r2t2NormalStopSupersedesPartialDecodeAndKeepsAllPcm() = runBlocking {
+        val started = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        val microphone = object : PcmSource {
+            private var reads = 0
+            override fun read(): FloatArray? = when (reads++) {
+                0 -> FloatArray(32_000) { 1f }
+                1 -> {
+                    check(started.await(5, TimeUnit.SECONDS))
+                    FloatArray(1_600) { 2f }
+                }
+                else -> null
+            }
+            override fun requestStop() = Unit
+            override fun close() = Unit
+        }
+        val updates = mutableListOf<String>()
+        val result = recognizeR2t2(microphone, decode = { pcm, prefix, final, preview ->
+            if (final) {
+                assertEquals("language Chinese<asr_text>你好", prefix)
+                assertEquals(33_600, pcm.size)
+                assertEquals(1f, pcm[31_999], 0f)
+                assertEquals(2f, pcm[32_000], 0f)
+                "。".encodeToByteArray()
+            } else {
+                assertEquals("", prefix)
+                preview.publish("language Chinese<asr_text>你好".encodeToByteArray())
+                started.countDown()
+                check(finished.await(5, TimeUnit.SECONDS))
+                null
+            }
+        }, finishInput = { finished.countDown() }, onTranscript = { updates += it })
+        assertEquals("你好。", result)
+        assertEquals(listOf("你好", result), updates)
+    }
+
     @Test fun partialRevisionsReplaceOnlyCurrentSegment() {
         val transcript = StreamingTranscript()
         assertEquals("你", transcript.update("你", false))

@@ -1,11 +1,11 @@
-"""Copy the approved B-field masters into Android and Windows build inputs."""
+"""Copy the approved F-yan masters into Android and Windows build inputs.\n\nThe Android adaptive foreground/monochrome layers already carry the approved\nlauncher safe-area scale; no further geometry is applied here.\n"""
 from pathlib import Path
 import hashlib
 import json
 import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "assets/sayin-icons/B-field"
+SOURCE = ROOT / "assets/sayin-icons/F-yan"
 RES = ROOT / "android/app/src/main/res"
 DESKTOP = ROOT / "desktop/assets"
 
@@ -33,9 +33,9 @@ def main():
     (RES / "mipmap-anydpi/ic_launcher.xml").unlink(missing_ok=True)
     DESKTOP.mkdir(parents=True, exist_ok=True)
     (DESKTOP / "brand-assets.json").write_text(json.dumps({
-        "name": "SayIn", "variant": "B-field", "files": copied,
+        "name": "SayIn", "variant": "F-yan", "files": copied,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"SayIn B-field: {len(copied)} original assets copied without modification.")
+    print(f"SayIn F-yan: {len(copied)} master assets copied (Android launcher layers use the safe-area scale).")
 
 
 if __name__ == "__main__":

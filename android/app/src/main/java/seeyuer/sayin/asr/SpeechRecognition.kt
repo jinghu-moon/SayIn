@@ -21,10 +21,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import seeyuer.sayin.BuildConfig
 
 internal enum class RecognitionPhase { Idle, Loading, Listening, Finishing, Cancelling }
-internal enum class LocalModelPhase { Unloaded, Loading, Warming, Ready, Failed }
-internal enum class RecognitionIssue { Permission, Model, Microphone, TooSlow, Recognition, CloudConfiguration, CloudNetwork, CloudAuthentication, CloudAccessDenied, CloudQuota, CloudTimeout, CloudProtocol, CloudService }
+internal enum class LocalModelPhase { Unloaded, Loading, Warming, Ready, Failed, Missing }
+internal enum class RecognitionIssue { Permission, Model, Microphone, TooSlow, RecordingLimit, Recognition, CloudConfiguration, CloudNetwork, CloudAuthentication, CloudAccessDenied, CloudQuota, CloudTimeout, CloudProtocol, CloudService }
 internal data class RecognitionState(
     val session: Long = 0,
     val phase: RecognitionPhase = RecognitionPhase.Idle,
@@ -48,7 +49,8 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private var microphone: PcmSource? = null
     private var generation = 0L
     private val modelLock = Mutex()
-    private var decoder: XAsrDecoder? = null
+    private var decoder: LocalSpeechDecoder? = null
+    var localArtifact: () -> LocalVoiceArtifact? = { null }
     private var preparation: Job? = null
     private var closed = false
     private val mutableModel = MutableStateFlow(LocalModelPhase.Unloaded)
@@ -56,12 +58,17 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
 
     override fun prepareLocal() {
         if (closed || preparation != null || mutableModel.value == LocalModelPhase.Ready) return
+        val artifact = localArtifact()
+        if (artifact == null && !BuildConfig.LOCAL_MODEL_FIXTURES) {
+            mutableModel.value = LocalModelPhase.Missing
+            return
+        }
         mutableModel.value = LocalModelPhase.Loading
         preparation = scope.launch {
             try {
                 withContext(Dispatchers.Default) {
                     modelLock.withLock {
-                        val loaded = XAsrDecoder(application.assets)
+                        val loaded = artifact?.openDecoder() ?: XAsrDecoder(application.assets)
                         try {
                             ensureActive()
                             mutableModel.value = LocalModelPhase.Warming
@@ -82,6 +89,17 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                 mutableModel.value = LocalModelPhase.Failed
             } finally { preparation = null }
         }
+    }
+
+    override suspend fun releaseLocal() {
+        preparation?.let { it.cancel(); it.join() }
+        withContext(Dispatchers.Default) {
+            modelLock.withLock {
+                decoder?.close()
+                decoder = null
+            }
+        }
+        mutableModel.value = LocalModelPhase.Unloaded
     }
 
     override fun start(cloud: CloudConfiguration?) {
@@ -123,14 +141,10 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         }.text
                     } else modelLock.withLock {
                         val local = checkNotNull(decoder)
-                        try {
-                            val source = openMicrophone()
-                            listening()
-                            recognizeStreaming(local, source) { text ->
-                                mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
-                            }
-                        } finally {
-                            local.restart()
+                        val source = openMicrophone()
+                        listening()
+                        local.recognize(source) { text ->
+                            mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
                         }
                     }
                     ensureActive()
@@ -145,6 +159,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                 val reason = when (error) {
                     is SecurityException -> RecognitionIssue.Permission
                     is AudioBacklogException -> RecognitionIssue.TooSlow
+                    is OfflineRecordingLimitException -> RecognitionIssue.RecordingLimit
                     is CloudRecognitionException -> error.issue.recognitionIssue()
                     else -> issue
                 }

@@ -1,0 +1,147 @@
+[
+  {
+    "id": "x-asr",
+    "name": "X-ASR 480ms",
+    "precision": "FP32",
+    "hf": null,
+    "modelScope": "/finchxu/sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05/files",
+    "archive": "sherpa-onnx-x-asr-480ms-streaming-zipformer-transducer-zh-en-punct-2026-06-05.tar.bz2",
+    "files": {
+      "encoder.onnx": {
+        "bytes": 593353043,
+        "sha256": "5c7fa5f7fea034752ebad4117526e7b6511962727cb8a1eee91fa2acb4bc0998"
+      },
+      "decoder.onnx": {
+        "bytes": 11309084,
+        "sha256": "a1cbc9eac2d5e3fb6617a218c67ad6daaa7f4e0fd225f08b2c22ab0413c8c257"
+      },
+      "joiner.onnx": {
+        "bytes": 10260467,
+        "sha256": "c4e598c15343e5546ea8533b34512302dfbf4e11fc4a77b7cfcdb4c918f4f16a"
+      },
+      "tokens.txt": {
+        "bytes": 58806,
+        "sha256": "b818a60878b9aae978cbb8ad594acbd403d76d1af2e31ef4197c84e2dbdba27c"
+      }
+    }
+  },
+  {
+    "id": "qwen-06",
+    "name": "Qwen3-ASR 0.6B",
+    "precision": "INT8",
+    "hf": "/csukuangfj2/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/tree/68818b2313fe77bd06f6a7c5068ff3ef59d02b8a",
+    "modelScope": "/jkman2023/sherpa-onnx-qwen3-asr-0.6B-int8-2026-03-25/files",
+    "archive": null,
+    "files": {
+      "conv_frontend.onnx": {
+        "bytes": 44148281,
+        "sha256": "d22dc4423e0940e49884e903d2ea2f7e5567c14fc1aed97e4e26d6b8f208ef9e"
+      },
+      "decoder.int8.onnx": {
+        "bytes": 755914231,
+        "sha256": "4f6885be5959ae26af3089d38ee7972c5fafbeeb1cf8d5e76eab6d8b61ca5771"
+      },
+      "encoder.int8.onnx": {
+        "bytes": 182491662,
+        "sha256": "60748d3e6744a57c9c91e1b17424a6c2990567e8adceb0783940c03ed98fa9d9"
+      },
+      "tokenizer/merges.txt": {
+        "bytes": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+      },
+      "tokenizer/tokenizer_config.json": {
+        "bytes": 12487,
+        "sha256": "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"
+      },
+      "tokenizer/vocab.json": {
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      }
+    }
+  },
+  {
+    "id": "r2t2",
+    "name": "Confucius4-R2T2",
+    "precision": "Q4_K_M",
+    "hf": "/netease-youdao/Confucius4-R2T2-GGUF/tree/86ff0251cb9f456b63aeef5f80137f104e22869a",
+    "modelScope": "/netease-youdao/Confucius4-R2T2-GGUF/files",
+    "files": {
+      "Confucius4-R2T2-Q4_K_M.gguf": {
+        "bytes": 1107404736,
+        "sha256": "fa3cb46c8c3a66a58812b9098ba6e96a0266d4e8c9b3cf5ba34432fd2f9f6466"
+      },
+      "mmproj-Confucius4-R2T2-f16.gguf": {
+        "bytes": 641773984,
+        "sha256": "0057b28b8814e431a28e3d1002343eef2d1676bbf8b0625351ae4550ac4e595d"
+      }
+    }
+  },
+  {
+    "id": "qwen-17",
+    "name": "Qwen3-ASR 1.7B",
+    "precision": "INT8",
+    "hf": "/ilmina/qwen3-asr-1.7b-sherpa-onnx/tree/66fb5ea2d4d1682ff8a663bf7e788913604996a0",
+    "files": {
+      "conv_frontend.onnx": {
+        "bytes": 48080441,
+        "sha256": "fa894a4ba53da6a4238f2a6ca0b09362e505d39cecbd646051b033e2e8d7e2fb"
+      },
+      "decoder.int8.onnx": {
+        "bytes": 2037458645,
+        "sha256": "c43c853fa6e97d08365cb8a5502b360b595cd43c00dc60e4d8ca7cc18cad460b"
+      },
+      "encoder.int8.onnx": {
+        "bytes": 314222162,
+        "sha256": "436fbd910a0c8914851e5ac1354e807be9f283d08a5da728adaa609731c41469"
+      },
+      "tokenizer/merges.txt": {
+        "bytes": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+      },
+      "tokenizer/tokenizer_config.json": {
+        "bytes": 12487,
+        "sha256": "4942d005604266809309cabc9f4e9cb89ce855d59b14681fdc0e1cc62ea26c4c"
+      },
+      "tokenizer/vocab.json": {
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      }
+    },
+    "modelScope": null
+  },
+  {
+    "id": "fun-int8",
+    "name": "Fun-ASR-Nano 2512",
+    "precision": "INT8",
+    "archive": "sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2",
+    "modelEntryFile": "llm.int8.onnx",
+    "files": {
+      "Qwen3-0.6B/merges.txt": {
+        "bytes": 1671853,
+        "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5"
+      },
+      "Qwen3-0.6B/tokenizer.json": {
+        "bytes": 11422654,
+        "sha256": "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+      },
+      "Qwen3-0.6B/vocab.json": {
+        "bytes": 2776833,
+        "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910"
+      },
+      "embedding.int8.onnx": {
+        "bytes": 155583106,
+        "sha256": "a05d2816e284fcca29a5dccb2c14b9edeb638fd983a84cd4a447248889b6a408"
+      },
+      "encoder_adaptor.int8.onnx": {
+        "bytes": 238277200,
+        "sha256": "d0246c823f2c34133ae0efee395d8a189c8f92643e3432f866939ee34d34492c"
+      },
+      "llm.int8.onnx": {
+        "bytes": 600339316,
+        "sha256": "7f0c5a508b41474b1b1ec1cdbdefafd2cf8b3642c6915a0a425265b7b7d2c960"
+      }
+    },
+    "hf": null,
+    "modelScope": "/fuyuantech/fuyuan-sherpa-onnx-funasr-nano-int8-2025-12-30/resolve/master/sherpa-onnx-funasr-nano-int8-2025-12-30.tar.bz2"
+  }
+]

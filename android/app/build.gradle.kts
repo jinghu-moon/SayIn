@@ -103,7 +103,6 @@ android {
     }
 
     buildFeatures { compose = true; buildConfig = true }
-    sourceSets["main"].assets.srcDir(rootProject.file("local-asr/assets"))
     androidResources {
         noCompress += "onnx"
         // Bundled translation weights must be directly openable as an asset descriptor.
@@ -120,16 +119,22 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    sourceSets.maybeCreate("imageTest").assets.srcDir(rootProject.file("local-asr/assets"))
     testBuildType = providers.gradleProperty("sayin.instrumentationBuildType").getOrElse("debug")
     buildTypes {
-        debug { isPseudoLocalesEnabled = true }
+        debug {
+            isPseudoLocalesEnabled = true
+            buildConfigField("boolean", "LOCAL_MODEL_FIXTURES", "false")
+        }
         create("imageTest") {
             initWith(getByName("debug"))
+            buildConfigField("boolean", "LOCAL_MODEL_FIXTURES", "true")
             applicationIdSuffix = ".imagetest"
             versionNameSuffix = "-image-test"
             matchingFallbacks += listOf("debug")
         }
         release {
+            buildConfigField("boolean", "LOCAL_MODEL_FIXTURES", "false")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -193,9 +198,15 @@ val bundleTranslationModels = tasks.register<BundleTranslationModels>("bundleTra
 val verifyLocalAsr = tasks.register<Exec>("verifyLocalAsr") {
     val projectRoot = rootProject.projectDir.parentFile
     workingDir(projectRoot)
-    commandLine("python", projectRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-only")
+    commandLine("python", projectRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-runtime")
 }
 tasks.named("preBuild") { dependsOn(verifyLocalAsr) }
+
+val verifyLocalAsrFixtures = tasks.register<Exec>("verifyLocalAsrFixtures") {
+    workingDir(repositoryRoot)
+    commandLine("python", repositoryRoot.resolve("scripts/prepare_x_asr.py").absolutePath, "--verify-only")
+}
+tasks.matching { it.name == "preImageTestBuild" }.configureEach { dependsOn(verifyLocalAsrFixtures) }
 
 abstract class BuildPairingNative : Exec() {
     @get:OutputDirectory abstract val outputDirectory: DirectoryProperty
@@ -218,5 +229,9 @@ androidComponents.beforeVariants { variant ->
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addGeneratedSourceDirectory(buildPairingNative) { it.outputDirectory }
-    variant.sources.assets?.addGeneratedSourceDirectory(bundleTranslationModels) { it.outputDirectory }
+    if (variant.buildType == "imageTest" ||
+        variant.buildType == "release" && providers.gradleProperty("sayinVerification").orNull == "true"
+    ) {
+        variant.sources.assets?.addGeneratedSourceDirectory(bundleTranslationModels) { it.outputDirectory }
+    }
 }

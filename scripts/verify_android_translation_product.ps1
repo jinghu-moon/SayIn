@@ -3,7 +3,6 @@ param(
     [Parameter(Mandatory)][string]$ModelsDirectory,
     [ValidateSet('debug', 'release')][string]$BuildType = 'release',
     [switch]$SkipBuild,
-    [switch]$DownloadModel,
     [switch]$UseExistingModel,
     [switch]$IncludeSessionRegression,
     [switch]$UseExistingRootInstall
@@ -24,7 +23,6 @@ function Invoke-Checked([scriptblock]$Command) {
 }
 try {
     if ($BuildType -eq 'release' -and !$UseExistingRootInstall) { throw 'External Release fixture needs the explicitly authorized root install to prepare only its isolated private model; ordinary product use never needs root.' }
-    if ($DownloadModel -and $BuildType -eq 'release') { throw 'Download scenario uses the debug native harness; Release uses the platform UI harness with a verified local weight.' }
     $acquired = $lease.WaitOne(0)
     if (!$acquired) { throw 'Another SayIn device verification is active; run serially.' }
     $activities = (& $adb -s $DeviceSerial shell dumpsys activity) -join "`n"
@@ -74,7 +72,7 @@ try {
         } else { Invoke-Checked { & $adb -s $DeviceSerial install -r -t $entry[0] } }
     }
     $remoteDirectory = "/sdcard/Android/data/$applicationId/files"
-    if (!$DownloadModel -and !$UseExistingModel) {
+    if (!$UseExistingModel) {
         Invoke-Checked { & $adb -s $DeviceSerial shell mkdir -p "$remoteDirectory/models" }
         Invoke-Checked { & $adb -s $DeviceSerial push $modelPath "$remoteDirectory/models/$($model.file)" }
     }
@@ -82,7 +80,8 @@ try {
     if ($BuildType -eq 'release') {
         # Developer fixture only: no production import or root dependency. Both private paths belong to the isolated package.
         $privateRoot = "/data/user/0/$applicationId/no_backup"
-        $privateDirectory = "$privateRoot/translation"
+        $modelRoot = "$privateRoot/local-models"
+        $privateDirectory = "$modelRoot/$($model.id)"
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'mkdir -p $privateDirectory'" }
         $modelUid = (& $adb -s $DeviceSerial shell "su -c 'stat -c %u /data/user/0/$applicationId'").Trim()
         if ($modelUid -notmatch '^\d+$') { throw 'Cannot resolve isolated app UID.' }
@@ -92,21 +91,20 @@ try {
         if ($LASTEXITCODE -ne 0 -or $remoteHash -notmatch ('^' + $model.sha256 + '\s')) { throw 'Isolated private model integrity failed.' }
         # A fresh install has not created no_backup yet. mkdir -p as root also
         # creates that parent; leaving it root-owned blocks drafts/image storage.
-        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'chown $($modelUid):$modelUid $privateRoot $privateDirectory $pending'" }
+        Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'chown $($modelUid):$modelUid $privateRoot $modelRoot $privateDirectory $pending'" }
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'mv $pending $privateDirectory/$($model.file)'" }
         Invoke-Checked { & $adb -s $DeviceSerial shell "su -c 'restorecon -RF $privateRoot'" }
         $remoteDirectory = '/sdcard/Android/data/seeyuer.sayin.translationbench/files'
         $output = & $adb -s $DeviceSerial shell am instrument -w -r -e class seeyuer.sayin.translationbench.TranslationReleaseSmoke seeyuer.sayin.translationbench.test/androidx.test.runner.AndroidJUnitRunner
     } else {
-        $classes = 'seeyuer.sayin.ui.TranslationNativeInstrumentedTest'
+        $classes = 'seeyuer.sayin.ui.TranslationNativeInstrumentedTest#bundledModelsRunSequentialRequestsWithAsrWeights'
         if ($IncludeSessionRegression) { $classes += ',seeyuer.sayin.ui.TranslationSessionInstrumentedTest,seeyuer.sayin.ui.TranslationUiInstrumentedTest' }
-        $output = & $adb -s $DeviceSerial shell am instrument -w -r -e timeout_msec 600000 -e localTranslation true -e downloadTranslation ([string][bool]$DownloadModel).ToLowerInvariant() -e class $classes "$applicationId.test/androidx.test.runner.AndroidJUnitRunner"
+        $output = & $adb -s $DeviceSerial shell am instrument -w -r -e timeout_msec 600000 -e localTranslation true -e importTranslation true -e class $classes "$applicationId.test/androidx.test.runner.AndroidJUnitRunner"
     }
-    $mode = if ($DownloadModel) { 'download' } else { 'import' }
-    $directory = Join-Path $projectRoot "android/local-translation/results/$DeviceSerial-product-$BuildType-$mode"
+    $directory = Join-Path $projectRoot "android/local-translation/results/$DeviceSerial-product-$BuildType-import"
     New-Item -ItemType Directory -Force -Path $directory | Out-Null
     $output | Set-Content (Join-Path $directory 'instrumentation.txt') -Encoding utf8
-    $pattern = if ($BuildType -eq 'debug' -and $IncludeSessionRegression) { 'OK \(6 tests\)' } else { 'OK \(1 test\)' }
+    $pattern = if ($BuildType -eq 'debug' -and $IncludeSessionRegression) { 'OK \(12 tests\)' } else { 'OK \(1 test\)' }
     if ($LASTEXITCODE -ne 0 -or ($output -join "`n") -notmatch $pattern) { $output | Write-Output; throw 'Product JNI verification failed.' }
     Invoke-Checked { & $adb -s $DeviceSerial pull "$remoteDirectory/product-native-report.json" (Join-Path $directory 'product-native-report.json') }
     Write-Output "Isolated product ${BuildType}: real translation JNI and co-resident ASR verification passed."

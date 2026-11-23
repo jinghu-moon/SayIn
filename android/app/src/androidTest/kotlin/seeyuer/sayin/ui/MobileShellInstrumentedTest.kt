@@ -215,22 +215,69 @@ class MobileShellInstrumentedTest {
     }
 
     @Test fun settingsExposeModelManagementAndFloatingButtonOptions() {
-        setTestContent { VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue(), {}, {}, { _, _ -> }, {}) } }
+        val modelRoot = File(context.cacheDir, "model-management-${java.util.UUID.randomUUID()}")
+        val unbundled = seeyuer.sayin.translation.TranslationCatalog.read(context).defaultModel.copy(bundled = false)
+        setTestContent(modelRoot) {
+            VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue(), {}, {}, { _, _ -> }, {}, translationModel = unbundled) }
+        }
         compose.onNodeWithTag("nav-Settings").performClick()
         compose.onNodeWithText(context.getString(R.string.settings_voice_recognition)).performClick()
-        compose.onNodeWithText(context.getString(R.string.settings_offline_model)).performClick()
-        compose.onNodeWithTag("settings-page-OfflineModel").assertExists()
-        compose.onNodeWithText(context.getString(R.string.settings_asr_model_spec_value)).assertExists()
-        compose.onNodeWithTag("settings-back").performClick()
+        selectRecognitionEngine(SpeakInputSource.Local)
+        compose.onNodeWithTag("local-model-card-x-asr").assertExists()
+        compose.onNodeWithTag("local-model-files-toggle-x-asr").assertDoesNotExist()
         compose.onNodeWithTag("settings-back").performClick()
         compose.onNodeWithText(context.getString(R.string.settings_translation)).performClick()
-        compose.onNodeWithText(context.getString(R.string.settings_translation_bundled)).assertExists()
-        compose.onNodeWithTag("settings-translation-prepare").assertDoesNotExist()
+        compose.onNodeWithTag("local-model-card-hy-mt2-1.8b-q4").assertDoesNotExist()
+        compose.onNodeWithTag("local-model-get").performClick()
+        compose.onNodeWithTag("settings-page-LocalModels").assertExists()
+        compose.onNodeWithTag("local-model-manage-hy-mt2-1.8b-q4").assertIsDisplayed().performClick()
+        compose.onNodeWithTag("local-model-files-hy-mt2-1.8b-q4").assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.local_model_scope)).assertExists()
+        compose.onNodeWithTag("local-model-files-toggle-hy-mt2-1.8b-q4").performClick()
+        compose.onNodeWithTag("local-model-files-hy-mt2-1.8b-q4").assertTextContains("Hy-MT2-1.8B-Q4_K_M.gguf", substring = true)
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("local-model-manage-x-asr").performScrollTo().performClick()
+        compose.onNodeWithTag("local-model-files-toggle-x-asr").performClick()
+        compose.onNodeWithTag("local-model-files-x-asr").assertTextContains("encoder.onnx", substring = true)
+        compose.runOnUiThread { compose.activity.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("settings-back").performClick()
         compose.onNodeWithTag("settings-page-Translation").assertExists()
         compose.onNodeWithTag("settings-back").performClick()
-        compose.onNodeWithText(context.getString(R.string.settings_floating_ball_settings)).performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_floating_ball)).performClick()
+        compose.onNodeWithTag("quick-ball").assertExists()
         compose.onNodeWithTag("ball-size").assertExists()
         compose.onNodeWithTag("ball-opacity").assertExists()
+    }
+
+    @Test fun modelSettingsSwitchOnlyAmongImportedModels() {
+        val modelRoot = File(context.cacheDir, "model-selection-${java.util.UUID.randomUUID()}")
+        val catalog = seeyuer.sayin.translation.TranslationCatalog.read(context)
+        val default = catalog.defaultModel
+        val other = catalog.models.first { it.id != default.id }
+        try {
+            // Sparse files exercise the installed-model inventory without loading native weights.
+            for (model in listOf(default, other)) {
+                val directory = File(modelRoot, "local-models/${model.id}").apply { mkdirs() }
+                java.io.RandomAccessFile(File(directory, model.fileName), "rw").use { it.setLength(model.bytes) }
+            }
+            setTestContent(modelRoot) {
+                VoiceLinkTheme { TestVoiceLinkContent(ready(), TextFieldValue(), {}, {}, { _, _ -> }, {}) }
+            }
+            compose.onNodeWithTag("nav-Settings").performClick()
+            compose.onNodeWithText(context.getString(R.string.settings_translation)).performClick()
+            compose.onNodeWithTag("local-model-card-${default.id}").assertExists()
+            compose.onNodeWithTag("local-model-catalog").performClick()
+            compose.onNodeWithTag("local-model-use-${default.id}").assertExists()
+            compose.onNodeWithTag("local-model-use-${other.id}").assertExists()
+            catalog.models.filter { it != default && it != other }.forEach {
+                compose.onNodeWithTag("local-model-use-${it.id}").assertDoesNotExist()
+            }
+            compose.onNodeWithTag("local-model-use-${other.id}").performClick()
+            compose.onNodeWithTag("local-model-card-${other.id}").assertExists()
+            compose.onNodeWithTag("local-model-card-${default.id}").assertDoesNotExist()
+        } finally {
+            modelRoot.deleteRecursively()
+        }
     }
 
     @Test fun sharedTextLoadsIntoAnEmptyDraft() {
@@ -884,10 +931,15 @@ class MobileShellInstrumentedTest {
     private fun TestVoiceLinkContent(state: ClientState, draft: TextFieldValue,
         onDraftChange: (TextFieldValue) -> Unit, onSend: () -> Unit,
         onHistoryAction: (String, String) -> Unit, connectionActions: @Composable () -> Unit,
-        onReconnect: () -> Unit = {}, sharedText: String? = null, shareVersion: Int = 0) {
+        onReconnect: () -> Unit = {}, sharedText: String? = null, shareVersion: Int = 0,
+        translationModel: seeyuer.sayin.translation.TranslationModel? = null) {
         val context = LocalContext.current
         val callback by rememberUpdatedState(onDraftChange)
-        val session = remember { SpeakSession(context, draft, { callback(it) }).also { it.selectSource(SpeakInputSource.Keyboard) } }
+        val session = remember {
+            (if (translationModel == null) SpeakSession(context, draft, { callback(it) })
+            else SpeakSession(context, draft, { callback(it) }, translationModel = translationModel))
+                .also { it.selectSource(SpeakInputSource.Keyboard) }
+        }
         currentTestSession = session
         val externalDraft by rememberUpdatedState(draft)
         LaunchedEffect(draft) { session.changeDraft(externalDraft) }
@@ -911,13 +963,14 @@ class MobileShellInstrumentedTest {
         SpeakPage(state, session, rememberTestPhraseLibrary(), onSend, onConnect, cloudConfig, onConfigureCloud)
     }
 
-    private fun setTestContent(content: @Composable () -> Unit) {
+    private fun setTestContent(modelRoot: File? = null, content: @Composable () -> Unit) {
         compose.setContent {
             testFocusManager = LocalFocusManager.current
             // UI preferences belong to an isolated test namespace, never the user settings.
             val isolated = remember {
                 object : android.content.ContextWrapper(compose.activity) {
                     override fun getSharedPreferences(name: String, mode: Int) = context.getSharedPreferences("ui-test-$name", mode)
+                    override fun getNoBackupFilesDir() = modelRoot ?: super.getNoBackupFilesDir()
                 }.also { it.getSharedPreferences("presentation", 0).edit().clear().commit() }
             }
             CompositionLocalProvider(LocalContext provides isolated,

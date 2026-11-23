@@ -27,7 +27,9 @@
       "templateRevision": "hy-official-zh-en-v1",
       "license": "Apache-2.0",
       "licenseFile": "LICENSE.txt",
-      "bundled": true
+      "bundled": true,
+      "displayName": "Hy-MT2 1.8B",
+      "modelScope": "/Tencent-Hunyuan/Hy-MT2-1.8B-GGUF/resolve/master/Hy-MT2-1.8B-Q4_K_M.gguf"
     },
     {
       "id": "plamo-0.8b-q4",
@@ -42,7 +44,9 @@
       "templateRevision": "pfml3-zh-hans-en-v1",
       "license": "PLaMo Community License",
       "licenseFile": "LICENSE/en",
-      "bundled": true
+      "bundled": true,
+      "displayName": "PLaMo 3 Translate 0.8B",
+      "modelScope": "/pfnet/plamo-3-translate-0.8b-GGUF/resolve/master/plamo-3-translate-0.8b-Q4_K_M.gguf"
     },
     {
       "id": "plamo-2b-q4",
@@ -57,7 +61,43 @@
       "templateRevision": "pfml3-zh-hans-en-v1",
       "license": "PLaMo Community License",
       "licenseFile": "LICENSE/en",
-      "bundled": false
+      "bundled": false,
+      "displayName": "PLaMo 3 Translate 2B",
+      "modelScope": "/pfnet/plamo-3-translate-2b-GGUF/resolve/master/plamo-3-translate-2b-Q4_K_M.gguf"
+    },
+    {
+      "id": "hy-mt2-1.8b-q6",
+      "repository": "tencent/Hy-MT2-1.8B-GGUF",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "file": "Hy-MT2-1.8B-Q6_K.gguf",
+      "bytes": 1474785120,
+      "sha256": "d98fe604dec1f28f58f80d7d560f7177e584d3b8e5835862687660e5ff97cb40",
+      "architecture": "hunyuan-dense",
+      "quantization": "Q6_K",
+      "templateKind": 0,
+      "templateRevision": "hy-official-zh-en-v1",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE.txt",
+      "bundled": false,
+      "displayName": "Hy-MT2 1.8B",
+      "modelScope": "/Tencent-Hunyuan/Hy-MT2-1.8B-GGUF/resolve/master/Hy-MT2-1.8B-Q6_K.gguf"
+    },
+    {
+      "id": "hy-mt2-1.8b-q8",
+      "repository": "tencent/Hy-MT2-1.8B-GGUF",
+      "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+      "file": "Hy-MT2-1.8B-Q8_0.gguf",
+      "bytes": 1908528192,
+      "sha256": "5c3fe0b1408a5ceb0143184ef247b11b579c525f4b02b060e6c851bb76fef1a4",
+      "architecture": "hunyuan-dense",
+      "quantization": "Q8_0",
+      "templateKind": 0,
+      "templateRevision": "hy-official-zh-en-v1",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE.txt",
+      "bundled": false,
+      "displayName": "Hy-MT2 1.8B",
+      "modelScope": "/Tencent-Hunyuan/Hy-MT2-1.8B-GGUF/resolve/master/Hy-MT2-1.8B-Q8_0.gguf"
     }
   ]
 }

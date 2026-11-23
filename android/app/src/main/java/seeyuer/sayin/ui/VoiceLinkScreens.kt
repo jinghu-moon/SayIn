@@ -255,10 +255,10 @@ internal fun VoiceLinkContent(
             onDismiss = { onCancelImage(); showImage = false }, onSelectImage, onSendImage, onCancelImage, onClearImage,
             onPreview = { previewImageId = it })
         previewImageId?.let { id -> ImagePreviewDialog(id, loadDraftImage) { previewImageId = null } }
-        OverlayBottomSheet(show = pendingShareText != null, onDismissRequest = { pendingShareText = null }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = pendingShareText != null, onDismissRequest = { pendingShareText = null }) {
             val text = pendingShareText
             if (text != null) Column(Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                .padding(bottom = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.share_text_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.share_text_conflict), fontSize = 13.sp,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary)
@@ -279,7 +279,7 @@ internal fun VoiceLinkContent(
                     modifier = Modifier.fillMaxWidth(), minHeight = 48.dp)
             }
         }
-        OverlayBottomSheet(show = showConnection, onDismissRequest = { showConnection = false }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = showConnection, onDismissRequest = { showConnection = false }) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp).testTag("connection-sheet")) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {

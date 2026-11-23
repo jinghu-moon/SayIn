@@ -39,7 +39,7 @@ internal fun PolishSheet(
     var targetLanguage by remember(show) { mutableStateOf(session.polish.targetLanguage) }
     var targetError by remember(show) { mutableStateOf(false) }
     var translateStyle by remember(show) { mutableStateOf<PolishTranslateStyle?>(null) }
-    OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = show, onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
             .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.polish_title), style = MiuixTheme.textStyles.title2)
@@ -157,7 +157,7 @@ internal fun PolishStatus(session: SpeakSession) {
     val original = state.originalText
     val result = state.resultText
     if (compare && original != null && result != null) {
-        OverlayBottomSheet(show = true, onDismissRequest = { compare = false }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = true, onDismissRequest = { compare = false }) {
             Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.polish_compare_title), style = MiuixTheme.textStyles.title2)

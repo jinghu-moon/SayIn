@@ -23,6 +23,7 @@ import java.util.Locale
 import seeyuer.sayin.R
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.polish.*
+import seeyuer.sayin.ui.AppSheetInsideMargin
 import seeyuer.sayin.ui.SpeakSession
 import seeyuer.sayin.ui.plainTextButtonColors
 import top.yukonga.miuix.kmp.basic.*
@@ -206,7 +207,7 @@ internal fun PolishSettingsPage(session: SpeakSession, modifier: Modifier, scrol
         Notice(stringResource(R.string.polish_upload_note))
     }
     if (showPrice) {
-        OverlayBottomSheet(show = true, onDismissRequest = { showPrice = false }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = true, onDismissRequest = { showPrice = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                 .navigationBarsPadding().imePadding().padding(bottom = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -424,7 +425,7 @@ internal fun PolishUsagePage(session: SpeakSession, modifier: Modifier, scroll: 
         }
     }
     if (showFilters) {
-        OverlayBottomSheet(show = true, onDismissRequest = { showFilters = false }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = true, onDismissRequest = { showFilters = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                 .navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.polish_usage_filter), style = MiuixTheme.textStyles.title2)
@@ -623,7 +624,7 @@ internal fun PolishServicesPage(session: SpeakSession, modifier: Modifier, scrol
         else candidates.filter {
             it.id.contains(modelQuery, ignoreCase = true) || it.name.contains(modelQuery, ignoreCase = true)
         }
-        OverlayBottomSheet(show = true, onDismissRequest = { showModels = false }) {
+        OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = true, onDismissRequest = { showModels = false }) {
             Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
                 .imePadding().navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(stringResource(R.string.polish_catalog_title), style = MiuixTheme.textStyles.title2)

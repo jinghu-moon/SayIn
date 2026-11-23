@@ -36,11 +36,13 @@ ICONS = {
     "Cloud": "cloud",
     "Phone": "device-mobile",
     "More": "dots-vertical",
+    "Share": "sayin-share",
     "Undo": "arrow-back-up",
     "Redo": "arrow-forward-up",
     "Translate": "language",
     "Copy": "copy",
     "Automatic": "bolt",
+    "Ai": "sayin-ai",
     "ArrowUp": "arrow-up",
     "Retry": "refresh",
     "Photo": "photo",
@@ -62,6 +64,10 @@ ICONS = {
     "Eye": "eye",
     "EyeOff": "eye-off",
     "ArrowsDiagonal": "arrows-diagonal",
+    "Database": "database",
+    "Folder": "folder",
+    "File": "file",
+    "ExternalLink": "external-link",
 }
 
 

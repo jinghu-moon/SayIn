@@ -57,6 +57,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import seeyuer.sayin.R
+import seeyuer.sayin.models.ModelCategory
 import seeyuer.sayin.asr.*
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ClientState
@@ -102,7 +103,7 @@ internal fun SpeakPage(
     val visibleTools = remember(toolEntries) { visibleDraftTools(toolEntries) }
     val owner = remember { Any() }
     var showPreview by remember { mutableStateOf(false) }
-    var showTranslationPreparation by remember { mutableStateOf(false) }
+    var modelPreparationCategory by remember { mutableStateOf<ModelCategory?>(null) }
     var showPolish by remember { mutableStateOf(false) }
     var showAssist by remember { mutableStateOf(false) }
     var assistGeneration by remember { mutableIntStateOf(0) }
@@ -231,21 +232,18 @@ internal fun SpeakPage(
             kotlinx.coroutines.delay(16)
         }
     }
-    LaunchedEffect(connectionOpen, showTranslationPreparation) {
-        if (showAssist && (connectionOpen || showTranslationPreparation)) closeAssist(AssistDismissReason.User)
+    LaunchedEffect(connectionOpen, modelPreparationCategory) {
+        if (showAssist && (connectionOpen || modelPreparationCategory != null)) closeAssist(AssistDismissReason.User)
     }
     DisposableEffect(Unit) { onDispose { if (showAssist) session.invalidateAssist() } }
     fun edit() { session.edit(); showPreview = false; focus.requestFocus(); keyboard?.show() }
     fun translate() {
         session.cancelAutoSend(); focusManager.clearFocus(); keyboard?.hide(); showPreview = false
-        if (session.translation.complete || session.translationModelReady) session.toggleTranslation() else showTranslationPreparation = true
+        if (session.translation.complete || session.translationModelReady) session.toggleTranslation()
+        else modelPreparationCategory = ModelCategory.Translation
     }
     val hint = when {
         session.draftRestoring -> stringResource(R.string.speak_restoring_draft)
-        session.modelPreparation != null && !session.busy -> stringResource(
-            if (session.modelPreparation!!.stage == seeyuer.sayin.translation.ModelPreparationStage.Verifying) R.string.translation_preparing_verify else R.string.translation_preparing,
-            (100 * session.modelPreparation!!.bytes / session.modelPreparation!!.total.coerceAtLeast(1)).toInt())
-        session.modelPreparationFailed && !session.busy -> stringResource(R.string.translation_prepare_failed)
         session.translationStopping -> stringResource(R.string.translation_stopping)
         session.translation.running -> {
             val progress = session.translation.progress
@@ -265,6 +263,7 @@ internal fun SpeakPage(
             else -> R.string.asr_cancelling
         })
         session.microphoneDenied && source.isRecognition -> stringResource(R.string.asr_permission_denied)
+        source == SpeakInputSource.Local && !session.recognitionInstalled -> stringResource(R.string.local_model_asr_missing)
         source == SpeakInputSource.Local && session.model == LocalModelPhase.Failed -> stringResource(R.string.asr_model_error)
         asr.issue == RecognitionIssue.TooSlow && source == SpeakInputSource.Cloud -> stringResource(R.string.cloud_too_slow)
         asr.issue != null && source.isRecognition -> stringResource(recognitionIssueText(checkNotNull(asr.issue)))
@@ -304,7 +303,9 @@ internal fun SpeakPage(
                 session.cancelAutoSend()
                 val engine = if (session.source.isRecognition) session.source else session.lastVoiceSource
                 if (!session.source.isRecognition) session.selectSource(engine)
-                if (engine == SpeakInputSource.Cloud && currentCloud == null) onConfigureCloud()
+                if (engine == SpeakInputSource.Local && !session.recognitionInstalled) {
+                    modelPreparationCategory = ModelCategory.Recognition
+                } else if (engine == SpeakInputSource.Cloud && currentCloud == null) onConfigureCloud()
                 else if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                     session.microphoneDenied = false; start(holdToSpeak)
                 } else {
@@ -342,7 +343,7 @@ internal fun SpeakPage(
     fun toolEnabled(tool: DraftTool): Boolean = when (tool) {
         DraftTool.Assist -> session.assistEditable && !busy && !locked
         DraftTool.Image -> state.paired && state.storageHealthy && !busy && !locked
-        DraftTool.Translate -> session.canTranslateDraft || session.translation.running || session.translationPreparing
+        DraftTool.Translate -> session.canTranslateDraft || session.translation.running
         DraftTool.Polish -> session.canOpenPolish
         DraftTool.Copy -> draft.text.isNotEmpty() && !session.translation.running && !session.translationStopping
         DraftTool.Clear -> toolsEnabled && draft.text.isNotEmpty()
@@ -381,7 +382,6 @@ internal fun SpeakPage(
             DraftTool.Image -> onImage()
             DraftTool.Translate -> when {
                 session.translation.running -> session.stopTranslation()
-                session.translationPreparing -> session.cancelModelPreparation()
                 else -> translate()
             }
             DraftTool.Polish -> showPolish = true
@@ -500,8 +500,8 @@ internal fun SpeakPage(
                         })
                 }
                 val exceptional = session.draftRestoring || session.draftStorageIssue || session.microphoneDenied || asr.issue != null ||
-                    preparing || session.model == LocalModelPhase.Failed || session.translation.running || session.translationStopping || session.translationPreparing ||
-                    session.modelPreparationFailed || session.translation.end != null && !session.translation.complete || draft.text.isNotEmpty() && normalized == null
+                    preparing || source == SpeakInputSource.Local && (session.model == LocalModelPhase.Failed || !session.recognitionInstalled) || session.translation.running || session.translationStopping || session.translationPreparing ||
+                    session.translation.end != null && !session.translation.complete || draft.text.isNotEmpty() && normalized == null
                 if (exceptional) Text(if (session.draftStorageIssue) stringResource(R.string.speak_draft_storage_issue) else hint,
                     Modifier.fillMaxWidth().testTag("draft-hint").semantics { liveRegion = LiveRegionMode.Polite }, fontSize = 12.sp,
                     color = color.onSurfaceSecondary)
@@ -680,7 +680,7 @@ internal fun SpeakPage(
                         }
                     }
                     if (!empty) {
-                        val allowSend = if (listening) session.recordingHasText && state.ready else sendable && !busy
+                        val allowSend = if (listening) session.recordingCanFinish && state.ready else sendable && !busy
                         val sendLabel = when {
                             uncertain -> stringResource(R.string.speak_review_short)
                             listening && session.recordingUsesAutoSend -> stringResource(R.string.speak_finish_auto_send)
@@ -709,7 +709,7 @@ internal fun SpeakPage(
                             }, Modifier.size(48.dp).clip(RoundedCornerShape(24.dp))
                                 .background(if (allowSend || pending || activeCountdown != null) color.onPrimary.copy(alpha = .12f) else Color.Transparent)
                                 .testTag(if (activeCountdown != null || session.waitingForImeCommit) "cancel-auto-send" else "send-draft")
-                                .alpha(if (activeCountdown != null) 1f else if (preparing || asr.phase == RecognitionPhase.Loading || listening && !session.recordingHasText) 0f else 1f)
+                                .alpha(if (activeCountdown != null) 1f else if (preparing || asr.phase == RecognitionPhase.Loading || listening && !session.recordingCanFinish) 0f else 1f)
                                 .semantics {
                                     role = Role.Button
                                     contentDescription = if (activeCountdown != null || session.waitingForImeCommit) cancelDescription else sendDescription
@@ -757,7 +757,7 @@ internal fun SpeakPage(
             }
         }
     }
-    TranslationPreparationSheet(session, showTranslationPreparation) { showTranslationPreparation = false }
+    LocalModelPreparationSheet(session, modelPreparationCategory) { modelPreparationCategory = null }
     PolishSheet(session, showPolish, { showPolish = false }, onConfigurePolish)
     SendModeSheet(session, showSendMode) { showSendMode = false }
     RecognitionEngineSheet(session, cloudConfig != null, showEngine, { showEngine = false }, onConfigureCloud)
@@ -948,6 +948,7 @@ private fun recognitionIssueText(issue: RecognitionIssue): Int = when (issue) {
     RecognitionIssue.Permission -> R.string.asr_permission_denied
     RecognitionIssue.Model -> R.string.asr_model_error
     RecognitionIssue.Microphone -> R.string.asr_microphone_error
+    RecognitionIssue.RecordingLimit -> R.string.local_model_recording_limit
     RecognitionIssue.TooSlow -> R.string.asr_too_slow
     RecognitionIssue.Recognition -> R.string.asr_recognition_error
     RecognitionIssue.CloudConfiguration -> R.string.cloud_error_configuration

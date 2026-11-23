@@ -177,9 +177,13 @@ Result translate(Session & s, const std::string & source, int limit, int timeout
 }
 } // namespace
 
-extern "C" JNIEXPORT jlong JNICALL Java_seeyuer_sayin_translation_NativeBindings_create(JNIEnv *, jobject) {
+void initialize_llama() {
     static std::once_flag init;
     std::call_once(init, [] { llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr); llama_backend_init(); });
+}
+
+extern "C" JNIEXPORT jlong JNICALL Java_seeyuer_sayin_translation_NativeBindings_create(JNIEnv *, jobject) {
+    initialize_llama();
     try { return reinterpret_cast<jlong>(new Session()); } catch (...) { return 0; }
 }
 extern "C" JNIEXPORT void JNICALL Java_seeyuer_sayin_translation_NativeBindings_reset(JNIEnv *, jobject, jlong h) { session(h)->cancelled.store(false); }

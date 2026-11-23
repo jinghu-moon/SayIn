@@ -24,7 +24,14 @@ def digest(path):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--verify-runtime', action='store_true')
     args = parser.parse_args()
+    if args.verify_runtime:
+        aar = OUTPUT / f"sherpa-onnx-{PINNED['sherpa_version']}.aar"
+        if not aar.is_file() or digest(aar) != AAR_SHA:
+            raise ValueError('Missing or invalid sherpa-onnx AAR. Run python scripts/prepare_x_asr.py')
+        print('Verified pinned sherpa-onnx AAR SHA-256.')
+        return
     if args.verify_only:
         expected = {OUTPUT / f"sherpa-onnx-{PINNED['sherpa_version']}.aar": AAR_SHA}
         expected.update({OUTPUT / 'assets/models/x-asr-480ms' / name: sha for name, sha in PINNED['files'].items()})

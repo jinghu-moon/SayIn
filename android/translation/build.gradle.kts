@@ -28,7 +28,6 @@ android {
 kotlin { compilerOptions { jvmTarget.set(JvmTarget.JVM_17) } }
 dependencies {
     implementation(libs.coroutines.android)
-    implementation(libs.okhttp)
     testImplementation(libs.junit)
 }
 val verifyTranslationSource = tasks.register<Exec>("verifyTranslationSource") {

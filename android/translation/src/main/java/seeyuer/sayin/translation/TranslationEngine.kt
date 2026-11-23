@@ -18,6 +18,7 @@ data class TranslationModel(
     val id: String, val fileName: String, val bytes: Long, val sha256: String,
     val architecture: String, val templateKind: Int, val templateRevision: String,
     val repository: String = "", val revision: String = "", val bundled: Boolean = false,
+    val displayName: String = fileName, val quantization: String = "", val modelScope: String? = null,
 )
 
 class TranslationCatalog private constructor(val models: List<TranslationModel>, val defaultId: String?) {
@@ -30,7 +31,9 @@ class TranslationCatalog private constructor(val models: List<TranslationModel>,
                 val m = array.getJSONObject(index)
                 TranslationModel(m.getString("id"), m.getString("file"), m.getLong("bytes"), m.getString("sha256"),
                     m.getString("architecture"), m.getInt("templateKind"), m.getString("templateRevision"),
-                    m.getString("repository"), m.getString("revision"), m.optBoolean("bundled", false))
+                    m.getString("repository"), m.getString("revision"), m.optBoolean("bundled", false),
+                    m.getString("displayName"), m.getString("quantization"),
+                    m.optString("modelScope").takeUnless { m.isNull("modelScope") })
             }, root.optString("defaultModel").takeIf { it.isNotBlank() && it != "null" })
         }
     }

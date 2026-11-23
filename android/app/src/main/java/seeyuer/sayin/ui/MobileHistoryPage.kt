@@ -262,7 +262,7 @@ internal fun MobileHistoryPage(
         }
     }
     val detail = state.history.firstOrNull { it.id == detailId && !it.historyHidden }
-    OverlayBottomSheet(show = detail != null, onDismissRequest = { detailId = null }) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = detail != null, onDismissRequest = { detailId = null }) {
         if (detail != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 640.dp)
             .verticalScroll(rememberScrollState()).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.history_details), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -277,7 +277,7 @@ internal fun MobileHistoryPage(
             HistoryRecovery(detail, state, action)
         }
     }
-    OverlayBottomSheet(show = deleteId != null, onDismissRequest = { deleteId = null }) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = deleteId != null, onDismissRequest = { deleteId = null }) {
         if (deleteId != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.history_delete), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.history_delete_help))
@@ -289,9 +289,9 @@ internal fun MobileHistoryPage(
             )
         }
     }
-    OverlayBottomSheet(show = filterOpen, onDismissRequest = { filterOpen = false }) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = filterOpen, onDismissRequest = { filterOpen = false }) {
         Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 680.dp)
-            .verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)
+            .verticalScroll(rememberScrollState()).padding(vertical = 8.dp)
             .testTag("history-filter-sheet"), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.history_filter_title), Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
@@ -351,8 +351,8 @@ internal fun MobileHistoryPage(
             }
         }
     }
-    OverlayBottomSheet(show = exportOpen, onDismissRequest = { exportOpen = false }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = exportOpen, onDismissRequest = { exportOpen = false }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.history_export_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.history_export_help), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
@@ -370,8 +370,8 @@ internal fun MobileHistoryPage(
             TextButton(stringResource(R.string.assist_cancel), onClick = { exportOpen = false }, minHeight = 48.dp)
         }
     }
-    OverlayBottomSheet(show = encryptedOpen, onDismissRequest = { encryptedOpen = false }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = encryptedOpen, onDismissRequest = { encryptedOpen = false }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.history_export_encrypted_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.history_export_encrypted_help), fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
@@ -402,8 +402,8 @@ internal fun MobileHistoryPage(
             TextButton(stringResource(R.string.assist_cancel), onClick = { encryptedOpen = false }, minHeight = 48.dp)
         }
     }
-    OverlayBottomSheet(show = batchConfirm, onDismissRequest = { batchConfirm = false }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = batchConfirm, onDismissRequest = { batchConfirm = false }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.history_delete_selected_title), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.history_delete_multiple_help, selected.size))
@@ -418,8 +418,8 @@ internal fun MobileHistoryPage(
             )
         }
     }
-    OverlayBottomSheet(show = cleanupOpen, onDismissRequest = { cleanupOpen = false }) {
-        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 20.dp, vertical = 8.dp),
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = cleanupOpen, onDismissRequest = { cleanupOpen = false }) {
+        Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.history_cleanup_title), Modifier.weight(1f), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)

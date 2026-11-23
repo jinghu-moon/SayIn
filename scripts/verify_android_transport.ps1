@@ -30,7 +30,7 @@ if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSu
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
-$expectedTextUiTests = 153
+$expectedTextUiTests = 154
 $expectedImageTests = 4
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }

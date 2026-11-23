@@ -6,6 +6,8 @@ import android.content.ComponentName
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.annotation.StringRes
+import android.app.usage.UsageStatsManager
 import android.content.Intent
 import android.graphics.drawable.Icon as AndroidIcon
 import android.net.Uri
@@ -27,6 +29,7 @@ import androidx.compose.animation.togetherWith
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -49,6 +52,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -61,6 +65,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
@@ -68,6 +73,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
+import seeyuer.sayin.ui.AppSheetInsideMargin
+import seeyuer.sayin.quick.ForegroundApp
+import androidx.core.graphics.drawable.toBitmap
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -85,7 +96,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import seeyuer.sayin.BuildConfig
 import seeyuer.sayin.R
+import seeyuer.sayin.models.ModelCategory
 import seeyuer.sayin.asr.CloudIssue
+import seeyuer.sayin.asr.CloudSettingsStatus
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
@@ -98,11 +111,11 @@ import seeyuer.sayin.designsystem.AppearanceMode
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.quick.QuickActivity
+import seeyuer.sayin.quick.BallGeometry
 import seeyuer.sayin.quick.QuickEntryService
 import seeyuer.sayin.quick.SpeakTileService
 import seeyuer.sayin.polish.PolishConfigState
-import seeyuer.sayin.translation.ModelPreparationProgress
-import seeyuer.sayin.translation.ModelPreparationStage
+import seeyuer.sayin.ui.shortTitleRes
 import seeyuer.sayin.ui.titleRes
 import seeyuer.sayin.ui.SpeakInputSource
 import seeyuer.sayin.ui.SpeakInteraction
@@ -152,7 +165,6 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Recognition(Root),
     Cloud(Recognition),
     Hotwords(Recognition),
-    OfflineModel(Recognition),
     Translation(Root),
     Polish(Root),
     PolishServices(Polish),
@@ -164,7 +176,8 @@ internal enum class SettingsRoute(val parent: SettingsRoute?) {
     Background(Root),
     Clipboard(Root),
     Privacy(Root),
-    Storage(Privacy),
+    Storage(Root),
+    LocalModels(Storage),
     About(Root),
     Help(About),
     Licenses(About),
@@ -183,12 +196,21 @@ internal fun SettingsHost(
     initialRoute: SettingsRoute = SettingsRoute.Root,
 ) {
     var route by rememberSaveable { mutableStateOf(initialRoute) }
+    var modelOrigin by rememberSaveable(initialRoute) { mutableStateOf<SettingsRoute?>(null) }
     LaunchedEffect(initialRoute) { route = initialRoute }
     val cloudEditor = remember(cloudState.profiles) { CloudEditorState(cloudState.profiles) }
     val hotwordsDraft = remember(cloudState.profiles.hotwords) { HotwordsDraft(cloudState.profiles) }
     var confirmLeave by remember { mutableStateOf(false) }
     var confirmClearUsage by remember { mutableStateOf(false) }
-    fun leave() { route = route.parent ?: SettingsRoute.Root }
+    fun openModels(origin: SettingsRoute?) {
+        modelOrigin = origin
+        route = SettingsRoute.LocalModels
+    }
+    val modelBack = modelOrigin
+    fun leave() {
+        route = if (route == SettingsRoute.LocalModels && modelBack != null) modelBack
+            else route.parent ?: SettingsRoute.Root
+    }
     fun hasUnsavedChanges() = when (route) {
         SettingsRoute.Cloud -> cloudEditor.dirty
         SettingsRoute.Hotwords -> hotwordsDraft.dirty
@@ -218,7 +240,8 @@ internal fun SettingsHost(
         targetState = route,
         modifier = Modifier.fillMaxSize(),
         transitionSpec = {
-            val backwards = targetState == initialState.parent || targetState.depth() < initialState.depth()
+            val backwards = (initialState == SettingsRoute.LocalModels && targetState == modelBack) ||
+                targetState == initialState.parent || targetState.depth() < initialState.depth()
             val direction = if (backwards) -1 else 1
             ((slideInHorizontally(animationSpec = tween(260)) { width -> direction * width } + fadeIn(tween(180))) togetherWith
                 (slideOutHorizontally(animationSpec = tween(220)) { width -> -direction * width / 4 } + fadeOut(tween(150))))
@@ -270,15 +293,16 @@ internal fun SettingsHost(
                     SettingsRoute.Recognition -> RecognitionPage(
                         session, cloudState, onOpenCloud = { route = SettingsRoute.Cloud },
                         onOpenHotwords = { route = SettingsRoute.Hotwords },
-                        onOpenModel = { route = SettingsRoute.OfflineModel }, modifier = pageModifier,
+                        onOpenModels = { openModels(SettingsRoute.Recognition) },
+                        modifier = pageModifier,
                         scroll = scrollFor(SettingsRoute.Recognition),
                     )
-                    SettingsRoute.OfflineModel -> OfflineModelPage(session, pageModifier, scrollFor(SettingsRoute.OfflineModel))
                     SettingsRoute.Cloud -> CloudPage(cloudEditor, cloudSettings, cloudState,
                         onOpenHotwords = { route = SettingsRoute.Hotwords },
                         modifier = pageModifier, scroll = scrollFor(SettingsRoute.Cloud))
                     SettingsRoute.Hotwords -> HotwordsPage(cloudSettings, cloudState, hotwordsDraft, onOpenCloud = { route = SettingsRoute.Cloud }, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Hotwords))
-                    SettingsRoute.Translation -> TranslationPage(session, modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
+                    SettingsRoute.Translation -> TranslationPage(session, { openModels(SettingsRoute.Translation) },
+                        modifier = pageModifier, scroll = scrollFor(SettingsRoute.Translation))
                     SettingsRoute.Polish -> PolishSettingsPage(session, pageModifier, scrollFor(SettingsRoute.Polish),
                         openServices = { route = SettingsRoute.PolishServices },
                         openUsage = { route = SettingsRoute.PolishUsage },
@@ -294,7 +318,14 @@ internal fun SettingsHost(
                     SettingsRoute.Background -> BackgroundPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Background))
                     SettingsRoute.Clipboard -> ClipboardPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Clipboard))
                     SettingsRoute.Privacy -> PrivacyPage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Privacy))
-                    SettingsRoute.Storage -> StoragePage(modifier = pageModifier, scroll = scrollFor(SettingsRoute.Storage))
+                    SettingsRoute.Storage -> StoragePage(session, { openModels(null) },
+                        modifier = pageModifier, scroll = scrollFor(SettingsRoute.Storage))
+                    SettingsRoute.LocalModels -> LocalModelStoragePage(session, pageModifier, scrollFor(SettingsRoute.LocalModels),
+                        focusCategory = when (modelBack) {
+                            SettingsRoute.Recognition -> ModelCategory.Recognition
+                            SettingsRoute.Translation -> ModelCategory.Translation
+                            else -> null
+                        })
                     SettingsRoute.About -> AboutPage(
                         onOpenHelp = { route = SettingsRoute.Help },
                         onOpenLicenses = { route = SettingsRoute.Licenses },
@@ -352,7 +383,6 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.Recognition -> R.string.settings_voice_recognition
     SettingsRoute.Cloud -> R.string.settings_cloud_title
     SettingsRoute.Hotwords -> R.string.settings_hotwords_title
-    SettingsRoute.OfflineModel -> R.string.settings_offline_model_title
     SettingsRoute.Translation -> R.string.settings_translation_title
     SettingsRoute.Polish -> R.string.settings_polish
     SettingsRoute.PolishServices -> R.string.polish_services
@@ -360,11 +390,12 @@ private fun SettingsRoute.titleRes(): Int = when (this) {
     SettingsRoute.PolishApps -> R.string.polish_app_rules_title
     SettingsRoute.PolishTerms -> R.string.polish_terms_title
     SettingsRoute.PolishPrompt -> R.string.polish_prompt_title
-    SettingsRoute.Ball -> R.string.settings_floating_ball_settings
+    SettingsRoute.Ball -> R.string.settings_floating_ball
     SettingsRoute.Background -> R.string.settings_background_title
     SettingsRoute.Clipboard -> R.string.settings_clipboard_title
     SettingsRoute.Privacy -> R.string.settings_privacy_title
     SettingsRoute.Storage -> R.string.settings_storage_title
+    SettingsRoute.LocalModels -> R.string.local_model_title
     SettingsRoute.About -> R.string.settings_about_title
     SettingsRoute.Help -> R.string.settings_help_title
     SettingsRoute.Licenses -> R.string.settings_about_licenses
@@ -492,7 +523,8 @@ private fun SendPolicyPage(
                     onValueChangeFinished = { session.changeAutoSendSeconds(delayDraft) },
                     modifier = Modifier.testTag("settings-send-policy-wait"),
                     title = stringResource(R.string.settings_send_policy_wait),
-                    summary = stringResource(R.string.settings_auto_send_summary),
+                    summary = if (automatic) stringResource(R.string.settings_auto_send_summary)
+                        else stringResource(R.string.settings_send_policy_wait_disabled),
                     valueText = stringResource(R.string.settings_send_policy_seconds, delayDraft),
                     enabled = canChange && automatic,
                     valueRange = SpeakInteraction.MIN_DELAY_SECONDS.toFloat()..SpeakInteraction.MAX_DELAY_SECONDS.toFloat(),
@@ -828,46 +860,36 @@ private fun RootPage(
     val shownToolCount = pageToolEntries.count { it.visible }
     val shownQuickToolCount = quickToolEntries.count { it.visible }
     val appName = stringResource(R.string.app_name)
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val prefs = remember(context) { context.getSharedPreferences("presentation", 0) }
-    var ballEnabled by remember { mutableStateOf(prefs.getBoolean("quick_ball", false) && Settings.canDrawOverlays(context)) }
-    var ballDenied by remember { mutableStateOf(false) }
     var tileHelp by remember { mutableStateOf(false) }
-    fun enableBall() {
-        if (!Settings.canDrawOverlays(context)) { ballDenied = true; return }
-        try {
-            ContextCompat.startForegroundService(context, Intent(context, QuickEntryService::class.java))
-            ballEnabled = true; ballDenied = false
-        } catch (_: Exception) { ballEnabled = false; ballDenied = true }
-    }
-    val overlayPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { enableBall() }
-    fun requestOverlay() {
-        if (Settings.canDrawOverlays(context)) enableBall()
-        else overlayPermission.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
-    }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { requestOverlay() }
-    DisposableEffect(lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                ballEnabled = prefs.getBoolean("quick_ball", false) && Settings.canDrawOverlays(context)
-                if (ballEnabled) ballDenied = false
-            }
-        }
-        lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer) }
-    }
     val engine = session.lastVoiceSource
-    val cloudText = when {
-        cloudState.issue == CloudIssue.Storage -> stringResource(R.string.settings_engine_cloud_read_error)
-        cloudState.config != null -> stringResource(R.string.settings_engine_cloud_configured,
-            stringResource(cloudState.profiles.selected.titleRes()))
-        else -> stringResource(R.string.settings_engine_cloud_missing, stringResource(cloudState.profiles.selected.titleRes()))
+    val providerName = stringResource(cloudState.profiles.selected.shortTitleRes())
+    val engineText = when {
+        engine == SpeakInputSource.Cloud -> when {
+            cloudState.status == CloudSettingsStatus.Loading ->
+                stringResource(R.string.settings_engine_cloud_loading)
+            cloudState.issue == CloudIssue.Storage ->
+                stringResource(R.string.settings_engine_cloud_unreadable)
+            cloudState.config == null ->
+                stringResource(R.string.settings_engine_cloud_provider_missing, providerName)
+            else -> stringResource(R.string.settings_engine_cloud_provider, providerName)
+        }
+        !session.localModels.initialized -> stringResource(R.string.settings_engine_local_loading)
+        session.recognitionInstalled -> stringResource(
+            R.string.settings_engine_local_model,
+            session.currentRecognitionModel.name,
+        )
+        session.localModels.catalog.recognition.none { it.id in session.localModels.installed } ->
+            stringResource(R.string.settings_engine_local_no_model)
+        else -> stringResource(R.string.settings_engine_local_no_selection)
     }
-    val engineText = stringResource(
-        R.string.settings_engine_summary,
-        stringResource(if (engine == SpeakInputSource.Cloud) R.string.settings_engine_cloud else R.string.settings_engine_local),
-        cloudText,
-    )
+    val translationSummary = when {
+        !session.localModels.initialized -> stringResource(R.string.settings_translation_summary_loading)
+        session.translationModelReady -> stringResource(
+            R.string.settings_translation_summary_model,
+            session.currentTranslationModel.displayName,
+        )
+        else -> stringResource(R.string.settings_translation_summary_missing)
+    }
     LazyColumn(
         state = listState,
         modifier = modifier.testTag("page-Settings"),
@@ -879,19 +901,24 @@ private fun RootPage(
             SettingsCard {
                 ArrowPreference(title = stringResource(R.string.settings_voice_recognition), summary = engineText,
                     startAction = startIcon(VoiceLinkIcon.Microphone), onClick = { onOpen(SettingsRoute.Recognition) })
+                val defaultMode = stringResource(
+                    if (session.sendMode == SpeakSendMode.Automatic) R.string.settings_policy_auto
+                    else R.string.settings_policy_manual,
+                )
+                val ruleCount = session.appSendPolicies.size
                 ArrowPreference(
                     title = stringResource(R.string.settings_send_policy),
-                    summary = pluralStringResource(
-                        R.plurals.settings_send_policy_summary,
-                        session.appSendPolicies.size,
-                        stringResource(if (session.sendMode == SpeakSendMode.Automatic) R.string.settings_policy_auto else R.string.settings_policy_manual),
-                        session.appSendPolicies.size,
+                    summary = if (ruleCount == 0) defaultMode else pluralStringResource(
+                        R.plurals.settings_send_policy_summary_rules,
+                        ruleCount,
+                        defaultMode,
+                        ruleCount,
                     ),
                     startAction = startIcon(VoiceLinkIcon.Send),
                     onClick = { onOpen(SettingsRoute.SendPolicy) },
                 )
                 ArrowPreference(title = stringResource(R.string.settings_translation),
-                    summary = stringResource(R.string.settings_translation_summary),
+                    summary = translationSummary,
                     startAction = startIcon(VoiceLinkIcon.Translate), onClick = { onOpen(SettingsRoute.Translation) })
                 val polishState = session.polish.state
                 val polishSummary = when (polishState) {
@@ -901,7 +928,6 @@ private fun RootPage(
                     is PolishConfigState.Ready -> stringResource(
                         R.string.settings_polish_summary_ready,
                         stringResource(providerLabel(polishState.config.provider)),
-                        polishState.config.model,
                     )
                 }
                 ArrowPreference(
@@ -917,23 +943,8 @@ private fun RootPage(
         item { GroupHeader(R.string.settings_group_quick_entry) }
         item {
             SettingsCard {
-                SwitchPreference(
-                    title = stringResource(R.string.settings_floating_ball),
-                    summary = stringResource(if (ballDenied) R.string.quick_overlay_denied else R.string.quick_overlay_help),
-                    checked = ballEnabled,
-                    startAction = startIcon(VoiceLinkIcon.Phone),
-                    switchColors = settingsSwitchColors(),
-                    modifier = Modifier.testTag("quick-ball"),
-                    onCheckedChange = { checked ->
-                        if (!checked) {
-                            context.stopService(Intent(context, QuickEntryService::class.java))
-                            QuickEntryService.enabled(context, false); ballEnabled = false; ballDenied = false
-                        } else if (Build.VERSION.SDK_INT >= 33) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        else requestOverlay()
-                    },
-                )
                 ArrowPreference(
-                    title = stringResource(R.string.settings_floating_ball_settings),
+                    title = stringResource(R.string.settings_floating_ball),
                     summary = stringResource(R.string.settings_floating_ball_settings_summary),
                     startAction = startIcon(VoiceLinkIcon.Phone),
                     onClick = { onOpen(SettingsRoute.Ball) },
@@ -1031,14 +1042,14 @@ private fun GroupHeader(title: Int) {
 }
 
 @Composable
-private fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
+internal fun SettingsCard(content: @Composable ColumnScope.() -> Unit) {
     Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
         Column(Modifier.padding(vertical = 4.dp), content = content)
     }
 }
 
 @Composable
-private fun startIcon(icon: VoiceLinkIcon): @Composable () -> Unit = {
+internal fun startIcon(icon: VoiceLinkIcon): @Composable () -> Unit = {
     Icon(icon.vector, null, Modifier.size(24.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
 }
 
@@ -1048,7 +1059,7 @@ private fun RecognitionPage(
     cloudState: CloudSettingsState,
     onOpenCloud: () -> Unit,
     onOpenHotwords: () -> Unit,
-    onOpenModel: () -> Unit,
+    onOpenModels: () -> Unit,
     modifier: Modifier,
     scroll: androidx.compose.foundation.ScrollState,
 ) {
@@ -1122,7 +1133,7 @@ private fun RecognitionPage(
                         endActions = {
                             Text(
                                 if (cloudConfigured) stringResource(R.string.settings_hotwords_count_only, hotwordCount)
-                                else stringResource(R.string.settings_engine_cloud_missing_short),
+                                else stringResource(R.string.settings_hotwords_cloud_required),
                                 fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
                             Spacer(Modifier.width(4.dp))
@@ -1135,20 +1146,7 @@ private fun RecognitionPage(
                 }
             }
         } else {
-            Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
-                BasicComponent(
-                    title = stringResource(R.string.settings_offline_model),
-                    summary = stringResource(R.string.settings_offline_model_sub),
-                    startAction = startIcon(VoiceLinkIcon.Computer),
-                    onClick = onOpenModel,
-                    endActions = {
-                        Text(modelStatus(session), fontSize = 13.sp, color = modelStatusColor(session))
-                        Spacer(Modifier.width(4.dp))
-                        Icon(VoiceLinkIcon.ChevronRight.vector, null, Modifier.size(17.dp),
-                            tint = MiuixTheme.colorScheme.onSurfaceSecondary)
-                    },
-                )
-            }
+            ModelSettingsContent(session, ModelCategory.Recognition, onOpenModels)
         }
 
         Text(stringResource(R.string.settings_recognition_short_note), Modifier.padding(top = 12.dp, start = 4.dp),
@@ -1167,25 +1165,6 @@ private fun warningColor(): Color = if (MiuixTheme.colorScheme.background.lumina
 
 @Composable
 private fun successColor(): Color = if (MiuixTheme.colorScheme.background.luminance() < .5f) YuePalette.SuccessDark else YuePalette.SuccessLight
-
-@Composable
-private fun modelStatus(session: SpeakSession): String = when {
-    session.modelPreparation != null -> stringResource(R.string.settings_offline_model_loading)
-    session.modelPreparationFailed || session.model == seeyuer.sayin.asr.LocalModelPhase.Failed -> stringResource(R.string.settings_offline_model_failed)
-    session.model == seeyuer.sayin.asr.LocalModelPhase.Ready -> stringResource(R.string.settings_offline_model_ready)
-    session.model == seeyuer.sayin.asr.LocalModelPhase.Loading -> stringResource(R.string.settings_offline_model_loading)
-    session.model == seeyuer.sayin.asr.LocalModelPhase.Warming -> stringResource(R.string.settings_offline_model_warming)
-    else -> stringResource(R.string.settings_offline_model_idle)
-}
-
-@Composable
-private fun modelStatusColor(session: SpeakSession): Color = when {
-    session.modelPreparation != null || session.model == seeyuer.sayin.asr.LocalModelPhase.Loading ||
-        session.model == seeyuer.sayin.asr.LocalModelPhase.Warming -> MiuixTheme.colorScheme.primary
-    session.modelPreparationFailed || session.model == seeyuer.sayin.asr.LocalModelPhase.Failed -> MiuixTheme.colorScheme.error
-    session.model == seeyuer.sayin.asr.LocalModelPhase.Ready -> successColor()
-    else -> MiuixTheme.colorScheme.onSurfaceSecondary
-}
 
 @Composable
 private fun cloudStatusText(state: CloudSettingsState): String = when {
@@ -1225,7 +1204,8 @@ private fun HotwordsPage(
     if (config == null) {
         Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             NoticeText(stringResource(R.string.settings_hotwords_configure_first))
-            TextButton(stringResource(R.string.settings_cloud_service), onClick = onOpenCloud, minHeight = 48.dp)
+            TextButton(stringResource(R.string.settings_cloud_service), onClick = onOpenCloud, minHeight = 48.dp,
+                colors = ButtonDefaults.textButtonColorsPrimary())
         }
         return
     }
@@ -1265,158 +1245,118 @@ private fun cloudIssueText(issue: CloudIssue): String = stringResource(when (iss
 })
 
 @Composable
-private fun TranslationPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
-    val context = LocalContext.current
-    val progress = session.modelPreparation
-    val model = session.currentTranslationModel
-    val models = session.translationModels
-    val canManage = !session.busy && !session.requestLocked && !session.translation.running &&
-        !session.translationStopping && !session.translationPreparing && !session.modelDeleting
-    var confirmDelete by remember { mutableStateOf(false) }
-    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SettingsCard {
-            WindowDropdownPreference(
-                title = stringResource(R.string.settings_translation_model),
-                items = models.map(::translationModelLabel),
-                selectedIndex = models.indexOfFirst { it.id == model.id }.coerceAtLeast(0),
-                startAction = startIcon(VoiceLinkIcon.Translate),
-                onSelectedIndexChange = { index -> models.getOrNull(index)?.let { session.selectTranslationModel(it.id) } },
-            )
-            DiagnosticRow(stringResource(R.string.settings_translation_file), model.fileName)
-            DiagnosticRow(stringResource(R.string.settings_translation_size), Formatter.formatFileSize(context, model.bytes))
-            DiagnosticRow(stringResource(R.string.settings_translation_version), model.revision.take(12))
-            DiagnosticRow(stringResource(R.string.settings_translation_status), when {
-                progress != null -> stringResource(R.string.settings_translation_progress, progressPercent(progress))
-                session.modelPreparationFailed || session.modelDeleteFailed -> stringResource(R.string.settings_translation_failed)
-                session.translationModelBundled -> stringResource(R.string.settings_translation_bundled)
-                session.translationModelReady -> stringResource(R.string.settings_translation_ready)
-                session.translationModelPresent -> stringResource(R.string.settings_translation_incomplete)
-                else -> stringResource(R.string.settings_translation_missing)
-            })
-        }
-        NoticeText(stringResource(if (session.translationModelBundled) R.string.settings_translation_bundled_note else R.string.settings_translation_prepare_desc))
-        if (!session.translationModelBundled) {
-            Button(
-                onClick = { session.prepareTranslationModel() },
-                enabled = canManage && progress == null,
-                minHeight = 48.dp,
-                cornerRadius = 16.dp,
-                colors = ButtonDefaults.buttonColorsPrimary(),
-                modifier = Modifier.fillMaxWidth().testTag("settings-translation-prepare"),
-            ) {
-                Text(stringResource(if (session.translationModelReady) R.string.settings_translation_redownload else R.string.settings_translation_prepare))
-            }
-        }
-        if (session.modelDeleteFailed) NoticeText(stringResource(R.string.settings_translation_delete_failed))
-        if (session.translationModelPresent && progress == null) {
-            TextButton(
-                stringResource(if (session.modelDeleting) R.string.settings_translation_deleting else R.string.settings_translation_delete),
-                onClick = { confirmDelete = true },
-                enabled = canManage,
-                minHeight = 48.dp,
-                colors = plainTextButtonColors(),
-                modifier = Modifier.fillMaxWidth().testTag("settings-translation-delete"),
-            )
-        }
-        NoticeText(stringResource(R.string.settings_translation_note))
-        NoticeText(stringResource(R.string.settings_translation_switch_note))
-    }
-    WindowDialog(
-        title = stringResource(R.string.settings_translation_delete_title),
-        summary = stringResource(R.string.settings_translation_delete_message),
-        show = confirmDelete,
-        onDismissRequest = { confirmDelete = false },
-    ) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(stringResource(R.string.assist_cancel), onClick = { confirmDelete = false },
-                modifier = Modifier.weight(1f))
-            TextButton(stringResource(R.string.settings_translation_delete_confirm), onClick = {
-                confirmDelete = false
-                session.deleteTranslationModel()
-            }, modifier = Modifier.weight(1f).testTag("settings-translation-delete-confirm"))
-        }
+private fun TranslationPage(
+    session: SpeakSession,
+    onOpenModels: () -> Unit,
+    modifier: Modifier,
+    scroll: androidx.compose.foundation.ScrollState,
+) {
+    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp)) {
+        ModelSettingsContent(session, ModelCategory.Translation, onOpenModels)
+        Spacer(Modifier.height(8.dp))
+        ModelFootnote(VoiceLinkIcon.Shield, stringResource(R.string.settings_translation_private))
     }
 }
 
-private fun progressPercent(progress: ModelPreparationProgress): Int =
-    (progress.bytes * 100 / progress.total.coerceAtLeast(1)).toInt()
-
-private fun translationModelLabel(model: seeyuer.sayin.translation.TranslationModel): String =
-    model.fileName.removeSuffix(".gguf")
-
-@Composable
-private fun OfflineModelPage(session: SpeakSession, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
-    val context = LocalContext.current
-    var bytes by remember { mutableStateOf<Long?>(null) }
-    LaunchedEffect(Unit) {
-        bytes = withContext(Dispatchers.IO) { runCatching { seeyuer.sayin.asr.LocalAsrModel.size(context.assets) }.getOrNull() }
-    }
-    Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SettingsCard {
-            BasicComponent(
-                title = stringResource(R.string.settings_asr_model_spec),
-                summary = stringResource(R.string.settings_asr_model_spec_summary),
-                startAction = startIcon(VoiceLinkIcon.Computer),
-                endActions = {
-                    Text(stringResource(R.string.settings_asr_model_spec_value), fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                },
-            )
-            DiagnosticRow(stringResource(R.string.settings_asr_model_files), "4")
-            DiagnosticRow(stringResource(R.string.settings_asr_model_size),
-                bytes?.let { Formatter.formatFileSize(context, it) } ?: stringResource(R.string.settings_storage_calculating))
-            DiagnosticRow(stringResource(R.string.settings_asr_model_version), seeyuer.sayin.asr.LocalAsrModel.VERSION)
-            DiagnosticRow(stringResource(R.string.settings_asr_model_state), modelStatus(session))
-        }
-        NoticeText(stringResource(R.string.settings_asr_model_only_one))
-        NoticeText(stringResource(R.string.settings_asr_model_bundled))
-        NoticeText(stringResource(R.string.settings_asr_model_spec_note))
-    }
-}
-
+private enum class BallColorTarget { Background, Icon }
 
 @Composable
 private fun BallPage(modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val prefs = remember(context) { context.getSharedPreferences("presentation", 0) }
+    var enabled by remember { mutableStateOf(prefs.getBoolean("quick_ball", false) && Settings.canDrawOverlays(context)) }
+    var denied by remember { mutableStateOf(false) }
+    var hiddenPackages by remember { mutableStateOf(QuickEntryService.hiddenPackages(context)) }
+    var usageAccess by remember { mutableStateOf(ForegroundApp.hasAccess(context)) }
+    var hiddenAppsOpen by remember { mutableStateOf(false) }
+    val usageAccessPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        usageAccess = ForegroundApp.hasAccess(context)
+        if (usageAccess) hiddenAppsOpen = true
+    }
+    fun enableBall() {
+        if (!Settings.canDrawOverlays(context)) { denied = true; return }
+        // Persist before starting the service: ON_RESUME can run after the
+        // permission result but before the service creates its ball.
+        QuickEntryService.enabled(context, true)
+        try {
+            ContextCompat.startForegroundService(context, Intent(context, QuickEntryService::class.java))
+            enabled = true; denied = false
+        } catch (_: Exception) {
+            QuickEntryService.enabled(context, false)
+            enabled = false; denied = true
+        }
+    }
+    val overlayPermission = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { enableBall() }
+    fun requestOverlay() {
+        if (Settings.canDrawOverlays(context)) enableBall()
+        else overlayPermission.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}")))
+    }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { requestOverlay() }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                enabled = prefs.getBoolean("quick_ball", false) && Settings.canDrawOverlays(context)
+                hiddenPackages = QuickEntryService.hiddenPackages(context)
+                usageAccess = ForegroundApp.hasAccess(context)
+                if (enabled) denied = false
+            }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
     var size by remember { mutableFloatStateOf(QuickEntryService.size(context).toFloat()) }
     var opacity by remember { mutableFloatStateOf(QuickEntryService.peekAlpha(context) * 100f) }
+    var peek by remember { mutableFloatStateOf(QuickEntryService.peekFraction(context)) }
+    var iconFraction by remember { mutableFloatStateOf(QuickEntryService.iconFraction(context)) }
+    var keepWhole by remember { mutableStateOf(QuickEntryService.keepIconWhole(context)) }
     var doubleAction by remember { mutableStateOf(QuickEntryService.doubleAction(context)) }
+    var backgroundColor by remember { mutableIntStateOf(QuickEntryService.ballBackground(context)) }
+    var iconColor by remember { mutableIntStateOf(QuickEntryService.ballIcon(context)) }
+    var customTarget by remember { mutableStateOf<BallColorTarget?>(null) }
+    var draftColor by remember { mutableIntStateOf(0) }
+    val backgroundOptions = listOf(
+        0xFFF3F3F1.toInt() to R.string.settings_ball_color_offwhite,
+        0xFF252525.toInt() to R.string.settings_ball_color_charcoal,
+        0xFF1F75DB.toInt() to R.string.settings_ball_color_brand,
+    )
+    val iconOptions = listOf(
+        0xFF252525.toInt() to R.string.settings_ball_color_charcoal,
+        0xFFFFFFFF.toInt() to R.string.settings_ball_color_white,
+        0xFF1F75DB.toInt() to R.string.settings_ball_color_brand,
+    )
     val doubleOptions = listOf(
         QuickEntryService.DOUBLE_CARD to stringResource(R.string.settings_ball_double_card),
         QuickEntryService.DOUBLE_RECORD to stringResource(R.string.settings_ball_double_record),
     )
+    val hiddenSummary = when {
+        !usageAccess -> stringResource(R.string.settings_ball_hidden_apps_permission)
+        hiddenPackages.isEmpty() -> stringResource(R.string.settings_ball_hidden_apps_none)
+        else -> pluralStringResource(
+            R.plurals.settings_ball_hidden_apps_count,
+            hiddenPackages.size,
+            hiddenPackages.size,
+        )
+    }
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.settings_ball_size), Modifier.weight(1f), fontSize = 14.sp)
-                    Text(stringResource(R.string.settings_ball_size_value, size.roundToInt()), fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                }
-                Slider(
-                    value = size,
-                    onValueChange = { size = it },
-                    valueRange = 44f..72f,
-                    steps = 6,
-                    onValueChangeFinished = { QuickEntryService.setSize(context, size.roundToInt()) },
-                    modifier = Modifier.fillMaxWidth().testTag("ball-size"),
-                )
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.settings_ball_opacity), Modifier.weight(1f), fontSize = 14.sp)
-                    Text(stringResource(R.string.settings_ball_opacity_value, opacity.roundToInt()), fontSize = 13.sp,
-                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
-                }
-                Slider(
-                    value = opacity,
-                    onValueChange = { opacity = it },
-                    valueRange = 35f..100f,
-                    steps = 12,
-                    onValueChangeFinished = { QuickEntryService.setPeekAlpha(context, opacity / 100f) },
-                    modifier = Modifier.fillMaxWidth().testTag("ball-opacity"),
-                )
-            }
-        }
         SettingsCard {
+            SwitchPreference(
+                title = stringResource(R.string.settings_floating_ball),
+                summary = stringResource(if (denied) R.string.quick_overlay_denied else R.string.quick_overlay_help),
+                checked = enabled,
+                startAction = startIcon(VoiceLinkIcon.Phone),
+                switchColors = settingsSwitchColors(),
+                modifier = Modifier.testTag("quick-ball"),
+                onCheckedChange = { checked ->
+                    if (!checked) {
+                        context.stopService(Intent(context, QuickEntryService::class.java))
+                        QuickEntryService.enabled(context, false); enabled = false; denied = false
+                    } else if (Build.VERSION.SDK_INT >= 33) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else requestOverlay()
+                },
+            )
+            HorizontalDivider()
             WindowDropdownPreference(
                 title = stringResource(R.string.settings_ball_double),
                 items = doubleOptions.map { it.second },
@@ -1429,9 +1369,587 @@ private fun BallPage(modifier: Modifier, scroll: androidx.compose.foundation.Scr
                     }
                 },
             )
+            HorizontalDivider()
+            ArrowPreference(
+                title = stringResource(R.string.settings_ball_hidden_apps),
+                summary = hiddenSummary,
+                startAction = startIcon(VoiceLinkIcon.Phone),
+                onClick = {
+                    if (usageAccess) hiddenAppsOpen = true
+                    else usageAccessPermission.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                },
+                modifier = Modifier.testTag("ball-hidden-apps"),
+            )
+        }
+        val minPeek = BallGeometry.effectivePeekFraction(size, BallGeometry.MIN_PEEK_FRACTION)
+        LaunchedEffect(minPeek) {
+            if (peek < minPeek) {
+                peek = minPeek
+                QuickEntryService.setPeekFraction(context, peek)
+            }
+        }
+        val visible = BallGeometry.visibleDp(size, peek)
+        val peekIcon = BallGeometry.iconDp(size, iconFraction, peek, peeked = true, keepWhole = keepWhole)
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_ball_preview),
+                        Modifier.weight(1f),
+                        fontSize = 12.5.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    )
+                    Button(
+                        onClick = { QuickEntryService.resetPosition(context) },
+                        enabled = enabled,
+                        minHeight = 36.dp,
+                        insideMargin = PaddingValues(horizontal = 4.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            color = Color.Transparent,
+                            contentColor = MiuixTheme.colorScheme.primary,
+                        ),
+                        modifier = Modifier.testTag("ball-reset-position"),
+                    ) {
+                        Icon(
+                            VoiceLinkIcon.Retry.vector, null, Modifier.size(15.dp),
+                            tint = if (enabled) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = .45f),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            stringResource(R.string.settings_ball_reset_position),
+                            fontSize = 12.5.sp,
+                            color = if (enabled) MiuixTheme.colorScheme.primary
+                            else MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = .45f),
+                        )
+                    }
+                }
+                Box(
+                    Modifier.fillMaxWidth().height(140.dp).clip(RoundedCornerShape(16.dp))
+                        .background(MiuixTheme.colorScheme.surfaceContainerHigh)
+                        .testTag("ball-preview"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        Modifier.size(size.dp)
+                            .shadow(6.dp, CircleShape)
+                            .background(Color(backgroundColor), CircleShape)
+                            .border(1.dp, Color(0x1F000000), CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Image(
+                            androidx.compose.ui.res.painterResource(R.drawable.ic_sayin_brand_fyan_mark),
+                            null,
+                            Modifier.fillMaxSize(iconFraction),
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(iconColor)),
+                        )
+                    }
+                    Box(
+                        Modifier.align(Alignment.CenterEnd)
+                            .offset(x = size.dp * (1f - visible / size))
+                            .size(size.dp)
+                            .alpha(opacity / 100f)
+                            .shadow(6.dp, CircleShape)
+                            .background(Color(backgroundColor), CircleShape)
+                            .border(1.dp, Color(0x1F000000), CircleShape),
+                    )
+                    Box(
+                        Modifier.align(Alignment.CenterEnd)
+                            .offset(x = ((peekIcon - visible) / 2f).dp)
+                            .size(peekIcon.dp)
+                            .alpha(opacity / 100f),
+                    ) {
+                        Image(
+                            androidx.compose.ui.res.painterResource(R.drawable.ic_sayin_brand_fyan_mark),
+                            null,
+                            Modifier.fillMaxSize(1f),
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color(iconColor)),
+                        )
+                    }
+                }
+                Text(stringResource(R.string.settings_ball_preview_expanded), fontSize = 11.5.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                Text(
+                    stringResource(R.string.settings_ball_preview_peek, (peek * 100).roundToInt(),
+                        visible.roundToInt(), opacity.roundToInt()),
+                    fontSize = 11.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+            }
+        }
+        SettingsCard {
+            BallColorRow(
+                title = stringResource(R.string.settings_ball_background),
+                options = backgroundOptions,
+                selected = backgroundColor,
+                tag = "ball-bg",
+                onSelect = { color ->
+                    backgroundColor = color
+                    QuickEntryService.setBallColors(context, backgroundColor, iconColor)
+                },
+                onCustom = {
+                    customTarget = BallColorTarget.Background
+                    draftColor = backgroundColor
+                },
+            )
+            HorizontalDivider()
+            BallColorRow(
+                title = stringResource(R.string.settings_ball_icon_color),
+                options = iconOptions,
+                selected = iconColor,
+                tag = "ball-fg",
+                onSelect = { color ->
+                    iconColor = color
+                    QuickEntryService.setBallColors(context, backgroundColor, iconColor)
+                },
+                onCustom = {
+                    customTarget = BallColorTarget.Icon
+                    draftColor = iconColor
+                },
+            )
+            HorizontalDivider()
+            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_ball_size),
+                        Modifier.weight(1f),
+                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(stringResource(R.string.settings_ball_size_value, size.roundToInt()), fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
+                Slider(
+                    value = size,
+                    onValueChange = { newSize ->
+                        size = newSize
+                        val newMin = BallGeometry.effectivePeekFraction(newSize, BallGeometry.MIN_PEEK_FRACTION)
+                        if (peek < newMin) peek = newMin
+                    },
+                    valueRange = 44f..72f,
+                    steps = 6,
+                    onValueChangeFinished = {
+                        QuickEntryService.setSize(context, size.roundToInt())
+                        QuickEntryService.setPeekFraction(context, peek)
+                    },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-size"),
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_ball_peek),
+                        Modifier.weight(1f),
+                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        stringResource(R.string.settings_ball_peek_value, (peek * 100).roundToInt(), visible.roundToInt()),
+                        fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    )
+                }
+                Slider(
+                    value = peek,
+                    onValueChange = { peek = it },
+                    valueRange = minPeek..BallGeometry.MAX_PEEK_FRACTION,
+                    onValueChangeFinished = { QuickEntryService.setPeekFraction(context, peek) },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-peek"),
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_ball_icon_size),
+                        Modifier.weight(1f),
+                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(stringResource(R.string.settings_ball_icon_size_value, (iconFraction * 100).roundToInt()),
+                        fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
+                Slider(
+                    value = iconFraction,
+                    onValueChange = { iconFraction = it },
+                    valueRange = BallGeometry.MIN_ICON_FRACTION..BallGeometry.MAX_ICON_FRACTION,
+                    steps = 5,
+                    onValueChangeFinished = { QuickEntryService.setIconFraction(context, iconFraction) },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-icon-size"),
+                )
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        stringResource(R.string.settings_ball_opacity),
+                        Modifier.weight(1f),
+                        fontSize = MiuixTheme.textStyles.headline1.fontSize,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(stringResource(R.string.settings_ball_opacity_value, opacity.roundToInt()), fontSize = 13.sp,
+                        color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                }
+                Slider(
+                    value = opacity,
+                    onValueChange = { opacity = it },
+                    valueRange = 35f..100f,
+                    steps = 12,
+                    onValueChangeFinished = { QuickEntryService.setPeekAlpha(context, opacity / 100f) },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-opacity"),
+                )
+            }
+            HorizontalDivider()
+            SwitchPreference(
+                title = stringResource(R.string.settings_ball_keep_icon),
+                summary = stringResource(R.string.settings_ball_keep_icon_summary),
+                checked = keepWhole,
+                switchColors = settingsSwitchColors(),
+                modifier = Modifier.testTag("ball-keep-icon"),
+                onCheckedChange = {
+                    keepWhole = it
+                    QuickEntryService.setKeepIconWhole(context, it)
+                },
+            )
         }
         NoticeText(stringResource(R.string.settings_ball_note))
         NoticeText(stringResource(R.string.settings_ball_fullscreen_note))
+    }
+    customTarget?.let { target ->
+        WindowDialog(
+            title = stringResource(
+                if (target == BallColorTarget.Background) R.string.settings_ball_custom_background_title
+                else R.string.settings_ball_custom_icon_title,
+            ),
+            show = true,
+            onDismissRequest = { customTarget = null },
+        ) {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                ColorPicker(
+                    color = Color(draftColor),
+                    onColorChanged = { draftColor = it.toArgb() },
+                    modifier = Modifier.fillMaxWidth().testTag("ball-color-picker"),
+                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(
+                        stringResource(R.string.settings_ball_color_cancel),
+                        onClick = { customTarget = null },
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        stringResource(R.string.settings_ball_color_apply),
+                        onClick = {
+                            when (target) {
+                                BallColorTarget.Background -> {
+                                    backgroundColor = draftColor
+                                    QuickEntryService.setBallColors(context, backgroundColor, iconColor)
+                                }
+                                BallColorTarget.Icon -> {
+                                    iconColor = draftColor
+                                    QuickEntryService.setBallColors(context, backgroundColor, iconColor)
+                                }
+                            }
+                            customTarget = null
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.textButtonColorsPrimary(),
+                    )
+                }
+            }
+        }
+    }
+    HiddenAppsSheet(
+        show = hiddenAppsOpen,
+        selected = hiddenPackages,
+        onDismiss = { hiddenAppsOpen = false },
+        onToggle = { packageName ->
+            hiddenPackages = if (packageName in hiddenPackages) {
+                hiddenPackages - packageName
+            } else {
+                hiddenPackages + packageName
+            }
+            QuickEntryService.setHiddenPackages(context, hiddenPackages)
+        },
+    )
+}
+
+@Composable
+private fun HiddenAppsSheet(
+    show: Boolean,
+    selected: Set<String>,
+    onDismiss: () -> Unit,
+    onToggle: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    val sortPreferences = remember { context.getSharedPreferences("presentation", 0) }
+    var sort by rememberSaveable {
+        mutableStateOf(HiddenAppSort.from(sortPreferences.getString(HIDDEN_APPS_SORT_KEY, null)))
+    }
+    var apps by remember { mutableStateOf<List<HiddenAppEntry>?>(null) }
+    LaunchedEffect(show) {
+        if (show && apps == null) {
+            apps = withContext(Dispatchers.IO) { loadLaunchableApps(context) }
+        }
+    }
+    OverlayBottomSheet(
+        insideMargin = AppSheetInsideMargin,
+        show = show,
+        title = stringResource(R.string.settings_ball_hidden_apps),
+        onDismissRequest = onDismiss,
+    ) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                stringResource(R.string.settings_ball_hidden_apps_help),
+                fontSize = 12.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+            Text(
+                stringResource(R.string.settings_ball_hidden_apps_privacy),
+                fontSize = 11.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+            )
+            WindowDropdownPreference(
+                title = stringResource(R.string.settings_ball_hidden_apps_sort),
+                items = HiddenAppSort.entries.map { stringResource(it.label) },
+                selectedIndex = HiddenAppSort.entries.indexOf(sort),
+                startAction = startIcon(VoiceLinkIcon.Filter),
+                onSelectedIndexChange = { index ->
+                    sort = HiddenAppSort.entries[index]
+                    sortPreferences.edit().putString(HIDDEN_APPS_SORT_KEY, sort.name).apply()
+                },
+                modifier = Modifier.testTag("hidden-apps-sort"),
+            )
+            val loaded = apps
+            val ordered = loaded?.let { sortedHiddenApps(it, sort, selected) }
+            when {
+                ordered == null -> Text(
+                    stringResource(R.string.settings_ball_hidden_apps_loading),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+                ordered.isEmpty() -> Text(
+                    stringResource(R.string.settings_ball_hidden_apps_empty),
+                    fontSize = 13.sp,
+                    color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                )
+                else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+                    items(ordered, key = { it.packageName }) { app ->
+                        HiddenAppRow(
+                            app = app,
+                            checked = app.packageName in selected,
+                            onToggle = { onToggle(app.packageName) },
+                        )
+                        if (app != ordered.last()) {
+                            HorizontalDivider(Modifier.padding(start = 46.dp))
+                        }
+                    }
+                }
+            }
+            TextButton(
+                stringResource(R.string.settings_ball_hidden_apps_done),
+                onClick = onDismiss,
+                minHeight = 48.dp,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun HiddenAppRow(app: HiddenAppEntry, checked: Boolean, onToggle: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HiddenAppIcon(app.packageName, 32.dp)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(app.label, fontSize = 14.5.sp, maxLines = 1)
+            Text(
+                app.packageName,
+                fontSize = 10.5.sp,
+                color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            )
+        }
+        CheckboxMark(checked)
+    }
+}
+
+@Composable
+private fun CheckboxMark(checked: Boolean) {
+    Box(
+        Modifier.size(22.dp).clip(CircleShape)
+            .background(if (checked) MiuixTheme.colorScheme.primary else Color.Transparent)
+            .border(
+                width = if (checked) 0.dp else 1.5.dp,
+                color = if (checked) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline,
+                shape = CircleShape,
+            ),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (checked) {
+            Icon(VoiceLinkIcon.Check.vector, null, Modifier.size(13.dp), tint = MiuixTheme.colorScheme.onPrimary)
+        }
+    }
+}
+
+private val hiddenAppIconCache = mutableMapOf<String, androidx.compose.ui.graphics.ImageBitmap?>()
+
+@Composable
+private fun HiddenAppIcon(packageName: String, size: Dp) {
+    val context = LocalContext.current
+    val bitmap = remember(packageName) {
+        if (hiddenAppIconCache.containsKey(packageName)) {
+            hiddenAppIconCache[packageName]
+        } else {
+            runCatching {
+                context.packageManager.getApplicationIcon(packageName).toBitmap(72, 72).asImageBitmap()
+            }.getOrNull().also { hiddenAppIconCache[packageName] = it }
+        }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap, null,
+            Modifier.size(size).clip(RoundedCornerShape(8.dp)),
+        )
+    } else {
+        Box(Modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MiuixTheme.colorScheme.surfaceContainerHigh))
+    }
+}
+
+private const val HIDDEN_APPS_SORT_KEY = "quick_ball_hidden_apps_sort"
+
+private enum class HiddenAppSort(@StringRes val label: Int) {
+    Name(R.string.hidden_apps_sort_name),
+    Recent(R.string.hidden_apps_sort_recent),
+    Installed(R.string.hidden_apps_sort_installed),
+    Selected(R.string.hidden_apps_sort_selected),
+    ;
+
+    companion object {
+        fun from(value: String?): HiddenAppSort = entries.firstOrNull { it.name == value } ?: Name
+    }
+}
+
+private data class HiddenAppEntry(
+    val packageName: String,
+    val label: String,
+    val lastUsed: Long,
+    val installedAt: Long,
+)
+
+private fun sortedHiddenApps(
+    apps: List<HiddenAppEntry>,
+    sort: HiddenAppSort,
+    selected: Set<String>,
+): List<HiddenAppEntry> = when (sort) {
+    HiddenAppSort.Name -> apps.sortedBy { it.label.lowercase(Locale.ROOT) }
+    HiddenAppSort.Recent -> apps.sortedWith(
+        compareByDescending<HiddenAppEntry> { it.lastUsed }.thenBy { it.label.lowercase(Locale.ROOT) },
+    )
+    HiddenAppSort.Installed -> apps.sortedWith(
+        compareByDescending<HiddenAppEntry> { it.installedAt }.thenBy { it.label.lowercase(Locale.ROOT) },
+    )
+    HiddenAppSort.Selected -> apps.sortedWith(
+        compareByDescending<HiddenAppEntry> { it.packageName in selected }
+            .thenBy { it.label.lowercase(Locale.ROOT) },
+    )
+}
+
+private fun loadLaunchableApps(context: Context): List<HiddenAppEntry> {
+    val manager = context.packageManager
+    val installedPackages = runCatching {
+        manager.getInstalledPackages(0).associateBy { it.packageName }
+    }.getOrDefault(emptyMap())
+    val usageManager = context.getSystemService(UsageStatsManager::class.java)
+    val recent = if (usageManager != null && ForegroundApp.hasAccess(context)) {
+        val end = System.currentTimeMillis()
+        usageManager.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, end - 30L * 24 * 60 * 60 * 1000, end)
+            ?.associate { it.packageName to it.lastTimeUsed }
+            .orEmpty()
+    } else {
+        emptyMap()
+    }
+    val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+    return manager.queryIntentActivities(intent, 0)
+        .mapNotNull { it.activityInfo?.applicationInfo }
+        .distinctBy { it.packageName }
+        .filter { it.packageName != context.packageName }
+        .map { info ->
+            val installedAt = installedPackages[info.packageName]?.firstInstallTime ?: 0L
+            HiddenAppEntry(
+                info.packageName,
+                info.loadLabel(manager).toString(),
+                recent[info.packageName] ?: 0L,
+                installedAt,
+            )
+        }
+        .sortedBy { it.label.lowercase(Locale.ROOT) }
+}
+
+@Composable
+private fun BallColorRow(
+    title: String,
+    options: List<Pair<Int, Int>>,
+    selected: Int,
+    tag: String,
+    onSelect: (Int) -> Unit,
+    onCustom: () -> Unit,
+) {
+    val customLabel = stringResource(R.string.settings_ball_custom_color)
+    val customChosen = options.none { it.first == selected }
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            Modifier.weight(1f),
+            fontSize = MiuixTheme.textStyles.headline1.fontSize,
+            fontWeight = FontWeight.Medium,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            options.forEach { (color, nameRes) ->
+                val label = stringResource(nameRes)
+                val chosen = color == selected
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape)
+                        .background(Color(color))
+                        .border(
+                            if (chosen) 2.dp else 1.dp,
+                            if (chosen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline,
+                            CircleShape,
+                        )
+                        .clickable { onSelect(color) }
+                        .testTag("$tag-${color.toUInt().toString(16)}")
+                        .semantics { contentDescription = label },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (chosen) Icon(
+                        VoiceLinkIcon.Check.vector, null, Modifier.size(15.dp),
+                        tint = if (Color(color).luminance() < .5f) Color.White else Color(0xFF252525),
+                    )
+                }
+            }
+            Box(
+                Modifier.size(30.dp).clip(CircleShape)
+                    .background(if (customChosen) Color(selected) else MiuixTheme.colorScheme.surfaceContainerHigh)
+                    .border(
+                        if (customChosen) 2.dp else 1.dp,
+                        if (customChosen) MiuixTheme.colorScheme.primary else MiuixTheme.colorScheme.outline,
+                        CircleShape,
+                    )
+                    .clickable(onClick = onCustom)
+                    .testTag("$tag-custom")
+                    .semantics { contentDescription = customLabel },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (customChosen) {
+                    Icon(
+                        VoiceLinkIcon.Check.vector, null, Modifier.size(15.dp),
+                        tint = if (Color(selected).luminance() < .5f) Color.White else Color(0xFF252525),
+                    )
+                } else {
+                    Icon(
+                        VoiceLinkIcon.Plus.vector, null, Modifier.size(16.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1442,7 +1960,8 @@ private fun BackgroundPage(modifier: Modifier, scroll: androidx.compose.foundati
         NoticeText(stringResource(R.string.settings_background_body))
         TextButton(stringResource(R.string.settings_background_open_quick), onClick = {
             runCatching { context.startActivity(QuickActivity.intent(context)) }
-        }, minHeight = 48.dp, modifier = Modifier.fillMaxWidth())
+        }, minHeight = 48.dp, modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.textButtonColorsPrimary())
         NoticeText(stringResource(R.string.settings_background_keepalive))
     }
 }
@@ -1477,6 +1996,7 @@ private fun ClipboardPage(modifier: Modifier, scroll: androidx.compose.foundatio
                 }
             },
             enabled = !checking, minHeight = 48.dp, modifier = Modifier.fillMaxWidth().testTag("settings-clipboard-check"),
+            colors = ButtonDefaults.textButtonColorsPrimary(),
         )
         result?.let { NoticeText(it) }
         SettingsCard {
@@ -1667,11 +2187,10 @@ private fun LicensesPage(modifier: Modifier) {
 }
 
 @Composable
-private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
+private fun StoragePage(session: SpeakSession, openModels: () -> Unit, modifier: Modifier, scroll: androidx.compose.foundation.ScrollState) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var sizes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
-    var modelSizes by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var clearing by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(refresh) {
@@ -1682,11 +2201,6 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
             val cache = fileSize(context.cacheDir) + (context.externalCacheDir?.let(::fileSize) ?: 0L)
             data to cache
         }
-        modelSizes = withContext(Dispatchers.IO) {
-            val translation = fileSize(File(context.noBackupFilesDir, "translation"))
-            val asr = runCatching { seeyuer.sayin.asr.LocalAsrModel.size(context.assets) }.getOrDefault(0L)
-            translation to asr
-        }
     }
     Column(modifier.verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1694,8 +2208,18 @@ private fun StoragePage(modifier: Modifier, scroll: androidx.compose.foundation.
             DiagnosticRow(stringResource(R.string.settings_storage_data), sizes?.let { Formatter.formatFileSize(context, it.first) } ?: stringResource(R.string.settings_storage_calculating))
             DiagnosticRow(stringResource(R.string.settings_storage_cache), sizes?.let { Formatter.formatFileSize(context, it.second) } ?: stringResource(R.string.settings_storage_calculating))
             DiagnosticRow(stringResource(R.string.settings_storage_used), sizes?.let { Formatter.formatFileSize(context, it.first + it.second) } ?: stringResource(R.string.settings_storage_calculating))
-            DiagnosticRow(stringResource(R.string.settings_storage_translation_models), modelSizes?.let { Formatter.formatFileSize(context, it.first) } ?: stringResource(R.string.settings_storage_calculating))
-            DiagnosticRow(stringResource(R.string.settings_storage_asr_model), modelSizes?.let { Formatter.formatFileSize(context, it.second) } ?: stringResource(R.string.settings_storage_calculating))
+        }
+        SettingsCard {
+            ArrowPreference(
+                title = stringResource(R.string.local_model_title),
+                startAction = startIcon(VoiceLinkIcon.Computer),
+                endActions = {
+                    Text(if (session.localModels.initialized) Formatter.formatFileSize(context, session.localModels.installed.values.sum())
+                        else stringResource(R.string.settings_storage_calculating))
+                },
+                onClick = openModels,
+                modifier = Modifier.testTag("settings-local-models"),
+            )
         }
         NoticeText(stringResource(R.string.settings_storage_note))
         if ((sizes?.second ?: 0L) > 0L) {

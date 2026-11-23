@@ -27,10 +27,10 @@ internal fun SendModeSheet(session: SpeakSession, show: Boolean, onDismiss: () -
     val automatic = session.sendMode == SpeakSendMode.Automatic
     val overridden = session.effectiveSendMode() != session.sendMode
     var delayDraft by remember(show) { mutableIntStateOf(session.autoSendSeconds) }
-    OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = show, onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+                .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.draft_tool_send_mode), style = MiuixTheme.textStyles.title2)
@@ -106,10 +106,10 @@ internal fun RecognitionEngineSheet(
         cloud -> R.string.settings_cloud_upload_note
         else -> R.string.settings_local_private_note
     }
-    OverlayBottomSheet(show = show, onDismissRequest = onDismiss) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = show, onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
+                .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(stringResource(R.string.draft_tool_engine), style = MiuixTheme.textStyles.title2)

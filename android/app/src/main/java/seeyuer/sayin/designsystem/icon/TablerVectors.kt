@@ -183,7 +183,7 @@ internal object TablerVectors {
     }
 
     val Share: ImageVector by lazy {
-        outline("Tabler.share-2",
+        outline("Tabler.sayin-share",
             "M3 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
             "M15 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
             "M15 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0",
@@ -231,7 +231,7 @@ internal object TablerVectors {
     }
 
     val Ai: ImageVector by lazy {
-        outline("Tabler.ai",
+        outline("Tabler.sayin-ai",
             "M6 18.8v-10.1a3.5 3.5 0 0 1 7 0v10.1",
             "M6 12h7",
             "M18 5.2v13.6"
@@ -417,6 +417,35 @@ internal object TablerVectors {
             "M14 10l6 -6",
             "M8 20l-4 0l0 -4",
             "M4 20l6 -6"
+        )
+    }
+
+    val Database: ImageVector by lazy {
+        outline("Tabler.database",
+            "M4 6a8 3 0 1 0 16 0a8 3 0 1 0 -16 0",
+            "M4 6v6a8 3 0 0 0 16 0v-6",
+            "M4 12v6a8 3 0 0 0 16 0v-6"
+        )
+    }
+
+    val Folder: ImageVector by lazy {
+        outline("Tabler.folder",
+            "M5 4h4l3 3h7a2 2 0 0 1 2 2v8a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-11a2 2 0 0 1 2 -2"
+        )
+    }
+
+    val File: ImageVector by lazy {
+        outline("Tabler.file",
+            "M14 3v4a1 1 0 0 0 1 1h4",
+            "M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"
+        )
+    }
+
+    val ExternalLink: ImageVector by lazy {
+        outline("Tabler.external-link",
+            "M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6",
+            "M11 13l9 -9",
+            "M15 4h5v5"
         )
     }
 

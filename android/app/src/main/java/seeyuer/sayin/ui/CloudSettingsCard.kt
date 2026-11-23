@@ -80,6 +80,11 @@ internal fun CloudProvider.titleRes() = when (this) {
     CloudProvider.Qwen -> R.string.cloud_qwen
 }
 
+internal fun CloudProvider.shortTitleRes() = when (this) {
+    CloudProvider.Doubao -> R.string.settings_cloud_provider_doubao
+    CloudProvider.Qwen -> R.string.cloud_qwen
+}
+
 @Composable
 internal fun CloudSettingsCard(
     editor: CloudEditorState,

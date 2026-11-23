@@ -22,8 +22,8 @@ import seeyuer.sayin.data.SavedSpeakingDraft
 import seeyuer.sayin.data.autoSendDestination
 import seeyuer.sayin.polish.*
 import seeyuer.sayin.translation.*
-import java.io.File
-import java.io.InputStream
+import seeyuer.sayin.models.*
+import seeyuer.sayin.BuildConfig
 import okhttp3.Call
 
 /** One process-local speaking session, independent of any page, Activity or entry point.
@@ -39,7 +39,7 @@ internal class SpeakSession(
     translationModel: TranslationModel = catalog.models.firstOrNull {
         it.id == context.getSharedPreferences("presentation", 0).getString("translation_model", null)
     } ?: catalog.defaultModel,
-    private var modelStore: TranslationModelStore = TranslationModelStore(context, translationModel),
+    modelStore: TranslationModelStore? = null,
 ) : Closeable {
     private val preferences = context.getSharedPreferences("presentation", 0)
     private val appContext = context.applicationContext
@@ -66,9 +66,43 @@ internal class SpeakSession(
     private var voiceOrigin = false
     private var typedSinceVoice = false
     private var recordingStartedEmpty = false
-    /** Selected model is a preference; artifacts stay on disk per model file. */
+    private val localCatalog = LocalModelCatalog(context, catalog)
+    private val storage = LocalModelStorage(context, localCatalog)
+    var currentRecognitionModel by mutableStateOf(
+        localCatalog.recognition.firstOrNull { it.id == preferences.getString("recognition_model", null) }
+            ?: localCatalog.recognition.first { it.id == localCatalog.defaultRecognitionId },
+    ); private set
     var currentTranslationModel by mutableStateOf(translationModel); private set
     val translationModels get() = catalog.models
+    private var translationStore = modelStore ?: createTranslationStore(translationModel)
+    val localModels = LocalModelManager(localCatalog, storage, scope, ::refreshModels)
+    var changingModel by mutableStateOf(false); private set
+
+    private fun createTranslationStore(model: TranslationModel): TranslationModelStore {
+        val directory = storage.directory(localCatalog.translation.single { it.id == model.id })
+        return TranslationModelStore(appContext, model, importedFile = directory.resolve(model.fileName))
+    }
+
+    private fun refreshModels(imported: List<LocalModel>) {
+        translationModelReady = translationStore.ready
+        if (!translationModelReady) {
+            val candidates = imported.filter { it.category == ModelCategory.Translation }
+            val preferred = candidates.firstOrNull { it.id == localCatalog.defaultTranslationId } ?: candidates.firstOrNull()
+            preferred?.let { setTranslationModel(it.id) }
+        }
+        if (!recognitionInstalled) {
+            val candidates = imported.filter { it.category == ModelCategory.Recognition }
+            val preferred = candidates.firstOrNull { it.id == localCatalog.defaultRecognitionId } ?: candidates.firstOrNull()
+            preferred?.let { setRecognitionModel(it) }
+        }
+    }
+
+    val recognitionInstalled get() = currentRecognitionModel.id in localModels.installed || BuildConfig.LOCAL_MODEL_FIXTURES
+    private val batchRecognition get() = source == SpeakInputSource.Local && currentRecognitionModel.id != localCatalog.defaultRecognitionId
+    val recordingCanFinish get() = recordingHasText || batchRecognition
+    val canChangeModels get() = !busy && !requestLocked && !translation.running && !translationStopping &&
+        !changingModel && !localModels.busy
+
     var draft by mutableStateOf(initialDraft); private set
     var draftId by mutableStateOf(UUID.randomUUID().toString()); private set
     var source by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("input_source", "Cloud")!!) }.getOrDefault(SpeakInputSource.Cloud)); private set
@@ -121,14 +155,9 @@ internal class SpeakSession(
     var translationShown by mutableStateOf(false); private set
     /** Monotonic generation of the single active insertion ticket. */
     var assistEpoch by mutableStateOf(0L); private set
-    var modelPreparation by mutableStateOf<ModelPreparationProgress?>(null); private set
-    var translationModelReady by mutableStateOf(modelStore.ready); private set
-    val translationModelPresent get() = modelStore.present
-    val translationModelBundled get() = modelStore.bundled
-    val translationDownloadedBytes get() = modelStore.downloadedBytes
-    var modelPreparationFailed by mutableStateOf(false); private set
+    var translationModelReady by mutableStateOf(translationStore.ready); private set
     var translationStopping by mutableStateOf(false); private set
-    val translationPreparing get() = modelPreparation != null
+    val translationPreparing get() = changingModel || localModels.deleting != null
     val canTranslateDraft get() = !busy && !requestLocked && !draftRestoring && !draftStorageIssue &&
         draft.text.isNotBlank() && draft.composition == null && !translation.running && !translationStopping && !translationPreparing &&
         !polishState.running && model !in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
@@ -228,7 +257,6 @@ internal class SpeakSession(
     private var pendingCloud: CloudConfiguration? = null
     private var countdownJob: Job? = null
     private var translationJob: Job? = null
-    private var preparationJob: Job? = null
     private var backgroundRelease: Job? = null
     private var waitingForTranslationStop = false
     private var uiLanguage = context.resources.configuration.locales.toLanguageTags()
@@ -238,6 +266,10 @@ internal class SpeakSession(
     val requestLocked get() = submitted?.state in setOf("saved", "accepted", "held", "executing", "review", "uncertain")
 
     init {
+        (recognition as? SpeechRecognition)?.localArtifact = {
+            currentRecognitionModel.takeIf { it.id in localModels.installed }
+                ?.let { LocalVoiceArtifact(it.id, storage.directory(it)) }
+        }
         polish.onConfigurationChanged = {
             cancelPolish()
             polishState = PolishState(confirmationPending = polishState.confirmationPending)
@@ -277,7 +309,7 @@ internal class SpeakSession(
                         }
                     }
                     explicitFinish = false
-                } else if (result.phase == RecognitionPhase.Listening && result.speechPause && recordingHasText && finishOnSilence &&
+                } else if (result.phase == RecognitionPhase.Listening && result.speechPause && recordingCanFinish && finishOnSilence &&
                     visible && recognition.state.value.let { it.session == result.session && it.speechPause }) {
                     finishRecording()
                 }
@@ -286,8 +318,9 @@ internal class SpeakSession(
         scope.launch { recognition.model.collect {
             model = it
             if (preparingToRecord && it == LocalModelPhase.Ready) requestRecording()
-            if (it == LocalModelPhase.Failed) preparingToRecord = false
+            if (it == LocalModelPhase.Failed || it == LocalModelPhase.Missing) preparingToRecord = false
         } }
+        localModels.start()
     }
 
     fun setVisible(owner: Any, value: Boolean) {
@@ -303,7 +336,7 @@ internal class SpeakSession(
                     // Allows an Activity/quick-card handover to retain the same task owner.
                     delay(500)
                     if (!visible) {
-                        cancelPolish(); stopTranslation(); preparationJob?.cancel(); translator.release()
+                        cancelPolish(); stopTranslation(); translator.release()
                     }
                 }
             }
@@ -394,7 +427,6 @@ internal class SpeakSession(
         if (value.isRecognition) lastVoiceSource = value
         preferences.edit().putString("input_source", value.name).putString("voice_source", lastVoiceSource.name).apply()
         invalidateAssist()
-        if (value == SpeakInputSource.Local) scope.launch { translator.release(); if (source == value) recognition.prepareLocal() }
     }
 
     fun changeSendMode(value: SpeakSendMode) {
@@ -454,7 +486,8 @@ internal class SpeakSession(
     }
 
     fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {
-        if (!visible || busy || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
+        if (!visible || busy || translationPreparing || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
+        if (source == SpeakInputSource.Local && recognition is SpeechRecognition && !recognitionInstalled) return
         cancelPolish()
         invalidateAssist()
         recordingStartedEmpty = draft.text.isBlank()
@@ -501,7 +534,7 @@ internal class SpeakSession(
     fun finishRecording(andSend: Boolean = false) {
         if (asr.phase != RecognitionPhase.Listening) return
         invalidateAssist()
-        sendAfterFinal = andSend && recordingMode == SpeakSendMode.Manual && recordingHasText && visible &&
+        sendAfterFinal = andSend && recordingMode == SpeakSendMode.Manual && recordingCanFinish && visible &&
             recordingScope != null && recordingScope == receiver.receptionScope
         explicitFinish = true
         if (!visible) recordingDestination = null
@@ -814,13 +847,14 @@ internal class SpeakSession(
                 }
             }
             try {
-                val bundled = if (modelStore.prepared) null else modelStore.openBundled()
+                recognition.releaseLocal()
+                val bundled = if (translationStore.prepared) null else translationStore.openBundled()
                 val result = when {
                     bundled != null && translator is BundledTranslator -> translator.translate(bundled, currentTranslationModel, ticket.source,
                         onProgress = { progress -> updates.value = progress })
                     else -> {
                         bundled?.close()
-                        translator.translate(modelStore.file, currentTranslationModel, ticket.source,
+                        translator.translate(translationStore.file, currentTranslationModel, ticket.source,
                             onProgress = { progress -> updates.value = progress })
                     }
                 }
@@ -859,66 +893,63 @@ internal class SpeakSession(
         invalidateAssist()
     }
 
-    fun releaseTranslation() { stopTranslation(); preparationJob?.cancel(); scope.launch { translator.release() } }
+    fun releaseTranslation() { stopTranslation(); scope.launch { translator.release() } }
 
     fun uiLanguageChanged(tags: String) {
         if (tags == uiLanguage) return
         uiLanguage = tags; cancelAutoSend(); releaseTranslation()
     }
 
-    fun prepareTranslationModel(input: (() -> InputStream)? = null) {
-        if (busy || translationPreparing || translation.running || translationStopping || modelDeleting) return
-        // The bundled model is already authenticated by the build and APK signature.
-        if (modelStore.bundled) return
-        cancelAutoSend(); modelPreparationFailed = false; modelDeleteFailed = false
-        modelPreparation = ModelPreparationProgress(if (input == null) ModelPreparationStage.Downloading else ModelPreparationStage.Copying, 0, currentTranslationModel.bytes)
-        preparationJob = scope.launch {
-            val updates = MutableStateFlow(checkNotNull(modelPreparation))
-            val observer = launch { updates.collect { modelPreparation = it } }
-            try {
-                translator.release()
-                val progress: (ModelPreparationProgress) -> Unit = { value -> updates.value = value }
-                if (input == null) modelStore.download(progress) else withContext(Dispatchers.IO) { modelStore.import(input(), progress) }
-                translationModelReady = modelStore.ready
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { modelPreparationFailed = true }
-            finally { observer.cancel(); modelPreparation = null; preparationJob = null }
-        }
-    }
-    fun cancelModelPreparation() { preparationJob?.cancel() }
-
-    var modelDeleteFailed by mutableStateOf(false); private set
-    var modelDeleting by mutableStateOf(false); private set
-
-    /** Switching only changes which artifact later translations use; an existing translation stays valid. */
     fun selectTranslationModel(id: String): Boolean {
-        if (busy || requestLocked || translationPreparing || translation.running || translationStopping || modelDeleting) return false
-        val model = catalog.models.firstOrNull { it.id == id } ?: return false
-        if (model.id == currentTranslationModel.id) return true
-        cancelAutoSend()
-        currentTranslationModel = model
-        modelStore = TranslationModelStore(appContext, model)
-        translationModelReady = modelStore.ready
-        modelPreparationFailed = false
-        modelDeleteFailed = false
-        preferences.edit().putString("translation_model", model.id).apply()
-        scope.launch { translator.release() }
+        if (!canChangeModels) return false
+        if (id == currentTranslationModel.id) return true
+        if (!setTranslationModel(id)) return false
+        changingModel = true
+        scope.launch {
+            try { translator.release() } finally { changingModel = false }
+        }
         return true
     }
 
-    /** Deletes only the selected model artifact; the draft and any completed translation are retained. */
-    fun deleteTranslationModel() {
-        if (busy || requestLocked || translationPreparing || translation.running || translationStopping || modelDeleting) return
-        modelDeleteFailed = false
-        modelDeleting = true
-        preparationJob?.cancel()
-        val store = modelStore
+    private fun setTranslationModel(id: String): Boolean {
+        val model = catalog.models.firstOrNull { it.id == id } ?: return false
+        cancelAutoSend()
+        currentTranslationModel = model
+        translationStore = createTranslationStore(model)
+        translationModelReady = translationStore.ready
+        preferences.edit().putString("translation_model", id).apply()
+        return true
+    }
+
+    fun selectRecognitionModel(model: LocalModel): Boolean {
+        if (!canChangeModels || model.id !in localModels.installed) return false
+        if (model == currentRecognitionModel) return true
+        cancelAutoSend()
+        changingModel = true
         scope.launch {
             try {
-                translator.release()
-                if (!store.delete()) modelDeleteFailed = true
-                translationModelReady = modelStore.ready
-            } finally { modelDeleting = false }
+                recognition.releaseLocal()
+                setRecognitionModel(model)
+            } finally {
+                changingModel = false
+            }
+        }
+        return true
+    }
+
+    private fun setRecognitionModel(model: LocalModel) {
+        currentRecognitionModel = model
+        preferences.edit().putString("recognition_model", model.id).apply()
+    }
+
+    fun deleteLocalModel(model: LocalModel) {
+        if (!canChangeModels) return
+        cancelAutoSend()
+        localModels.delete(model) {
+            when (model.id) {
+                currentRecognitionModel.id -> recognition.releaseLocal()
+                currentTranslationModel.id -> translator.release()
+            }
         }
     }
 

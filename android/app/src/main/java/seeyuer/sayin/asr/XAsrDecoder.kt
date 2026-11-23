@@ -8,18 +8,18 @@ import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
 import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 
 /** Created, called and released only on the recognition worker, never on the UI thread. */
-internal class XAsrDecoder(assets: AssetManager) : StreamingDecoder {
+internal class XAsrDecoder(assets: AssetManager?, directory: String = MODEL) : StreamingDecoder, LocalSpeechDecoder {
     private val recognizer = OnlineRecognizer(
         assetManager = assets,
         config = OnlineRecognizerConfig(
             featConfig = FeatureConfig(sampleRate = 16000, featureDim = 80),
             modelConfig = OnlineModelConfig(
                 transducer = OnlineTransducerModelConfig(
-                    encoder = "$MODEL/encoder.onnx",
-                    decoder = "$MODEL/decoder.onnx",
-                    joiner = "$MODEL/joiner.onnx",
+                    encoder = "$directory/encoder.onnx",
+                    decoder = "$directory/decoder.onnx",
+                    joiner = "$directory/joiner.onnx",
                 ),
-                tokens = "$MODEL/tokens.txt",
+                tokens = "$directory/tokens.txt",
                 modelType = "zipformer2",
                 numThreads = 2,
                 provider = "cpu",
@@ -43,13 +43,18 @@ internal class XAsrDecoder(assets: AssetManager) : StreamingDecoder {
     override fun isEndpoint() = recognizer.isEndpoint(stream)
     override fun reset() = recognizer.reset(stream)
     /** Warm inference with a separate silent stream; never touches microphone or user draft. */
-    fun warmUp() {
+    override fun warmUp() {
         val warmup = recognizer.createStream()
         try {
             warmup.acceptWaveform(FloatArray(16000), sampleRate = 16000)
             while (recognizer.isReady(warmup)) recognizer.decode(warmup)
         } finally { warmup.release() }
     }
+
+    override suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String =
+        try { recognizeStreaming(this, source, onTranscript = onTranscript) }
+        finally { restart() }
+
     /** A finished stream cannot accept a new recording. Keep weights, replace only its stream. */
     fun restart() {
         val fresh = recognizer.createStream()

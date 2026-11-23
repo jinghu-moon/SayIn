@@ -8,6 +8,7 @@ internal interface RecognitionEngine : Closeable {
     val state: StateFlow<RecognitionState>
     val model: StateFlow<LocalModelPhase>
     fun prepareLocal()
+    suspend fun releaseLocal() {}
     fun start(cloud: CloudConfiguration? = null)
     fun finish()
     fun cancel()

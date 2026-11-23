@@ -85,8 +85,8 @@ internal fun ImageInputSheet(
         onDispose { lifecycle.removeObserver(observer); if (show) latestCancel() }
     }
     OverlayBottomSheet(
+        insideMargin = AppSheetInsideMargin,
         show = show, onDismissRequest = onDismiss,
-        insideMargin = DpSize(0.dp, 0.dp),
     ) {
         if (show) {
             val draft = state.imageDraft
@@ -125,7 +125,7 @@ internal fun ImageInputSheet(
             Column(
                 Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 640.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .padding(vertical = 8.dp)
                     .testTag("image-input"),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
