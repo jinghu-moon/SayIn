@@ -773,6 +773,7 @@ internal class SpeakSession(
         fromRecording: Boolean = false,
     ) {
         cancelAutoSend()
+        autoStopped = false
         if (!visible || busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation) return
         if (fromRecording && translationShown) return
         // An AI-rewritten draft may be sent by an explicit user action, but must never

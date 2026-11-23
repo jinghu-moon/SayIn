@@ -33,7 +33,7 @@ internal interface LocalSpeechDecoder : Closeable {
 /** These sherpa model exports decode after the recording finishes. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
-    private val previewEnabled = artifact.id == "qwen-06"
+    private var previewEnabled = artifact.id == "qwen-06"
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
@@ -91,6 +91,7 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
             }
         }
         val transcript = StreamingTranscript()
+        var previewBudgetMisses = 0
         if (previewEnabled) {
             while (capture.isActive) {
                 delay(PREVIEW_INTERVAL)
@@ -113,7 +114,15 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
                     audio
                 }
                 coroutineContext.ensureActive()
+                val started = System.nanoTime()
                 val preview = decode(snapshot)
+                val elapsedMs = (System.nanoTime() - started) / 1_000_000
+                if (elapsedMs.toDouble() > snapshot.size.toDouble() / SAMPLE_RATE * 1_000 * PREVIEW_RTF_BUDGET) {
+                    previewBudgetMisses++
+                    if (previewBudgetMisses >= 2) previewEnabled = false
+                } else {
+                    previewBudgetMisses = 0
+                }
                 if (preview.isNotBlank()) onTranscript(transcript.update(preview, endpoint = false))
             }
         }
@@ -151,6 +160,7 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         const val PREVIEW_MIN = 2 * SAMPLE_RATE
         const val PREVIEW_MAX = 20 * SAMPLE_RATE
         const val PREVIEW_INTERVAL = 2_000L
+        const val PREVIEW_RTF_BUDGET = 0.20
     }
 }
 

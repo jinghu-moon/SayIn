@@ -3,6 +3,7 @@ package seeyuer.sayin.asr
 import android.content.Context
 import android.Manifest
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.content.ContextCompat
 import java.io.Closeable
@@ -36,6 +37,7 @@ internal data class RecognitionState(
     val speechPause: Boolean = false,
     val speechEnding: Boolean = false,
     val noSpeech: Boolean = false,
+    val heardSpeech: Boolean = false,
 ) {
     val busy get() = phase != RecognitionPhase.Idle
 }
@@ -50,6 +52,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private val microphoneLock = Any()
     private var microphone: PcmSource? = null
     private var vad: VadAutoStop? = null
+    private var lastTranscriptAtMillis = 0L
     private var generation = 0L
     private val modelLock = Mutex()
     private var decoder: LocalSpeechDecoder? = null
@@ -133,7 +136,9 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                             }
                             val paused = progress?.ended ?: fallbackPause.update(rms, samples)
                             val ending = progress?.ending == true
-                            val noSpeech = progress?.noSpeech == true
+                            val noSpeech = progress?.noSpeech == true ||
+                                (progress?.heardSpeech == true && mutableState.value.transcript.isBlank() &&
+                                    SystemClock.elapsedRealtime() - lastTranscriptAtMillis >= 5_000)
                             mutableState.update {
                                 if (it.session == session && it.phase == RecognitionPhase.Listening) {
                                     it.copy(
@@ -141,6 +146,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                                         speechPause = paused,
                                         speechEnding = ending,
                                         noSpeech = noSpeech,
+                                        heardSpeech = progress?.heardSpeech == true,
                                         issue = if (noSpeech) RecognitionIssue.NoSpeech else it.issue,
                                     )
                                 } else {
@@ -153,11 +159,13 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                     }
                     fun listening() {
                         ensureActive()
+                        lastTranscriptAtMillis = SystemClock.elapsedRealtime()
                         mutableState.update { if (it.session == session && it.phase == RecognitionPhase.Loading) it.copy(phase = RecognitionPhase.Listening) else it }
                         issue = RecognitionIssue.Recognition
                     }
                     val text = if (cloud != null) {
                         recognizeCloud(cloud, ::openMicrophone, ::listening) { text ->
+                            lastTranscriptAtMillis = SystemClock.elapsedRealtime()
                             mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
                         }.text
                     } else modelLock.withLock {
@@ -165,6 +173,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         val source = openMicrophone()
                         listening()
                         val raw = local.recognize(source) { text ->
+                            lastTranscriptAtMillis = SystemClock.elapsedRealtime()
                             mutableState.update { if (it.session == session && it.busy && it.phase != RecognitionPhase.Cancelling) it.copy(transcript = text) else it }
                         }
                         if (local is XAsrDecoder) punctuate(raw) else raw
