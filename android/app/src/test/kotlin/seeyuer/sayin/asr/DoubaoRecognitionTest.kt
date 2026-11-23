@@ -36,6 +36,7 @@ class DoubaoRecognitionTest {
         assertFalse(json.contains("test-secret"))
         val request = JSONObject(json).getJSONObject("request")
         assertEquals("full", request.getString("result_type"))
+        assertEquals(2500, request.getInt("end_window_size"))
         val context = JSONObject(request.getJSONObject("corpus").getString("context"))
         assertEquals("SayIn", context.getJSONArray("hotwords").getJSONObject(0).getString("word"))
         assertFalse(request.has("context"))

@@ -1202,6 +1202,8 @@
     <string name="hidden_apps_sort_selected">Selected first</string>
     <string name="asr_speech_ending">Finishing soon…</string>
     <string name="speak_auto_stopped_resume">Auto-stopped · Tap record to continue</string>
+    <string name="settings_continuous_dictation">Continuous dictation</string>
+    <string name="settings_continuous_dictation_summary">Keep recording until you stop; text can update while speaking.</string>
 </resources>
 
 

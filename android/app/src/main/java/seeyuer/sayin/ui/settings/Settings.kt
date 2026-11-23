@@ -1149,6 +1149,19 @@ private fun RecognitionPage(
             ModelSettingsContent(session, ModelCategory.Recognition, onOpenModels)
         }
 
+        Spacer(Modifier.height(12.dp))
+        Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            SwitchPreference(
+                title = stringResource(R.string.settings_continuous_dictation),
+                summary = stringResource(R.string.settings_continuous_dictation_summary),
+                checked = session.continuousDictation,
+                enabled = !session.busy,
+                switchColors = settingsSwitchColors(),
+                modifier = Modifier.testTag("settings-continuous-dictation"),
+                onCheckedChange = session::changeContinuousDictation,
+            )
+        }
+
         Text(stringResource(R.string.settings_recognition_short_note), Modifier.padding(top = 12.dp, start = 4.dp),
             fontSize = 11.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
     }

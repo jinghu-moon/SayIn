@@ -109,6 +109,7 @@ internal class SpeakSession(
     var lastVoiceSource by mutableStateOf(runCatching { SpeakInputSource.valueOf(preferences.getString("voice_source", "Cloud")!!) }
         .getOrDefault(SpeakInputSource.Cloud).takeIf { it.isRecognition } ?: SpeakInputSource.Cloud); private set
     var sendMode by mutableStateOf(if (preferences.getBoolean("auto_send", false)) SpeakSendMode.Automatic else SpeakSendMode.Manual); private set
+    var continuousDictation by mutableStateOf(preferences.getBoolean("continuous_dictation", false)); private set
     /** Delay between the final text and the automatic send; it is a default policy, not a per-app rule. */
     var autoSendSeconds by mutableIntStateOf(
         preferences.getInt("auto_send_seconds", SpeakInteraction.DEFAULT_DELAY_SECONDS)
@@ -440,6 +441,13 @@ internal class SpeakSession(
         preferences.edit().putBoolean("auto_send", value == SpeakSendMode.Automatic).apply()
     }
 
+    fun changeContinuousDictation(value: Boolean) {
+        if (busy || requestLocked) return
+        cancelAutoSend()
+        continuousDictation = value
+        preferences.edit().putBoolean("continuous_dictation", value).apply()
+    }
+
     /** Wait time belongs to automatic sending; changing it never enables or disables the default policy. */
     fun changeAutoSendSeconds(value: Int) {
         if (busy || requestLocked) return
@@ -507,7 +515,7 @@ internal class SpeakSession(
         recordingScope = receiver.receptionScope
         recordingMode = effectiveSendMode()
         recordingDestination = receiver.autoSendDestination
-        finishOnSilence = !holdToSpeak
+        finishOnSilence = !holdToSpeak && !continuousDictation
         pendingCloud = if (source == SpeakInputSource.Cloud) cloud else null
         preparingToRecord = true
         waitingForTranslationStop = true

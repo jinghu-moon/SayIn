@@ -21,6 +21,8 @@ class QwenRecognitionTest {
         assertNull(task.request.header("X-Api-Key"))
         val payload = JSONObject((task.start as CloudFrame.Json).text).getJSONObject("payload")
         assertEquals(QwenRecognition.MODEL, payload.getString("model"))
+        assertEquals(2500, payload.getJSONObject("parameters").getInt("max_sentence_silence"))
+        assertEquals("near_meeting_16k", payload.getJSONObject("parameters").getString("vad_model"))
         assertEquals(4, payload.getJSONObject("parameters").getJSONObject("vocabulary").getInt("SayIn"))
         assertFalse(payload.toString().contains("test-api-key"))
         assertThrows(IllegalArgumentException::class.java) { QwenCredentials("key", "ws-x.evil.test") }

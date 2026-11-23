@@ -28,7 +28,8 @@ internal class QwenRecognition(private val endpoint: String? = null) {
         override val chunkBytes = 3200
         override val start: CloudFrame = command("run-task", JSONObject()
             .put("task_group", "audio").put("task", "asr").put("function", "recognition").put("model", MODEL)
-            .put("parameters", JSONObject().put("format", "pcm").put("sample_rate", 16000).apply {
+            .put("parameters", JSONObject().put("format", "pcm").put("sample_rate", 16000)
+                .put("max_sentence_silence", 2500).put("vad_model", "near_meeting_16k").apply {
                 if (hotwords.isNotEmpty()) put("vocabulary", JSONObject().apply {
                     hotwords.forEach { put(it, 4) }
                 })

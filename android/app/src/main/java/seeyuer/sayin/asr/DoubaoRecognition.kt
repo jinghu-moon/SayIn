@@ -15,6 +15,7 @@ internal class DoubaoRecognition(
     companion object {
         const val ENDPOINT = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async"
         const val RESOURCE = "volc.seedasr.sauc.duration"
+        private const val END_WINDOW_MS = 2500
     }
 
     internal fun request(config: DoubaoCredentials): Request {
@@ -32,6 +33,7 @@ internal class DoubaoRecognition(
     internal fun parameters(hotwords: List<String>): String {
         val params = JSONObject().put("model_name", "bigmodel").put("enable_itn", true)
             .put("enable_punc", true).put("result_type", "full")
+            .put("end_window_size", END_WINDOW_MS)
         if (hotwords.isNotEmpty()) {
             val words = JSONArray().apply { hotwords.forEach { put(JSONObject().put("word", it)) } }
             params.put("corpus", JSONObject().put("context", JSONObject().put("hotwords", words).toString()))
