@@ -66,7 +66,7 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
     )
 
     override fun warmUp() {
-        if (preview == null) return
+        if (preview?.warmupOnPrepare != true) return
         // Warm the offline graph on silence so the first live preview is not cold.
         runCatching { decode(FloatArray(SAMPLE_RATE)) }
     }

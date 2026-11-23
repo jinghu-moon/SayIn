@@ -6,12 +6,13 @@ internal data class OfflinePreviewPolicy(
     val minSamples: Int,
     val maxSamples: Int,
     val rtfBudget: Double,
+    val warmupOnPrepare: Boolean,
 )
 
 internal object OfflinePreviewPolicies {
     private const val SAMPLE_RATE = 16_000
-    private val qwen06 = OfflinePreviewPolicy(2_000L, 2 * SAMPLE_RATE, 20 * SAMPLE_RATE, 0.20)
-    private val heavy = OfflinePreviewPolicy(3_000L, 3 * SAMPLE_RATE, 20 * SAMPLE_RATE, 0.15)
+    private val qwen06 = OfflinePreviewPolicy(2_000L, 2 * SAMPLE_RATE, 20 * SAMPLE_RATE, 0.20, true)
+    private val heavy = OfflinePreviewPolicy(3_000L, 3 * SAMPLE_RATE, 20 * SAMPLE_RATE, 0.15, false)
 
     fun forModel(id: String): OfflinePreviewPolicy? = when (id) {
         "qwen-06" -> qwen06
