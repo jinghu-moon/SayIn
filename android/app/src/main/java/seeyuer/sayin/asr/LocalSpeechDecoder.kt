@@ -128,7 +128,7 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
                 val elapsedMs = (System.nanoTime() - started) / 1_000_000
                 if (elapsedMs.toDouble() > snapshot.size.toDouble() / SAMPLE_RATE * 1_000 * policy.rtfBudget) {
                     previewBudgetMisses++
-                    if (previewBudgetMisses >= 2) previewEnabled = false
+                    if (previewBudgetMisses >= policy.maxBudgetMisses) previewEnabled = false
                 } else {
                     previewBudgetMisses = 0
                 }
