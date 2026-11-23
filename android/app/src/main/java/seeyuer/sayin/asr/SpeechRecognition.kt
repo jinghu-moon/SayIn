@@ -52,7 +52,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private val microphoneLock = Any()
     private var microphone: PcmSource? = null
     private var vad: VadAutoStop? = null
-    private var lastTranscriptAtMillis = 0L
+    @Volatile private var lastTranscriptAtMillis = 0L
     private var generation = 0L
     private val modelLock = Mutex()
     private var decoder: LocalSpeechDecoder? = null
