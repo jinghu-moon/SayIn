@@ -25,7 +25,7 @@ import seeyuer.sayin.BuildConfig
 
 internal enum class RecognitionPhase { Idle, Loading, Listening, Finishing, Cancelling }
 internal enum class LocalModelPhase { Unloaded, Loading, Warming, Ready, Failed, Missing }
-internal enum class RecognitionIssue { Permission, Model, Microphone, TooSlow, RecordingLimit, Recognition, CloudConfiguration, CloudNetwork, CloudAuthentication, CloudAccessDenied, CloudQuota, CloudTimeout, CloudProtocol, CloudService }
+internal enum class RecognitionIssue { Permission, Model, Microphone, TooSlow, RecordingLimit, Recognition, NoSpeech, CloudConfiguration, CloudNetwork, CloudAuthentication, CloudAccessDenied, CloudQuota, CloudTimeout, CloudProtocol, CloudService }
 internal data class RecognitionState(
     val session: Long = 0,
     val phase: RecognitionPhase = RecognitionPhase.Idle,
@@ -34,6 +34,8 @@ internal data class RecognitionState(
     val finished: Boolean = false,
     val audioLevel: Float = 0f,
     val speechPause: Boolean = false,
+    val speechEnding: Boolean = false,
+    val noSpeech: Boolean = false,
 ) {
     val busy get() = phase != RecognitionPhase.Idle
 }
@@ -47,6 +49,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private var job: Job? = null
     private val microphoneLock = Any()
     private var microphone: PcmSource? = null
+    private var vad: VadAutoStop? = null
     private var generation = 0L
     private val modelLock = Mutex()
     private var decoder: LocalSpeechDecoder? = null
@@ -118,13 +121,30 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                         if (ContextCompat.checkSelfPermission(application, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
                             throw SecurityException("Microphone permission is required")
                         }
-                        val pause = SpeechPause()
-                        return AndroidMicrophone(application) { rms, samples ->
-                            val paused = pause.update(rms, samples)
+                        val fallbackPause = SpeechPause()
+                        val detector = runCatching { VadAutoStop(application) }.getOrNull()
+                        vad = detector
+                        return AndroidMicrophone(application) { rms, samples, pcm ->
+                            val progress = runCatching { detector?.accept(pcm) }.getOrNull()
+                            if (detector != null && progress == null) {
+                                detector.close()
+                                vad = null
+                            }
+                            val paused = progress?.ended ?: fallbackPause.update(rms, samples)
+                            val ending = progress?.ending == true
+                            val noSpeech = progress?.noSpeech == true
                             mutableState.update {
-                                if (it.session == session && it.phase == RecognitionPhase.Listening)
-                                    it.copy(audioLevel = (rms * 8f).coerceIn(0f, 1f), speechPause = paused)
-                                else it
+                                if (it.session == session && it.phase == RecognitionPhase.Listening) {
+                                    it.copy(
+                                        audioLevel = (rms * 8f).coerceIn(0f, 1f),
+                                        speechPause = paused,
+                                        speechEnding = ending,
+                                        noSpeech = noSpeech,
+                                        issue = if (noSpeech) RecognitionIssue.NoSpeech else it.issue,
+                                    )
+                                } else {
+                                    it
+                                }
                             }
                         }.also { source ->
                             synchronized(microphoneLock) { microphone = source }
@@ -175,6 +195,8 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                     microphone?.close()
                     microphone = null
                 }
+                vad?.close()
+                vad = null
                 mutableState.update { it.copy(phase = RecognitionPhase.Idle) }
                 job = null
             }

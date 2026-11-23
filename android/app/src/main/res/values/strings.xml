@@ -1200,6 +1200,8 @@
     <string name="hidden_apps_sort_recent">Recently used</string>
     <string name="hidden_apps_sort_installed">Install time</string>
     <string name="hidden_apps_sort_selected">Selected first</string>
+    <string name="asr_speech_ending">Finishing soon…</string>
+    <string name="speak_auto_stopped_resume">Auto-stopped · Tap record to continue</string>
 </resources>
 
 

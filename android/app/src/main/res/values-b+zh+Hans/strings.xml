@@ -1193,6 +1193,8 @@
     <string name="hidden_apps_sort_recent">最近使用</string>
     <string name="hidden_apps_sort_installed">安装时间</string>
     <string name="hidden_apps_sort_selected">已选择优先</string>
+    <string name="asr_speech_ending">快结束了…</string>
+    <string name="speak_auto_stopped_resume">已自动结束 · 点录音继续</string>
 </resources>
 
 

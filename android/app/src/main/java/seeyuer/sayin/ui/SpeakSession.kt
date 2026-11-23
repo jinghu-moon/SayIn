@@ -119,6 +119,7 @@ internal class SpeakSession(
     var asr by mutableStateOf(RecognitionState()); private set
     var model by mutableStateOf(LocalModelPhase.Unloaded); private set
     var recordingStartedAtMillis by mutableStateOf(0L); private set
+    var autoStopped by mutableStateOf(false); private set
     var recordingDurationMillis by mutableStateOf(0L); private set
     private val history = DraftHistory<SpeakingSnapshot>()
     private var historyRevision by mutableIntStateOf(0)
@@ -309,9 +310,12 @@ internal class SpeakSession(
                         }
                     }
                     explicitFinish = false
+                } else if (result.phase == RecognitionPhase.Listening && result.noSpeech && visible &&
+                    recognition.state.value.let { it.session == result.session && it.noSpeech }) {
+                    finishRecording(auto = false)
                 } else if (result.phase == RecognitionPhase.Listening && result.speechPause && recordingCanFinish && finishOnSilence &&
                     visible && recognition.state.value.let { it.session == result.session && it.speechPause }) {
-                    finishRecording()
+                    finishRecording(auto = true)
                 }
             }
         } }
@@ -392,6 +396,7 @@ internal class SpeakSession(
 
     fun changeDraft(value: TextFieldValue, fromRecognition: Boolean = false) {
         if (draft == value || !fromRecognition && (requestLocked || draftRestoring)) return
+        if (!fromRecognition) autoStopped = false
         if (!fromRecognition && value.text != draft.text) {
             if (!requestLocked) submitted = null
             val composing = draft.composition != null || value.composition != null
@@ -488,6 +493,7 @@ internal class SpeakSession(
     fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {
         if (!visible || busy || translationPreparing || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
         if (source == SpeakInputSource.Local && recognition is SpeechRecognition && !recognitionInstalled) return
+        autoStopped = false
         cancelPolish()
         invalidateAssist()
         recordingStartedEmpty = draft.text.isBlank()
@@ -501,7 +507,7 @@ internal class SpeakSession(
         recordingScope = receiver.receptionScope
         recordingMode = effectiveSendMode()
         recordingDestination = receiver.autoSendDestination
-        finishOnSilence = recordingMode == SpeakSendMode.Automatic && !holdToSpeak
+        finishOnSilence = !holdToSpeak
         pendingCloud = if (source == SpeakInputSource.Cloud) cloud else null
         preparingToRecord = true
         waitingForTranslationStop = true
@@ -531,8 +537,9 @@ internal class SpeakSession(
     }
 
     fun microphoneServiceFailed() { preparingToRecord = false; acceptRecognition = false; asr = asr.copy(issue = RecognitionIssue.Microphone) }
-    fun finishRecording(andSend: Boolean = false) {
+    fun finishRecording(andSend: Boolean = false, auto: Boolean = false) {
         if (asr.phase != RecognitionPhase.Listening) return
+        autoStopped = auto
         invalidateAssist()
         sendAfterFinal = andSend && recordingMode == SpeakSendMode.Manual && recordingCanFinish && visible &&
             recordingScope != null && recordingScope == receiver.receptionScope
@@ -543,6 +550,7 @@ internal class SpeakSession(
 
     fun cancelRecording(restore: Boolean = true) {
         invalidateAssist()
+        autoStopped = false
         acceptRecognition = false; explicitFinish = false; preparingToRecord = false; pendingCloud = null
         preparationGeneration++; waitingForTranslationStop = false
         cancelAutoSend(); recognition.cancel()

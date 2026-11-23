@@ -653,6 +653,11 @@ internal fun SpeakPage(
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             asr.phase == RecognitionPhase.Finishing -> Text(stringResource(R.string.asr_finishing),
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            asr.speechEnding -> Text(stringResource(R.string.asr_speech_ending),
+                                color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            !listening && session.autoStopped && !busy && session.draft.text.isNotBlank() ->
+                                Text(stringResource(R.string.speak_auto_stopped_resume),
+                                    color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             session.interaction.review == DraftReview.TargetUnavailable -> Text(stringResource(
                                 if (state.ready && !state.autoTextSupported) R.string.speak_auto_update_desktop else R.string.speak_auto_target_unavailable),
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -951,6 +956,7 @@ private fun recognitionIssueText(issue: RecognitionIssue): Int = when (issue) {
     RecognitionIssue.RecordingLimit -> R.string.local_model_recording_limit
     RecognitionIssue.TooSlow -> R.string.asr_too_slow
     RecognitionIssue.Recognition -> R.string.asr_recognition_error
+    RecognitionIssue.NoSpeech -> R.string.asr_no_speech
     RecognitionIssue.CloudConfiguration -> R.string.cloud_error_configuration
     RecognitionIssue.CloudNetwork -> R.string.cloud_error_network
     RecognitionIssue.CloudAuthentication -> R.string.cloud_error_authentication
