@@ -17,15 +17,15 @@ class AudioSourceInstrumentedTest {
             MediaRecorder.AudioSource.VOICE_COMMUNICATION,
             MediaRecorder.AudioSource.MIC,
         )
-        var opened = 0
+        val opened = mutableListOf<Int>()
         for (source in sources) {
             val read = runCatching {
                 AndroidMicrophone(context, audioSource = source) { _, _, _ -> }.use { microphone ->
                     microphone.read() != null
                 }
             }.getOrDefault(false)
-            if (read) opened++
+            if (read) opened += source
         }
-        assertTrue("至少应有一个音频源可初始化并读取", opened > 0)
+        assertTrue("音频源矩阵全部应可初始化并读取: ${opened}", opened.size == sources.size)
     }
 }
