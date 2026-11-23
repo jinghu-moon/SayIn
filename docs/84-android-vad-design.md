@@ -18,7 +18,7 @@ SayIn 的语音输入以无感、省心、流畅为目标。用户点一下就�
 | 无文本/慢预览兜底 | 已完成代码 | `0654ca6`：识别文本停滞兜底、Qwen 预览 RTF 门控 |
 | 底噪自动校准 | 已完成单元测试 | `5fe1d63` + `ff19c19`：底噪阈值估计；Silero 资产集成测试已通过 |
 
-真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。由于测试安装重置了日常包数据，云端未配置、本地模型未导入，真实麦克风自动收尾和完整录音 UI 尚未执行；连续录音功耗、音频路由/外放、1.7B/Fun-ASR 预览仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
+真机进展：设备已解锁并通过 root 完成 Debug 安装；`VadModelInstrumentedTest` 与 `PunctuationModelInstrumentedTest` 各 1 项通过。测试安装重置了日常包数据；已手工导入 X-ASR 本地模型并验证“无语音 10 秒自动停止，提示未识别到语音、草稿保留”。真实语音自动收尾、连续录音功耗、音频路由/外放、1.7B/Fun-ASR 预览仍需补验。当前状态不能描述为“全部阶段已通过真机验收”。
 
 
 ## 1. 首版范围
