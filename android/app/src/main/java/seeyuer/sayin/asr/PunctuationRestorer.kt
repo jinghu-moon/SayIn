@@ -27,7 +27,7 @@ internal class PunctuationRestorer(private val context: Context) : Closeable {
             assetManager = context.applicationContext.assets,
             config = OfflinePunctuationConfig(
                 model = OfflinePunctuationModelConfig(
-                    ctTransformer = "punctuation",
+                    ctTransformer = "punctuation/model.int8.onnx",
                     numThreads = 2,
                     provider = "cpu",
                 ),
