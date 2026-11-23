@@ -8,8 +8,14 @@ import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import java.io.Closeable
 import java.io.File
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.coroutineContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.launch
 
 internal data class LocalVoiceArtifact(val id: String, val directory: File)
 
@@ -27,6 +33,7 @@ internal interface LocalSpeechDecoder : Closeable {
 /** These sherpa model exports decode after the recording finishes. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
+    private val previewEnabled = artifact.id == "qwen-06"
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
@@ -69,26 +76,59 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         }
     }
 
-    override suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String {
+    override suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String = coroutineScope {
         val chunks = mutableListOf<FloatArray>()
-        var samples = 0
-        source.use {
-            while (true) {
-                coroutineContext.ensureActive()
-                val chunk = source.read() ?: break
-                samples += chunk.size
-                if (samples > RECORDING_LIMIT) throw OfflineRecordingLimitException()
-                chunks += chunk
+        val samples = AtomicInteger(0)
+        val lock = Any()
+        val capture = async(Dispatchers.IO) {
+            source.use {
+                while (true) {
+                    coroutineContext.ensureActive()
+                    val chunk = source.read() ?: break
+                    if (samples.addAndGet(chunk.size) > RECORDING_LIMIT) throw OfflineRecordingLimitException()
+                    synchronized(lock) { chunks += chunk }
+                }
             }
         }
-        if (samples == 0) return ""
-        val audio = FloatArray(samples)
-        var offset = 0
-        for (chunk in chunks) {
-            chunk.copyInto(audio, offset)
-            offset += chunk.size
-        }
         val transcript = StreamingTranscript()
+        if (previewEnabled) {
+            while (capture.isActive) {
+                delay(PREVIEW_INTERVAL)
+                val total = samples.get()
+                if (total < PREVIEW_MIN) continue
+                val snapshot = synchronized(lock) {
+                    val start = (total - PREVIEW_MAX).coerceAtLeast(0)
+                    val audio = FloatArray(total - start)
+                    var offset = 0
+                    var cursor = 0
+                    for (chunk in chunks) {
+                        val end = cursor + chunk.size
+                        if (end > start) {
+                            val from = (start - cursor).coerceAtLeast(0)
+                            chunk.copyInto(audio, offset, from, chunk.size)
+                            offset += chunk.size - from
+                        }
+                        cursor = end
+                    }
+                    audio
+                }
+                coroutineContext.ensureActive()
+                val preview = decode(snapshot)
+                if (preview.isNotBlank()) onTranscript(transcript.update(preview, endpoint = false))
+            }
+        }
+        capture.await()
+        val total = samples.get()
+        if (total == 0) return@coroutineScope ""
+        val audio = synchronized(lock) {
+            FloatArray(total).also { target ->
+                var offset = 0
+                for (chunk in chunks) {
+                    chunk.copyInto(target, offset)
+                    offset += chunk.size
+                }
+            }
+        }
         var text = ""
         for (start in audio.indices step DECODE_WINDOW) {
             coroutineContext.ensureActive()
@@ -97,7 +137,8 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
             text = transcript.update(segment, endpoint = true)
         }
         coroutineContext.ensureActive()
-        return text
+        onTranscript(text)
+        text
     }
 
     override fun close() = recognizer.release()
@@ -107,6 +148,9 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         const val SAMPLE_RATE = 16000
         const val DECODE_WINDOW = 20 * SAMPLE_RATE
         const val RECORDING_LIMIT = 120 * SAMPLE_RATE
+        const val PREVIEW_MIN = 2 * SAMPLE_RATE
+        const val PREVIEW_MAX = 20 * SAMPLE_RATE
+        const val PREVIEW_INTERVAL = 2_000L
     }
 }
 
