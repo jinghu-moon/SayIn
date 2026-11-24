@@ -1189,14 +1189,16 @@
     </plurals>
     <string name="settings_ball_reset_position">重置位置</string>
     <string name="settings_ball_hidden_apps_sort">排序</string>
-    <string name="hidden_apps_sort_name">名称 A–Z</string>
+    <string name="hidden_apps_sort_name">名称</string>
     <string name="hidden_apps_sort_recent">最近使用</string>
     <string name="hidden_apps_sort_installed">安装时间</string>
-    <string name="hidden_apps_sort_selected">已选择优先</string>
+    <string name="hidden_apps_sort_selected">选择状态</string>
     <string name="asr_speech_ending">快结束了…</string>
     <string name="speak_auto_stopped_resume">已自动结束 · 点录音继续</string>
     <string name="settings_continuous_dictation">连续听写</string>
     <string name="settings_continuous_dictation_summary">保持录音直到手动停止，说话过程中可更新文字。</string>
+    <string name="hidden_apps_sort_ascending">升序</string>
+    <string name="hidden_apps_sort_descending">降序</string>
 </resources>
 
 

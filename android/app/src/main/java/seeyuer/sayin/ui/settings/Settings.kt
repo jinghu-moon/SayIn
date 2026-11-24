@@ -1688,6 +1688,12 @@ private fun HiddenAppsSheet(
     var sort by rememberSaveable {
         mutableStateOf(HiddenAppSort.from(sortPreferences.getString(HIDDEN_APPS_SORT_KEY, null)))
     }
+    var direction by rememberSaveable {
+        mutableStateOf(
+            HiddenAppDirection.from(sortPreferences.getString(HIDDEN_APPS_DIRECTION_KEY, null))
+                ?: sort.defaultDirection,
+        )
+    }
     var apps by remember { mutableStateOf<List<HiddenAppEntry>?>(null) }
     LaunchedEffect(show) {
         if (show && apps == null) {
@@ -1718,12 +1724,25 @@ private fun HiddenAppsSheet(
                 startAction = startIcon(VoiceLinkIcon.Filter),
                 onSelectedIndexChange = { index ->
                     sort = HiddenAppSort.entries[index]
-                    sortPreferences.edit().putString(HIDDEN_APPS_SORT_KEY, sort.name).apply()
+                    direction = sort.defaultDirection
+                    sortPreferences.edit()
+                        .putString(HIDDEN_APPS_SORT_KEY, sort.name)
+                        .putString(HIDDEN_APPS_DIRECTION_KEY, direction.name)
+                        .apply()
                 },
                 modifier = Modifier.testTag("hidden-apps-sort"),
             )
+            TabRowWithContour(
+                tabs = HiddenAppDirection.entries.map { stringResource(it.label) },
+                selectedTabIndex = HiddenAppDirection.entries.indexOf(direction),
+                onTabSelected = { index ->
+                    direction = HiddenAppDirection.entries[index]
+                    sortPreferences.edit().putString(HIDDEN_APPS_DIRECTION_KEY, direction.name).apply()
+                },
+                modifier = Modifier.padding(horizontal = 16.dp).testTag("hidden-apps-direction"),
+            )
             val loaded = apps
-            val ordered = loaded?.let { sortedHiddenApps(it, sort, selected) }
+            val ordered = loaded?.let { sortedHiddenApps(it, sort, direction, selected) }
             when {
                 ordered == null -> Text(
                     stringResource(R.string.settings_ball_hidden_apps_loading),
@@ -1824,16 +1843,27 @@ private fun HiddenAppIcon(packageName: String, size: Dp) {
 }
 
 private const val HIDDEN_APPS_SORT_KEY = "quick_ball_hidden_apps_sort"
+private const val HIDDEN_APPS_DIRECTION_KEY = "quick_ball_hidden_apps_sort_direction"
 
-private enum class HiddenAppSort(@StringRes val label: Int) {
-    Name(R.string.hidden_apps_sort_name),
-    Recent(R.string.hidden_apps_sort_recent),
-    Installed(R.string.hidden_apps_sort_installed),
-    Selected(R.string.hidden_apps_sort_selected),
+private enum class HiddenAppSort(@StringRes val label: Int, val defaultDirection: HiddenAppDirection) {
+    Name(R.string.hidden_apps_sort_name, HiddenAppDirection.Ascending),
+    Recent(R.string.hidden_apps_sort_recent, HiddenAppDirection.Descending),
+    Installed(R.string.hidden_apps_sort_installed, HiddenAppDirection.Descending),
+    Selected(R.string.hidden_apps_sort_selected, HiddenAppDirection.Descending),
     ;
 
     companion object {
         fun from(value: String?): HiddenAppSort = entries.firstOrNull { it.name == value } ?: Name
+    }
+}
+
+private enum class HiddenAppDirection(@StringRes val label: Int) {
+    Ascending(R.string.hidden_apps_sort_ascending),
+    Descending(R.string.hidden_apps_sort_descending),
+    ;
+
+    companion object {
+        fun from(value: String?): HiddenAppDirection? = entries.firstOrNull { it.name == value }
     }
 }
 
@@ -1847,19 +1877,26 @@ private data class HiddenAppEntry(
 private fun sortedHiddenApps(
     apps: List<HiddenAppEntry>,
     sort: HiddenAppSort,
+    direction: HiddenAppDirection,
     selected: Set<String>,
-): List<HiddenAppEntry> = when (sort) {
-    HiddenAppSort.Name -> apps.sortedBy { it.label.lowercase(Locale.ROOT) }
-    HiddenAppSort.Recent -> apps.sortedWith(
-        compareByDescending<HiddenAppEntry> { it.lastUsed }.thenBy { it.label.lowercase(Locale.ROOT) },
-    )
-    HiddenAppSort.Installed -> apps.sortedWith(
-        compareByDescending<HiddenAppEntry> { it.installedAt }.thenBy { it.label.lowercase(Locale.ROOT) },
-    )
-    HiddenAppSort.Selected -> apps.sortedWith(
-        compareByDescending<HiddenAppEntry> { it.packageName in selected }
-            .thenBy { it.label.lowercase(Locale.ROOT) },
-    )
+): List<HiddenAppEntry> {
+    val ascending = direction == HiddenAppDirection.Ascending
+    fun byLabel(): Comparator<HiddenAppEntry> = compareBy { it.label.lowercase(Locale.ROOT) }
+    return when (sort) {
+        HiddenAppSort.Name -> if (ascending) apps.sortedWith(byLabel()) else apps.sortedWith(byLabel().reversed())
+        HiddenAppSort.Recent -> apps.sortedWith(
+            (if (ascending) compareBy<HiddenAppEntry> { it.lastUsed }
+            else compareByDescending { it.lastUsed }).then(byLabel()),
+        )
+        HiddenAppSort.Installed -> apps.sortedWith(
+            (if (ascending) compareBy<HiddenAppEntry> { it.installedAt }
+            else compareByDescending { it.installedAt }).then(byLabel()),
+        )
+        HiddenAppSort.Selected -> apps.sortedWith(
+            (if (ascending) compareBy<HiddenAppEntry> { it.packageName in selected }
+            else compareByDescending { it.packageName in selected }).then(byLabel()),
+        )
+    }
 }
 
 private fun loadLaunchableApps(context: Context): List<HiddenAppEntry> {
