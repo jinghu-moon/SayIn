@@ -1712,11 +1712,6 @@ private fun HiddenAppsSheet(
                 fontSize = 12.sp,
                 color = MiuixTheme.colorScheme.onSurfaceSecondary,
             )
-            Text(
-                stringResource(R.string.settings_ball_hidden_apps_privacy),
-                fontSize = 11.sp,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary,
-            )
             WindowDropdownPreference(
                 title = stringResource(R.string.settings_ball_hidden_apps_sort),
                 items = HiddenAppSort.entries.map { stringResource(it.label) },

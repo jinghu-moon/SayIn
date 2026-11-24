@@ -1175,11 +1175,10 @@
     <string name="settings_translation_summary_loading">中译英 · 检查模型中</string>
     <string name="settings_translation_summary_missing">中译英 · 模型不可用</string>
     <string name="local_model_meta_separator">·</string>
-    <string name="settings_ball_hidden_apps">在指定应用中隐藏</string>
+    <string name="settings_ball_hidden_apps">应用内隐藏</string>
     <string name="settings_ball_hidden_apps_permission">需要授权使用情况访问</string>
     <string name="settings_ball_hidden_apps_none">未选择应用</string>
-    <string name="settings_ball_hidden_apps_help">这些应用在前台时隐藏悬浮球，离开后恢复。</string>
-    <string name="settings_ball_hidden_apps_privacy">仅判断当前前台应用，不记录使用历史。</string>
+    <string name="settings_ball_hidden_apps_help">指定应用在前台时隐藏悬浮球</string>
     <string name="settings_ball_hidden_apps_loading">正在读取应用…</string>
     <string name="settings_ball_hidden_apps_empty">没有可选择的应用</string>
     <string name="settings_ball_hidden_apps_done">完成</string>

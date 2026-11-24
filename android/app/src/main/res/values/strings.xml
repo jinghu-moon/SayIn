@@ -1182,11 +1182,10 @@
     <string name="settings_translation_summary_loading">Chinese to English · Checking model</string>
     <string name="settings_translation_summary_missing">Chinese to English · Model unavailable</string>
     <string name="local_model_meta_separator">·</string>
-    <string name="settings_ball_hidden_apps">Hide in selected apps</string>
+    <string name="settings_ball_hidden_apps">Hide in apps</string>
     <string name="settings_ball_hidden_apps_permission">Usage access required</string>
     <string name="settings_ball_hidden_apps_none">No apps selected</string>
-    <string name="settings_ball_hidden_apps_help">The ball hides while one of these apps is in front. It returns when you leave the app.</string>
-    <string name="settings_ball_hidden_apps_privacy">Only the current foreground app is checked; no usage history is stored.</string>
+    <string name="settings_ball_hidden_apps_help">Hide the floating ball while a selected app is in the foreground</string>
     <string name="settings_ball_hidden_apps_loading">Loading apps…</string>
     <string name="settings_ball_hidden_apps_empty">No launchable apps</string>
     <string name="settings_ball_hidden_apps_done">Done</string>
