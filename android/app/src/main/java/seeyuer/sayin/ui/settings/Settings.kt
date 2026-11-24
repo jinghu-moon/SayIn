@@ -1383,10 +1383,24 @@ private fun BallPage(modifier: Modifier, scroll: androidx.compose.foundation.Scr
                 },
             )
             HorizontalDivider()
-            ArrowPreference(
+            BasicComponent(
                 title = stringResource(R.string.settings_ball_hidden_apps),
-                summary = hiddenSummary,
+                summary = stringResource(R.string.settings_ball_hidden_apps_help),
                 startAction = startIcon(VoiceLinkIcon.Phone),
+                endActions = {
+                    Text(
+                        hiddenSummary,
+                        fontSize = 13.sp,
+                        color = if (usageAccess) MiuixTheme.colorScheme.onSurfaceSecondary else warningColor(),
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        VoiceLinkIcon.ChevronRight.vector,
+                        null,
+                        Modifier.size(17.dp),
+                        tint = MiuixTheme.colorScheme.onSurfaceSecondary,
+                    )
+                },
                 onClick = {
                     if (usageAccess) hiddenAppsOpen = true
                     else usageAccessPermission.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
@@ -1707,11 +1721,6 @@ private fun HiddenAppsSheet(
         onDismissRequest = onDismiss,
     ) {
         Column(Modifier.fillMaxWidth().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                stringResource(R.string.settings_ball_hidden_apps_help),
-                fontSize = 12.sp,
-                color = MiuixTheme.colorScheme.onSurfaceSecondary,
-            )
             WindowDropdownPreference(
                 title = stringResource(R.string.settings_ball_hidden_apps_sort),
                 items = HiddenAppSort.entries.map { stringResource(it.label) },
