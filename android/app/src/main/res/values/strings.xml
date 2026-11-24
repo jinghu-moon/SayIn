@@ -1205,6 +1205,22 @@
     <string name="settings_continuous_dictation_summary">Keep recording until you stop; text can update while speaking.</string>
     <string name="hidden_apps_sort_ascending">Ascending</string>
     <string name="hidden_apps_sort_descending">Descending</string>
+    <string name="local_model_import_mode_copy">Copy to app storage</string>
+    <string name="local_model_import_mode_reference">Use original path</string>
+    <string name="local_model_import_copy_summary">Most reliable. The original folder remains; about %1$s is used.</string>
+    <string name="local_model_import_reference_summary">No copy. The model stops working if the original path moves or is deleted.</string>
+    <string name="local_model_reference_unavailable">This source cannot be referenced directly. Choose copy instead.</string>
+    <string name="local_model_reference_permission">Using the original path needs All files access.</string>
+    <string name="local_model_grant_all_files">Grant All files access</string>
+    <string name="local_model_reference_error">Could not read the original path. Check permission or copy instead.</string>
+    <string name="local_model_verifying_reference">Verifying files in the original path</string>
+    <string name="local_model_reference_verify">No files are copied; verifying the original path</string>
+    <string name="local_model_reference_installed">Referenced original path</string>
+    <string name="local_model_referenced_summary">%1$d models use original paths and do not use app storage</string>
+    <plurals name="local_model_reference_count">
+        <item quantity="one">Use %1$d model · %2$s</item>
+        <item quantity="other">Use %1$d models · %2$s</item>
+    </plurals>
 </resources>
 
 

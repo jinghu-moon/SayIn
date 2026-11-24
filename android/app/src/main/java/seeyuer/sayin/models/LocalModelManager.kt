@@ -16,9 +16,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import seeyuer.sayin.translation.ModelIntegrityException
 
-internal enum class ModelOperationError { ReadFolder, Space, Integrity, Copy, Delete }
+internal enum class ModelOperationError { ReadFolder, Space, Integrity, Copy, Reference, Delete }
 
-internal data class ModelCopyProgress(val model: LocalModel, val copied: Long, val publishing: Boolean = false)
+internal data class ModelCopyProgress(
+    val model: LocalModel,
+    val copied: Long,
+    val publishing: Boolean = false,
+    val reference: Boolean = false,
+)
 internal data class ModelOperationProblem(val error: ModelOperationError, val model: LocalModel? = null)
 
 internal class LocalModelManager(
@@ -74,12 +79,12 @@ internal class LocalModelManager(
 
     fun consumeImportResult() { importedCount = 0 }
 
-    fun importScanned() {
+    fun importScanned(mode: ModelImportMode) {
         val candidates = scan?.candidates.orEmpty()
         if (busy || candidates.isEmpty()) return
         scan = null
         problems = emptyList()
-        progress = ModelCopyProgress(candidates.first().model, 0)
+        progress = ModelCopyProgress(candidates.first().model, 0, reference = mode == ModelImportMode.Reference)
         operation = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             val initialIds = installed.keys
             val updates = MutableStateFlow(checkNotNull(progress))
@@ -87,12 +92,27 @@ internal class LocalModelManager(
             try {
                 for (candidate in candidates) {
                     val model = candidate.model
-                    updates.value = ModelCopyProgress(model, 0)
+                    updates.value = ModelCopyProgress(model, 0, reference = mode == ModelImportMode.Reference)
                     val error = withContext(Dispatchers.IO) {
                         try {
-                            storage.install(candidate, onPublishing = {
-                                updates.value = ModelCopyProgress(model, model.bytes, publishing = true)
-                            }) { updates.value = ModelCopyProgress(model, it) }
+                            if (mode == ModelImportMode.Reference) {
+                                storage.reference(candidate, onPublishing = {
+                                    updates.value = ModelCopyProgress(
+                                        model,
+                                        model.bytes,
+                                        publishing = true,
+                                        reference = true,
+                                    )
+                                }) { copied ->
+                                    updates.value = ModelCopyProgress(model, copied, reference = true)
+                                }
+                            } else {
+                                storage.install(candidate, onPublishing = {
+                                    updates.value = ModelCopyProgress(model, model.bytes, publishing = true)
+                                }) { copied ->
+                                    updates.value = ModelCopyProgress(model, copied)
+                                }
+                            }
                             null
                         } catch (cancelled: CancellationException) {
                             throw cancelled
@@ -100,6 +120,8 @@ internal class LocalModelManager(
                             ModelOperationError.Integrity
                         } catch (_: ModelSpaceException) {
                             ModelOperationError.Space
+                        } catch (_: ModelReferenceException) {
+                            ModelOperationError.Reference
                         } catch (_: Exception) {
                             ModelOperationError.Copy
                         }

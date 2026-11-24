@@ -3,6 +3,9 @@ package seeyuer.sayin.ui.settings
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.Settings
 import android.text.format.Formatter
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -295,6 +298,10 @@ private fun ModelStorageSummary(models: LocalModelManager, openFolder: () -> Uni
                         ModelLegend(if (category == ModelCategory.Recognition) primary else translationColor,
                             stringResource(category.title), Formatter.formatFileSize(context, size))
                     }
+                }
+                val referenced = models.catalog.all.count { models.storage.isReference(it) }
+                if (referenced > 0) {
+                    ModelNote(stringResource(R.string.local_model_referenced_summary, referenced))
                 }
             }
         }
@@ -630,6 +637,13 @@ internal fun rememberModelFolderPicker(models: LocalModelManager): () -> Unit {
 internal fun ModelImportPreview(models: LocalModelManager, chooseAgain: () -> Unit) {
     val result = models.scan
     val context = LocalContext.current
+    var reference by rememberSaveable(result) { mutableStateOf(false) }
+    val canReference = result?.candidates?.isNotEmpty() == true &&
+        result.candidates.all { it.sourceDirectory != null }
+    var allFilesAccess by remember { mutableStateOf(hasAllFilesAccess()) }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        allFilesAccess = hasAllFilesAccess()
+    }
     OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = result != null, onDismissRequest = models::dismissScan) {
         if (result != null) Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(bottom = 16.dp),
@@ -655,10 +669,55 @@ internal fun ModelImportPreview(models: LocalModelManager, chooseAgain: () -> Un
                     startAction = startIcon(VoiceLinkIcon.Alert))
             }
             if (result.candidates.isNotEmpty()) {
+                TabRowWithContour(
+                    tabs = listOf(
+                        stringResource(R.string.local_model_import_mode_copy),
+                        stringResource(R.string.local_model_import_mode_reference),
+                    ),
+                    selectedTabIndex = if (reference) 1 else 0,
+                    onTabSelected = { reference = it == 1 },
+                    modifier = Modifier.fillMaxWidth().testTag("local-model-import-mode"),
+                )
+                if (reference) {
+                    ModelNote(stringResource(when {
+                        !canReference -> R.string.local_model_reference_unavailable
+                        !allFilesAccess -> R.string.local_model_reference_permission
+                        else -> R.string.local_model_import_reference_summary
+                    }))
+                    if (canReference && !allFilesAccess) {
+                        TextButton(
+                            stringResource(R.string.local_model_grant_all_files),
+                            {
+                                val direct = Intent(
+                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    Uri.parse("package:${context.packageName}"),
+                                )
+                                runCatching { permissionLauncher.launch(direct) }
+                                    .onFailure { permissionLauncher.launch(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
+                            },
+                            Modifier.fillMaxWidth().testTag("local-model-all-files"),
+                            colors = plainTextButtonColors(),
+                        )
+                    }
+                } else {
+                    ModelNote(stringResource(
+                        R.string.local_model_import_copy_summary,
+                        Formatter.formatFileSize(context, result.candidates.sumOf { it.model.bytes }),
+                    ))
+                }
                 val count = result.candidates.size
                 val bytes = result.candidates.sumOf { it.model.bytes }
-                Button(models::importScanned, Modifier.fillMaxWidth().testTag("local-model-commit"), colors = ButtonDefaults.buttonColorsPrimary()) {
-                    Text(pluralStringResource(R.plurals.local_model_import_count, count, count, Formatter.formatFileSize(context, bytes)))
+                Button(
+                    onClick = { models.importScanned(if (reference) ModelImportMode.Reference else ModelImportMode.Copy) },
+                    modifier = Modifier.fillMaxWidth().testTag("local-model-commit"),
+                    enabled = !reference || (canReference && allFilesAccess),
+                    colors = ButtonDefaults.buttonColorsPrimary(),
+                ) {
+                    if (reference) {
+                        Text(pluralStringResource(R.plurals.local_model_reference_count, count, count, Formatter.formatFileSize(context, bytes)))
+                    } else {
+                        Text(pluralStringResource(R.plurals.local_model_import_count, count, count, Formatter.formatFileSize(context, bytes)))
+                    }
                 }
             } else {
                 TextButton(stringResource(R.string.local_model_choose_again), {
@@ -670,6 +729,8 @@ internal fun ModelImportPreview(models: LocalModelManager, chooseAgain: () -> Un
     }
 }
 
+private fun hasAllFilesAccess(): Boolean =
+    Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager()
 @Composable
 internal fun ModelProgressSheet(models: LocalModelManager) {
     val context = LocalContext.current
@@ -685,6 +746,7 @@ internal fun ModelProgressSheet(models: LocalModelManager) {
     }
     val title = when {
         models.scanning -> stringResource(R.string.local_model_scanning)
+        progress != null && progress.reference -> stringResource(R.string.local_model_verifying_reference)
         progress != null -> stringResource(R.string.local_model_copying, progress.model.name)
         deleting != null -> stringResource(R.string.settings_translation_deleting)
         else -> null
@@ -697,6 +759,8 @@ internal fun ModelProgressSheet(models: LocalModelManager) {
             Text(title, style = MiuixTheme.textStyles.title2)
             if (progress != null) {
                 ModelNote(stringResource(when {
+                    progress.reference && progress.publishing -> R.string.local_model_publishing
+                    progress.reference -> R.string.local_model_reference_verify
                     progress.publishing -> R.string.local_model_publishing
                     progress.copied >= progress.model.bytes -> R.string.local_model_verifying
                     else -> R.string.local_model_copy_verify
@@ -736,6 +800,7 @@ private fun ModelOperationErrors(problems: List<ModelOperationProblem>) {
                 ModelOperationError.Space -> R.string.local_model_space_error
                 ModelOperationError.Integrity -> R.string.local_model_integrity_error
                 ModelOperationError.Copy -> R.string.local_model_copy_error
+                ModelOperationError.Reference -> R.string.local_model_reference_error
                 ModelOperationError.Delete -> R.string.settings_translation_delete_failed
             })
             BasicComponent(

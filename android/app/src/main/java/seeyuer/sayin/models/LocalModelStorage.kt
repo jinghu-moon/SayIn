@@ -3,16 +3,26 @@ package seeyuer.sayin.models
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import android.system.Os
 import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.ensureActive
 import seeyuer.sayin.translation.copyVerifiedModelFile
 
-internal data class ModelCandidate(val model: LocalModel, val documents: Map<String, Uri>)
+internal enum class ModelImportMode { Copy, Reference }
+internal class ModelReferenceException : IOException()
+
+internal data class ModelCandidate(
+    val model: LocalModel,
+    val documents: Map<String, Uri>,
+    val tree: Uri? = null,
+    val sourceDirectory: File? = null,
+)
 internal data class ModelScan(
     val candidates: List<ModelCandidate>,
     val installed: List<LocalModel>,
@@ -26,10 +36,24 @@ internal class ModelSpaceException : IOException()
 internal class LocalModelStorage(context: Context, private val catalog: LocalModelCatalog) {
     private val resolver = context.contentResolver
     private val root = File(context.noBackupFilesDir, "local-models")
-    fun directory(model: LocalModel) = File(root, model.id)
+    fun directory(model: LocalModel): File {
+        referenceSource(model)?.let { return it }
+        return File(root, model.id)
+    }
+
+    fun isReference(model: LocalModel): Boolean = referenceManifest(model).isFile
 
     fun installed(): Map<String, Long> = buildMap {
         catalog.all.forEach { model ->
+            if (isReference(model)) {
+                val source = referenceSource(model)
+                if (source != null && model.files.all {
+                        File(source, it.path).isFile && File(source, it.path).length() == it.bytes
+                    }) {
+                    put(model.id, 0L)
+                }
+                return@forEach
+            }
             val directory = directory(model)
             if (model.files.all { File(directory, it.path).isFile && File(directory, it.path).length() == it.bytes }) {
                 put(model.id, model.bytes)
@@ -38,8 +62,9 @@ internal class LocalModelStorage(context: Context, private val catalog: LocalMod
     }
 
     fun cleanStaging() {
-        root.listFiles()?.filter { it.name.startsWith(".pending-") || it.name.startsWith(".removed-") }
-            ?.forEach { it.deleteRecursively() }
+        root.listFiles()?.filter {
+            it.name.startsWith(".pending-") || it.name.startsWith(".removed-") || it.name.startsWith(".ref-pending-")
+        }?.forEach { it.deleteRecursively() }
     }
 
     suspend fun scan(tree: Uri, installed: Set<String>): ModelScan {
@@ -84,7 +109,12 @@ internal class LocalModelStorage(context: Context, private val catalog: LocalMod
                     invalid.isNotEmpty() -> issues.putIfAbsent(model.id, ModelFolderProblem(model, invalid))
                     model.id in installed -> existing[model.id] = model
                     model.id in candidates -> duplicates[model.id] = model
-                    else -> candidates[model.id] = ModelCandidate(model, documents)
+                    else -> candidates[model.id] = ModelCandidate(
+                        model,
+                        documents,
+                        tree,
+                        documents.values.firstOrNull()?.let(::sourceDirectoryOf),
+                    )
                 }
             }
         }
@@ -120,13 +150,73 @@ internal class LocalModelStorage(context: Context, private val catalog: LocalMod
         }
     }
 
+    suspend fun reference(candidate: ModelCandidate, onPublishing: () -> Unit, progress: (Long) -> Unit) {
+        val model = candidate.model
+        if (model.id in installed()) return
+        val source = candidate.sourceDirectory ?: throw ModelReferenceException()
+        if (!source.isDirectory || model.files.any { !File(source, it.path).isFile }) {
+            throw ModelReferenceException()
+        }
+        if (!root.isDirectory && !root.mkdirs()) throw IOException()
+        var completed = 0L
+        for (file in model.files) {
+            coroutineContext.ensureActive()
+            val local = File(source, file.path)
+            val digest = MessageDigest.getInstance("SHA-256")
+            local.inputStream().use { input ->
+                val buffer = ByteArray(1024 * 1024)
+                var read = 0L
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count <= 0) break
+                    digest.update(buffer, 0, count)
+                    read += count
+                    progress(completed + read)
+                }
+                if (read != file.bytes || digest.digest().joinToString("") { "%02x".format(it) } != file.sha256) {
+                    throw ModelReferenceException()
+                }
+            }
+            completed += file.bytes
+        }
+        val manifest = referenceManifest(model)
+        val pending = File(root, ".ref-pending-${model.id}")
+        pending.delete()
+        pending.writeText(source.absolutePath)
+        onPublishing()
+        manifest.delete()
+        Os.rename(pending.path, manifest.path)
+    }
+
     fun delete(model: LocalModel) {
+        if (isReference(model)) {
+            referenceManifest(model).delete()
+            return
+        }
         val source = directory(model)
         if (!source.exists()) return
         val removed = File(root, ".removed-${model.id}")
         if (removed.exists() && !removed.deleteRecursively()) throw IOException()
         Os.rename(source.path, removed.path)
         if (!removed.deleteRecursively()) throw IOException()
+    }
+
+    private fun referenceManifest(model: LocalModel) = File(root, ".ref-${model.id}.txt")
+
+    private fun referenceSource(model: LocalModel): File? {
+        val manifest = referenceManifest(model)
+        if (!manifest.isFile) return null
+        return runCatching { File(manifest.readText().trim()).takeIf { it.isDirectory } }.getOrNull()
+    }
+
+    private fun sourceDirectoryOf(uri: Uri): File? {
+        if (uri.authority != "com.android.externalstorage.documents") return null
+        val documentId = runCatching { DocumentsContract.getDocumentId(uri) }.getOrNull() ?: return null
+        if (!documentId.startsWith("primary:")) return null
+        val relative = documentId.substringAfter(':', "").takeIf { it.isNotBlank() } ?: return null
+        @Suppress("DEPRECATION")
+        val base = Environment.getExternalStorageDirectory()
+        return File(base, relative).parentFile
     }
 
     private sealed interface Entry {

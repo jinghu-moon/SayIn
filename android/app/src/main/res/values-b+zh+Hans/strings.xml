@@ -1198,6 +1198,22 @@
     <string name="settings_continuous_dictation_summary">保持录音直到手动停止，说话过程中可更新文字。</string>
     <string name="hidden_apps_sort_ascending">升序</string>
     <string name="hidden_apps_sort_descending">降序</string>
+    <string name="local_model_import_mode_copy">复制到应用私有目录</string>
+    <string name="local_model_import_mode_reference">固定使用原路径</string>
+    <string name="local_model_import_copy_summary">最稳定。原目录仍保留，约占用 %1$s。</string>
+    <string name="local_model_import_reference_summary">不复制。原路径被移动或删除后，模型将不可用。</string>
+    <string name="local_model_reference_unavailable">该来源不支持直接引用，请选择复制。</string>
+    <string name="local_model_reference_permission">固定引用需要授予“所有文件访问”权限。</string>
+    <string name="local_model_grant_all_files">授予所有文件访问权限</string>
+    <string name="local_model_reference_error">无法读取原路径，请检查权限或改用复制。</string>
+    <string name="local_model_verifying_reference">正在校验原路径文件</string>
+    <string name="local_model_reference_verify">不复制文件，正在校验原路径</string>
+    <string name="local_model_reference_installed">引用原路径</string>
+    <string name="local_model_referenced_summary">%1$d 个模型固定引用原路径，不占用应用私有空间</string>
+    <plurals name="local_model_reference_count">
+        <item quantity="one">引用 %1$d 个模型 · %2$s</item>
+        <item quantity="other">引用 %1$d 个模型 · %2$s</item>
+    </plurals>
 </resources>
 
 
