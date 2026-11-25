@@ -18,7 +18,14 @@ android/transport-test-result.json
 /.vscode/
 
 # Machine-specific verification output (keep authored docs and demos)
-/docs/research/
+/docs/research/*
+!/docs/research/91-baseline-2026-11-26.json
+!/docs/research/91-golden/
+/docs/research/91-golden/*
+!/docs/research/91-golden/status-combinations.json
+!/docs/research/91-golden/status-unknown.json
+!/docs/research/91-golden/status-budget-with-icon.json
+!/docs/research/91-golden/status-budget-icon-omitted.json
 /desktop/public-network-probe.json
 *.log
 *.apk

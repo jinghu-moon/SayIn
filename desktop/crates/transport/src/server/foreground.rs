@@ -114,9 +114,25 @@ impl Display {
         }
         self.sequence += 1;
         self.application = application;
-        Some(
-            json!({"v":2,"t":"foreground","session_id":session_id,"seq":self.sequence.to_string(),"name":self.application.as_ref().map(|a| &a.name),"icon_png":self.application.as_ref().and_then(|a| a.icon_png.as_ref()).map(|png| STANDARD.encode(png))}),
-        )
+        let visible = self
+            .application
+            .as_ref()
+            .filter(|app| app.name.chars().count() <= 96);
+        let icon_png = visible
+            .and_then(|app| app.icon_png.as_ref())
+            .map(|png| STANDARD.encode(png));
+        let mut frame = json!({
+            "v": 2,
+            "t": "foreground",
+            "session_id": session_id,
+            "seq": self.sequence.to_string(),
+            "name": visible.map(|app| &app.name),
+            "icon_png": icon_png,
+        });
+        if !frame["icon_png"].is_null() && frame.to_string().len() > MAX_OUTBOUND_BYTES {
+            frame["icon_png"] = Value::Null;
+        }
+        Some(frame)
     }
     pub fn confirmation(
         &self,
@@ -205,6 +221,46 @@ mod tests {
         );
         let cleared = display.change(None, "session", false).unwrap();
         assert!(cleared["name"].is_null() && cleared["icon_png"].is_null());
+    }
+    #[test]
+    fn foreground_keeps_the_icon_at_8192_bytes_and_omits_it_above_the_limit() {
+        const SESSION: &str = "a9c265c2-7819-4866-a3d8-31c090f6fc25";
+        for length in [8_192, 8_193, 8_885] {
+            let mut application = app("Baseline Editor");
+            let mut unbounded = json!({
+                "v": 2, "t": "foreground", "session_id": SESSION, "seq": "1",
+                "name": application.name, "icon_png": ""
+            });
+            let base = serde_json::to_vec(&unbounded).unwrap().len();
+            let name_padding = (length - base) % 4;
+            application.name.push_str(&"x".repeat(name_padding));
+            let icon = vec![42; (length - base - name_padding) / 4 * 3];
+            unbounded["name"] = json!(&application.name);
+            unbounded["icon_png"] = json!(STANDARD.encode(&icon));
+            assert_eq!(serde_json::to_vec(&unbounded).unwrap().len(), length);
+            application.icon_png = Some(icon);
+            let name = application.name.clone();
+            let frame = Display::default()
+                .change(Some(application), SESSION, true)
+                .unwrap();
+            let actual = serde_json::to_vec(&frame).unwrap().len();
+            assert_eq!(frame["name"], name);
+            assert_eq!(frame["seq"], "1");
+            if length == 8_192 {
+                assert_eq!(frame, unbounded);
+            } else {
+                assert!(actual <= 8_192, "foreground serialized to {actual} bytes");
+                assert!(frame["icon_png"].is_null());
+            }
+        }
+    }
+    #[test]
+    fn foreground_discards_an_overlong_application_without_losing_the_observation() {
+        let frame = Display::default()
+            .change(Some(app(&"😀".repeat(97))), "session", true)
+            .unwrap();
+        assert_eq!(frame["seq"], "1");
+        assert!(frame["name"].is_null() && frame["icon_png"].is_null());
     }
     #[test]
     fn observation_expires_even_if_native_query_stalls() {

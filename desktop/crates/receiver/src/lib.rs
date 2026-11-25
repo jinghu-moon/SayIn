@@ -5,6 +5,7 @@ pub mod gate;
 pub mod images;
 pub mod ledger;
 pub mod protocol;
+pub mod protocol_v3;
 #[cfg(windows)]
 pub mod windows_clipboard;
 #[cfg(windows)]

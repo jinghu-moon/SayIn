@@ -43,6 +43,8 @@ mod image_channel;
 #[cfg(test)]
 mod tests;
 
+const MAX_OUTBOUND_BYTES: usize = 8_192;
+
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct PairingWindow {
@@ -317,7 +319,8 @@ impl NetworkService {
         Ok(receiver)
     }
     pub async fn open_pairing(&self) -> Result<()> {
-        self.open_pairing_with_lifetime(Duration::from_secs(120)).await
+        self.open_pairing_with_lifetime(Duration::from_secs(120))
+            .await
     }
 
     /// Test fixture entry point; product callers use the fixed 120 second window.
@@ -667,7 +670,7 @@ async fn read_json(socket: &mut Socket) -> Result<Value> {
 }
 async fn send(socket: &mut Socket, value: &Value) -> Result<()> {
     let text = Zeroizing::new(serde_json::to_string(value)?);
-    if text.len() > 8192 {
+    if text.len() > MAX_OUTBOUND_BYTES {
         return Err(Error::Protocol("OUTPUT_LIMIT"));
     }
     bounded(async {

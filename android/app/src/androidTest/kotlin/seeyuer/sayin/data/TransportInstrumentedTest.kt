@@ -20,7 +20,10 @@ class TransportInstrumentedTest {
         val code = args.getString("fixtureCode")
         assumeTrue("Run with the loopback Android test fixture", code != null)
         val target = InstrumentationRegistry.getInstrumentation().targetContext
-        val namespace = "transport-test-${UUID.randomUUID()}-"
+        val keepUpgradeFixture = args.getString("keepUpgradeFixture") == "true"
+        check(!keepUpgradeFixture || target.packageName == "seeyuer.sayin.imagetest")
+        val namespace = if (keepUpgradeFixture) "v2-upgrade-" else "transport-test-${UUID.randomUUID()}-"
+        check(!keepUpgradeFixture || !target.getDatabasePath(namespace + "outbox.db").exists())
         // This test never reads or replaces the user's paired computer or Outbox.
         val context = object : ContextWrapper(target) {
             override fun getApplicationContext(): Context = this
@@ -28,6 +31,7 @@ class TransportInstrumentedTest {
             override fun getSharedPreferences(name: String, mode: Int) = target.getSharedPreferences(namespace + name, mode)
         }
         var repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
+        var verified = false
         try {
             suspend fun waitFor(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15000) {
                 while (!predicate(repository.state.value)) {
@@ -146,12 +150,22 @@ class TransportInstrumentedTest {
             assertTrue(repository.state.value.history.single { it.id == uncertainId }.historyHidden)
             assertEquals("outcome_review_required", repository.state.value.pauseReason)
             assertFalse(repository.state.value.ready)
+            if (keepUpgradeFixture) {
+                val store = SpeakingDraftStore(context, "-v2-upgrade")
+                val body = "fixture draft"
+                val draft = SavedSpeakingDraft(UUID.randomUUID().toString(), body, 0, body.length)
+                store.save(draft)
+                assertEquals(draft, store.load())
+            }
+            verified = true
         } finally {
             repository.close()
             // Namespaced fixture files only. Keystore keys are never deleted.
             delay(200)
-            target.deleteDatabase(namespace + "outbox.db")
-            target.getSharedPreferences(namespace + "paired_host", Context.MODE_PRIVATE).edit().clear().commit()
+            if (!keepUpgradeFixture || !verified) {
+                target.deleteDatabase(namespace + "outbox.db")
+                target.getSharedPreferences(namespace + "paired_host", Context.MODE_PRIVATE).edit().clear().commit()
+            }
         }
     }
 }

@@ -1,0 +1,370 @@
+{
+  "baseline": "sayin-v3-baseline-2026-11-26",
+  "captured_at": "2026-11-26",
+  "git_commit": "98bea67d7f37ab5fbf3ab5062c9fd5503e606cd1",
+  "branch": "feat/sayin-v3",
+  "toolchain": {
+    "rust": "1.99.1",
+    "jdk": "Temurin 25.0.5+8",
+    "device": "dc39c31d"
+  },
+  "commands": [
+    {
+      "command": "cargo test --manifest-path desktop/Cargo.toml --workspace --all-targets --locked",
+      "exit": 0,
+      "seconds": 206.391592,
+      "summary": "151 passed, 0 failed, 0 ignored"
+    },
+    {
+      "command": "cargo clippy --manifest-path desktop/Cargo.toml --workspace --all-targets --locked -- -D warnings",
+      "exit": 0,
+      "seconds": 56.01,
+      "summary": "passed"
+    },
+    {
+      "command": "cargo fmt --manifest-path desktop/Cargo.toml -p voicelink-desktop -p voicelink-receiver -p voicelink-pairing -p voicelink-transport -- --check",
+      "exit": 1,
+      "summary": "pre-existing formatting differences in transport fixture/server, formatted and rechecked",
+      "seconds": 1.2804196
+    },
+    {
+      "command": "python scripts/check_i18n.py",
+      "exit": 0,
+      "summary": "passed"
+    },
+    {
+      "command": "python scripts/check_desktop_dependencies.py",
+      "exit": 0,
+      "summary": "passed"
+    },
+    {
+      "command": "scripts/gradle.ps1 :app:testDebugUnitTest",
+      "exit": 0,
+      "seconds": 11.296759,
+      "summary": "Initial task up-to-date, then :app:testDebugUnitTest --rerun executed on the v2 baseline: 238 passed."
+    },
+    {
+      "command": "scripts/gradle.ps1 :app:lintDebug",
+      "exit": 0,
+      "seconds": 93.7885885,
+      "summary": "passed"
+    },
+    {
+      "command": "scripts/gradle.ps1 :app:assembleDebug :app:assembleRelease",
+      "exit": 0,
+      "summary": "debug/release APKs archived"
+    },
+    {
+      "command": "scripts/verify_android_transport.ps1 -FullSuite -DeviceSerial dc39c31d",
+      "exit": 1,
+      "summary": "baseline failed: harness expected 167 but instrumentation reported 169; instrumentation reported 36 failures, see local raw log",
+      "seconds": 676.2782882
+    }
+  ],
+  "device_suite": {
+    "scope": "Redmi K40, isolated seeyuer.sayin.imagetest, ADB reverse with fixture fake input",
+    "initial_full_suite": {
+      "reported_tests": 169,
+      "passed": 126,
+      "failed": 36,
+      "skipped": 7,
+      "failed_cases": [
+        "seeyuer.sayin.data.AssistStorageInstrumentedTest#reportsAndroidSensitiveFlagWhenThePlatformSupportsIt",
+        "seeyuer.sayin.data.AssistStorageInstrumentedTest#readsPlainHtmlEmptyImageUriIntentMultipleAndUnfocused",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#stationaryEdgeDragScrollsAndEndOfListDoesNotDrift",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#invalidClipboardTextIsRejectedWithReason",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#phraseLimitBlocksAddWithoutOpeningEditor",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardTextInsertsOnceAndCloses",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#sensitiveClipboardStaysMaskedUntilExplicitlyShown",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#pointerAndKeyboardReorderPersistAcrossRemount",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#dragAtFirstAndLastBoundaryDoesNotCreateOrderWrites",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#stalePhraseClearRevisionIsRejected",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardEmptyNoTextTooLongAndMultiItemStates",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#copyKeepsPanelAndDoesNotTouchDraft",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#openCloseBackScrimAndFocusReturn",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardClearConfirmCancelAndConfirmStaysInPanel",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#phraseAddDuplicateEditDeleteUndoAndClearAll",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#narrowAndLargeFontLayoutKeepsControlsReachable",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#failedReorderSaveRestoresPersistedOrder",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardTextReplacesSelection",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#draftChangedWhilePanelOpenRejectsStaleInsertion",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#externalLibraryChangeInvalidatesActiveDrag",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardTabMemoryPersistsAcrossOpen",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#openingConnectionSheetClosesPanel",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#panelControlsMeet48DpAndHaveDescriptions",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#clipboardMenuSavesAsPhraseWithoutInserting",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#editorSaveStaysAboveTheKeyboard",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#pasteKeepsPanelAndEachPasteIsOneUndoStep",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#unavailableClipboardOffersRetryWithoutChangingDraft",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#quickCardUsesTheSamePanel",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#openingImageSheetClosesPanel",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#draggedPhraseTracksFingerAcrossAnimatedSlotChanges",
+        "seeyuer.sayin.ui.AssistPanelInstrumentedTest#pointerCancellationAndBackRestorePreviewWithoutWriting",
+        "seeyuer.sayin.ui.MobileShellInstrumentedTest#pairingCodeIsAlternativeAndWaitsForDesktopApproval",
+        "seeyuer.sayin.ui.MobileShellInstrumentedTest#keyboardKeepsEditorAndSendVisibleWithoutSending",
+        "seeyuer.sayin.ui.MobileShellInstrumentedTest#connectionScenariosKeepDraftAndOnlyExplicitReconnectCallsTransport",
+        "seeyuer.sayin.ui.MobileShellInstrumentedTest#tabsPreserveDraftAndNeverTriggerTransportActions",
+        "seeyuer.sayin.ui.MobileShellInstrumentedTest#landscapeKeyboardKeepsEditorAndSendVisibleWithoutSending"
+      ],
+      "skipped_cases": [
+        "seeyuer.sayin.asr.FunPreviewInstrumentedTest#funAsrPublishesCompletedSegmentsBeforeCaptureFinishes",
+        "seeyuer.sayin.asr.ImportedAsrInstrumentedTest#recognizesMixedSpeechFromModelFolder",
+        "seeyuer.sayin.asr.ImportedAsrInstrumentedTest#r2t2ReusesIdenticalAudioAndInvalidatesChangedAudio",
+        "seeyuer.sayin.asr.Qwen17PreviewInstrumentedTest#qwen17PublishesCompletedSegmentsBeforeCaptureFinishes",
+        "seeyuer.sayin.asr.QwenPreviewInstrumentedTest#qwenPublishesTextBeforeCaptureFinishes",
+        "seeyuer.sayin.models.ReferenceModelStorageInstrumentedTest#actualExternalModelDirectoryCanBeReferenced",
+        "seeyuer.sayin.polish.PolishRelayLiveTest#relayModelListConnectionAndPolish"
+      ],
+      "raw_log": "image-android-159c5277-f13f-423e-9bcc-9aba612ea93a.log",
+      "raw_log_sha256": "cf1f16144d1a440312dc9eac8b25f7b6e33d72e6b829d59c0d7ad16de5a127af",
+      "calls": {
+        "fake_input_calls": 2,
+        "native_input_calls": 0
+      },
+      "exit": 1,
+      "seconds": 676.2782882,
+      "harness_expected_tests": 167,
+      "images_executed": false
+    },
+    "assist_storage_individual_retry": {
+      "reported_tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "failed_cases": [],
+      "skipped_cases": [],
+      "raw_log": "assist-retry.log",
+      "raw_log_sha256": "bfd1f67f4ec57794bfeef183b1604a1f7582ac07ab7cae055419d96969ad45ac"
+    },
+    "known_initial_issues": [
+      "The 167-test harness expectation predates the 169 discovered tests.",
+      "The MIUI control center held foreground focus; ClipboardService denied access without focus.",
+      "Assumption skips are listed separately from instrumentation failures."
+    ],
+    "full_suite_retry": {
+      "reported_tests": 169,
+      "passed": 162,
+      "failed": 0,
+      "skipped": 7,
+      "failed_cases": [],
+      "skipped_cases": [
+        "seeyuer.sayin.asr.FunPreviewInstrumentedTest#funAsrPublishesCompletedSegmentsBeforeCaptureFinishes",
+        "seeyuer.sayin.asr.ImportedAsrInstrumentedTest#recognizesMixedSpeechFromModelFolder",
+        "seeyuer.sayin.asr.ImportedAsrInstrumentedTest#r2t2ReusesIdenticalAudioAndInvalidatesChangedAudio",
+        "seeyuer.sayin.asr.Qwen17PreviewInstrumentedTest#qwen17PublishesCompletedSegmentsBeforeCaptureFinishes",
+        "seeyuer.sayin.asr.QwenPreviewInstrumentedTest#qwenPublishesTextBeforeCaptureFinishes",
+        "seeyuer.sayin.models.ReferenceModelStorageInstrumentedTest#actualExternalModelDirectoryCanBeReferenced",
+        "seeyuer.sayin.polish.PolishRelayLiveTest#relayModelListConnectionAndPolish"
+      ],
+      "raw_log": "image-android-77d929c6-48e1-4a4b-832c-1d5904983c9b.log",
+      "raw_log_sha256": "e2398052afdaba04b8fd99c6e030628cab34fe74808b277265ac64e38d6c76b8",
+      "calls": {
+        "fake_input_calls": 2,
+        "native_input_calls": 0
+      },
+      "recorded_result": {
+        "retained_upgrade_fixture": false,
+        "scope": "isolated imageTest UID/identity/data; fake input only",
+        "tests": 169,
+        "skipped": 7,
+        "real_lan": false,
+        "suite": "text-and-ui",
+        "passed": 162,
+        "fake_input_calls": 2
+      },
+      "exit": 0,
+      "seconds": 484.9654554,
+      "harness_expected_tests": 169
+    },
+    "image_suite": {
+      "reported_tests": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0,
+      "failed_cases": [],
+      "skipped_cases": [],
+      "raw_log": "image-android-fdae3785-8f7e-482a-ad09-f22381de4232.log",
+      "raw_log_sha256": "5d1e1feb0709fbf89a3c3f4ae3982f4a34276b57e60600f96d3f46287f344ab0",
+      "calls": {
+        "fake_input_calls": 1,
+        "native_input_calls": 0
+      },
+      "recorded_result": {
+        "retained_upgrade_fixture": false,
+        "scope": "isolated imageTest UID/identity/data; fake input only",
+        "tests": 4,
+        "skipped": 0,
+        "real_lan": false,
+        "suite": "seeyuer.sayin.data.ImageInputInstrumentedTest",
+        "passed": 4,
+        "fake_input_calls": 1
+      }
+    }
+  },
+  "apk": [
+    {
+      "file": "app-debug.apk",
+      "bytes": 172588799,
+      "sha256": "57d0bc29de6544b72803efb5f4a812df57c966f1bee6cc6da8c8071562ab5d24"
+    },
+    {
+      "file": "app-imageTest-androidTest.apk",
+      "bytes": 4271523,
+      "sha256": "0f775a2174239b177cc5f92c79c017347f1c38f3f14811c6136a41f0fd548080"
+    },
+    {
+      "file": "app-imageTest.apk",
+      "bytes": 3052085982,
+      "sha256": "15fc2782e44f0a64cedb9add143eb0c5b71daee02e7fffd3d0e1f83dabf2a131"
+    },
+    {
+      "file": "app-release-unsigned.apk",
+      "bytes": 126445391,
+      "sha256": "52593f67101314c0ece9ef7290f0bfb2100f2e7ce2257cdc775c068222ad4be5"
+    }
+  ],
+  "script_sha256": {
+    "scripts/gradle.ps1": "bcb9bb1923d2ec39031d7b1a1ac10a39d802a23235420c13dd034a5725a5a2e0",
+    "scripts/check_desktop_dependencies.py": "ff0848fe8c98047006b3bbec7570da89baa56d9c142d8ab3358b33a340ed8abd",
+    "scripts/check_i18n.py": "bf0d7889052d68fbb9b40248e1ab140e4237eab823ca7016d778bbc6004a898d",
+    "scripts/verify_android_transport.ps1": "0d28a4958b891100156050a4fc19dcb6f3b4c0e0f2eb4fa47782e3dcf7c72b35"
+  },
+  "limitations": [
+    "2x2 physical hardware, actual LAN, verified native insertion, and idle power measurements were not executed.",
+    "Device tests exercised v2 with an isolated package and fake input. No v2-to-v3 migration has been executed.",
+    "Raw logs, APKs and encrypted data remain local and are excluded from Git."
+  ],
+  "instrumentation_script_hashes": {
+    "baseline_git_blob": "0d28a4958b891100156050a4fc19dcb6f3b4c0e0f2eb4fa47782e3dcf7c72b35",
+    "baseline_crlf_checkout_reconstructed": "0568e0a0ebc751604fc0fe9d0e41f7f9add9dcf7aab1986b2b2bb155129a34b7",
+    "working_tree_capture_harness": "0d13667394e255f7999a9ff66f28168d8e2b6c3f3203a891fc76ce191b396340"
+  },
+  "windows_v2_snapshot": {
+    "source": "initial isolated desktop fixture, closed before copy",
+    "files": [
+      {
+        "file": "host-identity.dpapi",
+        "bytes": 2022,
+        "sha256": "5561bc580faea3cc7cf1e526b7f17ba2e90509183c8ce53f8801402548e62e02"
+      },
+      {
+        "file": "receiver-key.dpapi",
+        "bytes": 262,
+        "sha256": "5107029e36a987f69bac83fe4604728f6238dee229e8a1511692c9fd66a374a0"
+      },
+      {
+        "file": "receiver.sqlite3",
+        "bytes": 110592,
+        "sha256": "dc41c1f2f03cb15087bd11b9a3c58abd07321aba60491b1957166cff418537ed"
+      }
+    ],
+    "schema": 6,
+    "integrity": "ok",
+    "receipt_states": {
+      "expired": 1,
+      "injected": 1,
+      "uncertain": 1
+    },
+    "reopen": "Original user's fixture decrypted both DPAPI files and opened schema 6 before becoming ready. Its automatic resume of the copied unresolved receipt was refused with STATE_CONFLICT."
+  },
+  "v2_wire_golden": {
+    "local_file": "v2-wire-golden.json",
+    "sha256": "48b0f11515d9c4e4621a4c1bf28a79ddcbe90e892fb55f6c79bac0fe53ea23b7",
+    "coverage": "Live WSS server emitted accepted, injected, unknown and queried. Session IDs replaced with a fixed synthetic UUID; only allowlisted status fields retained."
+  },
+  "android_v2_snapshot": {
+    "reported_tests": 1,
+    "passed": 1,
+    "failed": 0,
+    "skipped": 0,
+    "failed_cases": [],
+    "skipped_cases": [],
+    "raw_log": "image-android-fa983b23-f570-487c-bac9-622bfca8374d.log",
+    "raw_log_sha256": "a4e515af408b308772beeefa6f932ac3dc5bc778d294d8f1d64f1589672a8b78",
+    "calls": {
+      "fake_input_calls": 2,
+      "native_input_calls": 0
+    },
+    "recorded_result": {
+      "real_lan": false,
+      "tests": 1,
+      "suite": "seeyuer.sayin.data.TransportInstrumentedTest",
+      "retained_upgrade_fixture": true,
+      "fake_input_calls": 2,
+      "skipped": 0,
+      "passed": 1,
+      "scope": "isolated imageTest UID/identity/data; fake input only"
+    },
+    "exit": 0,
+    "seconds": 36.5997454,
+    "files": [
+      {
+        "file": "speaking-v2-upgrade.bin",
+        "bytes": 178,
+        "sha256": "2b529be0952b903a56473f7e1c02e40aef3fbf5aff98968feb2a5291900f0a96"
+      },
+      {
+        "file": "v2-upgrade-outbox.db",
+        "bytes": 40960,
+        "sha256": "7dc04b98ab03ed5f06ed9a98fa4bad3adcc2337ff33df12e3c10aae6b0a112a1"
+      },
+      {
+        "file": "v2-upgrade-paired_host.xml",
+        "bytes": 1218,
+        "sha256": "54b0be05d505ce6d11f65fd50ffc8d7fa6b36a00203328683b03ecf7a1b2d9ef"
+      }
+    ],
+    "schema": 5,
+    "integrity": "ok",
+    "receipt_states": {
+      "expired": 1,
+      "injected": 1,
+      "uncertain": 1
+    },
+    "keystore": "The v2 instrumentation loaded the paired-host credentials, reopened the encrypted Outbox, and decrypted the test speaking draft. Keystore keys remain on the device.",
+    "matching_windows_snapshot": {
+      "files": [
+        {
+          "file": "host-identity.dpapi",
+          "bytes": 2022,
+          "sha256": "bf668dd60f700ab249f4e8423fe619179a7d51836f8b66889fd0ac719244c52c"
+        },
+        {
+          "file": "receiver-key.dpapi",
+          "bytes": 262,
+          "sha256": "5fb223758722c410c30cac0e60f61e93529cba41401156d6426f1e937f594e1c"
+        },
+        {
+          "file": "receiver.sqlite3",
+          "bytes": 110592,
+          "sha256": "b2b5f49986091ddd47675feb8b4932b089c9f261e26fed07e777f04d8167f3e9"
+        }
+      ],
+      "schema": 6,
+      "integrity": "ok",
+      "receipt_states": {
+        "expired": 1,
+        "injected": 1,
+        "uncertain": 1
+      }
+    }
+  },
+  "v2_foreground_regression": {
+    "before": "Synthetic app icon serialized to an 8193-byte frame; v2 send would reject it with OUTPUT_LIMIT. The historical real diagnostic measured 8885 bytes.",
+    "after": "Preserves the icon at 8192 bytes; above the budget drops the icon, preserving the name and sequence. An overlong name drops display metadata and preserves the sequence.",
+    "tests": {
+      "red": {
+        "failed": 2,
+        "log": "foreground-red.log"
+      },
+      "green": {
+        "passed": 6,
+        "log": "foreground-green.log"
+      },
+      "transport_regression": {
+        "passed": 20,
+        "log": "foreground-regression.log"
+      }
+    }
+  }
+}

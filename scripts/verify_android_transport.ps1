@@ -1,6 +1,8 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
-    [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite)
+    [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
+    [switch]$KeepUpgradeFixture)
 $ErrorActionPreference = 'Stop'
+if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -31,7 +33,7 @@ $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSeria
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 167
+$expectedTextUiTests = 169
 $expectedImageTests = 4
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
@@ -57,9 +59,11 @@ try {
             if ($LASTEXITCODE -ne 0 -or $result -notcontains 'Success') { throw 'Isolated test APK installation failed.' }
         } else { Invoke-Checked { & $adb -s $DeviceSerial install -r -t $apk } }
     }
-    # A previous targeted run may have left pairing/outbox state in the isolated
-    # test package. Clear it so every suite starts from its own identity.
-    Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
+    # The upgrade fixture has a reserved namespace and retains its Keystore key.
+    # Regular suites start with fresh isolated package state.
+    if (!$KeepUpgradeFixture) {
+        Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
+    }
     $api = [int](& $adb -s $DeviceSerial shell getprop ro.build.version.sdk)
     if ($LASTEXITCODE -ne 0 -or $api -lt 29) { throw 'Cannot determine the supported Android API level.' }
     if ($api -ge 37) {
@@ -88,6 +92,7 @@ try {
     # image data suite gets its own fresh desktop identity, not a reset gate.
     if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
+    if ($KeepUpgradeFixture) { $arguments += @('-e', 'keepUpgradeFixture', 'true') }
     $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
     & $adb @arguments > $log 2>&1
     $instrumentExit = $LASTEXITCODE
@@ -98,7 +103,8 @@ try {
     Start-Sleep -Milliseconds 200
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
     if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
-    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    if ($KeepUpgradeFixture -and $skippedTests -ne 0) { throw 'The upgrade fixture was not exercised.' }
+    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall

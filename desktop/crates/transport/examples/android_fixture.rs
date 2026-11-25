@@ -336,13 +336,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )?
     };
     let lifetime = std::env::args()
-        .find_map(|arg| arg.strip_prefix("--lifetime=").and_then(|value| value.parse().ok()))
+        .find_map(|arg| {
+            arg.strip_prefix("--lifetime=")
+                .and_then(|value| value.parse().ok())
+        })
         .unwrap_or(if std::env::args().any(|arg| arg == "--benchmark") {
             600
         } else {
             180
         });
-    service.open_pairing_with_lifetime(Duration::from_secs(lifetime)).await?;
+    service
+        .open_pairing_with_lifetime(Duration::from_secs(lifetime))
+        .await?;
     let snapshot = service.snapshot()?;
     let window = snapshot.window.ok_or("pairing window missing")?;
     std::fs::write(
