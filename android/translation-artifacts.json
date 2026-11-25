@@ -32,6 +32,23 @@
       "modelScope": "/Tencent-Hunyuan/Hy-MT2-1.8B-GGUF/resolve/master/Hy-MT2-1.8B-Q4_K_M.gguf"
     },
     {
+      "id": "hy-mt3-1.8b-q4",
+      "repository": "tencent/Hy-MT3-1.8B-GGUF",
+      "revision": "4c4370b31f13ccac4ac71133e3a0967c88cc792c",
+      "file": "Hy-MT3-1.8B-Q4_K_M.gguf",
+      "bytes": 1348432160,
+      "sha256": "bae6e591103654ff43ef0de7d1492f6e6df1f955505f6bb2cc52e86fc399a942",
+      "architecture": "hunyuan-dense",
+      "quantization": "Q4_K_M",
+      "templateKind": 0,
+      "templateRevision": "hy-official-zh-en-v1",
+      "license": "Apache-2.0",
+      "licenseFile": "LICENSE.txt",
+      "bundled": false,
+      "displayName": "Hy-MT3 1.8B",
+      "modelScope": "/Tencent-Hunyuan/Hy-MT3-1.8B-GGUF/resolve/d90a5d2b61c8598c9cc313464bd74930f526fb2b/Hy-MT3-1.8B-Q4_K_M.gguf"
+    },
+    {
       "id": "plamo-0.8b-q4",
       "repository": "pfnet/plamo-3-translate-0.8b-GGUF",
       "revision": "1cf96ae02133958a20074bfdfab76517bb737d00",

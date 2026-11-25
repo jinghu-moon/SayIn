@@ -21,7 +21,8 @@ class TranslationBenchmark {
     @Test fun compareAndExerciseLifecycle(): Unit = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
-        val id = InstrumentationRegistry.getArguments().getString("modelId") ?: error("Pass -e modelId")
+        val arguments = InstrumentationRegistry.getArguments()
+        val id = arguments.getString("modelId") ?: error("Pass -e modelId")
         val model = TranslationCatalog.read(context).models.single { it.id == id }
         val file = File(context.getExternalFilesDir(null), "models/${model.fileName}")
         val engine = SerialTranslator()
@@ -47,15 +48,28 @@ class TranslationBenchmark {
             rows.put(row); save(); return row
         }
         try {
-            val cases = instrumentation.context.assets.open("translation-cases.json").bufferedReader().use { JSONArray(it.readText()) }
+            val externalCorpus = arguments.getString("externalCorpus") == "true"
+            val cases = if (externalCorpus) {
+                JSONArray(File(context.getExternalFilesDir(null), "translation-cases.json").readText())
+            } else {
+                instrumentation.context.assets.open("translation-cases.json").bufferedReader().use { JSONArray(it.readText()) }
+            }
+            require(cases.length() > 0)
+            val incompleteCases = mutableListOf<String>()
             for (i in 0 until cases.length()) {
                 val sample = cases.getJSONObject(i)
+                val label = sample.getString("id")
                 val input = sample.getString("text")
                 val result = engine.translate(file, model, input)
-                record(sample.getString("id"), input, result)
-                assertEquals(sample.getString("id"), TranslationEnd.Complete, result.end)
-                assertTrue(result.text.isNotBlank())
-                assertFalse(result.text.contains('\uFFFD'))
+                record(label, input, result)
+                if (result.end != TranslationEnd.Complete || result.text.isBlank() || result.text.contains('\uFFFD')) {
+                    incompleteCases += "$label: ${result.end}"
+                }
+            }
+            assertTrue("Incomplete or invalid translations: $incompleteCases", incompleteCases.isEmpty())
+            if (externalCorpus) {
+                report.put("passed", true)
+                return@runBlocking
             }
             // Repeated identical requests must start from an empty KV/context; greedy outputs must agree.
             val input = cases.getJSONObject(0).getString("text")

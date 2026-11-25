@@ -253,3 +253,52 @@ Cargo 命令在 `desktop/` 执行，使用该目录固定的 Rust 1.99.1。Wrapp
 - 构建现在要求本机存在 `assets/translation-model/Hy-MT2-1.8B-Q4_K_M.gguf` 与 `assets/translation-model/plamo-3-translate-0.8b-Q4_K_M.gguf`（被 `.gitignore` 忽略）。这是内嵌交付的必要输入；缺失时构建失败，而不是静默退回下载。
 - 按用户要求，本轮不测试“下载模型”路径。PLaMo 2B 的下载/完整 HTTPS 验收仍未执行；其代码路径未改。
 - Release APK 的内嵌 asset、JNI、R8 构建和包检查已通过；本轮未在 Release 真机上重跑完整页面。
+## 2026-11-25 Hy-MT3 1.8B 接入
+
+模型目录新增腾讯官方 `Hy-MT3-1.8B-Q4_K_M.gguf`，1,348,432,160 字节，Apache-2.0。Hugging Face 修订 `4c4370b31f13ccac4ac71133e3a0967c88cc792c`，制品 SHA-256 为 `bae6e591103654ff43ef0de7d1492f6e6df1f955505f6bb2cc52e86fc399a942`。ModelScope 固定修订与官方 Hugging Face LFS 指针的长度、摘要一致，Hugging Face 镜像也通过范围请求验证。现有 miuix 模型详情页从清单生成三个下载入口和所需文件名。 [腾讯官方 GGUF](https://huggingface.co/tencent/Hy-MT3-1.8B-GGUF) · [ModelScope](https://modelscope.cn/models/Tencent-Hunyuan/Hy-MT3-1.8B-GGUF)
+
+Hy-MT3 GGUF 与 Hy-MT2 使用相同的 `hunyuan-dense` 架构、单轮对话模板及官方中译英语句。复用现有 llama.cpp CPU 引擎、贪心解码以及正文独立分词，用户通过本地模型管理导入并在翻译设置切换。日常 Debug 支持导入 GGUF，隔离 `imageTest` 继续携带用于回归的内嵌制品。SayIn 的翻译方向为中译英。
+
+K40 对测提取 `translate.txt` 的五段「中文原文」，保留全文与换行。两个 Q4_K_M 模型按相同顺序各推理一次，先跑案例 5。各自新建推理进程，4 个 CPU 线程，应用默认 120 秒推理期限。基准测试不清理系统文件缓存。`scripts/verify_android_translation.ps1 -CorpusFile <JSON>` 可复测。JSON 为含 `id` 和 `text` 的对象数组。
+
+- **案例 5，辩论。** Hy-MT2 重现上次三个量化共同出现的误译，将「对方所描绘的『解放』」译为 “the ‘liberation’ depicted by the counter-side”。Hy-MT3 译为 “the ‘liberation’ depicted by the opposing side”，在反方发言的语境中指回正方。Hy-MT3 的末句新增了 “what kind of utopia”，偏离了原文单独追问「是谁的乌托邦」。
+- **案例 4，伦理与技术。** Hy-MT3 将「对技术的规训」译为 “the regulation of technology”，保留了「不可化约的绝对价值」和「自救」。Hy-MT2 Q4 的 “regulation imposed by technology” 颠倒了规训的施受关系。
+- **案例 1–3。** Hy-MT3 保留了新能源研发、技术治理和长文结尾。案例 1 将「各国政府」概括为 “Governments”。案例 2 保留了丢马的字面意象，Hy-MT2 Q4 对成语的解释更自然。
+
+| 案例 | Hy-MT2 首段 / 推理（秒） | Hy-MT3 首段 / 推理（秒） |
+| --- | ---: | ---: |
+| 1 新闻 | 2.85 / 8.29 | 2.88 / 8.05 |
+| 2 俗语 | 3.57 / 9.82 | 3.60 / 9.50 |
+| 3 科技长文 | 17.28 / 65.10 | 17.68 / 65.26 |
+| 4 道德哲学 | 16.41 / 54.94 | 16.10 / 53.39 |
+| 5 辩论 | 10.07 / 34.90 | 10.46 / 36.54 |
+| 五例合计 | 173.05 秒，5/5 完成 | 172.74 秒，5/5 完成 |
+
+两款制品尺寸分别为 1.13 GB 与 1.35 GB。样本结束时的最高 PSS 分别为 1.50 GiB 与 1.70 GiB，进程峰值 RSS 分别为 1.69 GiB 与 1.91 GiB。首轮校验和加载分别为 1.44 / 0.24 秒与 1.75 / 0.26 秒。这组单次顺序测试保留相同参数，供比较该语料的量级。
+
+修改前通过 Hy-MT2 Q4 和 PLaMo 0.8B 的 K40 原生翻译与生命周期测试。修改后通过 JVM、lint、i18n、Debug 构建和隔离 APK 打包校验。隔离产品包通过 12 项真机测试，其中 Hy-MT3 通过模型管理的校验导入路径，与已加载的 X-ASR 同进程完成一次翻译，保留 `SayIn` 和表情符号。日常 Debug 通过 `adb install --no-streaming -r` 覆盖安装并冷启动。流式安装首次返回 manifest 解析错误。
+
+在 K40 日常包通过系统文件夹选择器导入 `/storage/emulated/0/0-Store/model/translate/Hy-MT3-1.8B-Q4_K_M`。手机模型管理页已显示 Hy-MT3「使用中」，应用按既有规则启用了首次成功导入的翻译模型。
+
+### Hy-MT3 1.8B Q4_K_M 与 Q8_0 真机对测
+
+两档使用同一腾讯发布修订、聊天模板和中译英指令。Q8_0 权重为 1,908,528,448 字节，SHA-256 为 `03e246991a57d31fe01ac203331e032eabd327ffd0098e570411b811f6119af8`，与官方 Hugging Face LFS 指针一致。Q8_0 本轮用于隔离基准测试。K40 采用 4 个 CPU 线程、贪心解码，按 5、1、2、3、4 的顺序各跑一遍 `translate.txt` 的五篇完整原文，顺序为 Q4_K_M 后 Q8_0。每档使用新进程，系统页缓存未清理。两组仪器化测试均通过，Q4 的五份译文与上次实测完全一致。[官方制品](https://huggingface.co/tencent/Hy-MT3-1.8B-GGUF/tree/4c4370b31f13ccac4ac71133e3a0967c88cc792c)
+
+| 案例 | Q4_K_M 首段 / 推理（秒） | Q8_0 首段 / 推理（秒） | 译文差异 |
+| --- | ---: | ---: | --- |
+| 1 新闻 | 2.89 / 8.16 | 2.48 / 7.67 | 两档均保留研发、碳排放和可再生能源，将「各国政府」概括为 “Governments”。 |
+| 2 俗语 | 3.60 / 9.23 | 3.09 / 9.24 | Q8 将管理层的「运筹帷幄」表达为 “strategic planning and leadership”。两档均保留了丢马的字面意象。 |
+| 3 科技长文 | 17.52 / 63.20 | 15.69 / 65.43 | 两档均译完四段。Q8 的 “incidence of workplace injuries” 更贴近「工伤事故率」。 |
+| 4 道德哲学 | 15.84 / 53.96 | 17.30 / 57.21 | 两档均保留「对技术的规训」「不可化约」和「自救」。Q8 的 “a magnificent cage that confines itself” 误成牢笼囚禁自己，Q4 保留了人类囚禁自身的意思。 |
+| 5 辩论 | 10.43 / 34.97 | 8.66 / 34.18 | 两档均正确将「对方所描绘的『解放』」指向正方。Q8 只问「是谁的乌托邦」，避免了 Q4 新增的「什么样的乌托邦」。 |
+
+| 指标 | Q4_K_M | Q8_0 |
+| --- | ---: | ---: |
+| 文件大小 | 1.35 GB | 1.91 GB |
+| 完成篇数 | 5/5 | 5/5 |
+| 五篇合计推理 | 169.52 秒 | 173.73 秒 |
+| 第一次制品校验 / 加载 | 1.49 / 0.27 秒 | 2.79 / 0.31 秒 |
+| 样本结束时最高 PSS | 1.59 GiB | 2.10 GiB |
+| 进程峰值 RSS | 1.67 GiB | 2.42 GiB |
+
+Q8 在辩论结尾更忠实，在哲学长文中出现了新的指代错误。两档在这批语料上各有长处。手机端推荐 Q4_K_M，五篇合计推理时间接近，权重少约 560 MB，进程峰值 RSS 少约 0.75 GiB。原始输出见 `desktop/target/hy-mt3-quantization/results/dc39c31d-debug/`。

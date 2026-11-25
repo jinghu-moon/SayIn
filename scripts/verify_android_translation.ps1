@@ -2,6 +2,7 @@ param(
     [Parameter(Mandatory)][string]$DeviceSerial,
     [Parameter(Mandatory)][string]$ModelsDirectory,
     [string[]]$ModelIds = @('hy-mt2-1.8b-q4', 'plamo-0.8b-q4', 'plamo-2b-q4'),
+    [string]$CorpusFile,
     [ValidateSet('debug', 'release')][string]$BuildType = 'release',
     [switch]$SkipBuild,
     [switch]$CancellationOnly,
@@ -48,6 +49,13 @@ try {
     }
     $remoteModels = '/sdcard/Android/data/seeyuer.sayin.translationbench/files/models'
     Invoke-Checked { & $adbPath -s $DeviceSerial shell mkdir -p $remoteModels }
+    $corpusArguments = @()
+    if ($CorpusFile) {
+        if ($CancellationOnly) { throw 'A custom corpus requires the full translation benchmark.' }
+        $corpusPath = (Resolve-Path -LiteralPath $CorpusFile).Path
+        Invoke-Checked { & $adbPath -s $DeviceSerial push $corpusPath '/sdcard/Android/data/seeyuer.sayin.translationbench/files/translation-cases.json' }
+        $corpusArguments = @('-e', 'externalCorpus', 'true')
+    }
     foreach ($id in $ModelIds) {
         $model = @($catalog.models | Where-Object id -EQ $id)
         if ($model.Count -ne 1) { throw "Unknown model ID: $id" }
@@ -60,7 +68,7 @@ try {
         if (!$UseExistingModels) { Invoke-Checked { & $adbPath -s $DeviceSerial push $localModel "$remoteModels/$($model.file)" } }
         $testClass = if ($CancellationOnly) { 'TranslationCancellationBenchmark' } else { 'TranslationBenchmark' }
         $prefix = if ($CancellationOnly) { 'cancellation' } else { 'translation' }
-        $output = & $adbPath -s $DeviceSerial shell am instrument -w -r -e modelId $id -e class "seeyuer.sayin.translationbench.$testClass" seeyuer.sayin.translationbench.test/androidx.test.runner.AndroidJUnitRunner
+        $output = & $adbPath -s $DeviceSerial shell am instrument -w -r -e modelId $id -e class "seeyuer.sayin.translationbench.$testClass" @corpusArguments seeyuer.sayin.translationbench.test/androidx.test.runner.AndroidJUnitRunner
         $output | Set-Content -LiteralPath (Join-Path $reportDir "$prefix-$id-instrumentation.txt") -Encoding utf8
         # Read app-private output through this isolated test package; never use product run-as or data paths.
         if ($CancellationOnly) {

@@ -1,5 +1,6 @@
 package seeyuer.sayin.ui
 
+import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import kotlinx.coroutines.runBlocking
@@ -12,6 +13,8 @@ import seeyuer.sayin.asr.XAsrDecoder
 import seeyuer.sayin.asr.LocalVoiceArtifact
 import seeyuer.sayin.asr.OfflineSpeechDecoder
 import seeyuer.sayin.models.LocalModelCatalog
+import seeyuer.sayin.models.LocalModelStorage
+import seeyuer.sayin.models.ModelCandidate
 import seeyuer.sayin.translation.*
 
 /** Explicit opt-in and isolated verification package only. No microphone or LAN use. */
@@ -44,6 +47,8 @@ class TranslationNativeInstrumentedTest {
         check(context.packageName == "seeyuer.sayin.imagetest")
         val imported = InstrumentationRegistry.getArguments().getString("importTranslation") == "true"
         val catalog = TranslationCatalog.read(context)
+        val localCatalog = LocalModelCatalog(context, catalog)
+        val storage = LocalModelStorage(context, localCatalog)
         val models = if (imported) catalog.models.filter {
             File(context.getExternalFilesDir(null), "models/${it.fileName}").isFile
         } else catalog.models.filter { it.bundled }
@@ -54,12 +59,17 @@ class TranslationNativeInstrumentedTest {
         try {
             asr.warmUp() // Generated silence; no microphone, cloud, recording service or LAN.
             for (model in models) {
-                val store = TranslationModelStore(context, model)
+                val entry = localCatalog.translation.single { it.id == model.id }
+                val store = TranslationModelStore(context, model, importedFile = storage.directory(entry).resolve(model.fileName))
                 val source = File(context.getExternalFilesDir(null), "models/${model.fileName}")
                 val bundled = store.bundled
                 if (!imported) assertTrue("Bundled translation asset missing: ${model.id}", bundled)
                 val preparationStart = android.os.SystemClock.elapsedRealtime()
-                if (imported) store.import(source.inputStream()) {}
+                if (imported) {
+                    storage.delete(entry)
+                    storage.install(ModelCandidate(entry, mapOf(model.fileName to Uri.fromFile(source))), {}) {}
+                    assertTrue("Imported model missing from local model manager: ${model.id}", entry.id in storage.installed())
+                }
                 val preparationMillis = android.os.SystemClock.elapsedRealtime() - preparationStart
                 val sourceText = if (model.id.startsWith("hy-")) "SayIn 不会自动发送译文。😊" else "会议改到2026年11月14日下午3:05。"
                 val result = if (!imported) translator.translate(store.openBundled()!!, model, sourceText)
@@ -67,7 +77,7 @@ class TranslationNativeInstrumentedTest {
                 assertEquals("${model.id} did not complete", TranslationEnd.Complete, result.end)
                 assertTrue("${model.id} returned empty text", result.text.isNotBlank())
                 assertFalse("${model.id} returned invalid UTF-8", result.text.contains('\uFFFD'))
-                if (model.id == "hy-mt2-1.8b-q4") {
+                if (model.id in setOf("hy-mt2-1.8b-q4", "hy-mt3-1.8b-q4")) {
                     assertTrue("${model.id} lost the product name", result.text.contains("SayIn"))
                     assertTrue("${model.id} lost the emoji", result.text.contains("😊"))
                 }
