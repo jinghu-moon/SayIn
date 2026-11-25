@@ -42,7 +42,7 @@ class ForegroundLiveInstrumentedTest {
         override val state = MutableStateFlow(RecognitionState())
         override val model = MutableStateFlow(LocalModelPhase.Ready)
         override fun prepareLocal() {}
-        override fun start(cloud: CloudConfiguration?) {}
+        override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) {}
         override fun finish() {}
         override fun cancel() {}
         override fun clearResult() {}

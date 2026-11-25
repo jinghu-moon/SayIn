@@ -822,6 +822,7 @@
     <string name="settings_send_policy_clear">清除全部规则</string>
 
     <string name="speak_listening_short">正在听</string>
+    <string name="speak_continuous_listening_short">手动结束</string>
     <string name="speak_send_after_delay">%1$d 秒后发送</string>
     <string name="speak_confirm_ime">请先确认输入法候选词</string>
     <string name="speak_auto_target_unavailable">请将目标应用切到前台，再点发送</string>
@@ -1113,7 +1114,7 @@
     <string name="local_model_integrity_error">文件校验失败。请核对版本并重新下载。</string>
     <string name="local_model_copy_error">导入失败，请重选文件夹后重试。</string>
     <string name="local_model_asr_missing">导入模型后即可使用离线识别。</string>
-    <string name="local_model_recording_limit">此模型单次录音最多支持 2 分钟。</string>
+    <string name="local_model_recording_limit">录音已达 2 分钟上限。</string>
     <string name="local_model_xasr">中英流式识别，边说边出字，支持标点。</string>
     <string name="local_model_qwen">支持多语言和中文方言，停录后出字。</string>
     <string name="local_model_fun">支持中英日，停录后出字。</string>
@@ -1192,10 +1193,16 @@
     <string name="hidden_apps_sort_recent">最近使用</string>
     <string name="hidden_apps_sort_installed">安装时间</string>
     <string name="hidden_apps_sort_selected">选择状态</string>
-    <string name="asr_speech_ending">快结束了…</string>
+    <string name="asr_auto_finish_unavailable">点停止结束录音</string>
     <string name="speak_auto_stopped_resume">已自动结束 · 点录音继续</string>
     <string name="settings_continuous_dictation">连续听写</string>
+    <string name="settings_local_silence_end">静音后结束</string>
+    <string name="settings_local_silence_end_summary">关闭连续听写时，点按录音适用。</string>
+    <string name="settings_local_silence_2s">2 秒</string>
+    <string name="settings_local_silence_25s">2.5 秒</string>
+    <string name="settings_local_silence_3s">3 秒</string>
     <string name="settings_continuous_dictation_summary">保持录音直到手动停止，说话过程中可更新文字。</string>
+    <string name="settings_local_continuous_dictation_summary">静音时继续录音。</string>
     <string name="hidden_apps_sort_ascending">升序</string>
     <string name="hidden_apps_sort_descending">降序</string>
     <string name="local_model_import_mode_copy">复制到应用私有目录</string>
@@ -1209,11 +1216,11 @@
     <string name="local_model_verifying_reference">正在校验原路径文件</string>
     <string name="local_model_reference_verify">不复制文件，正在校验原路径</string>
     <string name="local_model_reference_installed">引用原路径</string>
-    <string name="local_model_referenced_summary">%1$d 个模型固定引用原路径，不占用应用私有空间</string>
     <plurals name="local_model_reference_count">
         <item quantity="one">引用 %1$d 个模型 · %2$s</item>
         <item quantity="other">引用 %1$d 个模型 · %2$s</item>
     </plurals>
+    <string name="local_model_referenced_summary">%1$d 个模型固定引用原路径，不占用应用私有空间</string>
 </resources>
 
 

@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-ASSET_ROOT = ROOT / "android" / "app" / "src" / "main" / "assets"
+SOURCE_ROOT = ROOT / "android" / "app" / "src"
 MANIFEST = ROOT / "android" / "vad-artifacts.json"
 
 
@@ -22,7 +22,7 @@ def main() -> int:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     errors: list[str] = []
     for model in manifest.get("models", []):
-        path = ASSET_ROOT / model["file"]
+        path = SOURCE_ROOT / model.get("sourceSet", "main") / "assets" / model["file"]
         if not path.is_file():
             errors.append(f"missing VAD model: {path}")
             continue
@@ -30,7 +30,7 @@ def main() -> int:
             errors.append(f"VAD model size mismatch: {path}")
         if sha256(path) != model["sha256"]:
             errors.append(f"VAD model SHA-256 mismatch: {path}")
-        license_path = ASSET_ROOT / model["licenseFile"]
+        license_path = SOURCE_ROOT / "main" / "assets" / model["licenseFile"]
         if not license_path.is_file():
             errors.append(f"missing VAD license: {license_path}")
     if errors:

@@ -8,14 +8,6 @@ import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
 import java.io.Closeable
 import java.io.File
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.coroutines.coroutineContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.launch
 
 internal data class LocalVoiceArtifact(val id: String, val directory: File)
 
@@ -30,14 +22,15 @@ internal interface LocalSpeechDecoder : Closeable {
     suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String
 }
 
-/** These sherpa model exports decode after the recording finishes. */
+/** Sherpa models that decode complete audio segments. */
 internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechDecoder {
     private val qwen = artifact.id == "qwen-06" || artifact.id == "qwen-17"
     // 4 threads measured faster than 2 on K40 for the two heavy offline models.
     // Qwen 0.6B keeps 2 to avoid unnecessary contention.
     private val decodeThreads = if (artifact.id == "qwen-17" || artifact.id == "fun-int8") 4 else 2
     private val preview = OfflinePreviewPolicies.forModel(artifact.id)
-    private var previewEnabled = preview != null
+    // Short isolated clauses caused Qwen 0.6B to translate words in mixed-language speech.
+    private val minSegmentSamples = if (artifact.id == "qwen-06") 8 * SAMPLE_RATE else 0
     private val recognizer = OfflineRecognizer(
         assetManager = null,
         config = OfflineRecognizerConfig(
@@ -86,89 +79,14 @@ internal class OfflineSpeechDecoder(artifact: LocalVoiceArtifact) : LocalSpeechD
         }
     }
 
-    override suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String = coroutineScope {
-        val chunks = mutableListOf<FloatArray>()
-        val samples = AtomicInteger(0)
-        val lock = Any()
-        val capture = async(Dispatchers.IO) {
-            source.use {
-                while (true) {
-                    coroutineContext.ensureActive()
-                    val chunk = source.read() ?: break
-                    if (samples.addAndGet(chunk.size) > RECORDING_LIMIT) throw OfflineRecordingLimitException()
-                    synchronized(lock) { chunks += chunk }
-                }
-            }
-        }
-        val transcript = StreamingTranscript()
-        var previewBudgetMisses = 0
-        if (previewEnabled) {
-            val policy = checkNotNull(preview)
-            while (capture.isActive) {
-                delay(policy.intervalMs)
-                if (!capture.isActive) break
-                val total = samples.get()
-                if (total < policy.minSamples) continue
-                val snapshot = synchronized(lock) {
-                    val start = (total - policy.maxSamples).coerceAtLeast(0)
-                    val audio = FloatArray(total - start)
-                    var offset = 0
-                    var cursor = 0
-                    for (chunk in chunks) {
-                        val end = cursor + chunk.size
-                        if (end > start) {
-                            val from = (start - cursor).coerceAtLeast(0)
-                            chunk.copyInto(audio, offset, from, chunk.size)
-                            offset += chunk.size - from
-                        }
-                        cursor = end
-                    }
-                    audio
-                }
-                coroutineContext.ensureActive()
-                val started = System.nanoTime()
-                val preview = decode(snapshot)
-                val elapsedMs = (System.nanoTime() - started) / 1_000_000
-                if (elapsedMs.toDouble() > snapshot.size.toDouble() / SAMPLE_RATE * 1_000 * policy.rtfBudget) {
-                    previewBudgetMisses++
-                    if (previewBudgetMisses >= policy.maxBudgetMisses) previewEnabled = false
-                } else {
-                    previewBudgetMisses = 0
-                }
-                if (preview.isNotBlank()) onTranscript(transcript.update(preview, endpoint = false))
-            }
-        }
-        capture.await()
-        val total = samples.get()
-        if (total == 0) return@coroutineScope ""
-        val audio = synchronized(lock) {
-            FloatArray(total).also { target ->
-                var offset = 0
-                for (chunk in chunks) {
-                    chunk.copyInto(target, offset)
-                    offset += chunk.size
-                }
-            }
-        }
-        var text = ""
-        for (start in audio.indices step DECODE_WINDOW) {
-            coroutineContext.ensureActive()
-            val end = minOf(start + DECODE_WINDOW, audio.size)
-            val segment = decode(audio.copyOfRange(start, end))
-            text = transcript.update(segment, endpoint = true)
-        }
-        coroutineContext.ensureActive()
-        onTranscript(text)
-        text
-    }
+    override suspend fun recognize(source: PcmSource, onTranscript: (String) -> Unit): String =
+        recognizeOfflineSegments(source, preview, ::decode, onTranscript, minSegmentSamples)
 
     override fun close() = recognizer.release()
 
     private companion object {
         val QWEN_LANGUAGE_HEADER = Regex("^\\s*language [A-Za-z][A-Za-z -]*<asr_text>")
         const val SAMPLE_RATE = 16000
-        const val DECODE_WINDOW = 20 * SAMPLE_RATE
-        const val RECORDING_LIMIT = 120 * SAMPLE_RATE
     }
 }
 

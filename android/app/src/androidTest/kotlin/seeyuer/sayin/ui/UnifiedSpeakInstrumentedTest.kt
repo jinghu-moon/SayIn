@@ -112,19 +112,19 @@ class UnifiedSpeakInstrumentedTest {
         compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "partial", speechPause = true) }
         compose.runOnIdle {
             assertEquals(RecognitionPhase.Listening, session.asr.phase)
-            engine.emit(RecognitionPhase.Idle, "final text", finished = true)
-            assertEquals("final text", session.draft.text)
             assertTrue(session.continuousDictation)
         }
+        finish("final text")
+        compose.onNodeWithTag("draft").assertTextEquals("final text")
     }
 
-    @Test fun tapRecordingFinishesOnSilenceButHoldWaitsForRelease() {
+    @Test fun tapRecordingFinishesWithoutPartialButHoldWaitsForRelease() {
         mount()
         compose.runOnIdle {
             session.setAppSendPolicy("Test editor", AppSendPolicy.Automatic)
             session.start(null)
         }
-        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "partial", speechPause = true) }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Listening, "", speechPause = true) }
         compose.runOnIdle {
             assertEquals(RecognitionPhase.Finishing, session.asr.phase)
             assertNull(session.interaction.countdown)
@@ -143,6 +143,54 @@ class UnifiedSpeakInstrumentedTest {
         finish("released")
         compose.onNodeWithTag("cancel-auto-send").assertIsDisplayed()
         assertEquals(0, sends)
+    }
+
+    @Test fun interruptedCaptureKeepsLateTextWithoutAutomaticSend() {
+        mount()
+        compose.runOnIdle { session.changeSendMode(SpeakSendMode.Automatic) }
+        for (end in listOf(RecordingEnd.NoSpeech, RecordingEnd.Limit, RecordingEnd.CaptureStalled)) {
+            listen("")
+            compose.runOnIdle { engine.emit(RecognitionPhase.Finishing, "", end = end) }
+            compose.runOnIdle {
+                engine.emit(RecognitionPhase.Idle, "late result", finished = end != RecordingEnd.CaptureStalled)
+            }
+            compose.runOnIdle {
+                assertTrue(session.draft.text.endsWith("late result"))
+                assertNull(session.interaction.countdown)
+                assertEquals(0, sends)
+            }
+        }
+    }
+
+    @Test fun tappingDuringFinalizingQueuesOneResumeAndCancelsAutomaticSend() {
+        mount()
+        compose.runOnIdle { session.changeSendMode(SpeakSendMode.Automatic) }
+        listen("first")
+        compose.runOnIdle { engine.emit(RecognitionPhase.Finishing, "first", end = RecordingEnd.Silence) }
+        repeat(2) { compose.onNodeWithTag("start-local-asr").assertIsEnabled().performClick() }
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "first final", finished = true) }
+        compose.waitUntil(5000) { engine.starts == 2 }
+        compose.runOnIdle {
+            assertEquals("first final", session.draft.text)
+            assertNull(session.interaction.countdown)
+            assertEquals(0, sends)
+            engine.emit(RecognitionPhase.Listening, " second")
+        }
+        finish(" second")
+        compose.runOnIdle { assertEquals("first final second", session.draft.text) }
+    }
+
+    @Test fun changingEntryRevokesPendingResume() {
+        mount()
+        listen("first")
+        compose.runOnIdle { engine.emit(RecognitionPhase.Finishing, "first", end = RecordingEnd.Silence) }
+        compose.onNodeWithTag("start-local-asr").performClick()
+        compose.onNodeWithTag("nav-History").performClick()
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "first final", finished = true) }
+        compose.runOnIdle {
+            assertEquals(1, engine.starts)
+            assertEquals("first final", session.draft.text)
+        }
     }
 
     @Test fun keyboardWaitsForImeCommitAndForegroundChangeCancels() {
@@ -179,12 +227,28 @@ class UnifiedSpeakInstrumentedTest {
 
     @Test fun cancelledPreparationCannotStartOnReturn() {
         mount(TextFieldValue("existing draft"))
-        compose.runOnIdle { engine.model.value = LocalModelPhase.Unloaded }; compose.waitForIdle()
-        compose.runOnIdle { session.start(null); assertTrue(session.preparingToRecord) }
+        val serviceRequests = mutableListOf<Long>()
+        compose.runOnIdle {
+            engine.model.value = LocalModelPhase.Loading
+            session.requestMicrophoneService = { serviceRequests += it }
+            session.start(null)
+            assertTrue(session.preparingToRecord)
+            assertEquals(1, serviceRequests.size)
+        }
         compose.onNodeWithTag("nav-History").performClick()
         compose.runOnIdle { engine.model.value = LocalModelPhase.Ready }; compose.waitForIdle()
         compose.onNodeWithTag("nav-Speak").performClick()
-        compose.runOnIdle { assertEquals(0, engine.starts); assertEquals("existing draft", session.draft.text); assertEquals(0, sends) }
+        compose.runOnIdle {
+            assertFalse(session.startPreparedRecording(serviceRequests.single()))
+            assertEquals(0, engine.starts)
+            assertEquals("existing draft", session.draft.text)
+            assertEquals(0, sends)
+            session.start(null)
+            assertFalse(session.startPreparedRecording(serviceRequests.first()))
+            assertTrue(session.startPreparedRecording(serviceRequests.last()))
+            assertEquals(1, engine.starts)
+            session.cancelRecording()
+        }
     }
 
     @Test fun uncertainNeverRetriesAndNewDraftRequiresDesktopReview() {
@@ -276,6 +340,12 @@ class UnifiedSpeakInstrumentedTest {
         // A repeated provider final cannot consume the intent twice.
         compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "duplicate final", finished = true) }
         compose.runOnIdle { assertEquals(1, sends) }
+        // A simultaneous VAD stop already owns the capture. It cannot inherit a later end-and-send action.
+        listen("second")
+        compose.runOnIdle { engine.finishReason = RecordingEnd.Silence }
+        compose.onNodeWithTag("send-draft").performClick()
+        compose.runOnIdle { engine.emit(RecognitionPhase.Idle, "second final", finished = true) }
+        compose.runOnIdle { assertEquals(1, sends); assertTrue(session.draft.text.endsWith("second final")) }
     }
 
     @Test fun endSendIsRevokedByScopeChangeAndByOpeningConnection() {
@@ -345,11 +415,29 @@ private class FakeRecognition : RecognitionEngine {
     override val model = MutableStateFlow(LocalModelPhase.Ready)
     var starts = 0
     override fun prepareLocal() { if (model.value != LocalModelPhase.Ready) model.value = LocalModelPhase.Loading }
-    override fun start(cloud: CloudConfiguration?) { starts++; state.value = RecognitionState(starts.toLong(), RecognitionPhase.Loading) }
-    fun emit(phase: RecognitionPhase, text: String, finished: Boolean = false, speechPause: Boolean = false) {
-        state.value = RecognitionState(starts.toLong(), phase, text, finished = finished, speechPause = speechPause)
+    private var automaticEndpoint = false
+    var finishReason = RecordingEnd.Manual
+    override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) {
+        automaticEndpoint = autoFinish
+        starts++
+        state.value = RecognitionState(starts.toLong(), RecognitionPhase.Loading)
     }
-    override fun finish() { state.value = state.value.copy(phase = RecognitionPhase.Finishing) }
+    fun emit(
+        phase: RecognitionPhase,
+        text: String,
+        finished: Boolean = false,
+        speechPause: Boolean = false,
+        end: RecordingEnd? = state.value.end,
+    ) {
+        val stopped = speechPause && automaticEndpoint && phase == RecognitionPhase.Listening
+        state.value = RecognitionState(
+            starts.toLong(), if (stopped) RecognitionPhase.Finishing else phase, text,
+            finished = finished, end = if (stopped) RecordingEnd.Silence else end,
+        )
+    }
+    override fun finish() {
+        state.value = state.value.copy(phase = RecognitionPhase.Finishing, end = finishReason)
+    }
     override fun cancel() { state.value = state.value.copy(phase = RecognitionPhase.Idle, finished = false) }
     override fun clearResult() { state.value = RecognitionState() }
     override fun close() = Unit

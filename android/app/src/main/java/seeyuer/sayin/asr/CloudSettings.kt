@@ -115,7 +115,7 @@ internal class CloudSettings(application: Application) : AndroidViewModel(applic
 /** Exactly the source used by the service-check action; never accesses the microphone. */
 internal fun cloudProbeSource(): PcmSource = object : PcmSource {
     private var remaining = 10
-    override fun read(): FloatArray? {
+    override suspend fun read(): FloatArray? {
         if (remaining-- <= 0) return null
         Thread.sleep(100)
         return FloatArray(1600)

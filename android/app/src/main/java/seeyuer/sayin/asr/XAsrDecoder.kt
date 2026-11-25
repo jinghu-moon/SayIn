@@ -62,8 +62,8 @@ internal class XAsrDecoder(assets: AssetManager?, directory: String = MODEL) : S
         stream = fresh
     }
     override fun finishInput() {
-        // Supply right context before closing the stream, including a short last word.
-        accept(FloatArray(16000 * 8 / 10))
+        // Flush right context for short or quiet endings without extending physical capture.
+        accept(FloatArray(19_200))
         stream.inputFinished()
     }
     override fun close() {

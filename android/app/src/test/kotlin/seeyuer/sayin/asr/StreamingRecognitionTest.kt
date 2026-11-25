@@ -4,19 +4,67 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
 class StreamingRecognitionTest {
+    @Test fun xAsrReleasesQuietBeforeResumptionAndDropsUnsentQuietAtEof() = runBlocking {
+        var blocksRead = 0
+        val source = object : PcmSource {
+            override val retainedSampleEnd get() = if (blocksRead < 3) 2 else 5
+            override suspend fun read(): FloatArray? = when (++blocksRead) {
+                1 -> floatArrayOf(1f, 2f)
+                2 -> floatArrayOf(3f, 4f)
+                3 -> floatArrayOf(5f)
+                4 -> floatArrayOf(6f)
+                else -> null
+            }
+            override fun requestStop() = Unit
+            override fun close() = Unit
+        }
+        val heard = mutableListOf<Float>()
+        val decoder = object : StreamingDecoder by FakeDecoder() {
+            override fun accept(samples: FloatArray) { heard += samples.toList() }
+        }
+        val visible = mutableListOf<String>()
+        recognizeStreaming(decoder, source, onTranscript = visible::add)
+        assertEquals(listOf(1f, 2f, 3f, 4f, 5f), heard)
+        assertEquals(listOf("尾", "尾字。"), visible)
+    }
+
+    @Test fun r2t2DoesNotDecodeAQuietTailAfterAVadSegment() = runBlocking {
+        var reads = 0
+        val source = object : PcmSource {
+            override val segmentBoundary get() = reads == 1
+            override val retainedSampleEnd get() = 46_000
+            override suspend fun read(): FloatArray? = when (++reads) {
+                1 -> FloatArray(48_000) { 1f }
+                2 -> FloatArray(3_000) { 0.002f }
+                else -> null
+            }
+            override fun requestStop() = Unit
+            override fun close() = Unit
+        }
+        val decoded = mutableListOf<Int>()
+        val result = recognizeR2t2(source, decode = { attempt, _ ->
+            assertTrue(attempt.final)
+            decoded += attempt.samples.size
+            "language Chinese<asr_text>好".encodeToByteArray()
+        }, prioritizeFinal = {}, onTranscript = {})
+        assertEquals("好", result)
+        assertEquals(listOf(46_000), decoded)
+    }
+
     @Test fun r2t2FinishesAtExactDecodeBoundaryWithoutReplacingConfirmedText() = runBlocking {
         val end = CountDownLatch(1)
         val updates = mutableListOf<String>()
         val prefixes = mutableListOf<Pair<String, Boolean>>()
         val microphone = object : PcmSource {
             private var delivered = false
-            override fun read(): FloatArray? {
+            override suspend fun read(): FloatArray? {
                 if (delivered) {
                     check(end.await(5, TimeUnit.SECONDS))
                     return null
@@ -29,10 +77,10 @@ class StreamingRecognitionTest {
         }
         val result = recognizeR2t2(
             microphone,
-            decode = { pcm, prefix, final, preview ->
-                assertEquals(32_000, pcm.size)
-                prefixes += prefix to final
-                if (final) " world.".encodeToByteArray()
+            decode = { attempt, preview ->
+                assertEquals(32_000, attempt.samples.size)
+                prefixes += attempt.prefix to attempt.final
+                if (attempt.final) " world.".encodeToByteArray()
                 else {
                     val bytes = "language English<asr_text>Hello\uFFFD".encodeToByteArray()
                     preview.publish(bytes)
@@ -40,7 +88,7 @@ class StreamingRecognitionTest {
                     bytes
                 }
             },
-            finishInput = {},
+            prioritizeFinal = {},
         ) {
             updates += it
             end.countDown()
@@ -55,7 +103,7 @@ class StreamingRecognitionTest {
         val finished = CountDownLatch(1)
         val microphone = object : PcmSource {
             private var reads = 0
-            override fun read(): FloatArray? = when (reads++) {
+            override suspend fun read(): FloatArray? = when (reads++) {
                 0 -> FloatArray(32_000) { 1f }
                 1 -> {
                     check(started.await(5, TimeUnit.SECONDS))
@@ -67,23 +115,160 @@ class StreamingRecognitionTest {
             override fun close() = Unit
         }
         val updates = mutableListOf<String>()
-        val result = recognizeR2t2(microphone, decode = { pcm, prefix, final, preview ->
-            if (final) {
-                assertEquals("language Chinese<asr_text>你好", prefix)
-                assertEquals(33_600, pcm.size)
-                assertEquals(1f, pcm[31_999], 0f)
-                assertEquals(2f, pcm[32_000], 0f)
+        val result = recognizeR2t2(microphone, decode = { attempt, preview ->
+            if (attempt.final) {
+                assertEquals("language Chinese<asr_text>你好", attempt.prefix)
+                assertEquals(33_600, attempt.samples.size)
+                assertEquals(1f, attempt.samples[31_999], 0f)
+                assertEquals(2f, attempt.samples[32_000], 0f)
                 "。".encodeToByteArray()
             } else {
-                assertEquals("", prefix)
+                assertEquals("", attempt.prefix)
                 preview.publish("language Chinese<asr_text>你好".encodeToByteArray())
                 started.countDown()
                 check(finished.await(5, TimeUnit.SECONDS))
                 null
             }
-        }, finishInput = { finished.countDown() }, onTranscript = { updates += it })
+        }, prioritizeFinal = { finished.countDown() }, onTranscript = { updates += it })
         assertEquals("你好。", result)
         assertEquals(listOf("你好", result), updates)
+    }
+
+    @Test fun r2t2CommitsAVadBoundaryBeforeEofAndDecodesOnlyTheTailAfterIt() = runBlocking {
+        val committed = CountDownLatch(1)
+        val microphone = object : PcmSource {
+            private var reads = 0
+            override val segmentBoundary get() = reads == 1
+
+            override suspend fun read(): FloatArray? = when (++reads) {
+                1 -> FloatArray(48_000) { 1f }
+                2 -> {
+                    assertTrue(committed.await(5, TimeUnit.SECONDS))
+                    FloatArray(3_000) { 2f }
+                }
+                else -> null
+            }
+
+            override fun requestStop() { committed.countDown() }
+            override fun close() = Unit
+        }
+        val sizes = mutableListOf<Int>()
+        val final = recognizeR2t2(microphone, decode = { attempt, _ ->
+            assertTrue(attempt.final)
+            assertEquals("", attempt.prefix)
+            sizes += attempt.samples.size
+            val text = if (attempt.samples[0] == 1f) "hello" else "world"
+            "language English<asr_text>$text".encodeToByteArray()
+        }, prioritizeFinal = {}) { text ->
+            if (text == "hello") committed.countDown()
+        }
+        assertEquals(listOf(48_000, 3_000), sizes)
+        assertEquals("hello world", final)
+    }
+
+    @Test fun r2t2RequiredSegmentInterruptsPreviewAndReceivesFullBudget() = runBlocking {
+        for (vad in listOf(true, false)) {
+            val previewStarted = CountDownLatch(1)
+            val finalReady = CountDownLatch(1)
+            val committed = CountDownLatch(1)
+            val segmentSize = if (vad) 48_000 else 256_000
+            val microphone = object : PcmSource {
+                private var reads = 0
+                override val segmentBoundary get() = vad && reads == 2
+                override suspend fun read(): FloatArray? = when (++reads) {
+                    1 -> FloatArray(19_200) { 1f }
+                    2 -> {
+                        check(previewStarted.await(5, TimeUnit.SECONDS))
+                        FloatArray(segmentSize - 19_200) { 2f }
+                    }
+                    3 -> {
+                        check(committed.await(5, TimeUnit.SECONDS))
+                        FloatArray(1_600) { 3f }
+                    }
+                    else -> null
+                }
+                override fun requestStop() { committed.countDown() }
+                override fun close() = Unit
+            }
+            val attempts = mutableListOf<Triple<Boolean, Int, Int>>()
+            val final = recognizeR2t2(microphone, decode = { attempt, preview ->
+                attempts += Triple(attempt.final, attempt.samples.size, attempt.tokenBudget)
+                when {
+                    !attempt.final -> {
+                        assertEquals(0, attempt.revision)
+                        preview.publish("language English<asr_text>Hello".encodeToByteArray())
+                        previewStarted.countDown()
+                        check(finalReady.await(5, TimeUnit.SECONDS))
+                        null
+                    }
+                    attempt.samples.size == segmentSize -> {
+                        assertEquals(1, attempt.revision)
+                        assertEquals("language English<asr_text>Hello", attempt.prefix)
+                        assertEquals(1f, attempt.samples.first(), 0f)
+                        assertEquals(2f, attempt.samples.last(), 0f)
+                        ".".encodeToByteArray()
+                    }
+                    else -> {
+                        assertEquals(2, attempt.revision)
+                        assertEquals("", attempt.prefix)
+                        assertTrue(attempt.samples.all { it == 3f })
+                        "language English<asr_text>World.".encodeToByteArray()
+                    }
+                }
+            }, prioritizeFinal = { finalReady.countDown() }) {
+                if (it == "Hello.") committed.countDown()
+            }
+            assertEquals(listOf(Triple(false, 19_200, 20), Triple(true, segmentSize, 256), Triple(true, 1_600, 256)), attempts)
+            assertEquals("Hello. World.", final)
+        }
+    }
+
+    @Test fun r2t2SkipsPreviewJustBeforeTheHardBoundaryAndFinalizesAllSamples() = runBlocking {
+        val audio = Channel<FloatArray>(Channel.UNLIMITED)
+        val previewStarted = CountDownLatch(1)
+        val lateAudioRead = CountDownLatch(1)
+        val source = object : PcmSource {
+            private var reads = 0
+
+            override suspend fun read(): FloatArray? {
+                if (++reads == 3) lateAudioRead.countDown()
+                return audio.receiveCatching().getOrNull()
+            }
+
+            override fun requestStop() { audio.cancel() }
+            override fun close() = Unit
+        }
+        val attempts = mutableListOf<Pair<Boolean, Int>>()
+        // Feed 15.4 seconds while the first preview is in flight, as in the K40 replay.
+        val capture = launch(Dispatchers.IO) {
+            audio.send(FloatArray(19_200) { 1f })
+            check(previewStarted.await(5, TimeUnit.SECONDS))
+            audio.send(FloatArray(227_200) { 2f })
+        }
+        val final = recognizeR2t2(source, decode = { attempt, _ ->
+            attempts += attempt.final to attempt.samples.size
+            if (attempt.final) {
+                assertEquals(256_000, attempt.samples.size)
+                assertEquals(1f, attempt.samples[19_199], 0f)
+                assertEquals(2f, attempt.samples[246_399], 0f)
+                assertEquals(3f, attempt.samples.last(), 0f)
+                " world.".encodeToByteArray()
+            } else {
+                assertEquals(19_200, attempt.samples.size)
+                previewStarted.countDown()
+                check(lateAudioRead.await(5, TimeUnit.SECONDS))
+                "language English<asr_text>Hello".encodeToByteArray()
+            }
+        }, prioritizeFinal = {}, onTranscript = {
+            // The same dispatcher resumes this sender after the decoder has considered the queued PCM.
+            if (it == "Hello") launch {
+                audio.send(FloatArray(9_600) { 3f })
+                audio.close()
+            }
+        })
+        capture.join()
+        assertEquals(listOf(false to 19_200, true to 256_000), attempts)
+        assertEquals("Hello world.", final)
     }
 
     @Test fun partialRevisionsReplaceOnlyCurrentSegment() {
@@ -130,7 +315,7 @@ class StreamingRecognitionTest {
         val stopped = CountDownLatch(1)
         val decoder = FakeDecoder()
         val microphone = object : PcmSource {
-            override fun read(): FloatArray? {
+            override suspend fun read(): FloatArray? {
                 reading.countDown()
                 check(stopped.await(5, TimeUnit.SECONDS))
                 return null
@@ -148,7 +333,7 @@ class StreamingRecognitionTest {
     @Test fun captureFailureDoesNotReturnSuccessfulFinalText() = runBlocking {
         val decoder = FakeDecoder()
         val microphone = object : PcmSource {
-            override fun read(): FloatArray? = throw AudioBacklogException()
+            override suspend fun read(): FloatArray? = throw AudioBacklogException()
             override fun requestStop() = Unit
             override fun close() = Unit
         }
@@ -174,7 +359,7 @@ class StreamingRecognitionTest {
     private class FakeMicrophone(private var remaining: Int) : PcmSource {
         var closed = false
         var stopped = false
-        override fun read(): FloatArray? = if (remaining-- > 0) FloatArray(1600) else null
+        override suspend fun read(): FloatArray? = if (remaining-- > 0) FloatArray(1600) else null
         override fun requestStop() { stopped = true }
         override fun close() { closed = true }
     }

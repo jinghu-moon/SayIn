@@ -23,9 +23,9 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
     private val foregroundOwners = mutableSetOf<Any>()
     init {
         speaking.onSendReady = ::send
-        speaking.requestMicrophoneService = {
-            try { ContextCompat.startForegroundService(application, RecordingService.intent(application)) }
-            catch (_: Exception) { speaking.microphoneServiceFailed() }
+        speaking.requestMicrophoneService = { generation ->
+            try { ContextCompat.startForegroundService(application, RecordingService.intent(application, generation)) }
+            catch (_: Exception) { speaking.microphoneServiceFailed(generation) }
         }
         viewModelScope.launch { repository.state.collect { speaking.updateReceiver(it) } }
         viewModelScope.launch { speaking.recognition.state.collect { refreshConnection() } }

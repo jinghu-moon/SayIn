@@ -95,6 +95,7 @@ internal class SpeakSession(
             val preferred = candidates.firstOrNull { it.id == localCatalog.defaultRecognitionId } ?: candidates.firstOrNull()
             preferred?.let { setRecognitionModel(it) }
         }
+        prepareVisibleLocalModel()
     }
 
     val recognitionInstalled get() = currentRecognitionModel.id in localModels.installed || BuildConfig.LOCAL_MODEL_FIXTURES
@@ -110,6 +111,10 @@ internal class SpeakSession(
         .getOrDefault(SpeakInputSource.Cloud).takeIf { it.isRecognition } ?: SpeakInputSource.Cloud); private set
     var sendMode by mutableStateOf(if (preferences.getBoolean("auto_send", false)) SpeakSendMode.Automatic else SpeakSendMode.Manual); private set
     var continuousDictation by mutableStateOf(preferences.getBoolean("continuous_dictation", false)); private set
+    var localSilenceMillis by mutableIntStateOf(
+        preferences.getInt("local_silence_millis", LocalSilence.DefaultMillis)
+            .takeIf { it in LocalSilence.options } ?: LocalSilence.DefaultMillis,
+    ); private set
     /** Delay between the final text and the automatic send; it is a default policy, not a per-app rule. */
     var autoSendSeconds by mutableIntStateOf(
         preferences.getInt("auto_send_seconds", SpeakInteraction.DEFAULT_DELAY_SECONDS)
@@ -243,17 +248,20 @@ internal class SpeakSession(
             translationShown && translation.complete, request?.translated ?: false)
     }
     var onSendReady: (AutoSendDestination?) -> Unit = {}
-    var requestMicrophoneService: (() -> Unit)? = null
+    var requestMicrophoneService: ((Long) -> Unit)? = null
     private var insertion: RecognitionInsertion? = null
     private var originalDraft: TextFieldValue? = null
     private var acceptRecognition = false
     private var recognitionHadText = false
-    private var explicitFinish = false
+    private var recordingActionsAllowed = false
+    private data class ResumeRecording(val owner: Any, val cloud: CloudConfiguration?)
+    private var resumeRecording: ResumeRecording? = null
     private var recordingScope: ReceptionScope? = null
     private var recordingMode = SpeakSendMode.Manual
     val recordingUsesAutoSend get() = recordingMode == SpeakSendMode.Automatic
     private var recordingDestination: AutoSendDestination? = null
     private var finishOnSilence = false
+    private var recordingSilenceMillis = LocalSilence.DefaultMillis
     private var imeDestination by mutableStateOf<AutoSendDestination?>(null)
     val waitingForImeCommit get() = imeDestination != null
     private var pendingCloud: CloudConfiguration? = null
@@ -272,6 +280,7 @@ internal class SpeakSession(
             currentRecognitionModel.takeIf { it.id in localModels.installed }
                 ?.let { LocalVoiceArtifact(it.id, storage.directory(it)) }
         }
+        (recognition as? SpeechRecognition)?.beforeLocalPrepare = translator::release
         polish.onConfigurationChanged = {
             cancelPolish()
             polishState = PolishState(confirmationPending = polishState.confirmationPending)
@@ -294,9 +303,17 @@ internal class SpeakSession(
                     acceptRecognition = false
                     recordingSnapshot?.takeIf { it.draft.text != draft.text }?.let { record(it) }
                     recordingSnapshot = null
-                    val direct = sendAfterFinal && recordingScope != null && recordingScope == receiver.receptionScope
+                    val direct = sendAfterFinal && result.end == RecordingEnd.Manual &&
+                        recordingScope != null && recordingScope == receiver.receptionScope
                     sendAfterFinal = false
-                    if (result.finished && explicitFinish && result.transcript.isNotBlank() && visible) {
+                    autoStopped = result.finished && result.end == RecordingEnd.Silence
+                    val resume = resumeRecording
+                    resumeRecording = null
+                    if (resume != null && result.finished && resume.owner in visibleOwners) {
+                        start(resume.cloud)
+                    } else if (result.finished && result.end?.canSend == true && recordingActionsAllowed &&
+                        result.transcript.isNotBlank() && visible
+                    ) {
                         when {
                             direct -> onSendReady(null)
                             recordingMode == SpeakSendMode.Automatic -> completeInput(
@@ -310,27 +327,24 @@ internal class SpeakSession(
                             }
                         }
                     }
-                    explicitFinish = false
-                } else if (result.phase == RecognitionPhase.Listening && result.noSpeech && visible &&
-                    recognition.state.value.let { it.session == result.session && it.noSpeech }) {
-                    finishRecording(auto = false)
-                } else if (result.phase == RecognitionPhase.Listening && result.speechPause && recordingCanFinish && finishOnSilence &&
-                    visible && recognition.state.value.let { it.session == result.session && it.speechPause }) {
-                    finishRecording(auto = true)
                 }
             }
         } }
         scope.launch { recognition.model.collect {
             model = it
-            if (preparingToRecord && it == LocalModelPhase.Ready) requestRecording()
-            if (it == LocalModelPhase.Failed || it == LocalModelPhase.Missing) preparingToRecord = false
         } }
         localModels.start()
     }
 
     fun setVisible(owner: Any, value: Boolean) {
-        if (value) { visibleOwners.add(owner); backgroundRelease?.cancel() } else {
+        if (value) {
+            visibleOwners.add(owner)
+            backgroundRelease?.cancel()
+            prepareVisibleLocalModel()
+        } else {
             visibleOwners.remove(owner)
+            if (resumeRecording?.owner == owner) resumeRecording = null
+            if (busy) recordingActionsAllowed = false
             invalidateAssist()
             cancelAutoSend()
             recordingDestination = null
@@ -346,6 +360,13 @@ internal class SpeakSession(
                 }
             }
         }
+    }
+
+    private fun prepareVisibleLocalModel() {
+        if (visible && source == SpeakInputSource.Local && recognitionInstalled && recognition is SpeechRecognition &&
+            !busy && !translationPreparing && !translation.running && !translationStopping &&
+            model == LocalModelPhase.Unloaded
+        ) recognition.prepareLocal()
     }
 
     fun updateReceiver(value: ClientState) {
@@ -433,6 +454,7 @@ internal class SpeakSession(
         if (value.isRecognition) lastVoiceSource = value
         preferences.edit().putString("input_source", value.name).putString("voice_source", lastVoiceSource.name).apply()
         invalidateAssist()
+        prepareVisibleLocalModel()
     }
 
     fun changeSendMode(value: SpeakSendMode) {
@@ -446,6 +468,12 @@ internal class SpeakSession(
         cancelAutoSend()
         continuousDictation = value
         preferences.edit().putBoolean("continuous_dictation", value).apply()
+    }
+
+    fun changeLocalSilenceMillis(value: Int) {
+        if (busy || requestLocked || value !in LocalSilence.options) return
+        localSilenceMillis = value
+        preferences.edit().putInt("local_silence_millis", value).apply()
     }
 
     /** Wait time belongs to automatic sending; changing it never enables or disables the default policy. */
@@ -501,12 +529,13 @@ internal class SpeakSession(
     fun start(cloud: CloudConfiguration?, holdToSpeak: Boolean = false) {
         if (!visible || busy || translationPreparing || requestLocked || draftRestoring || !source.isRecognition || (source == SpeakInputSource.Cloud && cloud == null)) return
         if (source == SpeakInputSource.Local && recognition is SpeechRecognition && !recognitionInstalled) return
+        val mustStopTranslation = source == SpeakInputSource.Cloud || translation.running || translationStopping
         autoStopped = false
         cancelPolish()
         invalidateAssist()
         recordingStartedEmpty = draft.text.isBlank()
         recordingSnapshot = snapshot()
-        invalidateTranslation(); cancelAutoSend(); undoDraft = null; submitted = null; explicitFinish = false
+        invalidateTranslation(); cancelAutoSend(); undoDraft = null; submitted = null; recordingActionsAllowed = true
         history.breakGroup(); recordingDurationBefore = recordingDurationMillis
         val generation = ++preparationGeneration
         val selection = draft.selection
@@ -516,42 +545,54 @@ internal class SpeakSession(
         recordingMode = effectiveSendMode()
         recordingDestination = receiver.autoSendDestination
         finishOnSilence = RecordingEndpointPolicy.finishOnSilence(holdToSpeak, continuousDictation)
+        recordingSilenceMillis = localSilenceMillis
         pendingCloud = if (source == SpeakInputSource.Cloud) cloud else null
         preparingToRecord = true
-        waitingForTranslationStop = true
-        scope.launch {
-            translator.release()
-            if (generation != preparationGeneration) return@launch
-            waitingForTranslationStop = false
-            if (preparingToRecord && visible) {
-                if (source == SpeakInputSource.Local && model != LocalModelPhase.Ready) recognition.prepareLocal() else requestRecording()
+        waitingForTranslationStop = mustStopTranslation
+        if (mustStopTranslation) {
+            scope.launch {
+                translator.release()
+                if (generation != preparationGeneration) return@launch
+                waitingForTranslationStop = false
+                requestRecording()
             }
-        }
+        } else requestRecording()
     }
 
     private fun requestRecording() {
         if (waitingForTranslationStop) return
         if (!preparingToRecord || !visible) { preparingToRecord = false; return }
-        requestMicrophoneService?.invoke() ?: startPreparedRecording()
+        requestMicrophoneService?.invoke(preparationGeneration) ?: startPreparedRecording(preparationGeneration)
     }
 
     /** Called only after Android has accepted the microphone foreground service. */
-    fun startPreparedRecording() {
-        if (!preparingToRecord || !visible) { preparingToRecord = false; return }
+    fun startPreparedRecording(generation: Long): Boolean {
+        if (generation != preparationGeneration || !preparingToRecord || !visible) return false
         preparingToRecord = false; recognitionHadText = false; acceptRecognition = true
-        recognition.start(pendingCloud)
+        recognition.start(pendingCloud, autoFinish = finishOnSilence, localSilenceMillis = recordingSilenceMillis)
         expectedRecognitionSession = recognition.state.value.session
         pendingCloud = null
+        return true
     }
 
-    fun microphoneServiceFailed() { preparingToRecord = false; acceptRecognition = false; asr = asr.copy(issue = RecognitionIssue.Microphone) }
-    fun finishRecording(andSend: Boolean = false, auto: Boolean = false) {
+    fun microphoneServiceFailed(generation: Long) {
+        if (generation != preparationGeneration || !preparingToRecord) return
+        preparingToRecord = false
+        acceptRecognition = false
+        asr = asr.copy(issue = RecognitionIssue.Microphone)
+    }
+    fun resumeAfterFinal(owner: Any, cloud: CloudConfiguration?) {
+        if (owner !in visibleOwners || requestLocked || asr.phase != RecognitionPhase.Finishing) return
+        cancelAutoSend()
+        recordingActionsAllowed = false
+        resumeRecording = ResumeRecording(owner, cloud)
+    }
+
+    fun finishRecording(andSend: Boolean = false) {
         if (asr.phase != RecognitionPhase.Listening) return
-        autoStopped = auto
         invalidateAssist()
         sendAfterFinal = andSend && recordingMode == SpeakSendMode.Manual && recordingCanFinish && visible &&
             recordingScope != null && recordingScope == receiver.receptionScope
-        explicitFinish = true
         if (!visible) recordingDestination = null
         recognition.finish()
     }
@@ -559,7 +600,8 @@ internal class SpeakSession(
     fun cancelRecording(restore: Boolean = true) {
         invalidateAssist()
         autoStopped = false
-        acceptRecognition = false; explicitFinish = false; preparingToRecord = false; pendingCloud = null
+        resumeRecording = null
+        acceptRecognition = false; recordingActionsAllowed = false; preparingToRecord = false; pendingCloud = null
         preparationGeneration++; waitingForTranslationStop = false
         cancelAutoSend(); recognition.cancel()
         if (restore) recordingSnapshot?.let { restoreSnapshot(it) }
@@ -948,6 +990,7 @@ internal class SpeakSession(
                 setRecognitionModel(model)
             } finally {
                 changingModel = false
+                prepareVisibleLocalModel()
             }
         }
         return true

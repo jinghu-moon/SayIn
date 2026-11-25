@@ -826,6 +826,7 @@
     <string name="settings_send_policy_clear">Clear all rules</string>
 
     <string name="speak_listening_short">Listening</string>
+    <string name="speak_continuous_listening_short">Tap to stop</string>
     <string name="speak_send_after_delay">Send in %1$d seconds</string>
     <string name="speak_confirm_ime">Confirm your keyboard suggestion</string>
     <string name="speak_auto_target_unavailable">Bring the target app to the front, then tap Send</string>
@@ -1117,7 +1118,7 @@
     <string name="local_model_integrity_error">File verification failed. Check the version and download a fresh copy.</string>
     <string name="local_model_copy_error">Import failed. Select the folder again to retry.</string>
     <string name="local_model_asr_missing">Import a model to use offline recognition.</string>
-    <string name="local_model_recording_limit">This model supports up to 2 minutes per recording.</string>
+    <string name="local_model_recording_limit">Recording stopped at 2 minutes.</string>
     <string name="local_model_xasr">Streaming Chinese and English recognition with punctuation.</string>
     <string name="local_model_qwen">Multilingual and Chinese dialect recognition after recording.</string>
     <string name="local_model_fun">Chinese, English, and Japanese recognition after recording.</string>
@@ -1199,10 +1200,16 @@
     <string name="hidden_apps_sort_recent">Recently used</string>
     <string name="hidden_apps_sort_installed">Install time</string>
     <string name="hidden_apps_sort_selected">Selection</string>
-    <string name="asr_speech_ending">Finishing soon…</string>
+    <string name="asr_auto_finish_unavailable">Tap Stop to finish</string>
     <string name="speak_auto_stopped_resume">Auto-stopped · Tap record to continue</string>
     <string name="settings_continuous_dictation">Continuous dictation</string>
+    <string name="settings_local_silence_end">Stop after silence</string>
+    <string name="settings_local_silence_end_summary">Applies to tap-to-record with continuous dictation off.</string>
+    <string name="settings_local_silence_2s">2 s</string>
+    <string name="settings_local_silence_25s">2.5 s</string>
+    <string name="settings_local_silence_3s">3 s</string>
     <string name="settings_continuous_dictation_summary">Keep recording until you stop; text can update while speaking.</string>
+    <string name="settings_local_continuous_dictation_summary">Silence won’t stop recording.</string>
     <string name="hidden_apps_sort_ascending">Ascending</string>
     <string name="hidden_apps_sort_descending">Descending</string>
     <string name="local_model_import_mode_copy">Copy to app storage</string>
@@ -1216,11 +1223,11 @@
     <string name="local_model_verifying_reference">Verifying files in the original path</string>
     <string name="local_model_reference_verify">No files are copied; verifying the original path</string>
     <string name="local_model_reference_installed">Referenced original path</string>
-    <string name="local_model_referenced_summary">%1$d models use original paths and do not use app storage</string>
     <plurals name="local_model_reference_count">
         <item quantity="one">Use %1$d model · %2$s</item>
         <item quantity="other">Use %1$d models · %2$s</item>
     </plurals>
+    <string name="local_model_referenced_summary">%1$d models use original paths and do not use app storage</string>
 </resources>
 
 

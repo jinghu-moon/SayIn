@@ -102,7 +102,7 @@ class DoubaoRecognitionTest {
             }
         }) { engine, _ ->
             val source = object : PcmSource {
-                override fun read(): FloatArray { Thread.sleep(30); return FloatArray(1600) }
+                override suspend fun read(): FloatArray { Thread.sleep(30); return FloatArray(1600) }
                 override fun requestStop() = Unit
                 override fun close() = Unit
             }
@@ -138,7 +138,7 @@ class DoubaoRecognitionTest {
         }) { engine, _ ->
             val source = object : PcmSource {
                 @Volatile var closed = false
-                override fun read(): FloatArray { Thread.sleep(20); return FloatArray(1600) }
+                override suspend fun read(): FloatArray { Thread.sleep(20); return FloatArray(1600) }
                 override fun requestStop() { closed = true }
                 override fun close() { closed = true }
             }
@@ -169,7 +169,7 @@ class DoubaoRecognitionTest {
     private class Samples(private var remaining: Int) : PcmSource {
         var stopped = false
         var closed = false
-        override fun read(): FloatArray? = if (remaining-- > 0) FloatArray(1600) else null
+        override suspend fun read(): FloatArray? = if (remaining-- > 0) FloatArray(1600) else null
         override fun requestStop() { stopped = true }
         override fun close() { closed = true }
     }

@@ -22,6 +22,7 @@ plugins {
 
 // Opt-in emulator ABI is limited to the isolated instrumentation variant.
 val emulatorTests = providers.gradleProperty("sayin.emulatorTests").orNull == "true"
+val r2t2Benchmark = providers.gradleProperty("sayin.r2t2BenchmarkBackend").isPresent
 if (emulatorTests) {
     require(providers.gradleProperty("sayin.instrumentationBuildType").orNull == "imageTest")
 }
@@ -163,6 +164,8 @@ dependencies {
     add("imageTestImplementation", libs.compose.ui.test.manifest)
     androidTestImplementation(libs.test.runner)
     androidTestImplementation(libs.test.junit)
+    // Espresso 3.7 calls InputManager.getInstance(), which Android 17 removed.
+    androidTestImplementation(libs.test.espresso)
     androidTestCompileOnly("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation(libs.okhttp)
     implementation(libs.work.runtime)
@@ -237,11 +240,11 @@ val buildPairingNative = tasks.register<BuildPairingNative>("buildPairingNative"
         "-Abi", if (emulatorTests) "x86_64" else "arm64-v8a")
 }
 androidComponents.beforeVariants { variant ->
-    if (emulatorTests && variant.buildType != "imageTest") variant.enable = false
+    if ((emulatorTests || r2t2Benchmark) && variant.buildType != "imageTest") variant.enable = false
 }
 androidComponents.onVariants { variant ->
     variant.sources.jniLibs?.addGeneratedSourceDirectory(buildPairingNative) { it.outputDirectory }
-    if (variant.buildType == "imageTest" ||
+    if (variant.buildType == "imageTest" && !r2t2Benchmark ||
         variant.buildType == "release" && providers.gradleProperty("sayinVerification").orNull == "true"
     ) {
         variant.sources.assets?.addGeneratedSourceDirectory(bundleTranslationModels) { it.outputDirectory }

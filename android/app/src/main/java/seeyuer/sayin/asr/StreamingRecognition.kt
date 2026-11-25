@@ -20,7 +20,13 @@ internal interface StreamingDecoder : Closeable {
 
 internal interface PcmSource : Closeable {
     /** Null means a normal stop was requested; errors must throw. */
-    fun read(): FloatArray?
+    suspend fun read(): FloatArray?
+    /** Whether the most recent PCM block closed a natural speech segment. */
+    val segmentBoundary: Boolean get() = false
+    /** Voice activity on the most recent block. Null means the source has no working VAD. */
+    val speechInBlock: Boolean? get() = null
+    /** Conservative absolute end of the latest voiced audio plus tail context. */
+    val retainedSampleEnd: Int? get() = null
     fun requestStop()
 }
 
@@ -60,13 +66,36 @@ internal suspend fun recognizeStreaming(
     captureDispatcher: CoroutineDispatcher = Dispatchers.IO,
     onTranscript: (String) -> Unit,
 ): String = coroutineScope {
-    val queue = Channel<FloatArray>(20) // 20 x 100ms; does not grow with recording length.
+    val queue = Channel<FloatArray>(1)
     val capture = launch(captureDispatcher) {
+        val quiet = ArrayDeque<FloatArray>()
+        var quietSamples = 0
+        var captured = 0
         try {
             while (true) {
                 coroutineContext.ensureActive()
                 val samples = microphone.read() ?: break
-                if (!queue.trySend(samples).isSuccess) throw AudioBacklogException()
+                val retained = microphone.retainedSampleEnd
+                val keep = retained?.let { (it - captured).coerceIn(0, samples.size) } ?: samples.size
+                captured += samples.size
+                if (keep > 0) {
+                    // A continuation or loss of VAD evidence releases the recent pause verbatim.
+                    for (block in quiet) queue.send(block)
+                    quiet.clear()
+                    quietSamples = 0
+                    queue.send(if (keep == samples.size) samples else samples.copyOfRange(0, keep))
+                }
+                if (keep < samples.size) {
+                    val tail = if (keep == 0) samples else samples.copyOfRange(keep, samples.size)
+                    quiet.addLast(tail)
+                    quietSamples += tail.size
+                    // Preserve the streaming endpoint clock during long pauses without decoding known quiet noise.
+                    while (quietSamples > 9_600) {
+                        val block = quiet.removeFirst()
+                        quietSamples -= block.size
+                        queue.send(FloatArray(block.size))
+                    }
+                }
             }
         } catch (error: Throwable) {
             queue.close(error)
@@ -77,19 +106,26 @@ internal suspend fun recognizeStreaming(
         }
     }
     val transcript = StreamingTranscript()
+    var visible = ""
+    fun publish(text: String) {
+        if (text != visible) {
+            visible = text
+            onTranscript(text)
+        }
+    }
     try {
         for (samples in queue) {
             coroutineContext.ensureActive()
             decoder.accept(samples)
             decoder.decodeReady()
             val endpoint = decoder.isEndpoint()
-            onTranscript(transcript.update(decoder.text(), endpoint))
+            publish(transcript.update(decoder.text(), endpoint))
             if (endpoint) decoder.reset()
         }
         coroutineContext.ensureActive()
         decoder.finishInput()
         decoder.decodeReady()
-        transcript.update(decoder.text(), endpoint = false).also(onTranscript)
+        transcript.update(decoder.text(), endpoint = false).also(::publish)
     } finally {
         microphone.requestStop()
         capture.cancel()

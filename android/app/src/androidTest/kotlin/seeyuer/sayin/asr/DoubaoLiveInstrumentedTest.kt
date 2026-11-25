@@ -81,7 +81,7 @@ class DoubaoLiveInstrumentedTest {
         val final = recognizeCloud(checkNotNull(config), {
             object : PcmSource {
                 private var offset = 0
-                override fun read(): FloatArray? {
+                override suspend fun read(): FloatArray? {
                     if (offset == samples.size) return null
                     Thread.sleep(100)
                     val end = minOf(offset + 1600, samples.size)

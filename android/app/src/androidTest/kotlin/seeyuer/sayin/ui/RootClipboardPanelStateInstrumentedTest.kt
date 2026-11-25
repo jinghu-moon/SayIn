@@ -184,7 +184,7 @@ private class PanelStateRecognition : RecognitionEngine {
     override val state = MutableStateFlow(RecognitionState())
     override val model = MutableStateFlow<LocalModelPhase>(LocalModelPhase.Ready)
     override fun prepareLocal() = Unit
-    override fun start(cloud: CloudConfiguration?) = error("No recording in menu tests")
+    override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) = error("No recording in menu tests")
     override fun finish() = Unit
     override fun cancel() = Unit
     override fun clearResult() = Unit

@@ -137,7 +137,7 @@ private class LayoutRecognition : RecognitionEngine {
     override val state = MutableStateFlow(RecognitionState())
     override val model = MutableStateFlow(LocalModelPhase.Ready)
     override fun prepareLocal() = Unit
-    override fun start(cloud: CloudConfiguration?) = error("Layout test cannot record")
+    override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) = error("Layout test cannot record")
     override fun finish() = Unit
     override fun cancel() = Unit
     override fun clearResult() = Unit

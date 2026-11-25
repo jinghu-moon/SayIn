@@ -13,7 +13,7 @@ class VadModelInstrumentedTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val vad = VadAutoStop(context)
         try {
-            var progress = VadProgress()
+            var progress = VadEndpointTimer.State()
             for (index in 0 until 240) {
                 progress = vad.accept(FloatArray(1600))
                 if (progress.noSpeech) break

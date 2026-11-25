@@ -9,7 +9,11 @@ internal interface RecognitionEngine : Closeable {
     val model: StateFlow<LocalModelPhase>
     fun prepareLocal()
     suspend fun releaseLocal() {}
-    fun start(cloud: CloudConfiguration? = null)
+    fun start(
+        cloud: CloudConfiguration? = null,
+        autoFinish: Boolean = true,
+        localSilenceMillis: Int = LocalSilence.DefaultMillis,
+    )
     fun finish()
     fun cancel()
     fun clearResult()

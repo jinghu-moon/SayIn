@@ -102,6 +102,7 @@ import seeyuer.sayin.asr.CloudSettingsStatus
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import seeyuer.sayin.asr.DoubaoAuth
+import seeyuer.sayin.asr.LocalSilence
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ForegroundApplication
@@ -1151,9 +1152,25 @@ private fun RecognitionPage(
 
         Spacer(Modifier.height(12.dp))
         Card(modifier = Modifier.fillMaxWidth(), insideMargin = PaddingValues(0.dp)) {
+            if (!cloud) {
+                WindowDropdownPreference(
+                    title = stringResource(R.string.settings_local_silence_end),
+                    summary = stringResource(R.string.settings_local_silence_end_summary),
+                    items = listOf(
+                        stringResource(R.string.settings_local_silence_2s),
+                        stringResource(R.string.settings_local_silence_25s),
+                        stringResource(R.string.settings_local_silence_3s),
+                    ),
+                    selectedIndex = LocalSilence.options.indexOf(session.localSilenceMillis),
+                    enabled = !session.busy && !session.continuousDictation,
+                    onSelectedIndexChange = { session.changeLocalSilenceMillis(LocalSilence.options[it]) },
+                )
+                HorizontalDivider()
+            }
             SwitchPreference(
                 title = stringResource(R.string.settings_continuous_dictation),
-                summary = stringResource(R.string.settings_continuous_dictation_summary),
+                summary = stringResource(if (cloud) R.string.settings_continuous_dictation_summary
+                    else R.string.settings_local_continuous_dictation_summary),
                 checked = session.continuousDictation,
                 enabled = !session.busy,
                 switchColors = settingsSwitchColors(),

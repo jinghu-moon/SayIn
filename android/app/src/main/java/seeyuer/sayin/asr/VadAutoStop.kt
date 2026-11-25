@@ -6,14 +6,6 @@ import com.k2fsa.sherpa.onnx.Vad
 import com.k2fsa.sherpa.onnx.VadModelConfig
 import java.io.Closeable
 
-/** Result of one audio block; only [ended] may finish the capture session. */
-internal data class VadProgress(
-    val heardSpeech: Boolean = false,
-    val ending: Boolean = false,
-    val ended: Boolean = false,
-    val noSpeech: Boolean = false,
-)
-
 /**
  * Streaming Silero VAD wrapper. All timing lives here; sherpa's internal
  * min-speech/min-silence settings are deliberately not used for product endpoints.
@@ -21,7 +13,9 @@ internal data class VadProgress(
 internal class VadAutoStop(
     context: Context,
     model: String = DEFAULT_MODEL,
+    autoFinish: Boolean = true,
     private val defaultThreshold: Float = 0.45f,
+    localSilenceMillis: Int? = null,
 ) : Closeable {
     private val vad = Vad(
         assetManager = context.applicationContext.assets,
@@ -42,17 +36,17 @@ internal class VadAutoStop(
         ),
     )
     private val frame = FloatArray(WINDOW_SIZE)
-    private val timer = VadEndpointTimer()
+    private val timer = VadEndpointTimer(autoFinish = autoFinish, localSilenceMillis = localSilenceMillis)
+    val retainedSampleEnd: Int?
+        get() = timer.lastPossibleVoiceSample.takeIf { it > 0 }?.let {
+            // Keep 200 ms of real context and one VAD window of boundary uncertainty.
+            (it + SAMPLE_RATE / 5 + WINDOW_SIZE).toInt()
+        }
     private val calibrator = VadNoiseCalibrator(defaultThreshold = defaultThreshold)
     private var threshold = defaultThreshold
     private var frameCount = 0
-    private var done = false
-    private var noSpeechDone = false
-    private var heardSpeech = false
-
-    fun accept(samples: FloatArray): VadProgress {
-        if (done) return VadProgress(heardSpeech = heardSpeech, ended = !noSpeechDone, noSpeech = noSpeechDone)
-        var result = VadProgress(heardSpeech = heardSpeech)
+    fun accept(samples: FloatArray): VadEndpointTimer.State {
+        var result = VadEndpointTimer.State()
         var offset = 0
         while (offset < samples.size) {
             val count = minOf(WINDOW_SIZE - frameCount, samples.size - offset)
@@ -60,24 +54,18 @@ internal class VadAutoStop(
             frameCount += count
             offset += count
             if (frameCount == WINDOW_SIZE) {
-                result = acceptFrame()
+                val probability = vad.compute(frame)
+                calibrator.observe(probability, WINDOW_SIZE)?.let { threshold = it }
+                val next = timer.accept(probability, threshold, WINDOW_SIZE)
+                result = next.copy(
+                    segmentBoundary = result.segmentBoundary || next.segmentBoundary,
+                    speech = result.speech || next.speech,
+                )
                 frameCount = 0
-                if (done) break
+                if (result.ended || result.noSpeech) break
             }
         }
         return result
-    }
-
-    private fun acceptFrame(): VadProgress {
-        val probability = vad.compute(frame)
-        calibrator.observe(probability, WINDOW_SIZE)?.let { threshold = it }
-        val state = timer.accept(probability, threshold, WINDOW_SIZE)
-        if (state.ended || state.noSpeech) {
-            done = true
-            noSpeechDone = state.noSpeech
-            heardSpeech = state.heardSpeech
-        }
-        return VadProgress(state.heardSpeech, state.ending, state.ended, state.noSpeech)
     }
 
     override fun close() = vad.release()

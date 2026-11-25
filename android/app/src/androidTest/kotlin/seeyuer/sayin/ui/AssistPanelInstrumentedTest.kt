@@ -958,7 +958,7 @@ private class TestRecognition : RecognitionEngine {
         if (model.value != LocalModelPhase.Ready) model.value = LocalModelPhase.Loading
     }
 
-    override fun start(cloud: CloudConfiguration?) {
+    override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) {
         starts++
         state.value = RecognitionState(starts.toLong(), RecognitionPhase.Loading)
     }

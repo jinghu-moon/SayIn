@@ -70,9 +70,9 @@
         "bytes": 1107404736,
         "sha256": "fa3cb46c8c3a66a58812b9098ba6e96a0266d4e8c9b3cf5ba34432fd2f9f6466"
       },
-      "mmproj-Confucius4-R2T2-f16.gguf": {
-        "bytes": 641773984,
-        "sha256": "0057b28b8814e431a28e3d1002343eef2d1676bbf8b0625351ae4550ac4e595d"
+      "mmproj-Confucius4-R2T2-Q8_0.gguf": {
+        "bytes": 348336544,
+        "sha256": "8dc2c67e6a0484114928142d098db7ad94ae9f34c78948ef9d37a9678418cb65"
       }
     }
   },

@@ -1,8 +1,12 @@
 package seeyuer.sayin.asr
 
+import android.os.Bundle
+import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import org.junit.Assert.assertTrue
@@ -12,44 +16,67 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class QwenPreviewInstrumentedTest {
     @Test
-    fun qwenPublishesTextBeforeCaptureFinishes() = runBlocking {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val directory = File(context.noBackupFilesDir, "local-models/qwen-06")
-        assumeTrue("Qwen 0.6 model is not imported on this device", directory.isDirectory)
-        val testAssets = InstrumentationRegistry.getInstrumentation().context.assets
-        val pcm = testAssets.open("x-asr-smoke.pcm").use { it.readBytes() }
-        val samples = FloatArray(pcm.size / 2) { index ->
-            val low = pcm[index * 2].toInt() and 0xff
-            val high = pcm[index * 2 + 1].toInt()
-            ((high shl 8) or low).toShort() / 32768f
-        }
+    fun qwenPublishesTextBeforeCaptureFinishes() = runBlocking { verifyOfflineSegments("qwen-06") }
+}
+
+internal suspend fun verifyOfflineSegments(modelId: String) {
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
+    val context = instrumentation.targetContext
+    val directory = File(context.noBackupFilesDir, "local-models/$modelId")
+    assumeTrue("The isolated package needs the $modelId model fixture", directory.isDirectory)
+    val raw = instrumentation.context.assets.open("x-asr-smoke.pcm").use { it.readBytes() }
+    val pcm = ByteBuffer.wrap(raw).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer()
+    // One mixed-language utterance followed by a separately paced silence interval.
+    val audio = FloatArray(20 * 16_000)
+    for (index in 0 until pcm.remaining()) audio[index] = pcm.get() / 32768f
+
+    OfflineSpeechDecoder(LocalVoiceArtifact(modelId, directory)).use { decoder ->
+        decoder.warmUp()
+        var firstTextAt = 0L
+        var textBeforeEof = ""
+        val started = SystemClock.elapsedRealtime()
         val source = object : PcmSource {
-            var index = 0
-            var closed = false
-            override fun read(): FloatArray? {
-                if (index >= samples.size) return null
-                val end = minOf(index + 1600, samples.size)
-                // Emulate real-time capture so a preview can be observed before EOF.
-                Thread.sleep(100)
-                return samples.copyOfRange(index, end).also { index = end }
+            private val vad = VadAutoStop(context, autoFinish = false)
+            private var position = 0
+            @Volatile var eofAt = 0L
+                private set
+            override var segmentBoundary = false
+                private set
+
+            override suspend fun read(): FloatArray? {
+                if (position == audio.size) {
+                    eofAt = SystemClock.elapsedRealtime()
+                    return null
+                }
+                val end = minOf(position + 1600, audio.size)
+                val wait = started + end / 16 - SystemClock.elapsedRealtime()
+                if (wait > 0) Thread.sleep(wait)
+                val samples = audio.copyOfRange(position, end)
+                position = end
+                segmentBoundary = vad.accept(samples).segmentBoundary
+                return samples
             }
             override fun requestStop() = Unit
-            override fun close() { closed = true }
+            override fun close() = vad.close()
         }
-        val decoder = OfflineSpeechDecoder(LocalVoiceArtifact("qwen-06", directory))
-        val previews = mutableListOf<String>()
-        var previewBeforeEnd = false
-        try {
-            val final = decoder.recognize(source) { text ->
-                previews += text
-                if (source.index < samples.size) previewBeforeEnd = true
-            }
-            assertTrue("Qwen 录音中应至少产生一次预览", previews.isNotEmpty())
-            assertTrue("预览应发生在采集结束前", previewBeforeEnd)
-            assertTrue("最终转写不能为空", final.isNotBlank())
-            assertTrue(source.closed)
-        } finally {
-            decoder.close()
+        val final = decoder.recognize(source) { text ->
+            if (text.isNotBlank() && firstTextAt == 0L) firstTextAt = SystemClock.elapsedRealtime()
+            if (source.eofAt == 0L && text.isNotBlank()) textBeforeEof = text
         }
+        val tailMs = SystemClock.elapsedRealtime() - source.eofAt
+        val referenceStarted = SystemClock.elapsedRealtime()
+        val reference = decoder.decode(audio)
+        val referenceMs = SystemClock.elapsedRealtime() - referenceStarted
+        instrumentation.sendStatus(2, Bundle().apply {
+            putString("segment_model", modelId)
+            putLong("capture_ms", source.eofAt - started)
+            putLong("first_text_ms", if (firstTextAt == 0L) -1 else firstTextAt - started)
+            putLong("tail_ms", tailMs)
+            putLong("whole_decode_ms", referenceMs)
+            putString("reference", reference)
+            putString("transcript", final)
+        })
+        assertTrue("Expected nonblank text before EOF", textBeforeEof.isNotBlank() && firstTextAt < source.eofAt)
+        assertTrue("Missing mixed-language reference words: $final", final.contains("Monday", ignoreCase = true) && final.contains("星期三"))
     }
 }

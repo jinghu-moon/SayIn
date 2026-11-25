@@ -150,7 +150,7 @@ class QwenRecognitionTest {
     private class Source : PcmSource {
         private var remaining = 2
         var closed = false
-        override fun read(): FloatArray? = when (remaining--) {
+        override suspend fun read(): FloatArray? = when (remaining--) {
             2 -> FloatArray(1600)
             1 -> FloatArray(400)
             else -> null

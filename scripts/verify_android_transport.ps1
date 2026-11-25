@@ -30,7 +30,8 @@ if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSu
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
-$expectedTextUiTests = 154
+$suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
+$expectedTextUiTests = 167
 $expectedImageTests = 4
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
@@ -59,6 +60,15 @@ try {
     # A previous targeted run may have left pairing/outbox state in the isolated
     # test package. Clear it so every suite starts from its own identity.
     Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
+    $api = [int](& $adb -s $DeviceSerial shell getprop ro.build.version.sdk)
+    if ($LASTEXITCODE -ne 0 -or $api -lt 29) { throw 'Cannot determine the supported Android API level.' }
+    if ($api -ge 37) {
+        Invoke-Checked { & $adb -s $DeviceSerial shell pm grant seeyuer.sayin.imagetest android.permission.ACCESS_LOCAL_NETWORK }
+    }
+    if ($FullSuite) {
+        # Grant before the test process starts so its first microphone check sees the cleared package's new grant.
+        Invoke-Checked { & $adb -s $DeviceSerial shell pm grant seeyuer.sayin.imagetest android.permission.RECORD_AUDIO }
+    }
     $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0', '--lifetime=7200')
     if ($Lan) { $fixtureArguments += '--lan' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
@@ -83,15 +93,17 @@ try {
     $instrumentExit = $LASTEXITCODE
     $output = Get-Content -LiteralPath $log -Raw
     if ($instrumentExit -ne 0 -or $output -notmatch "OK \($expectedTests tests?\)" -or $output -match 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed') { throw "Instrumentation failed; see $log" }
+    $skippedTests = [regex]::Matches($output, '(?m)^INSTRUMENTATION_STATUS_CODE: -[34]\r?$').Count
+    $passedTests = $expectedTests - $skippedTests
     Start-Sleep -Milliseconds 200
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
     if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
-    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $testClass; real_lan = [bool]$Lan; tests = $expectedTests; fake_input_calls = $calls.fake_input_calls } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
-    Write-Output "PASS: $expectedTests instrumentation tests; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
+    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }
-        Write-Output "PASS: all $($expectedTextUiTests + $expectedImageTests) regular device tests ($expectedTextUiTests text/UI + $expectedImageTests image) across independent desktop identities."
+        Write-Output "PASS: text/UI and image suites completed across independent desktop identities."
     }
 } finally {
     try {

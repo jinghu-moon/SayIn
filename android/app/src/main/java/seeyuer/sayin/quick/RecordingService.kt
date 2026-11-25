@@ -16,7 +16,8 @@ import seeyuer.sayin.asr.RecognitionPhase
 class RecordingService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val session get() = (application as SayInApplication).model.speaking
-    private var commanded = false
+    private var recordingSession: Long? = null
+    private var latestStartId = 0
     private var foregroundAccepted = false
     override fun onBind(intent: Intent?): IBinder? = null
     override fun onCreate() {
@@ -26,17 +27,25 @@ class RecordingService : Service() {
         try {
             ServiceCompat.startForeground(this, ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
             foregroundAccepted = true
-        } catch (_: Exception) { session.microphoneServiceFailed(); stopSelf(); return }
+        } catch (_: Exception) { return }
         scope.launch { session.recognition.state.collect {
-            if (commanded && !it.busy) stopSelf()
+            if (recordingSession != null && !it.busy) stopSelfResult(latestStartId)
             else getSystemService(NotificationManager::class.java).notify(ID, notification())
         } }
     }
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!foregroundAccepted) { session.microphoneServiceFailed(); stopSelf(); return START_NOT_STICKY }
+        val generation = intent?.getLongExtra(GENERATION, 0) ?: 0
+        if (!foregroundAccepted) {
+            session.microphoneServiceFailed(generation)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        latestStartId = startId
         if (intent?.action == FINISH) session.finishRecording()
-        else { commanded = true; session.startPreparedRecording() }
-        if (!session.recognition.state.value.busy) stopSelf()
+        else if (session.startPreparedRecording(generation)) {
+            session.recognition.state.value.takeIf { it.busy }?.let { recordingSession = it.session }
+        }
+        if (!session.recognition.state.value.busy) stopSelfResult(startId)
         return START_NOT_STICKY
     }
     private fun notification(): Notification {
@@ -53,13 +62,16 @@ class RecordingService : Service() {
         return builder.build()
     }
     override fun onDestroy() {
-        if (session.recognition.state.value.busy) session.cancelRecording(restore = false)
+        val current = session.recognition.state.value
+        if (current.busy && current.session == recordingSession) session.cancelRecording(restore = false)
         scope.cancel(); super.onDestroy()
     }
     companion object {
         private const val CHANNEL = "recording"
         private const val ID = 41
         private const val FINISH = "seeyuer.sayin.FINISH_RECORDING"
-        fun intent(context: Context) = Intent(context, RecordingService::class.java)
+        private const val GENERATION = "seeyuer.sayin.RECORDING_GENERATION"
+        fun intent(context: Context, generation: Long) =
+            Intent(context, RecordingService::class.java).putExtra(GENERATION, generation)
     }
 }

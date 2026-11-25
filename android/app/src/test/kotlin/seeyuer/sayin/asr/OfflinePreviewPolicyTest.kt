@@ -8,18 +8,15 @@ class OfflinePreviewPolicyTest {
     @Test
     fun qwen06UsesFastCadence() {
         val policy = OfflinePreviewPolicies.forModel("qwen-06")
-        assertEquals(2_000L, policy?.intervalMs)
-        assertEquals(20 * 16_000, policy?.maxSamples)
+        assertEquals(2 * 16_000, policy?.intervalSamples)
         assertEquals(0.20, policy?.rtfBudget ?: 0.0, 0.001)
         assertEquals(2, policy?.maxBudgetMisses)
     }
 
     @Test
-    fun heavyModelsUseLongerCadence() {
-        assertEquals(3_000L, OfflinePreviewPolicies.forModel("qwen-17")?.intervalMs)
-        assertEquals(3_000L, OfflinePreviewPolicies.forModel("fun-int8")?.intervalMs)
-        assertEquals(0.15, OfflinePreviewPolicies.forModel("qwen-17")?.rtfBudget ?: 0.0, 0.001)
-        assertEquals(1, OfflinePreviewPolicies.forModel("qwen-17")?.maxBudgetMisses)
+    fun heavyModelsOnlyDecodeCompletedSegments() {
+        assertNull(OfflinePreviewPolicies.forModel("qwen-17"))
+        assertNull(OfflinePreviewPolicies.forModel("fun-int8"))
     }
 
     @Test

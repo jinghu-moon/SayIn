@@ -21,7 +21,7 @@ class AssistInsertionInstrumentedTest {
         override val model = MutableStateFlow(LocalModelPhase.Ready)
         var starts = 0
         override fun prepareLocal() {}
-        override fun start(cloud: CloudConfiguration?) { starts++; state.value = RecognitionState(starts.toLong(), RecognitionPhase.Listening) }
+        override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) { starts++; state.value = RecognitionState(starts.toLong(), RecognitionPhase.Listening) }
         override fun finish() { state.value = state.value.copy(phase = RecognitionPhase.Finishing) }
         override fun cancel() { state.value = RecognitionState() }
         override fun clearResult() {}
@@ -208,14 +208,15 @@ class AssistInsertionInstrumentedTest {
                 subject.selectSource(SpeakInputSource.Local)
                 // Hold the service-acceptance boundary explicitly. A ready fake
                 // recognizer may otherwise start synchronously before this assertion.
-                subject.requestMicrophoneService = {}
+                var generation = 0L
+                subject.requestMicrophoneService = { generation = it }
                 subject.start(null)
                 assertTrue(subject.preparingToRecord)
                 assertFalse(subject.assistEditable)
                 assertNull(subject.beginAssistInsertion())
                 assertEquals(AssistInsertResult.NotEditable, subject.insertAssist(ticket, "x"))
                 assertEquals("draft", subject.draft.text)
-                subject.startPreparedRecording()
+                subject.startPreparedRecording(generation)
             }
             main {
                 assertEquals(RecognitionPhase.Listening, subject.asr.phase)

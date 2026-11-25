@@ -1,4 +1,5 @@
 #include <jni.h>
+#include "ggml-backend.h"
 #include "llama.h"
 #include <algorithm>
 #include <atomic>
@@ -179,12 +180,36 @@ Result translate(Session & s, const std::string & source, int limit, int timeout
 
 void initialize_llama() {
     static std::once_flag init;
-    std::call_once(init, [] { llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr); llama_backend_init(); });
+    std::call_once(init, [] {
+        llama_log_set([](ggml_log_level, const char *, void *) {}, nullptr);
+#ifdef SAYIN_ANDROID_CPU_VARIANTS
+        // Android can load packaged libraries directly by soname. GGML checks the
+        // CPU features in each variant before registering it.
+        constexpr const char * variants[] = {
+            "libggml-cpu-android_armv9.2_2.so",
+            "libggml-cpu-android_armv9.2_1.so",
+            "libggml-cpu-android_armv9.0_1.so",
+            "libggml-cpu-android_armv8.6_1.so",
+            "libggml-cpu-android_armv8.2_2.so",
+            "libggml-cpu-android_armv8.2_1.so",
+            "libggml-cpu-android_armv8.0_1.so",
+        };
+        for (const char * variant : variants) {
+            if (ggml_backend_load(variant)) break;
+        }
+        if (!ggml_backend_dev_by_type(GGML_BACKEND_DEVICE_TYPE_CPU)) {
+            throw std::runtime_error("No compatible Android CPU backend could be loaded");
+        }
+#endif
+        llama_backend_init();
+    });
 }
 
 extern "C" JNIEXPORT jlong JNICALL Java_seeyuer_sayin_translation_NativeBindings_create(JNIEnv *, jobject) {
-    initialize_llama();
-    try { return reinterpret_cast<jlong>(new Session()); } catch (...) { return 0; }
+    try {
+        initialize_llama();
+        return reinterpret_cast<jlong>(new Session());
+    } catch (...) { return 0; }
 }
 extern "C" JNIEXPORT void JNICALL Java_seeyuer_sayin_translation_NativeBindings_reset(JNIEnv *, jobject, jlong h) { session(h)->cancelled.store(false); }
 extern "C" JNIEXPORT void JNICALL Java_seeyuer_sayin_translation_NativeBindings_cancel(JNIEnv *, jobject, jlong h) { session(h)->cancelled.store(true); }

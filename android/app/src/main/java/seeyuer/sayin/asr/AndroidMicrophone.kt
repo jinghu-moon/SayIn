@@ -1,5 +1,6 @@
 package seeyuer.sayin.asr
 
+import java.io.IOException
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -13,7 +14,6 @@ import androidx.core.content.ContextCompat
 internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_AUDIO) constructor(
     context: Context,
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
-    private val onAudio: (rms: Float, samples: Int, pcm: FloatArray) -> Unit,
 ) : PcmSource {
     private val lock = Any()
     @Volatile private var stopped = false
@@ -42,22 +42,17 @@ internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_
         }
     }
 
-    override fun read(): FloatArray? {
+    override suspend fun read(): FloatArray? {
         if (stopped) return null
         val count = try {
             recorder.read(buffer, 0, buffer.size, AudioRecord.READ_BLOCKING)
         } catch (error: IllegalStateException) {
             if (stopped) return null
-            throw error
+            throw MicrophoneReadException("Recorder became invalid", error)
         }
-        if (count > 0) {
-            val samples = FloatArray(count) { buffer[it] / 32768f }
-            val rms = kotlin.math.sqrt(samples.sumOf { (it * it).toDouble() } / count).toFloat()
-            onAudio(rms, count, samples)
-            return samples
-        }
+        if (count > 0) return FloatArray(count) { buffer[it] / 32768f }
         if (stopped) return null
-        error("Microphone read failed: $count")
+        throw MicrophoneReadException("Microphone read failed: $count")
     }
 
     override fun requestStop() = synchronized(lock) {
@@ -82,3 +77,5 @@ internal class AndroidMicrophone @RequiresPermission(Manifest.permission.RECORD_
         }
     }
 }
+
+internal class MicrophoneReadException(message: String, cause: Throwable? = null) : IOException(message, cause)

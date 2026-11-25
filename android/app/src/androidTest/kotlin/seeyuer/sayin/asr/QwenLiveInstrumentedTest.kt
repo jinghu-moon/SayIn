@@ -33,7 +33,7 @@ class QwenLiveInstrumentedTest {
         var heardSpeech = false
         val speech = recognizeCloud(config, {
             object : PcmSource {
-                override fun read(): FloatArray? {
+                override suspend fun read(): FloatArray? {
                     if (!samples.hasRemaining()) return null
                     Thread.sleep(100)
                     return FloatArray(minOf(1600, samples.remaining())) { samples.get() / 32768f }

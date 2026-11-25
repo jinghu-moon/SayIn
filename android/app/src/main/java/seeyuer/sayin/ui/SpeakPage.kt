@@ -134,7 +134,7 @@ internal fun SpeakPage(
     val automaticPolicy = effectiveSendMode == SpeakSendMode.Automatic
     val sendable = normalized != null && draft.text.isNotBlank() && (draft.composition == null || automaticPolicy) && !session.requestLocked && !session.draftRestoring &&
         !session.draftStorageIssue && session.canSendRepresentation
-    val preparing = session.preparingToRecord || source == SpeakInputSource.Local && session.model in setOf(LocalModelPhase.Loading, LocalModelPhase.Warming)
+    val preparing = session.preparingToRecord
     val activeCountdown = session.interaction.countdown
     val countdownProgress by produceState(0f, activeCountdown) {
         val ticket = activeCountdown
@@ -298,6 +298,7 @@ internal fun SpeakPage(
     fun microphone(holdToSpeak: Boolean = false) {
         when {
             session.asr.phase == RecognitionPhase.Listening -> session.finishRecording()
+            session.asr.phase == RecognitionPhase.Finishing && !holdToSpeak -> session.resumeAfterFinal(owner, currentCloud)
             session.busy -> Unit
             else -> {
                 session.cancelAutoSend()
@@ -595,7 +596,7 @@ internal fun SpeakPage(
                     val micDescription = stringResource(micLabel)
                     val tag = if (voiceSource == SpeakInputSource.Cloud) "start-cloud-asr" else "start-local-asr"
                     val micEnabled = !locked && !permissionPending && !session.translation.running && !session.translationStopping &&
-                        (!busy || listening)
+                        (!busy || listening || asr.phase == RecognitionPhase.Finishing)
                     val callbacks = rememberUpdatedState(Triple<(Boolean) -> Unit, () -> Unit, () -> Unit>(::microphone,
                         { session.finishRecording() }, { session.cancelRecording() }))
                     val armedCallback = rememberUpdatedState<(Boolean) -> Unit>({ cancelArmed = it })
@@ -610,9 +611,11 @@ internal fun SpeakPage(
                             try {
                                 val released = withTimeoutOrNull(300) { waitForUpOrCancellation() != null }
                                 if (released == true) callbacks.value.first(false)
-                                else if (released == null && currentEvent.changes.any { it.id == down.id && it.pressed }) {
+                                else if (released == null && !session.busy &&
+                                    currentEvent.changes.any { it.id == down.id && it.pressed }
+                                ) {
                                     held = true
-                                    if (!session.busy) callbacks.value.first(true)
+                                    callbacks.value.first(true)
                                     while (true) {
                                         val event = awaitPointerEvent()
                                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
@@ -642,7 +645,8 @@ internal fun SpeakPage(
                             Crossfade(if (listening) VoiceLinkIcon.Stop else VoiceLinkIcon.Microphone, animationSpec = tween(160)) { icon ->
                                 Icon(icon.vector, null, Modifier.size(24.dp), tint = color.onPrimary.copy(alpha = if (micEnabled) 1f else .4f))
                             }
-                            if (empty) Text(stringResource(R.string.speak_start_short), fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = color.onPrimary)
+                            if (empty) Text(stringResource(micLabel), fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold, color = color.onPrimary, maxLines = 1)
                         }
                     }
                     if (!empty) Column(Modifier.weight(1f).height(44.dp), horizontalAlignment = Alignment.CenterHorizontally,
@@ -653,7 +657,7 @@ internal fun SpeakPage(
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             asr.phase == RecognitionPhase.Finishing -> Text(stringResource(R.string.asr_finishing),
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            asr.speechEnding -> Text(stringResource(R.string.asr_speech_ending),
+                            listening && asr.autoFinishUnavailable -> Text(stringResource(R.string.asr_auto_finish_unavailable),
                                 color = color.onPrimary, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             !listening && session.autoStopped && !busy && session.draft.text.isNotBlank() ->
                                 Text(stringResource(R.string.speak_auto_stopped_resume),
@@ -672,7 +676,9 @@ internal fun SpeakPage(
                                 VoiceWaveform(asr.audioLevel, listening, color.onPrimary)
                                 Text(if (uncertain) stringResource(R.string.speak_review_short) else buildString {
                                     if (listening) {
-                                        append(stringResource(R.string.speak_listening_short))
+                                        val listeningLabel = if (source == SpeakInputSource.Local && session.continuousDictation)
+                                            R.string.speak_continuous_listening_short else R.string.speak_listening_short
+                                        append(stringResource(listeningLabel))
                                         append(" · ")
                                     }
                                     if (recordingSeconds > 0 || listening) append("%02d:%02d".format(recordingSeconds / 60, recordingSeconds % 60))

@@ -2,6 +2,15 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins { alias(libs.plugins.android.library) }
 
+val benchmarkBackend = providers.gradleProperty("sayin.r2t2BenchmarkBackend").orNull
+if (benchmarkBackend != null) {
+    require(benchmarkBackend in setOf("arm", "vulkan") &&
+        providers.gradleProperty("sayin.instrumentationBuildType").orNull == "imageTest" &&
+        providers.gradleProperty("sayin.emulatorTests").orNull != "true") {
+        "R2T2 benchmark backends require an arm64 imageTest build and backend arm or vulkan."
+    }
+}
+
 android {
     namespace = "seeyuer.sayin.translation"
     compileSdk = 37
@@ -12,7 +21,17 @@ android {
         consumerProguardFiles("consumer-rules.pro")
         externalNativeBuild.cmake {
             // Quantized CPU kernels need optimization in Debug too; retain symbols for JNI debugging.
-            arguments += listOf("-DANDROID_STL=c++_shared", "-DCMAKE_C_FLAGS_DEBUG=-O2 -g", "-DCMAKE_CXX_FLAGS_DEBUG=-O2 -g")
+            arguments += listOf(
+                "-DANDROID_STL=c++_shared",
+                "-DCMAKE_C_FLAGS_DEBUG=-O2 -g",
+                "-DCMAKE_CXX_FLAGS_DEBUG=-O2 -g",
+                "-DSAYIN_R2T2_BENCHMARK_BACKEND=${benchmarkBackend.orEmpty()}",
+            )
+            if (benchmarkBackend == "vulkan") {
+                providers.gradleProperty("sayin.r2t2VulkanHeaders").orNull?.let { arguments += "-DVulkan_INCLUDE_DIR=$it" }
+                providers.gradleProperty("sayin.r2t2SpirvHeaders").orNull?.let { arguments += "-DSPIRV-Headers_DIR=$it" }
+                providers.gradleProperty("sayin.r2t2Glslc").orNull?.let { arguments += "-DVulkan_GLSLC_EXECUTABLE=$it" }
+            }
             cppFlags += listOf("-std=c++17", "-fvisibility=hidden")
         }
     }

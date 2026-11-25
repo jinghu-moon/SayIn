@@ -26,7 +26,7 @@ class TranslationSessionInstrumentedTest {
         override val model = MutableStateFlow(LocalModelPhase.Ready)
         var starts = 0
         override fun prepareLocal() {}
-        override fun start(cloud: CloudConfiguration?) { starts++; state.value = RecognitionState(session = starts.toLong(), phase = RecognitionPhase.Listening) }
+        override fun start(cloud: CloudConfiguration?, autoFinish: Boolean, localSilenceMillis: Int) { starts++; state.value = RecognitionState(session = starts.toLong(), phase = RecognitionPhase.Listening) }
         override fun finish() {}
         override fun cancel() { state.value = RecognitionState() }
         override fun clearResult() {}

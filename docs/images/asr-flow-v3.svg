@@ -1,0 +1,119 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1220" viewBox="0 0 1600 1220"
+     role="img" aria-labelledby="title description" lang="zh-Hans" xml:lang="zh-Hans">
+  <title id="title">SayIn 手机端语音识别流程 V3</title>
+  <desc id="description">目标方案。点按后采集与引擎准备并行，有结果就更新草稿。短停顿可触发分段，持续静音约两秒自动停麦。按引擎处理尾部音频并完成最终稿，然后交给发送策略。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" markerWidth="7" markerHeight="7" refX="9" refY="5" orient="auto">
+      <path d="M1 1l7 4-7 4" fill="none" stroke="#657891" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+    <style>
+      text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #18283c; }
+      .title { font-size: 44px; font-weight: 700; }
+      .section { font-size: 25px; font-weight: 700; }
+      .heading { font-size: 21px; font-weight: 700; }
+      .body { font-size: 17px; fill: #435770; }
+      .detail { font-size: 16px; fill: #4c6178; }
+      .label { font-size: 16px; font-weight: 700; fill: #1f65b6; }
+      .green { fill: #216f61; }
+      .white { fill: #fff; }
+      .muted-white { fill: #e0ebfa; }
+      .panel { fill: #fff; stroke: #d6e1ee; stroke-width: 1.5; }
+      .blue-panel { fill: #f1f7ff; stroke: #c4daf5; stroke-width: 1.5; }
+      .green-panel { fill: #eef8f4; stroke: #c4e2d8; stroke-width: 1.5; }
+      .arrow { fill: none; stroke: #657891; stroke-width: 2; marker-end: url(#arrow); }
+      .branch { fill: none; stroke: #657891; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1220" fill="#f6f8fc"/>
+  <path d="M48 37h40" stroke="#1f75db" stroke-width="4" stroke-linecap="round"/>
+  <text x="104" y="43" class="label">SayIn · Android</text>
+  <text x="48" y="98" class="title">手机端语音识别流程</text>
+  <rect x="1393" y="58" width="159" height="39" rx="19.5" fill="#e6f0fd"/>
+  <text x="1472.5" y="83" text-anchor="middle" class="label">V3 目标方案</text>
+  <text x="48" y="134" class="body">点按就能说 · 有结果就上屏 · 停顿后自动收尾</text>
+  <path d="M48 154h1504" stroke="#d6e1ee" stroke-width="1.5"/>
+
+  <text x="48" y="194" class="section">点按与开麦</text>
+  <text x="213" y="193" class="body">进入说话页后，可预热已选本地模型</text>
+  <rect x="48" y="263" width="290" height="92" rx="15" fill="#173b67"/>
+  <text x="68" y="296" class="heading white">点击说话</text>
+  <text x="68" y="325" class="body muted-white">权限就绪后发起录音</text>
+  <rect x="402" y="210" width="668" height="92" rx="15" class="blue-panel"/>
+  <text x="423" y="241" class="heading">开始采集 · 麦克风就绪即显示「正在听」</text>
+  <text x="423" y="271" class="body">16 kHz 单声道 PCM · 引擎未就绪时按顺序暂存首段音频</text>
+  <rect x="402" y="316" width="668" height="92" rx="15" class="panel"/>
+  <text x="423" y="347" class="heading">并行准备 · VAD 与所选识别引擎</text>
+  <text x="423" y="377" class="body">VAD 从首帧分析 · 本地复用权重 · 云端建立本次连接</text>
+  <rect x="1134" y="263" width="418" height="92" rx="15" class="blue-panel"/>
+  <text x="1155" y="296" class="heading">音频按序进入识别器</text>
+  <text x="1155" y="325" class="body">补喂暂存音频，再消费实时音频</text>
+  <path d="M338 309h32m0-53v106" class="branch"/>
+  <path d="M370 256h32" class="arrow"/>
+  <path d="M370 362h32" class="arrow"/>
+  <path d="M1070 256h32v106h-32" class="branch"/>
+  <path d="M1102 309h32" class="arrow"/>
+  <text x="1134" y="386" class="detail">缓存有上限，超限提示并结束本次采集</text>
+
+  <text x="48" y="456" class="section">录音中出字</text>
+  <text x="213" y="455" class="body">各引擎独立确认句段，临时结果随识别更新草稿</text>
+  <rect x="48" y="476" width="364" height="134" rx="15" class="panel"/>
+  <rect x="428" y="476" width="364" height="134" rx="15" class="panel"/>
+  <rect x="808" y="476" width="364" height="134" rx="15" class="panel"/>
+  <rect x="1188" y="476" width="364" height="134" rx="15" class="panel"/>
+  <text x="68" y="504" class="label">原生流式</text>
+  <text x="68" y="534" class="heading">X-ASR 480 ms</text>
+  <text x="68" y="562" class="body">边说边出字，原生端点确认句段</text>
+  <text x="68" y="586" class="detail">最终稿按需补标点</text>
+  <text x="448" y="504" class="label">窗口预览</text>
+  <text x="448" y="534" class="heading">Confucius4-R2T2</text>
+  <text x="448" y="562" class="body">录音中更新文字，按窗口重算</text>
+  <text x="448" y="586" class="detail">收尾时确认最后一段</text>
+  <text x="828" y="504" class="label">分段识别</text>
+  <text x="828" y="534" class="heading">Qwen3-ASR · Fun-ASR-Nano</text>
+  <text x="828" y="562" class="body">短停顿或窗口上限后解码</text>
+  <text x="828" y="586" class="detail">0.6B 可预览，短段可合并后提交</text>
+  <text x="1208" y="504" class="label">云端流式</text>
+  <text x="1208" y="534" class="heading">豆包 · 千问</text>
+  <text x="1208" y="562" class="body">手机直连，按服务回包更新</text>
+  <text x="1208" y="586" class="detail">分句、标点和定稿遵循服务协议</text>
+
+  <rect x="48" y="636" width="1504" height="211" rx="19" class="green-panel"/>
+  <text x="72" y="673" class="section">停顿与自动停录</text>
+  <text x="72" y="701" class="body">普通点按录音 · 两个时点都从最后一次有效语音起算</text>
+  <path d="M91 757h1418" stroke="#a8c9bf" stroke-width="3" stroke-linecap="round"/>
+  <path d="M91 757h1418" stroke="#409483" stroke-width="3" stroke-dasharray="6 8" stroke-linecap="round"/>
+  <circle cx="91" cy="757" r="8" fill="#216f61" stroke="#fff" stroke-width="2"/>
+  <circle cx="525" cy="757" r="8" fill="#216f61" stroke="#fff" stroke-width="2"/>
+  <circle cx="1509" cy="757" r="8" fill="#216f61" stroke="#fff" stroke-width="2"/>
+  <text x="91" y="743" class="label green">0 秒</text>
+  <text x="525" y="743" text-anchor="middle" class="label green">0.45–0.6 秒 · 验证起点</text>
+  <text x="1509" y="743" text-anchor="end" class="label green">约 2 秒 · 验证起点</text>
+  <text x="91" y="788" class="heading">最后一次有效语音</text>
+  <text x="525" y="788" text-anchor="middle" class="heading">可建议分段，继续收音</text>
+  <text x="1509" y="788" text-anchor="end" class="heading">持续静音则自动停麦</text>
+  <text x="91" y="822" class="body">续说时重置静音计时，圆环可提示仍能继续说</text>
+  <text x="1509" y="822" text-anchor="end" class="body">手动点结束或长按松手时立即停麦</text>
+
+  <text x="48" y="888" class="section">尾部音频与最终稿</text>
+  <text x="290" y="887" class="body">停麦后显示「正在收尾」，各引擎排空后提交最终稿</text>
+  <rect x="48" y="910" width="486" height="138" rx="15" class="panel"/>
+  <rect x="557" y="910" width="486" height="138" rx="15" class="panel"/>
+  <rect x="1066" y="910" width="486" height="138" rx="15" class="panel"/>
+  <text x="68" y="943" class="heading">非流式 · 提交前处理尾音</text>
+  <text x="68" y="973" class="body">保留少量尾字上下文，裁掉多余尾噪</text>
+  <text x="68" y="1001" class="detail">已确认分段且没有续说时，跳过纯尾噪段</text>
+  <text x="577" y="943" class="heading">本地流式／预览 · 保护尾字</text>
+  <text x="577" y="973" class="body">疑似停顿时短暂暂存待送音频</text>
+  <text x="577" y="1001" class="detail">续说时按序补喂，停录后按引擎补尾并排空</text>
+  <text x="1086" y="943" class="heading">云端 · 等待最终回包</text>
+  <text x="1086" y="973" class="body">按服务协议发送剩余音频及结束消息</text>
+  <text x="1086" y="1001" class="detail">收到最终回包后提交草稿</text>
+
+  <rect x="48" y="1075" width="1504" height="80" rx="16" fill="#173b67"/>
+  <text x="72" y="1108" class="heading white">最终稿就绪 → 留在草稿</text>
+  <text x="72" y="1135" class="body muted-white">开启自动发送时，最终稿通过发送条件校验后才开始倒计时</text>
+  <path d="M1081 1095v40" stroke="#50739b" stroke-width="1"/>
+  <text x="1105" y="1121" class="body muted-white">空录音、取消或失败时保留已有草稿</text>
+  <text x="48" y="1191" class="detail">验收记录　点按至开麦 · 开口至首字 · 最后语音至定稿 · 续说误停 · 尾字完整性与尾噪误识别</text>
+</svg>
