@@ -1,5 +1,7 @@
 package seeyuer.sayin.data
 
+import org.json.JSONObject
+
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Bitmap
@@ -78,8 +80,9 @@ class ImageInputInstrumentedTest {
         check(target.packageName.endsWith(".imagetest")) { "Use the isolated imageTest application" }
         val directory=File(target.noBackupFilesDir,"image-files-${UUID.randomUUID()}")
         val store=ProtectedStore(target)
-        val files=ImageFiles(directory,store::encryptImage,store::decryptImage)
+        val files=ImageFiles(directory,store)
         val host=UUID.randomUUID().toString();val device=UUID.randomUUID().toString()
+        store.save(JSONObject().put("host_id", host).put("pair_id", device))
         val source=png()
         try {
             prepareMobileImage(source).use { prepared ->
@@ -89,16 +92,16 @@ class ImageInputInstrumentedTest {
                 val reference=files.write(host,device,prepared.metadata,prepared.bytes)
                 val ciphertext=directory.resolve("${reference.resourceId}.image").readBytes()
                 assertFalse(ciphertext.contentEquals(prepared.bytes))
-                val restored=ImageFiles(directory,store::encryptImage,store::decryptImage).read(host,device,reference)
+                val restored=ImageFiles(directory,store).read(host,device,reference)
                 assertArrayEquals(prepared.bytes,restored);restored.fill(0)
-                assertThrows(IllegalArgumentException::class.java) { files.read(UUID.randomUUID().toString(),device,reference) }
-                assertThrows(IllegalArgumentException::class.java) { files.read(host,UUID.randomUUID().toString(),reference) }
+                assertThrows(IllegalStateException::class.java) { files.read(UUID.randomUUID().toString(),device,reference) }
+                assertThrows(IllegalStateException::class.java) { files.read(host,UUID.randomUUID().toString(),reference) }
                 ciphertext[ciphertext.lastIndex]=(ciphertext.last().toInt() xor 1).toByte()
                 directory.resolve("${reference.resourceId}.image").writeBytes(ciphertext)
                 assertThrows(Exception::class.java) { files.read(host,device,reference) }
             }
             assertThrows(IllegalArgumentException::class.java) { prepareMobileImage("not an image".toByteArray()) }
-        } finally { source.fill(0);directory.deleteRecursively() }
+        } finally { store.forget(host, device); source.fill(0);directory.deleteRecursively() }
     }
 
     @Test fun schemaUpgradeKeepsExistingOutboxAndSeparatesImageQuotaFromText() = runBlocking {
@@ -111,11 +114,14 @@ class ImageInputInstrumentedTest {
             db.execSQL("INSERT INTO outbox VALUES(?,?,?,'scope',?,2,'saved',NULL,NULL,1,?)",arrayOf(id,host,device,byteArrayOf(1,2),byteArrayOf(3,4)))
             db.version=2
         }
-        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY).build()
+        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
         try {
             val dao=database.outbox();val original=checkNotNull(dao.find(id,host,device))
             assertEquals("text",original.kind);assertArrayEquals(byteArrayOf(1,2),original.payload)
             assertArrayEquals(byteArrayOf(3,4),original.transcript)
+            assertNull(original.requestRev)
+            assertNull(original.executionStage)
+            assertFalse(original.confirmed)
             val image=OutboxItem(UUID.randomUUID().toString(),host,device,"scope",byteArrayOf(7),0,"uploading",null,null,2,
                 kind="image",imageResource=UUID.randomUUID().toString(),imageReference=byteArrayOf(8),imageByteCount=MAX_IMAGE_BYTES)
             dao.enqueue(image)
@@ -170,12 +176,14 @@ class ImageInputInstrumentedTest {
             val pendingDraft=waitFor{it.imageDraft!=null&&!it.imagePreparing}.imageDraft!!.image
             val paired=PairedHost(checkNotNull(ProtectedStore(context).load()))
             repository.foreground(false);waitFor{it.connection==Connection.OFFLINE};repository.close();delay(200)
-            val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").build()
+            val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
             val pendingId=UUID.randomUUID().toString()
             try {
                 database.outbox().enqueue(OutboxItem(pendingId,paired.hostId,paired.deviceId,checkNotNull(prepared.target),
-                    ProtectedStore(context).encrypt("{\"kind\":\"image_pending\"}".toByteArray()),0,"uploading",null,null,System.currentTimeMillis(),
-                    kind="image",imageResource=image.resourceId,imageReference=first.imageReference,imageByteCount=image.metadata.bytes))
+                    ProtectedStore(context).encrypt(paired.hostId,paired.pairId,"{\"kind\":\"image_pending\"}".toByteArray()),0,"uploading",null,null,System.currentTimeMillis(),
+                    kind="image",imageResource=pendingDraft.resourceId,
+                    imageReference=ProtectedStore(context).encrypt(paired.hostId,paired.pairId,
+                        pendingDraft.json().toString().toByteArray()),imageByteCount=pendingDraft.metadata.bytes))
             } finally {database.close()}
             repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()})
             waitFor{it.connection==Connection.OFFLINE};repository.foreground(true)

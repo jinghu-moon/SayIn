@@ -35,6 +35,10 @@ internal data class OutboxItem(
     val application: ByteArray? = null,
     @ColumnInfo(defaultValue = "0") val historyHidden: Boolean = false,
     val method: String? = null,
+    val requestRev: String? = null,
+    val executionStage: String? = null,
+    val uncertainScope: String? = null,
+    @ColumnInfo(defaultValue = "0") val confirmed: Boolean = false,
 )
 
 @Entity(tableName = "image_drafts", primaryKeys = ["hostId", "deviceId"])
@@ -45,15 +49,26 @@ internal interface OutboxDao {
     @Insert suspend fun insert(item: OutboxItem)
     @Query("SELECT COUNT(*) FROM outbox WHERE payload IS NOT NULL") suspend fun pendingCount(): Int
     @Query("SELECT COALESCE(SUM(byteCount),0) FROM outbox WHERE payload IS NOT NULL") suspend fun pendingBytes(): Int
+    @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL") suspend fun pendingCountFor(hostId: String, deviceId: String): Int
+    @Query("SELECT COALESCE(SUM(byteCount),0) FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL") suspend fun pendingBytesFor(hostId: String, deviceId: String): Int
+    @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND payload IS NOT NULL") suspend fun pendingCountForHost(hostId: String): Int
+    @Query("SELECT COALESCE(SUM(byteCount),0) FROM outbox WHERE hostId=:hostId AND payload IS NOT NULL") suspend fun pendingBytesForHost(hostId: String): Int
     @Query("SELECT COUNT(*) FROM outbox WHERE kind='image' AND payload IS NOT NULL") suspend fun pendingImages(): Int
     @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImagesFor(hostId: String, deviceId: String): Int
+    @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImagesForHost(hostId: String): Int
     @Query("SELECT COALESCE(SUM(imageByteCount),0) FROM outbox WHERE kind='image' AND payload IS NOT NULL") suspend fun pendingImageBytes(): Int
+    @Query("SELECT COALESCE(SUM(imageByteCount),0) FROM outbox WHERE hostId=:hostId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImageBytesForHost(hostId: String): Int
     @Transaction suspend fun enqueue(item: OutboxItem): List<String> {
-        check(pendingCount() < 16 && pendingBytes() + item.byteCount <= 65536)
+        check(pendingCountFor(item.hostId, item.deviceId) < 16)
+        check(pendingBytesFor(item.hostId, item.deviceId) + item.byteCount <= 65536)
+        check(pendingCountForHost(item.hostId) < 32)
+        check(pendingBytesForHost(item.hostId) + item.byteCount <= 131072)
         check(item.kind in setOf("text", "image"))
         if (item.kind == "image") {
             check(item.byteCount == 0 && item.imageResource != null && item.imageReference != null && item.imageByteCount in 1..MAX_IMAGE_BYTES)
-            check(pendingImagesFor(item.hostId, item.deviceId) < 1 && pendingImageBytes().toLong() + item.imageByteCount <= 3L * MAX_IMAGE_BYTES)
+            check(pendingImagesFor(item.hostId, item.deviceId) < 1)
+            check(pendingImagesForHost(item.hostId) < 2)
+            check(pendingImageBytesForHost(item.hostId).toLong() + item.imageByteCount <= 2L * MAX_IMAGE_BYTES)
         } else check(item.imageResource == null && item.imageReference == null && item.imageByteCount == 0)
         insert(item)
         return trimTerminal()
@@ -68,8 +83,9 @@ internal interface OutboxDao {
     suspend fun application(id: String, host: String, device: String, value: ByteArray)
     @Query("SELECT * FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL ORDER BY createdAt,id") suspend fun pending(hostId: String, deviceId: String): List<OutboxItem>
     @Query("SELECT * FROM outbox WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId LIMIT 1") suspend fun find(id: String, hostId: String, deviceId: String): OutboxItem?
-    @Query("UPDATE outbox SET state=:state,`order`=:order,reason=:reason,method=:method,payload=CASE WHEN :terminal THEN NULL ELSE payload END,byteCount=CASE WHEN :terminal THEN 0 ELSE byteCount END WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId")
-    suspend fun status(id: String, hostId: String, deviceId: String, state: String, order: String?, reason: String?, terminal: Boolean, method: String? = null)
+    @Query("UPDATE outbox SET state=:state,`order`=:order,reason=:reason,method=:method,requestRev=:requestRev,executionStage=:executionStage,uncertainScope=:uncertainScope,confirmed=:confirmed,payload=CASE WHEN :terminal THEN NULL ELSE payload END,byteCount=CASE WHEN :terminal THEN 0 ELSE byteCount END WHERE id=:id AND hostId=:hostId AND deviceId=:deviceId")
+    suspend fun status(id: String, hostId: String, deviceId: String, state: String, order: String?, reason: String?, terminal: Boolean, method: String? = null,
+        requestRev: String? = null, executionStage: String? = null, uncertainScope: String? = null, confirmed: Boolean = false)
     @Query("SELECT DISTINCT imageResource FROM outbox WHERE imageResource IS NOT NULL AND payload IS NULL AND id NOT IN (SELECT id FROM outbox ORDER BY createdAt DESC LIMIT 100)") suspend fun terminalGarbageImages(): List<String>
     @Query("DELETE FROM outbox WHERE payload IS NULL AND id NOT IN (SELECT id FROM outbox ORDER BY createdAt DESC LIMIT 100)") suspend fun deleteTerminalGarbage()
     @Transaction suspend fun trimTerminal(): List<String> {
@@ -89,7 +105,7 @@ internal interface OutboxDao {
 
 internal const val IMAGE_PATH_COPY_METHOD = "clipboard_image_path"
 
-@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 5, exportSchema = true,
+@Database(entities = [OutboxItem::class, ImageDraftEntity::class], version = 7, exportSchema = true,
     autoMigrations = [AutoMigration(from = 4, to = 5)])
 internal abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outbox(): OutboxDao
@@ -99,6 +115,14 @@ internal abstract class OutboxDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE outbox ADD COLUMN application BLOB")
                 db.execSQL("ALTER TABLE outbox ADD COLUMN historyHidden INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+        val ADD_V3_RECEIPT_FIELDS = object : Migration(5, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE outbox ADD COLUMN requestRev TEXT")
+                db.execSQL("ALTER TABLE outbox ADD COLUMN executionStage TEXT")
+                db.execSQL("ALTER TABLE outbox ADD COLUMN uncertainScope TEXT")
+                db.execSQL("ALTER TABLE outbox ADD COLUMN confirmed INTEGER NOT NULL DEFAULT 0")
             }
         }
         // Keep the user's paired identity and existing ledger; previous terminal text cannot be reconstructed.

@@ -18,7 +18,7 @@ use uuid::Uuid;
 use zeroize::Zeroizing;
 
 const EXECUTION_WINDOW: Duration = Duration::from_secs(30);
-const HOLD_RETENTION: Duration = Duration::from_secs(10 * 60);
+pub const DEFAULT_HOLD_RETENTION: Duration = Duration::from_secs(10 * 60);
 
 pub trait Protector: Send + 'static {
     fn protect(&self, plaintext: &[u8]) -> Result<Vec<u8>>;
@@ -242,6 +242,7 @@ pub struct Ledger {
     deadlines: HashMap<(String, String), Instant>,
     hold_deadlines: HashMap<(String, String), Instant>,
     clock: Arc<dyn Clock>,
+    hold_retention: Duration,
     healthy: bool,
     pub(crate) image_store: Option<crate::images::storage::ImageStore>,
     pub(crate) prepared_images: HashMap<
@@ -313,6 +314,19 @@ impl Ledger {
         protector: Box<dyn Protector>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self> {
+        Self::open_with_clock_and_retention(path, key, protector, clock, DEFAULT_HOLD_RETENTION)
+    }
+
+    pub fn open_with_clock_and_retention(
+        path: &Path,
+        key: Zeroizing<Vec<u8>>,
+        protector: Box<dyn Protector>,
+        clock: Arc<dyn Clock>,
+        hold_retention: Duration,
+    ) -> Result<Self> {
+        if hold_retention.is_zero() {
+            return Err(Error::Protocol("INVALID_HOLD_RETENTION"));
+        }
         if key.len() != 32 {
             return Err(Error::Protocol("INVALID_LEDGER_KEY"));
         }
@@ -420,6 +434,7 @@ impl Ledger {
             deadlines: HashMap::new(),
             hold_deadlines: HashMap::new(),
             clock,
+            hold_retention,
             healthy: true,
             image_store: None,
             prepared_images: HashMap::new(),
@@ -683,7 +698,7 @@ impl Ledger {
     }
 
     fn hold_expiry(&self) -> i64 {
-        self.unix_millis() + HOLD_RETENTION.as_millis() as i64
+        self.unix_millis() + self.hold_retention.as_millis() as i64
     }
 
     fn refresh_hold_deadlines(&mut self) -> Result<()> {
@@ -705,7 +720,7 @@ impl Ledger {
             self.deadlines.remove(&key);
             self.hold_deadlines.entry(key).or_insert_with(|| {
                 let remaining = expiry.saturating_sub(now_millis).max(0) as u64;
-                now + Duration::from_millis(remaining).min(HOLD_RETENTION)
+                now + Duration::from_millis(remaining).min(self.hold_retention)
             });
         }
         Ok(())
@@ -1145,7 +1160,7 @@ impl Ledger {
         if hold_expires_at.is_some() {
             self.hold_deadlines.insert(
                 (session.device.clone(), submit.id.clone()),
-                now + HOLD_RETENTION,
+                now + self.hold_retention,
             );
         }
         if let Operation::Image { image } = &submit.op
@@ -1535,7 +1550,7 @@ impl Ledger {
         window_mac: Option<&[u8]>,
     ) -> Result<()> {
         let hold_expires_at = self.hold_expiry();
-        let deadline = self.now() + HOLD_RETENTION;
+        let deadline = self.now() + self.hold_retention;
         let changed = self.database.execute(
             "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1,executable_at=NULL,hold_expires_at=?2,input_window_mac=?3
              WHERE pair_id=?4 AND id=?5 AND request_rev=?6 AND state='accepted'",

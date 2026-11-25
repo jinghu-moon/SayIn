@@ -1,7 +1,7 @@
 # SayIn 多设备 v3 TDD 实施计划
 
 更新：2026-11-26。  
-状态：P4 工程门禁已通过，按用户确认暂缓真实 2×2 及依赖该环境的性能验收。执行记录见 §9。  
+状态：P4 工程门禁已通过。P5 实现、P6 图片通道和 P7 迁移的隔离回归已通过，P8 真实环境验收暂缓。真实 2×2 及相关真实局域网、实际输入和性能验收暂缓。执行记录见 §9。  
 规范：[86 多设备规范](86-multi-host-multi-device-design.md)；验收：[89 验证计划](89-multi-device-verification.md)；独立增量：[90](90-multi-device-increment-design.md)。
 
 ## 1. 自检结论
@@ -376,7 +376,11 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P2 | T12 | 完成。重启把 `executing` 转为 `uncertain`、`accepted` 转为 `expired/restart_confirmation`，保留 `held` 的原期限，主动推送到期回执。 | 同 T09 |
 | P3 | T13–T16 | 完成。输入不确定性按目标窗口或全局范围分类，审查票据绑定请求与控制代次，局部与全局闸门均通过回归测试。 | 本提交 |
 | P4 | T17–T22 | 完成。v3 路径、认证、fencing、查询边界、控制错误、出站预算和连接槽回归通过。 | `d780826` |
-| P5–P9 | T23–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
+| P5 | T23–T26 | 部分实现。多主机选择、凭据隔离、双层配额、回执和重连首帧已接入。未决旧连接保留、主动重配和批准前凭据确认仍待实现。 | — |
+| P6 | T27–T29 | 双配对可同时上传并登记资源，绑定拒绝用例通过 loopback。等待公平性和 Android 草稿端到端门禁待验证。 | — |
+| P7 | T30–T31 | Windows 合成旧账本迁移测试通过。Room 迁移和 Keystore 回归已补，原地升级样本的端到端比对待执行。 | — |
+| P8 | T32–T33 | 真实环境验收暂缓。 | — |
+| P9 | T34–T36 | 待实施。 | — |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -424,3 +428,25 @@ scripts/verify_android_transport.ps1 -FullSuite
 - 首条应用消息必须是空或有界 `query`。查询最多 64 个 id，每个 id 返回 `status` 或 `unknown`，批次以 `queried` 结束。手机控制只接受 `cancel` 和 `release`，`pause` 返回 `UNSUPPORTED`。
 - 接收端新回执从 `not_started/none` 开始持久化执行元数据，执行阶段更新为 `prepared`，完成回执映射到合法 v3 输入方式和阶段。测试适配器的内部方法名不会泄漏到线协议。
 - loopback WSS 网络测试 8 项通过，transport 单元测试 13 项通过。真实 2×2、真实局域网、真机落字和性能测量仍未执行。
+
+### P5 门禁与行为对比
+
+- T23 从单份凭据扩展到按 `(host_id, pair_id)` 保存，历史使用原配对的密钥读取，忘记电脑后仍可查看对应历史。补充旧身份、文本、图片密文和缺失密钥的隔离测试。桌面端批准前要求手机确认候选凭据已持久化的流程仍待实现。
+- T24 从单一 Outbox 配额扩展到配对和主机两层。每配对最多 16 条、64 KiB、1 张图片，每主机最多 32 条、128 KiB、2 张图片。每次连接先查旧回执，查询结束才允许发送，结果不明的请求进入手动核对。
+- T25 统一回执标题，补充 `uncertain_scope`、`file_saved` 和缺失执行方式的文案。`uncertain` 可继续接收核对后的回执。JVM 展示映射测试通过。
+- T26 增加电脑选择入口并记住选择，重连退避为 1/2/5/10 秒。当前切换仍会关闭旧连接，旧目标未决时的双热连接及各配对独立退避待实现。
+- K40 首次复跑安装曾返回 `INSTALL_FAILED_USER_RESTRICTED`。后续使用原隔离脚本成功安装应用 APK 和测试 APK，设备回归继续验证。
+
+### P6–P7 工程验证
+
+- 图片上传和登记原先依赖旧版全局单一活动配对。现在使用已认证会话和接收范围判定，两个配对可同时完成上传并各自登记资源。loopback WSS 网络测试 9 项通过，新增缺失 binding、跨配对错误 binding 和双配对占槽验证。
+- Windows 合成 schema 1–6 迁移测试覆盖保留配对、收据、去重、历史和接受序号。新增 schema 6 `uncertain` 回填 `global`、保留缺省执行信息和重复打开的检查，定向用例通过。
+- Android Room schema 7 增加回执字段，迁移保留既有 Outbox 行。图片读取按原配对解密，并读取旧文件封装中的 `device_id`。真实 2×2、真实局域网、实际输入与性能测量暂缓。
+
+### 继续推进记录（2026-11-26）
+
+- 修正图片重启回归夹具。手动恢复的 image outbox 记录现在使用同一条未提交草稿的 `resource_id`、加密引用和字节数，避免夹具把第一张历史图片与第三张待恢复草稿混用。该修正只统一测试场景的数据关系，不改变生产逻辑。
+- Android 完整隔离门禁通过：文本/UI 165 项通过、7 项条件跳过，图片 4 项通过，均无重复 fake input。`scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -FullSuite -SkipBuild`。
+- Android JVM 单元测试和 lint 通过：`:app:testDebugUnitTest`、`:app:lintDebug`。
+- Rust 门禁通过：workspace 全目标测试、transport 网络 9 项、workspace clippy `-D warnings`、包级 rustfmt、i18n 和桌面依赖检查。
+- 真实 2×2、真实局域网、真机实际落字、性能和功耗验收仍未执行。当前 Android 证据来自隔离安装、ADB reverse、loopback WSS、测试输入适配器和 fake input，不能替代 L3 真机证据。

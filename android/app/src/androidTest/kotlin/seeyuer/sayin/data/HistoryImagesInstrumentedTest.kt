@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.room.Room
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.runBlocking
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayOutputStream
@@ -17,19 +18,22 @@ class HistoryImagesInstrumentedTest {
         val context = instrumentation.targetContext
         check(context.packageName == "seeyuer.sayin.imagetest")
         val database = Room.databaseBuilder(context, OutboxDatabase::class.java, "outbox.db")
-            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY).build()
+            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
         val store = ProtectedStore(context)
-        val files = ImageFiles(File(context.noBackupFilesDir, "images/outbox"), store::encryptImage, store::decryptImage)
+        val files = ImageFiles(File(context.noBackupFilesDir, "images/outbox"), store)
         val bitmap = Bitmap.createBitmap(800, 1200, Bitmap.Config.ARGB_8888).apply { eraseColor(0x882277aa.toInt()) }
         val bytes = ByteArrayOutputStream().use { output -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, output); output.toByteArray() }
         bitmap.recycle()
         val host = UUID.randomUUID().toString(); val device = UUID.randomUUID().toString(); val id = UUID.randomUUID().toString()
+        store.save(JSONObject().put("host_id", host).put("pair_id", device))
         val metadata = ImageMetadata(bytes.size, ImageMime.PNG, 800, 1200, imageDigest(bytes))
         val reference = files.write(host, device, metadata, bytes)
         val item = OutboxItem(id, host, device, "scope", null, 0, "injected", "1", null, System.currentTimeMillis(),
-            kind = "image", imageResource = reference.resourceId, imageReference = store.encrypt(reference.json().toString().toByteArray()), imageByteCount = bytes.size)
+            kind = "image", imageResource = reference.resourceId,
+            imageReference = store.encrypt(host, device, reference.json().toString().toByteArray()), imageByteCount = bytes.size)
         try {
             database.outbox().enqueue(item)
+            store.forget(host, device)
             val preview = HistoryImages.read(context, store, item, 256)
             assertTrue(preview.width <= 256 && preview.height <= 256)
             assertTrue(preview.hasAlpha()); preview.recycle()

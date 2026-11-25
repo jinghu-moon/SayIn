@@ -23,10 +23,10 @@ import java.util.concurrent.TimeUnit
 internal object HistoryImages {
     private fun source(context: Context, store: ProtectedStore, item: OutboxItem): Pair<ImageReference, ByteArray> {
         require(item.kind == "image" && !item.historyHidden)
-        val raw = store.decrypt(requireNotNull(item.imageReference))
+        val raw = store.decrypt(item.hostId, item.deviceId, requireNotNull(item.imageReference))
         val reference = try { ImageReference.parse(strictJson(raw.toString(Charsets.UTF_8))) } finally { raw.fill(0) }
         require(reference.resourceId == item.imageResource)
-        val files = ImageFiles(File(context.noBackupFilesDir, "images/${context.getDatabasePath("outbox.db").nameWithoutExtension}"), store::encryptImage, store::decryptImage)
+        val files = ImageFiles(File(context.noBackupFilesDir, "images/${context.getDatabasePath("outbox.db").nameWithoutExtension}"), store)
         return reference to files.read(item.hostId, item.deviceId, reference)
     }
 
@@ -56,7 +56,7 @@ class HistoryImageProvider : ContentProvider() {
     private val app get() = requireNotNull(context).applicationContext
     private val database by lazy {
         Room.databaseBuilder(app, OutboxDatabase::class.java, "outbox.db")
-            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY).build()
+            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
     }
     override fun onCreate() = true
     private fun id(uri: Uri): String {
@@ -69,7 +69,7 @@ class HistoryImageProvider : ContentProvider() {
     override fun getType(uri: Uri): String {
         val row = item(uri)
         val store = ProtectedStore(app)
-        val raw = store.decrypt(requireNotNull(row.imageReference))
+        val raw = store.decrypt(row.hostId, row.deviceId, requireNotNull(row.imageReference))
         return try { ImageReference.parse(strictJson(raw.toString(Charsets.UTF_8))).metadata.mime.wire } finally { raw.fill(0) }
     }
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {

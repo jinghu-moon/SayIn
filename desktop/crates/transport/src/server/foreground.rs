@@ -1,6 +1,6 @@
 //! Display-only, bounded sampling. No ledger writes or input authorization.
 use super::*;
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::engine::general_purpose::STANDARD;
 use voicelink_receiver::application_icon::ApplicationDisplay;
 
 #[derive(Clone, Debug)]

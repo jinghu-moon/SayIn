@@ -1,5 +1,7 @@
 package seeyuer.sayin.ui
 
+import seeyuer.sayin.data.receiptTitle
+
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -512,7 +514,7 @@ internal fun SpeakPage(
                 }, minHeight = 48.dp, colors = plainTextButtonColors())
                 session.submitted?.takeIf { it.state != "injected" }?.let { request ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(receiptText(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp)
+                        Text(stringResource(receiptTitle(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp)
                         if (request.state in setOf("saved", "accepted", "held", "executing", "review")) TextButton(
                             stringResource(R.string.speak_query), { onRequestAction(request.id, "query") }, minHeight = 48.dp,
                             enabled = state.connection == Connection.ONLINE, colors = plainTextButtonColors())
@@ -700,7 +702,7 @@ internal fun SpeakPage(
                             else -> stringResource(R.string.speak_send_to_computer)
                         }
                         val sendDescription = when {
-                            pending -> stringResource(receiptText(checkNotNull(session.submitted).state))
+                            pending -> stringResource(receiptTitle(checkNotNull(session.submitted).state))
                             slowFinal -> stringResource(R.string.asr_finishing)
                             injectedFeedback -> stringResource(R.string.receipt_injected)
                             else -> sendLabel

@@ -11,18 +11,23 @@ import java.nio.file.StandardCopyOption
 import java.util.UUID
 
 /** Private encrypted files; callers run all methods on IO, never the UI thread. */
-internal class ImageFiles(private val directory: File, private val protect: (ByteArray) -> ByteArray, private val unprotect: (ByteArray) -> ByteArray) {
+internal class ImageFiles(
+    private val directory: File,
+    private val protect: (String, String, ByteArray) -> ByteArray,
+    private val unprotect: (String, String, ByteArray) -> ByteArray,
+) {
+    constructor(directory: File, store: ProtectedStore) : this(directory, store::encryptImage, store::decryptImage)
     init { check(directory.isDirectory || directory.mkdirs()) }
     private fun path(id: String) = File(directory, "${validId(id)}.image")
 
     fun write(hostId: String, deviceId: String, metadata: ImageMetadata, bytes: ByteArray): ImageReference {
         validId(hostId); validId(deviceId); metadata.verify(bytes)
         val resource = ImageReference(UUID.randomUUID().toString(), metadata)
-        val envelope = JSONObject().put("host_id", hostId).put("device_id", deviceId).put("resource", resource.json())
+        val envelope = JSONObject().put("host_id", hostId).put("pair_id", deviceId).put("resource", resource.json())
             .toString().toByteArray(Charsets.UTF_8)
         require(envelope.size <= MAX_ENVELOPE)
         val plaintext = ByteBuffer.allocate(12 + envelope.size + bytes.size).put(MAGIC).putInt(envelope.size).put(envelope).put(bytes).array()
-        val encrypted = try { protect(plaintext) } finally { plaintext.fill(0) }
+        val encrypted = try { protect(hostId, deviceId, plaintext) } finally { plaintext.fill(0) }
         require(encrypted.size <= MAX_PROTECTED)
         val pending = File(directory, "${resource.resourceId}.part")
         check(pending.createNewFile())
@@ -37,14 +42,15 @@ internal class ImageFiles(private val directory: File, private val protect: (Byt
     fun read(hostId: String, deviceId: String, resource: ImageReference): ByteArray {
         validId(hostId); validId(deviceId)
         val protected = path(resource.resourceId).inputStream().use { boundedImageRead(it, MAX_PROTECTED) }
-        val plaintext = unprotect(protected)
+        val plaintext = unprotect(hostId, deviceId, protected)
         try {
             require(plaintext.size >= 12 && plaintext.copyOfRange(0, 8).contentEquals(MAGIC))
             val size = ByteBuffer.wrap(plaintext, 8, 4).int
             require(size in 1..MAX_ENVELOPE && 12 + size <= plaintext.size)
             val envelope = JSONObject(plaintext.copyOfRange(12, 12 + size).toString(Charsets.UTF_8))
-            require(envelope.keys().asSequence().toSet() == setOf("host_id", "device_id", "resource"))
-            require(envelope.getString("host_id") == hostId && envelope.getString("device_id") == deviceId)
+            val pairField = if (envelope.has("pair_id")) "pair_id" else "device_id"
+            require(envelope.keys().asSequence().toSet() == setOf("host_id", pairField, "resource"))
+            require(envelope.getString("host_id") == hostId && envelope.getString(pairField) == deviceId)
             require(ImageReference.parse(envelope.getJSONObject("resource")) == resource)
             val result = plaintext.copyOfRange(12 + size, plaintext.size)
             try { resource.metadata.verify(result) } catch (error: Exception) { result.fill(0); throw error }

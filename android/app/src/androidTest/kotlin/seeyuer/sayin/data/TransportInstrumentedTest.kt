@@ -93,7 +93,7 @@ class TransportInstrumentedTest {
                 }
             }
             val expired = repository.state.value.history.single { it.id == heldId }
-            assertEquals("receiver_focused", expired.reason)
+            assertEquals("hold_expired", expired.reason)
             assertNull(expired.payload)
             repository.foreground(false)
             waitFor { it.connection == Connection.OFFLINE }

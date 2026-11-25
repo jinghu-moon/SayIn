@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class ImageTransfer(
     private val open: (WebSocketListener) -> WebSocket,
     private val hostId: String,
-    private val deviceId: String,
+    private val pairId: String,
     private val sessionId: String,
     private val binding: String,
     private val reception: ReceptionScope,
@@ -37,7 +37,7 @@ internal class ImageTransfer(
         incoming.close()
     }
     private fun checkScope() { check(!closed.get() && allowed()) { "IMAGE_SCOPE" } }
-    private fun json(kind: String, id: String) = JSONObject().put("v", 2).put("t", kind).put("session_id", sessionId).put("id", id)
+    private fun json(kind: String, id: String) = JSONObject().put("v", 3).put("t", kind).put("session_id", sessionId).put("id", id)
     private fun send(value: JSONObject) {
         checkScope()
         val text = value.toString()
@@ -48,7 +48,7 @@ internal class ImageTransfer(
         checkScope()
         val text = (incoming.receive() as Incoming.Text).value
         val value = strictJson(text)
-        require(value.getInt("v") == 2 && value.getString("t") == kind)
+        require(value.getInt("v") == 3 && value.getString("t") == kind)
         if (id != null) require(value.getString("id") == id)
         checkScope()
         value
@@ -77,9 +77,9 @@ internal class ImageTransfer(
             require(connected.socket === socket)
             // HostClient invokes Open only after full fixed-certificate + SAN
             // verification. The binding is never sent during TLS negotiation.
-            send(JSONObject().put("v", 2).put("t", "image_hello").put("session_id", sessionId).put("device_id", deviceId).put("binding", binding))
+            send(JSONObject().put("v", 3).put("t", "image_hello").put("session_id", sessionId).put("pair_id", pairId).put("binding", binding))
             val welcome = message("image_welcome")
-            require(welcome.getString("host_id") == hostId && welcome.getString("device_id") == deviceId && welcome.getString("session_id") == sessionId)
+            require(welcome.getString("host_id") == hostId && welcome.getString("pair_id") == pairId && welcome.getString("session_id") == sessionId)
             val id = UUID.randomUUID().toString()
             send(json("image_begin", id).put("target", reception.target).put("state_rev", reception.revision).put("metadata", metadata.json()))
             message("image_begun", id)

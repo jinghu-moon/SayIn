@@ -89,4 +89,66 @@ class OutboxInstrumentedTest {
             assertEquals(3, dao.pendingCount())
         } finally { database.close() }
     }
+
+    @Test fun pendingQuotasAreIsolatedByPairAndThenBoundedPerHost() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, OutboxDatabase::class.java).build()
+        try {
+            val dao = database.outbox()
+            val host = UUID.randomUUID().toString()
+            val firstPair = UUID.randomUUID().toString()
+            val secondPair = UUID.randomUUID().toString()
+            repeat(16) { index ->
+                dao.enqueue(OutboxItem(UUID.randomUUID().toString(), host, firstPair, "target", byteArrayOf(1), 4_096,
+                    "saved", null, null, index.toLong()))
+            }
+            repeat(16) { index ->
+                dao.enqueue(OutboxItem(UUID.randomUUID().toString(), host, secondPair, "target", byteArrayOf(1), 4_096,
+                    "saved", null, null, (100 + index).toLong()))
+            }
+            assertEquals(16, dao.pendingCountFor(host, firstPair))
+            assertEquals(16, dao.pendingCountFor(host, secondPair))
+            assertEquals(32, dao.pendingCountForHost(host))
+            assertEquals(131_072, dao.pendingBytesForHost(host))
+            try {
+                dao.enqueue(OutboxItem(UUID.randomUUID().toString(), host, secondPair, "target", byteArrayOf(1), 1,
+                    "saved", null, null, 200))
+                fail("Host quota must reject the 33rd pending request")
+            } catch (_: IllegalStateException) { }
+            assertEquals(32, dao.pendingCountForHost(host))
+        } finally { database.close() }
+    }
+
+    @Test fun imageQuotasAllowOnePerPairAndTwoPerHost() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val database = Room.inMemoryDatabaseBuilder(context, OutboxDatabase::class.java).build()
+        try {
+            val dao = database.outbox()
+            val host = UUID.randomUUID().toString()
+            val pairA = UUID.randomUUID().toString()
+            val pairB = UUID.randomUUID().toString()
+            fun image(pair: String, createdAt: Long) = OutboxItem(UUID.randomUUID().toString(), host, pair, "target", byteArrayOf(9), 0,
+                "uploading", null, null, createdAt, kind = "image", imageResource = UUID.randomUUID().toString(),
+                imageReference = byteArrayOf(1), imageByteCount = 1_000_000)
+            dao.enqueue(image(pairA, 1))
+            dao.enqueue(image(pairB, 2))
+            dao.insert(OutboxItem(UUID.randomUUID().toString(), host, pairB, "target", byteArrayOf(7), 1, "saved", null, null, 0,
+                kind = "text", imageByteCount = 9))
+            assertEquals(1, dao.pendingImagesFor(host, pairA))
+            assertEquals(2, dao.pendingImagesForHost(host))
+            assertEquals(2_000_000, dao.pendingImageBytesForHost(host))
+            try {
+                dao.enqueue(image(pairA, 3))
+                fail("A pair must have at most one pending image")
+            } catch (_: IllegalStateException) { }
+            val pairC = UUID.randomUUID().toString()
+            try {
+                dao.enqueue(image(pairC, 4))
+                fail("A host must have at most two pending images")
+            } catch (_: IllegalStateException) { }
+            val otherHostImage = image(UUID.randomUUID().toString(), 5).copy(hostId = UUID.randomUUID().toString())
+            dao.enqueue(otherHostImage)
+            assertEquals(1, dao.pendingImagesForHost(otherHostImage.hostId))
+        } finally { database.close() }
+    }
 }

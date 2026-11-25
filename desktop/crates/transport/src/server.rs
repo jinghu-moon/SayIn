@@ -2,12 +2,13 @@
 pub use crate::discovery::PublicationStatus;
 use crate::interfaces::NetworkBinding;
 use crate::{Error, HostIdentity, Result};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use futures_channel::{mpsc as notifications, oneshot};
 use futures_util::{SinkExt, StreamExt};
 use qrcode::{QrCode, render::svg};
 use serde_json::{Value, json};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     thread,
@@ -34,7 +35,9 @@ use voicelink_pairing::{BootstrapInfo, Exchange, Invitation, MAGIC, decode, enco
 use voicelink_receiver::{
     ledger::{ControlState, Session},
     protocol::{Receipt, Submit, strict_json, validate_uuid},
-    protocol_v3::{Execution, ExecutionMethod, ExecutionStage, Status, StatusFrame, StatusState},
+    protocol_v3::{
+        Application, Execution, ExecutionMethod, ExecutionStage, Status, StatusFrame, StatusState,
+    },
     worker::Receiver,
 };
 use zeroize::Zeroizing;
@@ -94,6 +97,7 @@ struct Shared {
     observers: Mutex<Vec<notifications::Sender<()>>>,
     failures: Mutex<VecDeque<(IpAddr, Instant, u8)>>,
     image_bindings: Mutex<HashMap<String, Arc<image_channel::Binding>>>,
+    uploading_pairs: Mutex<HashSet<String>>,
     image_slots: Arc<Semaphore>,
     image_decode: Arc<Semaphore>,
     control_slots: Arc<Semaphore>,
@@ -208,6 +212,7 @@ impl NetworkService {
             observers: Mutex::new(Vec::new()),
             failures: Mutex::new(VecDeque::new()),
             image_bindings: Mutex::new(HashMap::new()),
+            uploading_pairs: Mutex::new(HashSet::new()),
             image_slots: Arc::new(Semaphore::new(2)),
             image_decode: Arc::new(Semaphore::new(1)),
             control_slots: Arc::new(Semaphore::new(8)),
@@ -944,7 +949,10 @@ async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt)
         execution,
         reason: receipt.reason.clone(),
         server_ms: None,
-        application: None,
+        application: receipt.application.as_ref().map(|display| Application {
+            name: display.name.clone(),
+            icon_webp: display.icon_png.as_ref().map(|icon| STANDARD.encode(icon)),
+        }),
         uncertain_scope: receipt.uncertain_scope,
     };
     let encoded = StatusFrame::Receipt(status).encode()?;

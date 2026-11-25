@@ -23,8 +23,11 @@ import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ClientIssue
+import seeyuer.sayin.data.PairedTarget
 import seeyuer.sayin.designsystem.YuePalette
+import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import top.yukonga.miuix.kmp.basic.*
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** One form shared by the connection tab and the speak-page sheet. Secrets are not saveable. */
@@ -36,16 +39,22 @@ internal fun ConnectionActions(
     onCancel: () -> Unit,
     onUpdateAddress: (String, String) -> Unit,
     onForget: () -> Unit,
+    onSelectHost: (String) -> Unit = {},
 ) {
     var form by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
     var confirmUnpair by remember { mutableStateOf(false) }
     var endpoint by remember { mutableStateOf(TextFieldValue()) }
     var code by remember { mutableStateOf(TextFieldValue()) }
+    LaunchedEffect(state.selectedHostId) {
+        updating = false
+        confirmUnpair = false
+    }
+    val pairing = state.connection == Connection.PAIRING || state.connection == Connection.APPROVAL
     LaunchedEffect(state.paired, state.connection) {
         if (!state.paired) { updating = false; confirmUnpair = false; form = false; code = TextFieldValue() }
         if (!state.paired && state.busy) { form = false; code = TextFieldValue() }
-        if (state.connection == Connection.ONLINE) {
+        if (pairing || state.connection == Connection.ONLINE) {
             form = false
             updating = false
             endpoint = TextFieldValue()
@@ -54,9 +63,9 @@ internal fun ConnectionActions(
     }
     if (!state.storageHealthy || state.connection == Connection.LOADING || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (!state.paired && !state.busy) {
+        if (!state.busy) {
             if (!form) {
-                Action(R.string.scan_qr, primary = true, onClick = onScan)
+                Action(R.string.scan_qr, primary = !state.paired, onClick = onScan)
                 ConnectionTextAction(R.string.use_pair_code) { form = true }
             } else {
                 EndpointField(endpoint) { endpoint = it }
@@ -73,8 +82,11 @@ internal fun ConnectionActions(
                 ConnectionTextAction(R.string.connection_back) { form = false; code = TextFieldValue() }
             }
         }
-        if (!state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
-        if (state.paired) {
+        if (pairing || !state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
+        if (state.paired && !pairing && !form) {
+            if (state.pairedTargets.map { it.hostId }.distinct().size > 1) {
+                PairedHostSelector(state.pairedTargets, state.selectedHostId, onSelectHost)
+            }
             // Connection details stay visible; no overflow menu hides the address or the maintenance actions.
             Caption(stringResource(R.string.connection_network_help))
             Text(stringResource(R.string.connection_endpoint, state.address, state.port))
@@ -101,6 +113,24 @@ internal fun ConnectionActions(
             onConfirm = { onForget(); confirmUnpair = false },
         )
     }
+}
+
+@Composable
+private fun PairedHostSelector(
+    targets: List<PairedTarget>,
+    selectedHostId: String?,
+    onSelectHost: (String) -> Unit,
+) {
+    val hosts = targets.distinctBy { it.hostId }
+    val selectedIndex = hosts.indexOfFirst { it.hostId == selectedHostId }.coerceAtLeast(0)
+    WindowDropdownPreference(
+        title = stringResource(R.string.connection_computer),
+        items = hosts.map { stringResource(R.string.connection_endpoint, it.address, it.port) },
+        selectedIndex = selectedIndex,
+        startAction = { Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(22.dp)) },
+        modifier = Modifier.fillMaxWidth().testTag("paired-computer-selector"),
+        onSelectedIndexChange = { index -> hosts.getOrNull(index)?.let { onSelectHost(it.hostId) } },
+    )
 }
 
 @Composable

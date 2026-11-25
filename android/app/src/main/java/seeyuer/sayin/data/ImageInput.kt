@@ -59,10 +59,10 @@ internal class ImageInput(
     private val client: () -> HostClient?,
     private val session: () -> String?,
     private val emit: (ImageEvent) -> Boolean,
-    private val submit: (OutboxItem) -> Unit,
+    private val submit: suspend (OutboxItem) -> Unit,
     private val storageFailure: () -> Unit,
 ) {
-    private val files = ImageFiles(File(app.noBackupFilesDir, "images/${app.getDatabasePath("outbox.db").nameWithoutExtension}"), store::encryptImage, store::decryptImage)
+    private val files = ImageFiles(File(app.noBackupFilesDir, "images/${app.getDatabasePath("outbox.db").nameWithoutExtension}"), store)
     private val preparationLimit = Semaphore(1)
     private var preparation: Job? = null
     private var ticket = 0L
@@ -88,7 +88,7 @@ internal class ImageInput(
             }
         }
         val displayed = if (saved != null && draft != null) {
-            val image = decodeReference(draft.reference)
+            val image = decodeReference(draft)
             require(image.resourceId == draft.resourceId)
             val bytes = files.read(saved.hostId, saved.deviceId, image)
             try { LocalImageDraft(image, preview(bytes)) } finally { bytes.fill(0) }
@@ -100,8 +100,8 @@ internal class ImageInput(
         val capabilities = value.getJSONArray("capabilities")
         val supported = (0 until capabilities.length()).any { capabilities.getString(it) == "image" }
         if (supported) {
-            val channel = value.getJSONObject("image_channel")
-            require(channel.getString("path") == "/v2/images" && channel.getInt("max_image_bytes") == MAX_IMAGE_BYTES &&
+            val channel = value.getJSONObject("image")
+            require(channel.getString("path") == "/sayin/v3/images" && channel.getInt("max_image_bytes") == MAX_IMAGE_BYTES &&
                 channel.getInt("max_pixels") == MAX_IMAGE_PIXELS.toInt() && channel.getInt("max_side") == MAX_IMAGE_SIDE && channel.getInt("chunk_bytes") == IMAGE_CHUNK_BYTES)
             binding = channel.getString("binding").also { require(decode(it).size == 32) }
         }
@@ -178,7 +178,7 @@ internal class ImageInput(
         val previous = dao.imageDraft(event.host.hostId, event.host.deviceId)
         try {
             dao.saveImageDraft(ImageDraftEntity(event.host.hostId, event.host.deviceId, event.image.resourceId,
-                store.encrypt(event.image.json().toString().toByteArray()), System.currentTimeMillis()))
+                store.encrypt(event.host.hostId, event.host.pairId, event.image.json().toString().toByteArray()), System.currentTimeMillis()))
             if (previous != null && !dao.imageReferenced(previous.resourceId)) files.remove(previous.resourceId)
         } catch (_: Exception) {
             if (!dao.imageReferenced(event.image.resourceId)) files.remove(event.image.resourceId)
@@ -195,11 +195,17 @@ internal class ImageInput(
         val token = binding ?: run { issue(ImageIssue.NOT_SUPPORTED); return }
         val transport = client() ?: return
         val sessionId = session() ?: return
-        if (dao.pendingCount() >= 16 || dao.pendingImagesFor(saved.hostId, saved.deviceId) >= 1 ||
-            dao.pendingImageBytes().toLong() + draft.image.metadata.bytes > 3L * MAX_IMAGE_BYTES) { issue(ImageIssue.QUOTA); return }
+        if (dao.pendingCountFor(saved.hostId, saved.deviceId) >= 16 ||
+            dao.pendingBytesFor(saved.hostId, saved.deviceId) > 65536 ||
+            dao.pendingCountForHost(saved.hostId) >= 32 ||
+            dao.pendingBytesForHost(saved.hostId) > 131072 ||
+            dao.pendingImagesFor(saved.hostId, saved.deviceId) >= 1 ||
+            dao.pendingImagesForHost(saved.hostId) >= 2 ||
+            dao.pendingImageBytesForHost(saved.hostId).toLong() + draft.image.metadata.bytes > 2L * MAX_IMAGE_BYTES) { issue(ImageIssue.QUOTA); return }
         val item = OutboxItem(UUID.randomUUID().toString(), saved.hostId, saved.deviceId, event.reception.target,
-            store.encrypt(JSONObject().put("kind", "image_pending").toString().toByteArray()), 0, "uploading", null, null, System.currentTimeMillis(),
-            kind = "image", imageResource = draft.image.resourceId, imageReference = store.encrypt(draft.image.json().toString().toByteArray()), imageByteCount = draft.image.metadata.bytes)
+            store.encrypt(saved.hostId, saved.pairId, JSONObject().put("kind", "image_pending").toString().toByteArray()), 0, "uploading", null, null, System.currentTimeMillis(),
+            kind = "image", imageResource = draft.image.resourceId,
+            imageReference = store.encrypt(saved.hostId, saved.pairId, draft.image.json().toString().toByteArray()), imageByteCount = draft.image.metadata.bytes)
         try { cleanup(dao.enqueue(item)) } catch (_: Exception) { storageFailure(); return }
         val active = AtomicBoolean(true)
         val transfer = ImageTransfer(transport::openImages, saved.hostId, saved.deviceId, sessionId, token, event.reception,
@@ -222,7 +228,8 @@ internal class ImageInput(
     private suspend fun ready(event: ImageEvent.Ready) {
         val current = event.run
         if (run !== current || !current.active.get() || state.value.receptionScope != current.reception) { failed(current, ImageIssue.NOT_READY); return }
-        val payload = store.encrypt(JSONObject().put("kind", "image").put("image", event.image.json()).toString().toByteArray())
+        val payload = store.encrypt(current.item.hostId, current.item.deviceId,
+            JSONObject().put("kind", "image").put("image", event.image.json()).toString().toByteArray())
         try { check(dao.imageReady(current.item.id, current.item.hostId, current.item.deviceId, payload) == 1) }
         catch (_: Exception) { storageFailure(); return }
         current.submitted = true
@@ -267,7 +274,7 @@ internal class ImageInput(
         val saved = host() ?: return@withContext null
         val draft = dao.imageDraft(saved.hostId, saved.deviceId) ?: return@withContext null
         if (draft.resourceId != resourceId) return@withContext null
-        val image = runCatching { decodeReference(draft.reference) }.getOrNull() ?: return@withContext null
+        val image = runCatching { decodeReference(draft) }.getOrNull() ?: return@withContext null
         val bytes = runCatching { files.read(saved.hostId, saved.deviceId, image) }.getOrNull() ?: return@withContext null
         try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -286,8 +293,8 @@ internal class ImageInput(
         if (event is ImageEvent.Prepared && !dao.imageReferenced(event.image.resourceId)) files.remove(event.image.resourceId)
     }
     private fun issue(issue: ImageIssue) { state.update { it.copy(imageIssue = issue) } }
-    private fun decodeReference(value: ByteArray): ImageReference {
-        val decoded = store.decrypt(value)
+    private fun decodeReference(draft: ImageDraftEntity): ImageReference {
+        val decoded = store.decrypt(draft.hostId, draft.deviceId, draft.reference)
         return try { ImageReference.parse(strictJson(decoded.toString(Charsets.UTF_8))) } finally { decoded.fill(0) }
     }
 }

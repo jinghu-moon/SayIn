@@ -23,7 +23,7 @@ import javax.net.ssl.X509TrustManager
 /** A client exists for exactly one saved host. No system-wide TLS changes. */
 internal class HostClient(endpoint: HostEndpoint, network: Network? = null) {
     private val client: OkHttpClient
-    private val url = "https://${endpoint.tlsName}:${endpoint.port}/v2"
+    private val url = "https://${endpoint.tlsName}:${endpoint.port}/sayin/v3"
 
     init {
         val roots = KeyStore.getInstance(KeyStore.getDefaultType()).apply {

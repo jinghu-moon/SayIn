@@ -126,6 +126,21 @@ pub fn open_ledger(directory: &Path) -> Result<Ledger> {
 }
 
 pub fn open_ledger_with_clock(directory: &Path, clock: Arc<dyn Clock>) -> Result<Ledger> {
+    open_ledger_with_clock_and_retention(directory, clock, crate::ledger::DEFAULT_HOLD_RETENTION)
+}
+
+pub fn open_ledger_with_retention(
+    directory: &Path,
+    hold_retention: std::time::Duration,
+) -> Result<Ledger> {
+    open_ledger_with_clock_and_retention(directory, Arc::new(SystemClock), hold_retention)
+}
+
+pub fn open_ledger_with_clock_and_retention(
+    directory: &Path,
+    clock: Arc<dyn Clock>,
+    hold_retention: std::time::Duration,
+) -> Result<Ledger> {
     fs::create_dir_all(directory)?;
     let path = directory.join("receiver.sqlite3");
     let key_path = directory.join("receiver-key.dpapi");
@@ -153,7 +168,7 @@ pub fn open_ledger_with_clock(directory: &Path, clock: Arc<dyn Clock>) -> Result
     } else {
         return Err(Error::Protocol("LEDGER_IDENTITY_LOST"));
     };
-    Ledger::open_with_clock(&path, key, Box::new(protector), clock)
+    Ledger::open_with_clock_and_retention(&path, key, Box::new(protector), clock, hold_retention)
 }
 
 /// A lease is scoped to one operation, not to a user-managed window lock.

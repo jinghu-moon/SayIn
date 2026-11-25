@@ -123,7 +123,9 @@ internal open class HostEndpoint(val json: JSONObject) {
 }
 
 internal class PairedHost(json: JSONObject) : HostEndpoint(json) {
-    val deviceId = validId(json.getString("device_id"))
+    val pairId = validId(json.optString("pair_id").ifEmpty { json.getString("device_id") })
+    /** Kept as a source-level alias for image/history code while v3 uses pair_id on the wire. */
+    val deviceId: String get() = pairId
     val token = json.getString("token").also { require(decode(it).size == 32) }
 
     fun withAddress(address: String, port: String): PairedHost = PairedHost(JSONObject(json.toString()).apply {
@@ -131,6 +133,17 @@ internal class PairedHost(json: JSONObject) : HostEndpoint(json) {
         put("port", port.toInt().also { require(it in 1..65535) })
     })
 }
+
+/** A stable target entry shown by the phone. Selection is keyed by host id so a
+ * re-pair that rotates pair_id keeps the same computer selected. */
+internal data class PairedTarget(
+    val hostId: String,
+    val pairId: String,
+    val address: String,
+    val port: Int,
+)
+
+internal fun PairedHost.target(): PairedTarget = PairedTarget(hostId, pairId, address, port)
 
 internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
     val windowId = validId(json.getString("window_id"))
@@ -141,7 +154,8 @@ internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
         val saved = JSONObject(json.toString()).apply {
             remove("window_id")
             remove("secret")
-            put("device_id", response.getString("device_id"))
+            remove("device_id")
+            put("pair_id", response.getString("pair_id"))
             put("token", response.getString("token"))
         }
         return PairedHost(saved)

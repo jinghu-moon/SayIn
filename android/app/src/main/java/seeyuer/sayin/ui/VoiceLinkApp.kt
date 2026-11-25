@@ -136,7 +136,8 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
                     onPair = { address, port, code -> withNetwork { repository.pairCode(address, port, code) } },
                     onCancel = repository::cancelPairing,
                     onUpdateAddress = { address, port -> withNetwork { repository.updateAddress(address, port) } },
-                    onForget = repository::forget)
+                     onForget = repository::forget,
+                     onSelectHost = { hostId -> withNetwork { repository.selectHost(hostId) } })
                 state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION, ClientIssue.LOCAL_NETWORK_PERMISSION) }
                     ?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
                 if (permissionDenied || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
@@ -148,7 +149,7 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
                                 android.net.Uri.parse("package:${context.packageName}")))
                         })
                 }
-                if (cameraDenied && !state.paired && !state.busy) PermissionRecovery(R.string.camera_permission_denied, R.string.connect_camera_retry,
+                 if (cameraDenied && !state.busy) PermissionRecovery(R.string.camera_permission_denied, R.string.connect_camera_retry,
                     permanent = activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA),
                     onRequest = { cameraPermission.launch(Manifest.permission.CAMERA) }, onSettings = {
                         context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
@@ -187,6 +188,8 @@ internal fun connectionText(value: Connection): Int = when (value) {
 }
 internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.INVALID_PAIRING -> R.string.error_pairing
+    ClientIssue.PAIR_ALREADY_EXISTS -> R.string.v3_error_pair_already_exists
+    ClientIssue.PAIR_REPLACE_BLOCKED -> R.string.v3_error_pair_replace_blocked
     ClientIssue.CONNECTION -> R.string.error_connection
     ClientIssue.STORAGE -> R.string.error_storage
     ClientIssue.INVALID_TEXT -> R.string.error_text
@@ -198,19 +201,6 @@ internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.CANDIDATE_CONNECTION -> R.string.error_candidate_connection
     ClientIssue.TLS_REQUIRED -> R.string.error_tls
 }
-internal fun receiptText(value: String): Int = when (value) {
-    "accepted" -> R.string.receipt_accepted
-    "held" -> R.string.receipt_held
-    "executing" -> R.string.receipt_executing
-    "injected" -> R.string.receipt_injected
-    "cancelled" -> R.string.receipt_cancelled
-    "expired" -> R.string.receipt_expired
-    "failed" -> R.string.receipt_failed
-    "uncertain" -> R.string.receipt_uncertain
-    "review" -> R.string.receipt_review
-    else -> R.string.receipt_saved
-}
-
 internal fun imageDeliveryFailure(reason: String?): Int? = when (reason) {
     "image_export_failed" -> R.string.image_export_failed
     "image_saved_path_unavailable" -> R.string.image_saved_path_unavailable
@@ -218,12 +208,6 @@ internal fun imageDeliveryFailure(reason: String?): Int? = when (reason) {
     else -> null
 }
 
-internal fun receiptHelp(state: String): Int? = when (state) {
-    "accepted" -> R.string.receipt_accepted_help
-    "expired" -> R.string.receipt_expired_help
-    "held" -> R.string.receipt_held_help
-    else -> null
-}
 
 internal fun receiptCause(reason: String?): Int? = when (reason) {
         "receiver_focused" -> R.string.receipt_receiver_focused

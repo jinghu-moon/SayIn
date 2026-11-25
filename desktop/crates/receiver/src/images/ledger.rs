@@ -70,7 +70,6 @@ impl Ledger {
             || scope.device != session.device()
             || scope.session != session.id()
             || state.paused
-            || state.active_device_id.as_deref() != Some(session.device())
             || state.target.as_deref() != Some(&scope.target)
             || state.state_rev != scope.revision
         {

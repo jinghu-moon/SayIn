@@ -721,12 +721,70 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
 }
 
 #[tokio::test]
+async fn two_distinct_pairs_can_hold_image_slots_in_the_same_scope() {
+    use voicelink_receiver::images::wire::encode_chunk;
+    let directory = Directory::new();
+    let (receiver, service) = image_service(&directory, Arc::new(AtomicUsize::new(0))).await;
+    let first_invite = invitation(&service).await;
+    let first_pair = pair(&service, &first_invite).await;
+    let second_invite = invitation(&service).await;
+    let second_pair = pair(&service, &second_invite).await;
+    let state = receiver.state().await.unwrap();
+    receiver
+        .enable_foreground_input(state.state_rev, false)
+        .await
+        .unwrap();
+
+    let bytes = test_png();
+    let mut open_uploads = Vec::new();
+    for (invite, paired) in [(&first_invite, &first_pair), (&second_invite, &second_pair)] {
+        let mut control = socket(invite).await;
+        send(&mut control,json!({"v":3,"t":"hello","name":"Image fixture","pair_id":paired["pair_id"],"token":paired["token"]})).await;
+        let welcome = next(&mut control, "welcome").await;
+        query_ready(&mut control, welcome["session_id"].as_str().unwrap()).await;
+        let mut images = socket_path(invite, "/sayin/v3/images").await;
+        image_hello(&mut images, &welcome, paired).await;
+        assert_eq!(
+            next(&mut images, "image_welcome").await["pair_id"],
+            paired["pair_id"]
+        );
+        let id = Uuid::new_v4().to_string();
+        image_begin(&mut images, &welcome, &id, &bytes).await;
+        if open_uploads.is_empty() {
+            let mut duplicate = socket_path(invite, "/sayin/v3/images").await;
+            image_hello(&mut duplicate, &welcome, paired).await;
+            connection_closed(&mut duplicate).await;
+        }
+        open_uploads.push((control, images, welcome, id));
+    }
+    for (_, images, welcome, id) in &mut open_uploads {
+        images
+            .send(Message::Binary(encode_chunk(id, 0, &bytes).unwrap().into()))
+            .await
+            .unwrap();
+        next(images, "image_progress").await;
+        send(
+            images,
+            json!({"v":3,"t":"image_finish","session_id":welcome["session_id"],"id":id}),
+        )
+        .await;
+        assert!(next(images, "image_ready").await["image"]["resource_id"].is_string());
+    }
+    drop(open_uploads);
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn image_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
     for fault in [
         "binding",
+        "missing_binding",
+        "other_pair",
         "offset",
         "cancel",
         "pause",
+        "rotate_scope",
         "disconnect",
         "replace",
         "revoke",
@@ -744,14 +802,26 @@ async fn image_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
         let mut control = socket(&invitation).await;
         let hello = json!({"v":3,"t":"hello","name":"Image fixture","pair_id":paired["pair_id"],"token":paired["token"]});
         send(&mut control, hello.clone()).await;
-        let mut welcome = next(&mut control, "welcome").await;
+        let welcome = next(&mut control, "welcome").await;
         query_ready(&mut control, welcome["session_id"].as_str().unwrap()).await;
         let mut images = socket_path(&invitation, "/sayin/v3/images").await;
-        if fault == "binding" {
-            welcome["image"]["binding"] = json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+        if matches!(fault, "binding" | "missing_binding" | "other_pair") {
+            let mut frame = json!({"v":3,"t":"image_hello","session_id":welcome["session_id"],"pair_id":paired["pair_id"],"binding":welcome["image"]["binding"]});
+            match fault {
+                "binding" => {
+                    frame["binding"] = json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+                }
+                "missing_binding" => {
+                    frame.as_object_mut().unwrap().remove("binding");
+                }
+                "other_pair" => frame["pair_id"] = json!(Uuid::new_v4().to_string()),
+                _ => unreachable!(),
+            }
+            send(&mut images, frame).await;
+        } else {
+            image_hello(&mut images, &welcome, &paired).await;
         }
-        image_hello(&mut images, &welcome, &paired).await;
-        if fault != "binding" {
+        if !matches!(fault, "binding" | "missing_binding" | "other_pair") {
             next(&mut images, "image_welcome").await;
             let bytes = test_png();
             let id = Uuid::new_v4().to_string();
@@ -773,6 +843,18 @@ async fn image_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
                 }
                 "pause" => {
                     receiver.pause().await.unwrap();
+                }
+                "rotate_scope" => {
+                    receiver.pause().await.unwrap();
+                    let current = receiver.state().await.unwrap();
+                    let changed = receiver
+                        .enable_foreground_input(current.state_rev, false)
+                        .await
+                        .unwrap();
+                    assert_ne!(changed.target.as_deref(), welcome["target"].as_str());
+                    let frame =
+                        voicelink_receiver::images::wire::encode_chunk(&id, 0, &bytes).unwrap();
+                    let _ = images.send(Message::Binary(frame.into())).await;
                 }
                 "disconnect" => {
                     control.close(None).await.unwrap();

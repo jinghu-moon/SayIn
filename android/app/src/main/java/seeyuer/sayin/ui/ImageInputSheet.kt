@@ -58,6 +58,7 @@ import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
 import seeyuer.sayin.data.ImageIssue
 import seeyuer.sayin.data.IMAGE_PATH_COPY_METHOD
+import seeyuer.sayin.data.receiptPresentation
 import top.yukonga.miuix.kmp.basic.*
 import top.yukonga.miuix.kmp.overlay.OverlayBottomSheet
 import top.yukonga.miuix.kmp.theme.MiuixTheme
@@ -212,11 +213,11 @@ internal fun ImageInputSheet(
                                 successColor(), Modifier.testTag("image-receipt"),
                             )
                             receipt != null && receipt.state == "uncertain" -> ImageStatus(
-                                VoiceLinkIcon.Alert, stringResource(receiptText(receipt.state)), errorColor(),
+                                VoiceLinkIcon.Alert, stringResource(receiptPresentation(receipt).titleRes), errorColor(),
                             )
                             receipt != null && receipt.state == "failed" -> ImageStatus(
                                 VoiceLinkIcon.Alert, stringResource(imageDeliveryFailure(receipt.reason)
-                                    ?: receiptText(receipt.state)), errorColor(),
+                                    ?: receiptPresentation(receipt).titleRes), errorColor(),
                             )
                             issue != null -> ImageStatus(VoiceLinkIcon.Alert, stringResource(when (issue) {
                                 ImageIssue.INVALID -> R.string.image_invalid

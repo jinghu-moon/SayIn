@@ -1073,6 +1073,13 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
         let accepted = ledger.submit(&session, &message).unwrap();
         let cancelled_id = Uuid::new_v4().to_string();
         let cancelled = ledger.cancel(&session, &cancelled_id).unwrap();
+        let uncertain_id = if version == 6 {
+            let message = fixture.submit(&session, "existing uncertain original");
+            ledger.submit(&session, &message).unwrap();
+            Some(message.id)
+        } else {
+            None
+        };
         drop(ledger);
         let database = rusqlite::Connection::open(fixture.path()).unwrap();
         database
@@ -1122,6 +1129,14 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
         database
             .pragma_update(None, "user_version", version)
             .unwrap();
+        if let Some(id) = &uncertain_id {
+            database
+                .execute(
+                    "UPDATE receipts SET state='uncertain',payload=NULL,bytes=0 WHERE id=?1",
+                    [id],
+                )
+                .unwrap();
+        }
         let identity: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device WHERE r.id=?1",
@@ -1141,6 +1156,15 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
         let tombstone = ledger.query(&restored, &cancelled_id).unwrap().unwrap();
         assert_eq!(tombstone.order, cancelled.order);
         assert_eq!(tombstone.st, State::Cancelled);
+        if let Some(id) = &uncertain_id {
+            let uncertain = ledger.query(&restored, id).unwrap().unwrap();
+            assert_eq!(uncertain.st, State::Uncertain);
+            assert_eq!(
+                uncertain.uncertain_scope,
+                Some(voicelink_receiver::protocol_v3::UncertainScope::Global)
+            );
+            assert!(uncertain.execution_stage.is_none());
+        }
         let mut replay = message.clone();
         replay.session_id = restored.id().to_owned();
         assert_eq!(
@@ -1148,15 +1172,15 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             accepted.order
         );
         let page = ledger.history(&HistoryQuery::default()).unwrap();
-        assert_eq!(page.entries.len(), 1);
-        assert_eq!(page.entries[0].device, fixture.device);
-        assert!(page.entries[0].source_name.is_empty());
-        assert!(
-            matches!(&page.entries[0].operation, Some(Operation::Text { text, .. }) if text == "existing pending original")
-        );
+        assert_eq!(page.entries.len(), 1 + usize::from(uncertain_id.is_some()));
+        let original = page.entries.iter().find(|entry| {
+            matches!(&entry.operation, Some(Operation::Text { text, .. }) if text == "existing pending original")
+        }).unwrap();
+        assert_eq!(original.device, fixture.device);
+        assert!(original.source_name.is_empty());
         if version == 1 {
             assert!(
-                page.entries[0].received_at.is_none(),
+                original.received_at.is_none(),
                 "old timestamps must not be invented"
             );
         }
@@ -1179,7 +1203,7 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
                 },
             )
             .unwrap();
-        assert_eq!(counts, (2, 1, 0));
+        assert_eq!(counts, (2 + u32::from(uncertain_id.is_some()), 1, 0));
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM pairs d JOIN receipts r ON d.id=r.pair_id WHERE r.id=?1",
@@ -1188,6 +1212,16 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             )
             .unwrap();
         assert_eq!(identity, unchanged);
+        drop(database);
+        if let Some(id) = &uncertain_id {
+            let mut reopened = fixture.open();
+            let session = reopened
+                .authenticate(&fixture.device, &fixture.token)
+                .unwrap();
+            let receipt = reopened.query(&session, id).unwrap().unwrap();
+            assert_eq!(receipt.st, State::Uncertain);
+            assert_eq!(receipt.request_rev.as_deref(), Some("0"));
+        }
     }
 }
 

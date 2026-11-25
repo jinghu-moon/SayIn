@@ -107,6 +107,12 @@
     <string name="receipt_failed">失败</string>
     <string name="receipt_uncertain">输入结果待核对</string>
     <string name="receipt_review">暂未取得回执</string>
+    <string name="receipt_file_saved">已保存，但未粘贴</string>
+    <string name="receipt_file_saved_help">图片文件已保存，但粘贴步骤未完成。</string>
+    <string name="receipt_execution_unrecorded">执行方式未记录</string>
+    <string name="receipt_uncertain_target">目标窗口的输入结果不确定</string>
+    <string name="receipt_uncertain_global">所有目标的输入结果不确定</string>
+    <string name="receipt_uncertain_acknowledged">不确定的输入已核对</string>
     <string name="camera_permission_denied">相机权限未获允许，可在系统应用设置中开启，或使用配对码。</string>
     <string name="zxing_app_name">SayIn扫码</string>
     <string name="zxing_button_ok">关闭</string>

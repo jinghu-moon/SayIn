@@ -13,7 +13,6 @@ pub(super) struct Binding {
     session: Session,
     token: Zeroizing<Vec<u8>>,
     alive: Arc<AtomicBool>,
-    busy: AtomicBool,
 }
 pub(super) struct ControlBinding<'a> {
     shared: &'a Shared,
@@ -26,7 +25,6 @@ impl<'a> ControlBinding<'a> {
                 session: session.clone(),
                 token: Zeroizing::new(random::<32>()?.to_vec()),
                 alive: Arc::new(AtomicBool::new(true)),
-                busy: AtomicBool::new(false),
             });
             shared
                 .image_bindings
@@ -53,10 +51,15 @@ impl Drop for ControlBinding<'_> {
         }
     }
 }
-struct Busy(Arc<Binding>);
-impl Drop for Busy {
+struct PairUploadSlot<'a> {
+    pairs: &'a Mutex<HashSet<String>>,
+    pair: &'a str,
+}
+impl Drop for PairUploadSlot<'_> {
     fn drop(&mut self) {
-        self.0.busy.store(false, Ordering::Release);
+        if let Ok(mut pairs) = self.pairs.lock() {
+            pairs.remove(self.pair);
+        }
     }
 }
 
@@ -69,7 +72,7 @@ async fn scope(shared: &Shared, binding: &Binding) -> Result<UploadScope> {
         .check_session(binding.session.clone())
         .await?;
     let state = shared.receiver.state().await?;
-    if state.paused || state.active_device_id.as_deref() != Some(binding.session.device()) {
+    if state.paused {
         return Err(Error::Protocol("IMAGE_SCOPE"));
     }
     Ok(UploadScope {
@@ -104,20 +107,25 @@ pub(super) async fn serve(
     {
         return Err(Error::Protocol("UNAUTHORIZED"));
     }
-    if binding
-        .busy
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
+    let mut initial = scope(shared, &binding).await?;
+    let pair = binding.session.device();
+    if !shared
+        .uploading_pairs
+        .lock()
+        .map_err(|_| Error::Protocol("SERVICE_UNAVAILABLE"))?
+        .insert(pair.to_owned())
     {
         return Err(Error::Protocol("IMAGE_UPLOAD_LIMIT"));
     }
-    let _busy = Busy(binding.clone());
+    let _pair_slot = PairUploadSlot {
+        pairs: &shared.uploading_pairs,
+        pair,
+    };
     let _slot = shared
         .image_slots
         .clone()
         .try_acquire_owned()
         .map_err(|_| Error::Protocol("IMAGE_UPLOAD_LIMIT"))?;
-    let mut initial = scope(shared, &binding).await?;
     shared.authenticated(peer);
     drop(unauthenticated);
     send(socket,&json!({"v":3,"t":"image_welcome","session_id":binding.session.id(),"host_id":shared.identity.host_id,"pair_id":binding.session.device()})).await?;

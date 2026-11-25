@@ -697,7 +697,7 @@ private fun historyStatus(item: OutboxItem): Int = when {
     item.state == "uploading" -> R.string.image_uploading
     item.method == IMAGE_PATH_COPY_METHOD && item.state == "injected" -> R.string.image_path_copied
     item.kind == "image" && item.state == "injected" -> R.string.history_image_submitted
-    else -> receiptText(item.state)
+    else -> seeyuer.sayin.data.receiptPresentation(item).titleRes
 }
 
 @Composable
@@ -810,12 +810,14 @@ private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (Strin
     if (item.kind == "image" && item.state == "failed") {
         imageDeliveryFailure(item.reason)?.let { Caption(stringResource(it)) }
     }
-    receiptHelp(item.state)?.let { help ->
+    val presentation = seeyuer.sayin.data.receiptPresentation(item)
+    presentation.helpRes?.let { help ->
         val cause = receiptCause(item.reason)
         if (cause != null && item.state in setOf("held", "expired")) Caption(stringResource(
             if (item.state == "expired") R.string.receipt_expired_cause_help else R.string.receipt_held_cause_help, stringResource(cause)))
         else Caption(stringResource(help))
     }
+    presentation.scopeRes?.let { Caption(stringResource(it)) }
     if (item.state == "review") {
         Notice(stringResource(R.string.review_warning), VoiceLinkIcon.Alert)
         Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.id, "query") }

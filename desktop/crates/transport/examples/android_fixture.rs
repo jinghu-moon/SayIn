@@ -13,7 +13,7 @@ use uuid::Uuid;
 use voicelink_receiver::{
     gate::InputGate,
     ledger::{Execution, InputOutcome},
-    windows_input::{NativeInput, open_ledger},
+    windows_input::{NativeInput, open_ledger_with_retention},
     worker::{InputAdapter, Receiver},
 };
 use voicelink_transport::{HostIdentity, server::NetworkService, storage::secure_directory};
@@ -255,7 +255,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     secure_directory(&output)?;
     let calls = Arc::new(AtomicUsize::new(0));
-    let mut ledger = open_ledger(&output)?;
+    let hold_retention = std::env::args()
+        .find_map(|arg| {
+            arg.strip_prefix("--hold-retention-seconds=")
+                .map(|value| value.parse::<u64>())
+        })
+        .transpose()?
+        .map(Duration::from_secs)
+        .unwrap_or(voicelink_receiver::ledger::DEFAULT_HOLD_RETENTION);
+    let mut ledger = open_ledger_with_retention(&output, hold_retention)?;
     let identity = HostIdentity::open(&output, 0)?;
     let image_store = if std::env::args().any(|arg| arg == "--images") {
         let images = output.join("images");

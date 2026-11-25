@@ -14,7 +14,8 @@ internal data class HistoryApplication(val name: String, val iconPng: String?) {
             val name = (value.opt("name") as? String)?.takeIf {
                 it.isNotBlank() && it.codePointCount(0, it.length) <= 96 && it.none(Char::isISOControl)
             } ?: return null
-            val icon = (value.opt("icon_png") as? String)?.takeIf { ForegroundApplicationHint.iconBytes(it) != null }
+            val icon = ((value.opt("icon_png") as? String) ?: (value.opt("icon_webp") as? String))
+                ?.takeIf { ForegroundApplicationHint.iconBytes(it) != null }
             return HistoryApplication(name, icon)
         }
         fun restore(bytes: ByteArray, item: OutboxItem): HistoryApplication? {

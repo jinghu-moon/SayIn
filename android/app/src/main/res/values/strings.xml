@@ -111,6 +111,12 @@
     <string name="receipt_failed">Failed</string>
     <string name="receipt_uncertain">Input outcome needs review</string>
     <string name="receipt_review">Receipt not yet available</string>
+    <string name="receipt_file_saved">Saved, but not pasted</string>
+    <string name="receipt_file_saved_help">The image file was saved. Its paste step was not completed.</string>
+    <string name="receipt_execution_unrecorded">Execution method not recorded</string>
+    <string name="receipt_uncertain_target">Input outcome is uncertain for the target window</string>
+    <string name="receipt_uncertain_global">Input outcome is uncertain for all targets</string>
+    <string name="receipt_uncertain_acknowledged">Uncertain input reviewed</string>
     <string name="camera_permission_denied">Camera access was denied. Allow it in system app settings, or use a pairing code.</string>
     <string name="zxing_app_name">SayIn scanner</string>
     <string name="zxing_button_ok">Close</string>

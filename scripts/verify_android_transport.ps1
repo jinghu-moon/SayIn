@@ -33,7 +33,7 @@ $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSeria
 $leaseAcquired = $false
 $testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 169
+$expectedTextUiTests = 172
 $expectedImageTests = 4
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
@@ -73,7 +73,7 @@ try {
         # Grant before the test process starts so its first microphone check sees the cleared package's new grant.
         Invoke-Checked { & $adb -s $DeviceSerial shell pm grant seeyuer.sayin.imagetest android.permission.RECORD_AUDIO }
     }
-    $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0', '--lifetime=7200')
+    $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0', '--lifetime=7200', '--hold-retention-seconds=20')
     if ($Lan) { $fixtureArguments += '--lan' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(10)

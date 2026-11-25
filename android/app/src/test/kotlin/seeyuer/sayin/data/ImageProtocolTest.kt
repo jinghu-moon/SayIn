@@ -47,11 +47,11 @@ class ImageProtocolTest {
     @Test fun protectedResourceSurvivesReopenButRejectsWrongIdentitySwapAndTamper() {
         val root = Files.createTempDirectory("sayin-image-unit-").toFile()
         val key = KeyGenerator.getInstance("AES").apply { init(256) }.generateKey()
-        val protect = { value: ByteArray ->
+        val protect = { _: String, _: String, value: ByteArray ->
             val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key); updateAAD("test/image".toByteArray()) }
             cipher.iv + cipher.doFinal(value)
         }
-        val unprotect = { value: ByteArray ->
+        val unprotect = { _: String, _: String, value: ByteArray ->
             Cipher.getInstance("AES/GCM/NoPadding").run { init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(128, value.copyOfRange(0, 12))); updateAAD("test/image".toByteArray()); doFinal(value.copyOfRange(12, value.size)) }
         }
         val host = UUID.randomUUID().toString()
