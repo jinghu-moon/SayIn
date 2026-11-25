@@ -3,7 +3,7 @@ use crate::{
     Error, Result,
     gate::InputGate,
     images::{ImageMime, payload::PreparedImage},
-    ledger::{Clock, Execution, InputOutcome, Ledger, Protector, SystemClock},
+    ledger::{Clock, Execution, InputOutcome, InputWindow, Ledger, Protector, SystemClock},
     protocol::{KeyName, Operation},
     windows_image_delivery::{ImageDeliveryMode, SharedImageDeliverySettings},
     worker::InputAdapter,
@@ -561,6 +561,15 @@ impl InputAdapter for NativeInput {
     fn prepared_application(&self) -> Option<crate::history::TargetApplication> {
         self.application.clone()
     }
+    fn prepared_window(&self) -> Option<InputWindow> {
+        let application = self.application.as_ref()?;
+        let (handle, _, process_created, _) = self.prepared.as_ref()?.foreground;
+        Some(InputWindow::new(
+            application.executable.clone(),
+            process_created,
+            handle,
+        ))
+    }
     fn preflight(&mut self, job: &Execution) -> std::result::Result<(), &'static str> {
         self.prepared = None;
         self.application = None;
@@ -731,12 +740,16 @@ impl InputAdapter for NativeInput {
                 },
             };
         }
-        if inserted != count || self.check(job).is_err() {
+        let same_target = self.check(job).is_ok();
+        if inserted != count || !same_target {
             if published.is_some() && inserted < count {
                 let release = paste_release_events(inserted);
                 unsafe {
                     SendInput(&release, std::mem::size_of::<INPUT>() as i32);
                 }
+            }
+            if same_target && matches!(job.operation(), Operation::Text { .. }) {
+                return InputOutcome::PartialUnicode;
             }
             return InputOutcome::Uncertain {
                 reason: "partial_input_or_focus_changed",

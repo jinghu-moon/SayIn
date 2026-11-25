@@ -802,7 +802,7 @@ fn local_new_scope_does_not_bypass_uncertain_review_or_replay_partial_input() {
             .unwrap()
             .unwrap()
             .st,
-        State::Uncertain
+        State::UncertainAcknowledged
     );
     assert_eq!(*calls.lock().unwrap(), [first.id]);
     wait(receiver.shutdown()).unwrap();

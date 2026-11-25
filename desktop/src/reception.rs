@@ -6,7 +6,7 @@ use std::{
 };
 use voicelink_receiver::{
     history::{HistoryPage, HistoryQuery},
-    ledger::ReceiverSnapshot,
+    ledger::{ReceiverSnapshot, ReviewTicket},
     windows_image_delivery::{ImageDeliverySettings, SharedImageDeliverySettings},
     windows_input::{NativeInput, open_ledger},
     worker::Receiver,
@@ -44,6 +44,7 @@ pub enum ReceptionIssue {
 pub(crate) struct ReviewScope {
     revision: String,
     request: String,
+    ticket: ReviewTicket,
 }
 
 /// Discovery and selection are independent of device trust and input permission.
@@ -413,15 +414,21 @@ impl ReceptionState {
         {
             return None;
         }
+        let ticket = snapshot.review.clone()?;
+        let request = self.review_entry.as_ref()?.receipt.id.clone();
+        if ticket.request_id() != request {
+            return None;
+        }
         Some(ReviewScope {
             revision: snapshot.control.state_rev.clone(),
-            request: self.review_entry.as_ref()?.receipt.id.clone(),
+            request,
+            ticket,
         })
     }
 
     pub fn resume(&mut self, cx: &mut Context<Self>) {
         if let Some(snapshot) = self.snapshot.as_ref() {
-            self.resume_in_scope(snapshot.control.state_rev.clone(), false, cx);
+            self.resume_in_scope(snapshot.control.state_rev.clone(), None, cx);
         }
     }
 
@@ -429,13 +436,13 @@ impl ReceptionState {
         if self.review_scope().as_ref() != Some(&scope) {
             return false;
         }
-        self.resume_in_scope(scope.revision, true, cx)
+        self.resume_in_scope(scope.revision, Some(scope.ticket), cx)
     }
 
     fn resume_in_scope(
         &mut self,
         revision: String,
-        reviewed: bool,
+        reviewed: Option<ReviewTicket>,
         cx: &mut Context<Self>,
     ) -> bool {
         if !self.is_ready() || self.is_busy() || self.closing {
@@ -451,7 +458,11 @@ impl ReceptionState {
             return false;
         };
         self.command = Some(cx.spawn(async move |owner, cx| {
-            let result = receiver.enable_foreground_input(revision, reviewed).await;
+            let result = if let Some(ticket) = reviewed {
+                receiver.enable_foreground_input_reviewed(ticket).await
+            } else {
+                receiver.enable_foreground_input(revision, false).await
+            };
             let _ = owner.update(cx, |this, cx| {
                 this.command = None;
                 match result {

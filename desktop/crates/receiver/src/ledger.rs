@@ -2,6 +2,7 @@
 use crate::{
     Error, Result,
     protocol::{Operation, Receipt, State, Submit, validate_uuid},
+    protocol_v3::UncertainScope,
 };
 use hmac::{Hmac, KeyInit, Mac};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params};
@@ -68,6 +69,36 @@ pub struct ReceiverSnapshot {
     pub pending: u32,
     pub blocked: Option<Receipt>,
     pub recent: Vec<Receipt>,
+    pub review: Option<ReviewTicket>,
+}
+
+/// Local-only authority to acknowledge the exact receipt currently shown for review.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReviewTicket {
+    pair_id: String,
+    request_id: String,
+    request_rev: i64,
+    state_rev: i64,
+    pub(crate) accept_order: i64,
+    pub scope: UncertainScope,
+}
+
+impl ReviewTicket {
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+
+    pub fn request_rev(&self) -> i64 {
+        self.request_rev
+    }
+
+    pub fn state_rev(&self) -> i64 {
+        self.state_rev
+    }
+
+    pub fn scope(&self) -> UncertainScope {
+        self.scope
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -123,11 +154,54 @@ impl Execution {
     }
 }
 
+/// The native input target validated immediately before the execution marker.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct InputWindow {
+    executable: String,
+    process_created: u64,
+    handle: usize,
+}
+
+impl InputWindow {
+    pub fn new(executable: String, process_created: u64, handle: usize) -> Self {
+        Self {
+            executable,
+            process_created,
+            handle,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum InputOutcome {
-    Injected { method: &'static str },
-    Failed { reason: &'static str },
-    Uncertain { reason: &'static str },
+    Injected {
+        method: &'static str,
+    },
+    Failed {
+        reason: &'static str,
+    },
+    Uncertain {
+        reason: &'static str,
+    },
+    /// The native adapter observed a partial Unicode-only submission to its prepared window.
+    PartialUnicode,
+}
+
+fn classify_uncertain(
+    operation: &Operation,
+    outcome: &InputOutcome,
+    known_window: bool,
+) -> UncertainScope {
+    if known_window
+        && matches!(
+            (operation, outcome),
+            (Operation::Text { .. }, InputOutcome::PartialUnicode)
+        )
+    {
+        UncertainScope::Target
+    } else {
+        UncertainScope::Global
+    }
 }
 
 struct Bucket {
@@ -207,6 +281,12 @@ pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
         st: state_from_db(&row.get::<_, String>(2)?)?,
         reason: row.get(3)?,
         method: row.get(4)?,
+        uncertain_scope: match row.get::<_, Option<String>>("uncertain_scope")?.as_deref() {
+            None => None,
+            Some("target") => Some(UncertainScope::Target),
+            Some("global") => Some(UncertainScope::Global),
+            Some(_) => return Err(rusqlite::Error::InvalidQuery),
+        },
         application: None,
     })
 }
@@ -450,6 +530,7 @@ impl Ledger {
                  ALTER TABLE receipts ADD COLUMN uncertain_scope TEXT CHECK(uncertain_scope IN ('target','global'));
                  ALTER TABLE receipts ADD COLUMN hold_expires_at INTEGER;
                  ALTER TABLE receipts ADD COLUMN executable_at INTEGER;
+                 ALTER TABLE receipts ADD COLUMN input_window_mac BLOB;
                  CREATE TABLE transferred_receipts (
                      pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
                      source_order INTEGER NOT NULL REFERENCES receipts(accept_order),
@@ -522,6 +603,16 @@ impl Ledger {
                 .database
                 .execute_batch("ALTER TABLE receipts ADD COLUMN executable_at INTEGER;")?;
         }
+        let has_input_window: bool = ledger.database.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('receipts') WHERE name='input_window_mac')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_input_window {
+            ledger
+                .database
+                .execute_batch("ALTER TABLE receipts ADD COLUMN input_window_mac BLOB;")?;
+        }
         ledger.database.execute_batch(
             "CREATE TABLE IF NOT EXISTS transferred_receipts (
                 pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
@@ -533,10 +624,12 @@ impl Ledger {
              BEGIN UPDATE pairs SET cancel_count=cancel_count+1 WHERE id=NEW.pair_id; END;
              CREATE TRIGGER IF NOT EXISTS cancellation_delete AFTER DELETE ON receipts
              WHEN OLD.state='cancelled' AND OLD.reason='cancelled_before_accept'
-             BEGIN UPDATE pairs SET cancel_count=cancel_count-1 WHERE id=OLD.pair_id; END;",
+             BEGIN UPDATE pairs SET cancel_count=cancel_count-1 WHERE id=OLD.pair_id; END;
+             CREATE INDEX IF NOT EXISTS uncertain_receipts ON receipts(uncertain_scope,accept_order) WHERE state='uncertain';
+             CREATE INDEX IF NOT EXISTS uncertain_windows ON receipts(input_window_mac) WHERE state='uncertain' AND uncertain_scope='target';",
         )?;
         ledger.database.prepare(
-            "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at,executable_at FROM receipts LIMIT 0",
+            "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at,executable_at,input_window_mac FROM receipts LIMIT 0",
         )?;
         ledger
             .database
@@ -612,10 +705,12 @@ impl Ledger {
     }
 
     fn recover(&mut self) -> Result<()> {
-        let previous = self.state()?.pause_reason;
+        let previous: Option<String> =
+            self.database
+                .query_row("SELECT pause_reason FROM control", [], |row| row.get(0))?;
         let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
-        let interrupted = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='uncertain',reason='restart_during_input',uncertain_scope='global',executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE state='executing'", [])?;
+        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='uncertain',reason='restart_during_input',uncertain_scope='global',input_window_mac=NULL,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE state='executing'", [])?;
         tx.execute(
             "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason='restart_confirmation',executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0
              WHERE state='accepted'",
@@ -626,14 +721,7 @@ impl Ledger {
              WHERE state='held' AND hold_expires_at IS NULL",
             [hold_expires_at],
         )?;
-        let review: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM control WHERE pause_reason='outcome_review_required')",
-            [],
-            |row| row.get(0),
-        )?;
-        let reason = if interrupted > 0 || review {
-            "outcome_review_required"
-        } else if previous.as_deref() == Some("paused") {
+        let reason = if previous.as_deref() == Some("paused") {
             "paused"
         } else {
             "startup"
@@ -648,7 +736,9 @@ impl Ledger {
 
     pub fn state(&self) -> Result<ControlState> {
         Ok(self.database.query_row(
-            "SELECT rev,paused,pause_reason,active_device,target FROM control WHERE singleton=1",
+            "WITH review AS (SELECT EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='global') AS blocked)
+             SELECT rev,paused OR blocked,CASE WHEN blocked THEN 'outcome_review_required' ELSE pause_reason END,active_device,target
+             FROM control CROSS JOIN review WHERE singleton=1",
             [],
             |row| {
                 Ok(ControlState {
@@ -683,12 +773,12 @@ impl Ledger {
             |row| row.get(0),
         )?;
         let mut statement = self.database.prepare(
-            "SELECT id,accept_order,state,reason,method FROM receipts ORDER BY accept_order DESC LIMIT 100")?;
+            "SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts ORDER BY accept_order DESC LIMIT 100")?;
         let recent = statement
             .query_map([], receipt)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let blocked = self.database.query_row(
-            "SELECT id,accept_order,state,reason,method FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [], receipt
+            "SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [], receipt
         ).optional()?.filter(|r| r.st == State::Held);
         Ok(ReceiverSnapshot {
             control: self.state()?,
@@ -699,7 +789,75 @@ impl Ledger {
             pending,
             blocked,
             recent,
+            review: self.review_ticket()?,
         })
+    }
+
+    pub fn review_ticket(&self) -> Result<Option<ReviewTicket>> {
+        Ok(self
+            .database
+            .query_row(
+                "SELECT pair_id,id,request_rev,rev,accept_order,uncertain_scope
+             FROM receipts CROSS JOIN control WHERE state='uncertain'
+             ORDER BY uncertain_scope,accept_order DESC LIMIT 1",
+                [],
+                |row| {
+                    Ok(ReviewTicket {
+                        pair_id: row.get(0)?,
+                        request_id: row.get(1)?,
+                        request_rev: row.get(2)?,
+                        state_rev: row.get(3)?,
+                        accept_order: row.get(4)?,
+                        scope: match row.get::<_, String>(5)?.as_str() {
+                            "global" => UncertainScope::Global,
+                            "target" => UncertainScope::Target,
+                            _ => return Err(rusqlite::Error::InvalidQuery),
+                        },
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    pub fn acknowledge_uncertain(&mut self, ticket: &ReviewTicket) -> Result<ControlState> {
+        if !self.healthy {
+            return Err(Error::Protocol("STORAGE_UNAVAILABLE"));
+        }
+        self.expire_pending(self.now())?;
+        if self.review_ticket()?.as_ref() != Some(ticket) {
+            return Err(Error::Protocol("STATE_CONFLICT"));
+        }
+        let tx = self.database.transaction()?;
+        let changed = tx.execute(
+            "UPDATE receipts SET state='uncertain_acknowledged',request_rev=CAST(request_rev+1 AS INTEGER),input_window_mac=NULL
+             WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='uncertain'",
+            params![ticket.pair_id, ticket.request_id, ticket.request_rev],
+        )?;
+        if changed != 1 {
+            return Err(Error::Protocol("STATE_CONFLICT"));
+        }
+        tx.execute(
+            "UPDATE control SET paused=CASE WHEN EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='global') THEN 1 ELSE 0 END,
+             pause_reason=CASE WHEN EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='global') THEN 'outcome_review_required' ELSE NULL END,
+             rev=rev+1",
+            [],
+        )?;
+        tx.execute("UPDATE receipts AS pending SET state='accepted',request_rev=CAST(request_rev+1 AS INTEGER),reason=NULL,hold_expires_at=NULL,input_window_mac=NULL
+                    WHERE state='held' AND reason='uncertain_target' AND NOT EXISTS (
+                        SELECT 1 FROM receipts AS review WHERE review.state='uncertain' AND review.uncertain_scope='target'
+                        AND (pending.input_window_mac IS NULL OR review.input_window_mac=pending.input_window_mac)
+                    )", [])?;
+        tx.commit()?;
+        self.hold_deadlines.retain(|(pair, id), _| {
+            self.database
+                .query_row(
+                    "SELECT state='held' FROM receipts WHERE pair_id=?1 AND id=?2",
+                    params![pair, id],
+                    |row| row.get(0),
+                )
+                .unwrap_or(true)
+        });
+        self.state()
     }
 
     /// Called only after local human approval, never from an unapproved pair frame.
@@ -994,6 +1152,7 @@ impl Ledger {
             st: state,
             reason: reason.map(str::to_owned),
             method: None,
+            uncertain_scope: None,
             application: None,
         })
     }
@@ -1021,7 +1180,7 @@ impl Ledger {
     }
 
     fn find(&self, device: &str, id: &str) -> Result<Option<Receipt>> {
-        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method FROM receipts WHERE pair_id=?1 AND id=?2", params![device,id], receipt).optional()?;
+        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts WHERE pair_id=?1 AND id=?2", params![device,id], receipt).optional()?;
         if let Some(receipt) = &mut result {
             // Only the same authenticated device's retained history can supply
             // display metadata. Never look up the current foreground process.
@@ -1041,7 +1200,10 @@ impl Ledger {
         self.invalidate_all_images();
         let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
-        tx.execute("UPDATE control SET paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'paused' END,rev=rev+1", [])?;
+        tx.execute(
+            "UPDATE control SET paused=1,pause_reason='paused',rev=rev+1",
+            [],
+        )?;
         tx.execute(
             "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='paused',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'",
             [hold_expires_at],
@@ -1071,7 +1233,10 @@ impl Ledger {
         self.invalidate_all_images();
         let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
-        tx.execute("UPDATE control SET target=?1,paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'target_changed' END,rev=rev+1", [target])?;
+        tx.execute(
+            "UPDATE control SET target=?1,paused=1,pause_reason='target_changed',rev=rev+1",
+            [target],
+        )?;
         tx.execute(
             "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'",
             [hold_expires_at],
@@ -1088,6 +1253,15 @@ impl Ledger {
         }
         if state.pause_reason.as_deref() == Some("outcome_review_required") && !locally_reviewed {
             return Err(Error::Protocol("STATE_CONFLICT"));
+        }
+        if locally_reviewed {
+            let ticket = self
+                .review_ticket()?
+                .ok_or(Error::Protocol("STATE_CONFLICT"))?;
+            if ticket.state_rev.to_string() != expected_rev {
+                return Err(Error::Protocol("STATE_CONFLICT"));
+            }
+            return self.acknowledge_uncertain(&ticket);
         }
         let tx = self.database.transaction()?;
         tx.execute(
@@ -1132,6 +1306,9 @@ impl Ledger {
         }
         if row.st != State::Held {
             return Err(Error::Protocol("TOO_LATE"));
+        }
+        if row.reason.as_deref() == Some("uncertain_target") {
+            return Err(Error::Protocol("BLOCKED_REVIEW"));
         }
         let tx = self.database.transaction()?;
         tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='accepted',reason=NULL,execute_target=?1,hold_expires_at=NULL,executable_at=NULL WHERE pair_id=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
@@ -1272,7 +1449,7 @@ impl Ledger {
                     |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
                 )?;
             if control.target != target {
-                self.hold_request(device, id, request_rev, "target_changed")?;
+                self.hold_request(device, id, request_rev, "target_changed", None)?;
                 continue;
             }
             let ciphertext = payload.ok_or(Error::Protocol("MISSING_PENDING_PAYLOAD"))?;
@@ -1286,7 +1463,7 @@ impl Ledger {
                     .get(&image.resource_id)
                     .map(|(_, value)| value.clone());
                 if !alive.as_ref().is_some_and(|value| value.valid()) {
-                    self.hold_request(device, id, request_rev, "image_session_ended")?;
+                    self.hold_request(device, id, request_rev, "image_session_ended", None)?;
                     continue;
                 }
                 alive
@@ -1315,7 +1492,7 @@ impl Ledger {
     }
 
     pub fn hold(&mut self, job: &Execution, reason: &str) -> Result<()> {
-        self.hold_request(&job.device, &job.id, job.request_rev, reason)
+        self.hold_request(&job.device, &job.id, job.request_rev, reason, None)
     }
 
     fn hold_request(
@@ -1324,13 +1501,14 @@ impl Ledger {
         id: &str,
         request_rev: i64,
         reason: &str,
+        window_mac: Option<&[u8]>,
     ) -> Result<()> {
         let hold_expires_at = self.hold_expiry();
         let deadline = self.now() + HOLD_RETENTION;
         let changed = self.database.execute(
-            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1,executable_at=NULL,hold_expires_at=?2
-             WHERE pair_id=?3 AND id=?4 AND request_rev=?5 AND state='accepted'",
-            params![reason, hold_expires_at, device, id, request_rev],
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1,executable_at=NULL,hold_expires_at=?2,input_window_mac=?3
+             WHERE pair_id=?4 AND id=?5 AND request_rev=?6 AND state='accepted'",
+            params![reason, hold_expires_at, window_mac, device, id, request_rev],
         )?;
         if changed == 1 {
             let key = (device.to_owned(), id.to_owned());
@@ -1350,6 +1528,15 @@ impl Ledger {
         job: &Execution,
         target: Option<crate::history::TargetApplication>,
     ) -> Result<bool> {
+        self.mark_executing_in(job, target, None)
+    }
+
+    pub fn mark_executing_in(
+        &mut self,
+        job: &Execution,
+        target: Option<crate::history::TargetApplication>,
+        window: Option<InputWindow>,
+    ) -> Result<bool> {
         if !self.healthy {
             return Err(Error::Protocol("STORAGE_UNAVAILABLE"));
         }
@@ -1365,13 +1552,38 @@ impl Ledger {
         let protected = target
             .map(|t| self.target_payload(&job.device, &job.id, t))
             .transpose()?;
+        let window_mac = window.map(|window| {
+            let encoded = serde_json::to_vec(&window).expect("input window serialization");
+            self.mac(b"input-window", &encoded)
+        });
         let key = (job.device.clone(), job.id.clone());
         self.expire_pending(self.now())?;
         if !self.deadlines.contains_key(&key) {
             return Ok(false);
         }
+        let blocked = if let Some(mac) = &window_mac {
+            self.database.query_row(
+                "SELECT EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='target' AND input_window_mac=?1)",
+                [mac], |row| row.get(0),
+            )?
+        } else {
+            self.database.query_row(
+                "SELECT EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='target')",
+                [], |row| row.get(0),
+            )?
+        };
+        if blocked {
+            self.hold_request(
+                &job.device,
+                &job.id,
+                job.request_rev,
+                "uncertain_target",
+                window_mac.as_deref(),
+            )?;
+            return Ok(false);
+        }
         let tx = self.database.transaction()?;
-        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev])?;
+        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac])?;
         if changed == 1 {
             tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE pair_id=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
         }
@@ -1387,20 +1599,39 @@ impl Ledger {
             InputOutcome::Injected { method } => (State::Injected, None, Some(method)),
             InputOutcome::Failed { reason } => (State::Failed, Some(reason), None),
             InputOutcome::Uncertain { reason } => (State::Uncertain, Some(reason), None),
+            InputOutcome::PartialUnicode => (
+                State::Uncertain,
+                Some("partial_input_or_focus_changed"),
+                Some("unicode"),
+            ),
         };
         let review_hold_expires_at = self.hold_expiry();
         let result = (|| -> Result<()> {
             let tx = self.database.transaction()?;
-            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=CASE WHEN ?1='uncertain' THEN 'global' END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?4 AND id=?5 AND state='executing'", params![state.key(),reason,method,job.device,job.id])?;
+            let uncertainty = if state == State::Uncertain {
+                let known_window = tx.query_row(
+                    "SELECT input_window_mac IS NOT NULL FROM receipts WHERE pair_id=?1 AND id=?2",
+                    params![job.device, job.id],
+                    |row| row.get(0),
+                )?;
+                Some(
+                    match classify_uncertain(&job.operation, &outcome, known_window) {
+                        UncertainScope::Target => "target",
+                        UncertainScope::Global => "global",
+                    },
+                )
+            } else {
+                None
+            };
+            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=?4,input_window_mac=CASE WHEN ?4='target' THEN input_window_mac END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?5 AND id=?6 AND state='executing'", params![state.key(),reason,method,uncertainty,job.device,job.id])?;
             if changed != 1 {
                 return Err(Error::Protocol("STATE_CONFLICT"));
             }
-            if state == State::Uncertain {
-                tx.execute(
-                    "UPDATE control SET paused=1,pause_reason='outcome_review_required',rev=rev+1",
-                    [],
-                )?;
+            if uncertainty == Some("global") {
+                tx.execute("UPDATE control SET rev=rev+1", [])?;
                 tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='outcome_review_required',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'", [review_hold_expires_at])?;
+            } else if uncertainty.is_some() {
+                tx.execute("UPDATE control SET rev=rev+1", [])?;
             }
             tx.commit()?;
             Ok(())
@@ -1502,6 +1733,63 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn only_observed_partial_unicode_text_with_a_known_window_is_target_scoped() {
+        use crate::{
+            images::{ImageMetadata, ImageMime, ImageReference},
+            protocol::{KeyName, TextSource},
+        };
+        let operations = [
+            Operation::Text {
+                text: "text".into(),
+                src: TextSource::Manual,
+            },
+            Operation::AutoText {
+                text: "text".into(),
+                application: "Editor".into(),
+            },
+            Operation::Key {
+                name: KeyName::Enter,
+            },
+            Operation::Image {
+                image: ImageReference {
+                    resource_id: Uuid::new_v4().to_string(),
+                    metadata: ImageMetadata {
+                        bytes: 1,
+                        mime: ImageMime::Png,
+                        width: 1,
+                        height: 1,
+                        sha256: "0".repeat(64),
+                    },
+                },
+            },
+        ];
+        for (index, operation) in operations.iter().enumerate() {
+            assert_eq!(
+                classify_uncertain(operation, &InputOutcome::PartialUnicode, true),
+                if index == 0 {
+                    UncertainScope::Target
+                } else {
+                    UncertainScope::Global
+                }
+            );
+            assert_eq!(
+                classify_uncertain(operation, &InputOutcome::PartialUnicode, false),
+                UncertainScope::Global
+            );
+            assert_eq!(
+                classify_uncertain(
+                    operation,
+                    &InputOutcome::Uncertain {
+                        reason: "unclassified"
+                    },
+                    true
+                ),
+                UncertainScope::Global
+            );
         }
     }
 

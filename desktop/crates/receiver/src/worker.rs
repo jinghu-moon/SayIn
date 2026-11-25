@@ -3,7 +3,10 @@
 use crate::{
     Error, Result,
     gate::InputGate,
-    ledger::{ControlState, Execution, InputOutcome, Ledger, ReceiverSnapshot, Session},
+    ledger::{
+        ControlState, Execution, InputOutcome, InputWindow, Ledger, ReceiverSnapshot, ReviewTicket,
+        Session,
+    },
     protocol::{Receipt, Submit},
 };
 use futures_channel::{mpsc as notifications, oneshot};
@@ -23,6 +26,9 @@ pub trait InputAdapter: Send + 'static {
     fn prepared_application(&self) -> Option<crate::history::TargetApplication> {
         None
     }
+    fn prepared_window(&self) -> Option<InputWindow> {
+        None
+    }
     /// Check the gate and native foreground immediately before touching input.
     /// Never interpret text as a shortcut, and never attempt to steal focus.
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome;
@@ -35,6 +41,7 @@ enum Command {
         Execution,
         std::result::Result<(), &'static str>,
         Option<crate::history::TargetApplication>,
+        Option<InputWindow>,
     ),
     Finished(Execution, InputOutcome),
     Shutdown(Option<oneshot::Sender<()>>),
@@ -155,8 +162,13 @@ impl Receiver {
                             } else {
                                 None
                             };
+                            let window = if result.is_ok() {
+                                adapter.prepared_window()
+                            } else {
+                                None
+                            };
                             if results
-                                .send(Command::Prepared(job, result, target))
+                                .send(Command::Prepared(job, result, target, window))
                                 .is_err()
                             {
                                 break;
@@ -236,12 +248,12 @@ impl Receiver {
                 needs_dispatch |= changed;
                 match command {
                     Command::Request(request, _) => request(&mut owner),
-                    Command::Prepared(job,result,target) => {
+                    Command::Prepared(job,result,target,window) => {
                         if owner.paused.is_paused() || owner.shutting_down || result.is_err() {
                             let reason=if owner.paused.is_paused() { "paused" } else { result.err().unwrap_or("shutdown") };
                             let _=owner.ledger.hold(&job,reason); owner.in_flight=false;
                         } else {
-                            match owner.ledger.mark_executing_at(&job,target) {
+                            match owner.ledger.mark_executing_in(&job,target,window) {
                                 Ok(true)=>{
                                     if let Err(error)=owner.input.try_send(Work::Execute(job)) {
                                         let work=match error { mpsc::TrySendError::Full(work)|mpsc::TrySendError::Disconnected(work)=>work };
@@ -533,6 +545,40 @@ impl Receiver {
     ) -> Result<ControlState> {
         self.set_input_enabled(expected_rev, locally_reviewed, false)
             .await
+    }
+
+    /// Acknowledges exactly the uncertain receipt represented by the local
+    /// review ticket, then starts a fresh foreground activation scope.
+    pub async fn enable_foreground_input_reviewed(
+        &self,
+        ticket: ReviewTicket,
+    ) -> Result<ControlState> {
+        self.handle.paused.pause();
+        let fence = self.handle.paused.snapshot();
+        self.mutate(move |owner| {
+            if owner.paused.snapshot() != fence {
+                return Err(Error::Protocol("STATE_CONFLICT"));
+            }
+            let current = owner.ledger.state()?;
+            let current_ticket = owner.ledger.review_ticket()?;
+            if current.state_rev != ticket.state_rev().to_string()
+                || current_ticket.as_ref() != Some(&ticket)
+            {
+                return Err(Error::Protocol("STATE_CONFLICT"));
+            }
+            owner.ledger.acknowledge_uncertain(&ticket)?;
+            let revision = owner
+                .ledger
+                .bind_target(&uuid::Uuid::new_v4().to_string())?
+                .state_rev;
+            let state = owner.ledger.resume(&revision, false)?;
+            if !owner.paused.reopen(fence) {
+                owner.ledger.pause()?;
+                return Err(Error::Protocol("STATE_CONFLICT"));
+            }
+            Ok(state)
+        })
+        .await
     }
 
     /// Local activation of current-cursor input. A fresh scope prevents held

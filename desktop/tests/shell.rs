@@ -730,7 +730,9 @@ fn uncertain_input_requires_local_checkbox_and_does_not_release_held_text(cx: &m
         assert_eq!(held.receipt.reason.as_deref(), Some("outcome_review_required"));
         assert!(held.executed_at.is_none(), "recovered old text must not execute");
         assert!(matches!(&held.operation, Some(Operation::Text { text, .. }) if text == "fixture old text"));
-        assert!(entries.iter().any(|entry| entry.receipt.st == State::Uncertain));
+        assert!(entries
+            .iter()
+            .any(|entry| entry.receipt.st == State::UncertainAcknowledged));
         assert!(!entries.iter().any(|entry| entry.receipt.st == State::Injected));
     });
     receiver.update(cx, |s, cx| s.stop(cx));

@@ -190,6 +190,134 @@ fn code<T>(result: Result<T>, expected: &str) {
 }
 
 #[test]
+fn unknown_input_side_effects_are_global_in_the_committed_receipt() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let request = fixture.submit(&session, "native call did not report its outcome");
+    let accepted = ledger.submit(&session, &request).unwrap();
+    assert!(
+        serde_json::to_value(accepted)
+            .unwrap()
+            .get("uncertain_scope")
+            .is_none()
+    );
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    let receipt = ledger
+        .finish(
+            &job,
+            InputOutcome::Uncertain {
+                reason: "input_worker_panicked",
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(receipt).unwrap()["uncertain_scope"],
+        "global"
+    );
+    let queried = ledger.query(&session, &request.id).unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_value(queried).unwrap()["uncertain_scope"],
+        "global"
+    );
+}
+
+#[test]
+fn partial_unicode_with_a_preflight_window_has_a_target_scope_in_queries() {
+    use voicelink_receiver::ledger::InputWindow;
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let request = fixture.submit(&session, "partially entered text");
+    ledger.submit(&session, &request).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    let window = InputWindow::new("C:\\Editor.exe".into(), 123, 45);
+    assert!(ledger.mark_executing_in(&job, None, Some(window)).unwrap());
+    let finished = ledger.finish(&job, InputOutcome::PartialUnicode).unwrap();
+    let queried = ledger.query(&session, &request.id).unwrap().unwrap();
+    assert_eq!(
+        serde_json::to_value(finished).unwrap()["uncertain_scope"],
+        "target"
+    );
+    assert_eq!(
+        serde_json::to_value(queried).unwrap()["uncertain_scope"],
+        "target"
+    );
+}
+
+#[test]
+fn target_uncertainty_holds_only_the_same_execution_window_across_pairs() {
+    use voicelink_receiver::ledger::InputWindow;
+    let fixture = Fixture::new();
+    let (mut ledger, sender) = fixture.ready();
+    let other = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&other, &[3; 32], "Other phone".into())
+        .unwrap();
+    let other = ledger.authenticate(&other, &[3; 32]).unwrap();
+    let window = InputWindow::new("C:\\Editor.exe".into(), 123, 45);
+    let request = fixture.submit(&sender, "partial text");
+    ledger.submit(&sender, &request).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(
+        ledger
+            .mark_executing_in(&job, None, Some(window.clone()))
+            .unwrap()
+    );
+    ledger.finish(&job, InputOutcome::PartialUnicode).unwrap();
+    assert!(!ledger.state().unwrap().paused);
+
+    let blocked = fixture.submit(&other, "same window");
+    ledger.submit(&other, &blocked).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(!ledger.mark_executing_in(&job, None, Some(window)).unwrap());
+    let held = ledger.query(&other, &blocked.id).unwrap().unwrap();
+    assert_eq!(held.st, State::Held);
+    assert_eq!(held.reason.as_deref(), Some("uncertain_target"));
+    let control = ledger.state().unwrap();
+    code(
+        ledger.release(&other, &blocked.id, &fixture.target, &control.state_rev),
+        "BLOCKED_REVIEW",
+    );
+
+    for (creation, handle) in [(123, 46), (124, 45)] {
+        let request = fixture.submit(&sender, "fresh window");
+        ledger.submit(&sender, &request).unwrap();
+        let job = ledger.prepare_next().unwrap().unwrap();
+        assert_eq!(job.id(), request.id);
+        let recreated = InputWindow::new("C:\\Editor.exe".into(), creation, handle);
+        assert!(
+            ledger
+                .mark_executing_in(&job, None, Some(recreated))
+                .unwrap()
+        );
+        ledger
+            .finish(&job, InputOutcome::Injected { method: "unicode" })
+            .unwrap();
+    }
+}
+
+#[test]
+fn resume_cannot_clear_an_uncertain_request_without_a_bound_review() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let request = fixture.submit(&session, "uncertain text");
+    ledger.submit(&session, &request).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    ledger
+        .finish(
+            &job,
+            InputOutcome::Uncertain {
+                reason: "unclassified",
+            },
+        )
+        .unwrap();
+    let state = ledger.state().unwrap();
+    code(ledger.resume(&state.state_rev, false), "STATE_CONFLICT");
+    assert!(ledger.state().unwrap().paused);
+}
+
+#[test]
 fn scheduler_orders_authenticated_pair_heads_and_skips_a_held_pair() {
     let fixture = Fixture::new();
     let clock = ManualClock::new();
@@ -491,6 +619,32 @@ fn executing_restart_is_uncertain_and_remote_resume_cannot_clear_review() {
         )
         .unwrap();
     assert!(payload.is_none());
+}
+
+#[test]
+fn uncertain_review_ticket_is_invalid_after_control_revision_changes() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let request = fixture.submit(&session, "review ticket");
+    ledger.submit(&session, &request).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    ledger.mark_executing(&job).unwrap();
+    ledger
+        .finish(&job, InputOutcome::Uncertain { reason: "partial" })
+        .unwrap();
+    let ticket = ledger.review_ticket().unwrap().unwrap();
+    ledger.pause().unwrap();
+    assert!(matches!(
+        ledger.acknowledge_uncertain(&ticket),
+        Err(Error::Protocol("STATE_CONFLICT"))
+    ));
+    let current = ledger.review_ticket().unwrap().unwrap();
+    let state = ledger.acknowledge_uncertain(&current).unwrap();
+    assert!(!state.paused);
+    assert_eq!(
+        ledger.query(&session, &request.id).unwrap().unwrap().st,
+        State::UncertainAcknowledged
+    );
 }
 
 #[test]
@@ -936,6 +1090,9 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
              ALTER TABLE receipts DROP COLUMN request_rev;
              ALTER TABLE receipts DROP COLUMN execution_stage;
              ALTER TABLE receipts DROP COLUMN confirmed;
+             DROP INDEX uncertain_windows;
+             DROP INDEX uncertain_receipts;
+             ALTER TABLE receipts DROP COLUMN input_window_mac;
              ALTER TABLE receipts DROP COLUMN uncertain_scope;
              ALTER TABLE receipts DROP COLUMN hold_expires_at;
              ALTER TABLE receipts DROP COLUMN executable_at;",
