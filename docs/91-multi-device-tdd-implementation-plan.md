@@ -105,26 +105,34 @@ v3 整体替换 v2，不保留双协议。因此 P4 与 P5 之间必然出现"�
 
 ### P1 账本 schema 7 与状态机
 
-**T05 schema 7 迁移**  
+**T05 schema 7 迁移（已完成）**  
 依赖：T01。  
 红：`ledger.rs` 测试：从 schema 6 升级后保留收据/去重/历史；`receipts.device` 语义统一为 `pair_id`（现有 `devices` 表与 `UNIQUE(device,id)` 一并调整）；`method` 已存在，新增 `request_rev`、`execution_stage`、`confirmed`、`uncertain_scope`、`hold_expires_at` 且默认值正确；缺少旧结构时拒绝打开而不是静默重建。  
 绿：迁移脚本与版本检查。  
 退出：旧库升级、空库新建、版本过新拒绝三条路径都有测试。
 
-**T06 状态转移表**  
+实现：schema 7 已落地，schema 1–6 可升级，缺失结构和过新版本均拒绝打开。新增字段默认值、pair 隔离、状态触发器和终态保护均有测试。
+
+**T06 状态转移表（已完成）**  
 依赖：T05。  
 红：对 86 §5.3 的 10 个状态 × 事件做表驱动测试：合法转移成功，非法转移返回 `STATE_CONFLICT` 且不改行。覆盖 `executing → uncertain`、`held → accepted`（放行）、`uncertain → uncertain_acknowledged`、以及"终态不再变化"。  
 退出：非法转移零漏网；终态复写测试失败。
 
-**T07 `request_rev` 与 `accept_order`**  
+实现：合法状态转移、`STATE_CONFLICT`、原子回滚、`uncertain_acknowledged` 和终态元数据不可重写均已覆盖。
+
+**T07 `request_rev` 与 `accept_order`（已完成）**  
 依赖：T05。  
 红：同一请求 rev 严格递增；并发两条写只允许一条推进；`query` 不推进 rev；`accept_order` 全机唯一且按接受顺序；重启后不回退。  
 退出：重启、并发、回读三种场景通过。
 
-**T08 配额与计数**  
+实现：状态变更自动推进 `request_rev`，查询不推进版本，并发写入只允许一条成功，`accept_order` 全局递增且重启后不回退。达到 SQLite 最大整数时拒绝继续推进。
+
+**T08 配额与计数（已完成）**  
 依赖：T05。  
 红：每 pair 16 项 / 64 KiB、全机 32 项 / 128 KiB 的边界（恰好通过、超一项拒绝）；终态不占配额；取消记录单独计数；转移快照不占授权名额。  
 退出：86 §7.2 每行计数口径都有测试。
+
+实现：每 pair 16 项/64 KiB、全机 32 项/128 KiB 的精确边界、终态释放配额、取消独立计数和重配转移快照均已覆盖。
 
 ### P2 调度、期限与 `held`
 
@@ -361,13 +369,14 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P0 | T02 | 严格回执解析红、绿和 receiver 回归已通过。 | P0 本提交 |
 | P0 | T03 | 73 个合法执行组合及其余 467 个组合、查询未命中和帧预算均通过。图标样本用于测量编码长度，真实 WebP 的编码和解码在 P9 验收。 | P0 本提交 |
 | P0 | T04 | 17 个错误码与规范一致，16 个可出站，`PAIR_ALREADY_EXISTS` 只在手机本地映射。Rust 和 Android 测试均通过。 | P0 本提交 |
-| P1–P9 | T05–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
+| P1 | T05–T08 | 完成。schema 7、状态机、request_rev/accept_order、配额与计数均已实现并通过测试。 | `00278ea` |
+| P2–P9 | T09–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
 
 | 门禁 | 实际结果 |
 | --- | --- |
-| Rust 工作区测试 | 基线 151 通过、0 失败，206.39 秒。当前 170 通过、0 失败，95.97 秒。两次命令的构建缓存状态有差异。 |
-| Clippy、包级 rustfmt、i18n、桌面依赖检查 | 均通过。Clippy 首轮与临时基线捕获目标的清理发生文件竞争，移除临时目标后重新执行全工作区检查，成功。 |
-| Android JVM 与 lint | 基线 238 通过，当前 240 通过，均 0 失败。当前 JVM 7.89 秒，lint 83.54 秒。 |
+| Rust 工作区测试 | `cargo +1.99.1 test --manifest-path desktop/Cargo.toml --workspace --all-targets --locked` 通过，0 失败。receiver ledger 41 项、receiver 单元 49 项均通过。 |
+| Clippy、包级 rustfmt、i18n、桌面依赖检查 | `clippy -D warnings`、包级 `fmt --check`、i18n 和桌面依赖检查均通过。 |
+| Android JVM 与 lint | `:app:testDebugUnitTest` 和 `:app:lintDebug` 均成功。 |
 | Redmi K40 v2 隔离回归 | 文字/UI 首轮 126 通过、36 失败、7 条件跳过。系统控制中心抢占焦点，单独复跑剪贴板 4 项全过。修正清单数量后全套复跑文字/UI 162 通过、0 失败、7 条件跳过，图片 4 通过、0 失败。 |
 | 升级样本捕获 | 额外的 v2 留存测试 1 通过、0 失败。Android Room schema 5、Windows SQLite schema 6，双方的 `injected`、`expired`、`uncertain` 各 1 条。旧版本可解密，原地升级验证仍待 P7。 |
 

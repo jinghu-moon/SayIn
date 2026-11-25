@@ -19,13 +19,27 @@ pub enum Error {
     #[error("{0}")]
     Protocol(&'static str),
     #[error("SQLite: {0}")]
-    Database(#[from] rusqlite::Error),
+    Database(rusqlite::Error),
     #[error("Storage: {0}")]
     Io(#[from] std::io::Error),
     #[error("Operating system: {0}")]
     Platform(String),
     #[error("Receiver is unavailable")]
     Unavailable,
+}
+
+impl From<rusqlite::Error> for Error {
+    fn from(error: rusqlite::Error) -> Self {
+        match &error {
+            rusqlite::Error::SqliteFailure(code, Some(message))
+                if code.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_TRIGGER
+                    && message == "STATE_CONFLICT" =>
+            {
+                Self::Protocol("STATE_CONFLICT")
+            }
+            _ => Self::Database(error),
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

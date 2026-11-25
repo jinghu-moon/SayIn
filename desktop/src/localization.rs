@@ -260,6 +260,7 @@ messages! {
     ReceiptAccepted => "receipt-accepted", ReceiptHeld => "receipt-held", ReceiptExecuting => "receipt-executing",
     ReceiptInjected => "receipt-injected", ReceiptCancelled => "receipt-cancelled", ReceiptExpired => "receipt-expired",
     ReceiptFailed => "receipt-failed", ReceiptUncertain => "receipt-uncertain",
+    ReceiptUncertainAcknowledged => "receipt-uncertain-acknowledged",
 
     NetworkPublic => "network-public", NetworkPrivate => "network-private", NetworkDomain => "network-domain",
     NetworkFirewallHelp => "network-firewall-help",
@@ -344,6 +345,7 @@ impl Catalogs {
             State::Expired => Message::ReceiptExpired,
             State::Failed => Message::ReceiptFailed,
             State::Uncertain => Message::ReceiptUncertain,
+            State::UncertainAcknowledged => Message::ReceiptUncertainAcknowledged,
         };
         let mut args = FluentArgs::new();
         args.set("order", receipt.order.as_str());

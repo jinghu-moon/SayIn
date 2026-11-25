@@ -162,6 +162,7 @@ pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
         "expired" => State::Expired,
         "failed" => State::Failed,
         "uncertain" => State::Uncertain,
+        "uncertain_acknowledged" => State::UncertainAcknowledged,
         _ => return Err(rusqlite::Error::InvalidQuery),
     };
     Ok(Receipt {
@@ -205,12 +206,13 @@ impl Ledger {
         if existing_database {
             let version: u32 =
                 database.pragma_query_value(None, "user_version", |row| row.get(0))?;
-            if !matches!(version, 1..=6) {
+            if !matches!(version, 1..=7) {
                 return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
             }
+            let pair_table = if version < 7 { "devices" } else { "pairs" };
             let tables: u32 = database.query_row(
-                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN ('devices','control','receipts','ledger_meta','queue_totals')",
-                [], |row| row.get(0))?;
+                "SELECT COUNT(*) FROM sqlite_schema WHERE type='table' AND name IN (?1,'control','receipts','ledger_meta','queue_totals')",
+                [pair_table], |row| row.get(0))?;
             let triggers: u32 = database.query_row(
                 "SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('receipt_insert','receipt_update','receipt_delete')",
                 [], |row| row.get(0))?;
@@ -325,15 +327,18 @@ impl Ledger {
                 ledger.database.execute_batch("BEGIN IMMEDIATE; ALTER TABLE devices ADD COLUMN display_name TEXT NOT NULL DEFAULT ''; PRAGMA user_version=3; COMMIT;")?;
             }
         }
-        ledger
-            .database
-            .prepare("SELECT display_name FROM devices LIMIT 0")?;
+        let pair_display_query = if version < 7 {
+            "SELECT display_name FROM devices LIMIT 0"
+        } else {
+            "SELECT display_name FROM pairs LIMIT 0"
+        };
+        ledger.database.prepare(pair_display_query)?;
         let version: u32 = ledger
             .database
             .pragma_query_value(None, "user_version", |r| r.get(0))?;
         if version == 3 {
             ledger.database.execute_batch("BEGIN IMMEDIATE; ALTER TABLE message_history ADD COLUMN deleted_at INTEGER; CREATE INDEX history_deleted ON message_history(deleted_at) WHERE deleted_at IS NOT NULL; CREATE INDEX history_received ON message_history(received_at); CREATE TABLE history_policy(singleton INTEGER PRIMARY KEY CHECK(singleton=1),enabled INTEGER NOT NULL CHECK(enabled IN (0,1)),days INTEGER CHECK(days IN (7,30))) STRICT; INSERT INTO history_policy VALUES(1,1,NULL); PRAGMA user_version=4; COMMIT;")?;
-        } else if !matches!(version, 4..=6) {
+        } else if !matches!(version, 4..=7) {
             return Err(Error::Protocol("LEDGER_SCHEMA_UNSUPPORTED"));
         }
         ledger
@@ -366,9 +371,12 @@ impl Ledger {
                 END;
                 PRAGMA user_version=6; COMMIT;")?;
         }
-        ledger.database.prepare(
-            "SELECT resource_id,device,metadata,accept_order FROM image_resources LIMIT 0",
-        )?;
+        let image_resources_query = if version < 7 {
+            "SELECT resource_id,device,metadata,accept_order FROM image_resources LIMIT 0"
+        } else {
+            "SELECT resource_id,pair_id,metadata,accept_order FROM image_resources LIMIT 0"
+        };
+        ledger.database.prepare(image_resources_query)?;
         ledger
             .database
             .prepare("SELECT image_resource FROM receipts LIMIT 0")?;
@@ -377,6 +385,114 @@ impl Ledger {
             .prepare("SELECT resource_id FROM image_garbage LIMIT 0")?;
         let image_triggers: u32 = ledger.database.query_row("SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('image_history_retired','image_receipt_retired')", [], |r|r.get(0))?;
         if image_triggers != 2 {
+            return Err(Error::Protocol("LEDGER_SCHEMA_CORRUPT"));
+        }
+        if version < 7 {
+            let migration = ledger.database.transaction()?;
+            // SQLite promotes overflowing integer arithmetic to REAL. State
+            // updates cast the next revision to INTEGER so the guard reports a
+            // conflict at the ceiling instead of a STRICT type error.
+            migration.execute_batch(
+                "ALTER TABLE devices RENAME TO pairs;
+                 ALTER TABLE receipts RENAME COLUMN device TO pair_id;
+                 ALTER TABLE image_resources RENAME COLUMN device TO pair_id;
+                 ALTER TABLE pairs ADD COLUMN cancel_count INTEGER NOT NULL DEFAULT 0 CHECK(cancel_count>=0);
+                 ALTER TABLE receipts ADD COLUMN request_rev INTEGER NOT NULL DEFAULT 0 CHECK(request_rev>=0);
+                 ALTER TABLE receipts ADD COLUMN execution_stage TEXT CHECK(execution_stage IN ('not_started','prepared','input_submitted','file_saved','paste_submitted','paste_confirmed'));
+                 ALTER TABLE receipts ADD COLUMN confirmed INTEGER CHECK(confirmed IN (0,1));
+                 ALTER TABLE receipts ADD COLUMN uncertain_scope TEXT CHECK(uncertain_scope IN ('target','global'));
+                 ALTER TABLE receipts ADD COLUMN hold_expires_at INTEGER;
+                 CREATE TABLE transferred_receipts (
+                     pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
+                     source_order INTEGER NOT NULL REFERENCES receipts(accept_order),
+                     PRIMARY KEY(pair_id,id)
+                 ) STRICT;
+                 UPDATE receipts SET uncertain_scope='global' WHERE state='uncertain';
+                 UPDATE pairs SET cancel_count=(
+                     SELECT COUNT(*) FROM receipts
+                     WHERE pair_id=pairs.id AND state='cancelled' AND reason='cancelled_before_accept'
+                 );
+                 CREATE TRIGGER cancellation_insert AFTER INSERT ON receipts
+                 WHEN NEW.state='cancelled' AND NEW.reason='cancelled_before_accept'
+                 BEGIN
+                     UPDATE pairs SET cancel_count=cancel_count+1 WHERE id=NEW.pair_id;
+                 END;
+                 CREATE TRIGGER cancellation_delete AFTER DELETE ON receipts
+                 WHEN OLD.state='cancelled' AND OLD.reason='cancelled_before_accept'
+                 BEGIN
+                     UPDATE pairs SET cancel_count=cancel_count-1 WHERE id=OLD.pair_id;
+                 END;
+                 CREATE TRIGGER receipt_state_insert BEFORE INSERT ON receipts
+                 WHEN NEW.state NOT IN ('accepted','held','executing','injected','failed','cancelled',
+                                        'expired','uncertain','uncertain_acknowledged')
+                 BEGIN
+                     SELECT RAISE(ABORT,'STATE_CONFLICT');
+                 END;
+                 CREATE TRIGGER receipt_state_transition BEFORE UPDATE OF state,request_rev ON receipts
+                 WHEN OLD.request_rev=9223372036854775807 OR NEW.request_rev <> OLD.request_rev+1 OR NOT (
+                     (OLD.state='accepted' AND NEW.state IN ('held','executing','expired','cancelled'))
+                     OR (OLD.state='held' AND NEW.state IN ('accepted','expired','cancelled'))
+                     OR (OLD.state='executing' AND NEW.state IN ('injected','failed','uncertain'))
+                     OR (OLD.state='uncertain' AND NEW.state='uncertain_acknowledged')
+                 )
+                 BEGIN
+                     SELECT RAISE(ABORT,'STATE_CONFLICT');
+                 END;
+                 CREATE TRIGGER receipt_terminal_immutable BEFORE UPDATE ON receipts
+                 WHEN OLD.state IN ('injected','failed','cancelled','expired','uncertain_acknowledged')
+                 BEGIN
+                     SELECT RAISE(ABORT,'STATE_CONFLICT');
+                 END;
+                 PRAGMA user_version=7;",
+            )?;
+            migration.commit()?;
+        }
+        // Complete databases created by the first schema-7 implementation in
+        // place. This is an idempotent repair for development snapshots that
+        // already advertise version 7 but predate replacement/read-only grants.
+        let has_cancel_count: bool = ledger.database.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('pairs') WHERE name='cancel_count')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_cancel_count {
+            ledger.database.execute_batch(
+                "ALTER TABLE pairs ADD COLUMN cancel_count INTEGER NOT NULL DEFAULT 0 CHECK(cancel_count>=0);
+                 UPDATE pairs SET cancel_count=(
+                   SELECT COUNT(*) FROM receipts
+                   WHERE pair_id=pairs.id AND state='cancelled' AND reason='cancelled_before_accept'
+                 );",
+            )?;
+        }
+        ledger.database.execute_batch(
+            "CREATE TABLE IF NOT EXISTS transferred_receipts (
+                pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
+                source_order INTEGER NOT NULL REFERENCES receipts(accept_order),
+                PRIMARY KEY(pair_id,id)
+             ) STRICT;
+             CREATE TRIGGER IF NOT EXISTS cancellation_insert AFTER INSERT ON receipts
+             WHEN NEW.state='cancelled' AND NEW.reason='cancelled_before_accept'
+             BEGIN UPDATE pairs SET cancel_count=cancel_count+1 WHERE id=NEW.pair_id; END;
+             CREATE TRIGGER IF NOT EXISTS cancellation_delete AFTER DELETE ON receipts
+             WHEN OLD.state='cancelled' AND OLD.reason='cancelled_before_accept'
+             BEGIN UPDATE pairs SET cancel_count=cancel_count-1 WHERE id=OLD.pair_id; END;",
+        )?;
+        ledger.database.prepare(
+            "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at FROM receipts LIMIT 0",
+        )?;
+        ledger
+            .database
+            .prepare("SELECT cancel_count FROM pairs LIMIT 0")?;
+        ledger
+            .database
+            .prepare("SELECT pair_id,id,source_order FROM transferred_receipts LIMIT 0")?;
+        let state_triggers: u32 = ledger.database.query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE type='trigger' AND
+             name IN ('receipt_state_insert','receipt_state_transition','receipt_terminal_immutable',
+                      'cancellation_insert','cancellation_delete')",
+            [], |row| row.get(0),
+        )?;
+        if state_triggers != 5 {
             return Err(Error::Protocol("LEDGER_SCHEMA_CORRUPT"));
         }
         ledger.recover()?;
@@ -401,8 +517,17 @@ impl Ledger {
     fn recover(&mut self) -> Result<()> {
         let previous = self.state()?.pause_reason;
         let tx = self.database.transaction()?;
-        let interrupted = tx.execute("UPDATE receipts SET state='uncertain',reason='restart_during_input',payload=NULL,bytes=0 WHERE state='executing'", [])?;
-        tx.execute("UPDATE receipts SET state='held',reason='restart_confirmation' WHERE state IN ('accepted','held')", [])?;
+        let interrupted = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='uncertain',reason='restart_during_input',uncertain_scope='global',payload=NULL,bytes=0 WHERE state='executing'", [])?;
+        tx.execute(
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='restart_confirmation'
+             WHERE state='accepted'",
+            [],
+        )?;
+        tx.execute(
+            "UPDATE receipts SET reason='restart_confirmation'
+             WHERE state='held' AND reason='outcome_review_required'",
+            [],
+        )?;
         let review: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM control WHERE pause_reason='outcome_review_required')",
             [],
@@ -442,7 +567,7 @@ impl Ledger {
     pub fn snapshot(&self) -> Result<ReceiverSnapshot> {
         let mut devices = self
             .database
-            .prepare("SELECT id,display_name FROM devices WHERE revoked=0 ORDER BY id LIMIT 8")?;
+            .prepare("SELECT id,display_name FROM pairs WHERE revoked=0 ORDER BY id LIMIT 8")?;
         let device_names = devices
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -451,7 +576,7 @@ impl Ledger {
         let device_ids = device_names.keys().cloned().collect();
         let paired_devices =
             self.database
-                .query_row("SELECT COUNT(*) FROM devices WHERE revoked=0", [], |row| {
+                .query_row("SELECT COUNT(*) FROM pairs WHERE revoked=0", [], |row| {
                     row.get(0)
                 })?;
         let pending = self.database.query_row(
@@ -481,24 +606,16 @@ impl Ledger {
 
     /// Called only after local human approval, never from an unapproved pair frame.
     pub fn provision_device(&mut self, device: &str, token: &[u8], name: String) -> Result<()> {
-        validate_uuid(device)?;
-        if token.len() != 32 {
-            return Err(Error::Protocol("INVALID_TOKEN"));
-        }
-        if name.chars().count() > 64 || name.chars().any(char::is_control) {
-            return Err(Error::Protocol("INVALID_NAME"));
-        }
-        let digest = self.mac(b"device-token", token);
+        let digest = self.pair_token_digest(device, token, &name)?;
         let tx = self.database.transaction()?;
-        let count: u32 =
-            tx.query_row("SELECT COUNT(*) FROM devices WHERE revoked=0", [], |row| {
-                row.get(0)
-            })?;
+        let count: u32 = tx.query_row("SELECT COUNT(*) FROM pairs WHERE revoked=0", [], |row| {
+            row.get(0)
+        })?;
         if count >= 8 {
             return Err(Error::Protocol("DEVICE_LIMIT"));
         }
         tx.execute(
-            "INSERT INTO devices(id,token_mac,display_name) VALUES(?1,?2,?3)",
+            "INSERT INTO pairs(id,token_mac,display_name) VALUES(?1,?2,?3)",
             params![device, digest, name],
         )?;
         tx.execute(
@@ -509,12 +626,74 @@ impl Ledger {
         Ok(())
     }
 
+    /// Called after local approval of a replacement proven by the old session.
+    pub fn replace_pair(
+        &mut self,
+        old: &Session,
+        new_pair: &str,
+        new_token: &[u8],
+        name: String,
+    ) -> Result<()> {
+        self.authorize(old)?;
+        let digest = self.pair_token_digest(new_pair, new_token, &name)?;
+        let tx = self.database.transaction()?;
+        let pending: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM receipts
+             WHERE pair_id=?1 AND state IN ('accepted','held','executing','uncertain'))",
+            [old.device()],
+            |row| row.get(0),
+        )?;
+        if pending {
+            return Err(Error::Protocol("PAIR_REPLACE_BLOCKED"));
+        }
+        tx.execute(
+            "INSERT INTO pairs(id,token_mac,display_name) VALUES(?1,?2,?3)",
+            params![new_pair, digest, name],
+        )?;
+        // Terminal rows are immutable. Transfer read access while preserving
+        // the original acceptance sequence and keeping the counters unchanged.
+        tx.execute(
+            "INSERT INTO transferred_receipts(pair_id,id,source_order)
+             SELECT ?1,id,accept_order FROM receipts
+             WHERE pair_id=?2 AND state IN ('injected','failed','cancelled','expired','uncertain_acknowledged')
+             UNION ALL
+             SELECT ?1,id,source_order FROM transferred_receipts WHERE pair_id=?2",
+            params![new_pair, old.device()],
+        )?;
+        tx.execute("UPDATE pairs SET revoked=1 WHERE id=?1", [old.device()])?;
+        tx.execute(
+            "UPDATE control SET
+                active_device=CASE WHEN active_device=?2 THEN ?1 ELSE active_device END,
+                paused=CASE WHEN active_device=?2 THEN 1 ELSE paused END,
+                pause_reason=CASE WHEN active_device=?2 THEN COALESCE(pause_reason,'startup') ELSE pause_reason END,
+                target=CASE WHEN active_device=?2 THEN NULL ELSE target END,
+                rev=rev+1",
+            params![new_pair, old.device()],
+        )?;
+        tx.commit()?;
+        self.invalidate_device_images(old.device());
+        self.sessions.remove(old.device());
+        self.rates.remove(old.device());
+        Ok(())
+    }
+
+    fn pair_token_digest(&self, device: &str, token: &[u8], name: &str) -> Result<Vec<u8>> {
+        validate_uuid(device)?;
+        if token.len() != 32 {
+            return Err(Error::Protocol("INVALID_TOKEN"));
+        }
+        if name.chars().count() > 64 || name.chars().any(char::is_control) {
+            return Err(Error::Protocol("INVALID_NAME"));
+        }
+        Ok(self.mac(b"device-token", token))
+    }
+
     pub fn authenticate(&mut self, device: &str, token: &[u8]) -> Result<Session> {
         validate_uuid(device)?;
         let digest: Option<Vec<u8>> = self
             .database
             .query_row(
-                "SELECT token_mac FROM devices WHERE id=?1 AND revoked=0",
+                "SELECT token_mac FROM pairs WHERE id=?1 AND revoked=0",
                 [device],
                 |row| row.get(0),
             )
@@ -548,7 +727,7 @@ impl Ledger {
         }
         let session = self.authenticate(device, token)?;
         self.database.execute(
-            "UPDATE devices SET display_name=?1 WHERE id=?2 AND revoked=0 AND display_name<>?1",
+            "UPDATE pairs SET display_name=?1 WHERE id=?2 AND revoked=0 AND display_name<>?1",
             params![name, device],
         )?;
         Ok(session)
@@ -562,7 +741,7 @@ impl Ledger {
             return Err(Error::Protocol("STALE_SESSION"));
         }
         let authorized: bool = self.database.query_row(
-            "SELECT EXISTS(SELECT 1 FROM devices WHERE id=?1 AND revoked=0)",
+            "SELECT EXISTS(SELECT 1 FROM pairs WHERE id=?1 AND revoked=0)",
             [&session.device],
             |row| row.get(0),
         )?;
@@ -588,9 +767,9 @@ impl Ledger {
         }
         let digest = self.mac(b"payload", &submit.canonical_payload());
         // Auth and basic validation first, then dedup before target/quota/rate.
-        if let Some(existing) = self.query(session, &submit.id)? {
+        if let Some(existing) = self.find(&session.device, &submit.id)? {
             let original: Option<Vec<u8>> = self.database.query_row(
-                "SELECT payload_mac FROM receipts WHERE device=?1 AND id=?2",
+                "SELECT payload_mac FROM receipts WHERE pair_id=?1 AND id=?2",
                 params![session.device, submit.id],
                 |row| row.get(0),
             )?;
@@ -598,6 +777,12 @@ impl Ledger {
                 return Err(Error::Protocol("ID_CONFLICT"));
             }
             return Ok(existing);
+        }
+        if self
+            .transferred_source(&session.device, &submit.id)?
+            .is_some()
+        {
+            return Err(Error::Protocol("ID_CONFLICT"));
         }
         let control = self.state()?;
         if control.active_device_id.as_deref() != Some(&session.device) {
@@ -643,7 +828,7 @@ impl Ledger {
         let history = protected.clone();
         let tx = self.database.transaction()?;
         let (device_count, device_bytes, receipts): (i64, i64, i64) = tx.query_row(
-            "SELECT pending_count,pending_bytes,receipt_count FROM devices WHERE id=?1",
+            "SELECT pending_count,pending_bytes,receipt_count-cancel_count FROM pairs WHERE id=?1",
             [&session.device],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
@@ -654,7 +839,7 @@ impl Ledger {
         )?;
         let bytes = submit.op.bytes() as i64;
         if matches!(submit.op, Operation::Image { .. }) {
-            let (total, device): (u32, u32) = tx.query_row("SELECT COUNT(*),COALESCE(SUM(device=?1),0) FROM receipts INDEXED BY image_pending WHERE image_resource IS NOT NULL AND state IN ('accepted','held','executing')", [&session.device], |r| Ok((r.get(0)?,r.get(1)?)))?;
+            let (total, device): (u32, u32) = tx.query_row("SELECT COUNT(*),COALESCE(SUM(pair_id=?1),0) FROM receipts INDEXED BY image_pending WHERE image_resource IS NOT NULL AND state IN ('accepted','held','executing')", [&session.device], |r| Ok((r.get(0)?,r.get(1)?)))?;
             if total >= 2 || device >= 1 {
                 return Err(Error::Protocol("IMAGE_QUEUE_FULL"));
             }
@@ -675,19 +860,19 @@ impl Ledger {
             State::Accepted
         };
         let reason = control.paused.then_some("paused");
-        tx.execute("INSERT INTO receipts(device,id,payload_mac,payload,original_target,execute_target,bytes,state,reason) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8)",
+        tx.execute("INSERT INTO receipts(pair_id,id,payload_mac,payload,original_target,execute_target,bytes,state,reason) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8)",
             params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason])?;
         let accept_order = tx.last_insert_rowid();
         let order = accept_order.to_string();
         if let Operation::Image { image } = &submit.op {
-            tx.execute("INSERT INTO image_resources(resource_id,device,metadata,accept_order) VALUES(?1,?2,?3,?4)", params![image.resource_id,session.device,serde_json::to_string(&image.metadata).expect("metadata"),accept_order])?;
+            tx.execute("INSERT INTO image_resources(resource_id,pair_id,metadata,accept_order) VALUES(?1,?2,?3,?4)", params![image.resource_id,session.device,serde_json::to_string(&image.metadata).expect("metadata"),accept_order])?;
             tx.execute(
-                "UPDATE receipts SET image_resource=?1 WHERE device=?2 AND id=?3",
+                "UPDATE receipts SET image_resource=?1 WHERE pair_id=?2 AND id=?3",
                 params![image.resource_id, session.device, submit.id],
             )?;
         }
         tx.execute(
-            "INSERT INTO message_history(accept_order,body,received_at,source_name) SELECT ?1,?2,?3,d.display_name FROM history_policy p JOIN devices d ON d.id=?4 WHERE p.singleton=1 AND p.enabled=1",
+            "INSERT INTO message_history(accept_order,body,received_at,source_name) SELECT ?1,?2,?3,d.display_name FROM history_policy p JOIN pairs d ON d.id=?4 WHERE p.singleton=1 AND p.enabled=1",
             params![
                 accept_order,
                 history,
@@ -718,16 +903,32 @@ impl Ledger {
     pub fn query(&self, session: &Session, id: &str) -> Result<Option<Receipt>> {
         self.authorize(session)?;
         validate_uuid(id)?;
+        if let Some(source) = self.transferred_source(&session.device, id)? {
+            return self.find(&source, id);
+        }
         self.find(&session.device, id)
     }
 
+    fn transferred_source(&self, pair_id: &str, id: &str) -> Result<Option<String>> {
+        Ok(self
+            .database
+            .query_row(
+                "SELECT r.pair_id FROM transferred_receipts t
+             JOIN receipts r ON r.accept_order=t.source_order
+             WHERE t.pair_id=?1 AND t.id=?2",
+                params![pair_id, id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     fn find(&self, device: &str, id: &str) -> Result<Option<Receipt>> {
-        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method FROM receipts WHERE device=?1 AND id=?2", params![device,id], receipt).optional()?;
+        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method FROM receipts WHERE pair_id=?1 AND id=?2", params![device,id], receipt).optional()?;
         if let Some(receipt) = &mut result {
             // Only the same authenticated device's retained history can supply
             // display metadata. Never look up the current foreground process.
             let target: Option<Vec<u8>> = self.database.query_row(
-                "SELECT h.target FROM message_history h JOIN receipts r ON r.accept_order=h.accept_order WHERE r.device=?1 AND r.id=?2 AND h.deleted_at IS NULL",
+                "SELECT h.target FROM message_history h JOIN receipts r ON r.accept_order=h.accept_order WHERE r.pair_id=?1 AND r.id=?2 AND h.deleted_at IS NULL",
                 params![device,id], |row| row.get(0),
             ).optional()?.flatten();
             receipt.application = target
@@ -743,7 +944,7 @@ impl Ledger {
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'paused' END,rev=rev+1", [])?;
         tx.execute(
-            "UPDATE receipts SET state='held',reason='paused' WHERE state='accepted'",
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='paused' WHERE state='accepted'",
             [],
         )?;
         tx.commit()?;
@@ -756,7 +957,7 @@ impl Ledger {
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET pause_reason=CASE WHEN paused=0 THEN 'network_unavailable' ELSE pause_reason END,paused=1,rev=rev+1", [])?;
         tx.execute(
-            "UPDATE receipts SET state='held',reason='network_unavailable' WHERE state='accepted'",
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='network_unavailable' WHERE state='accepted'",
             [],
         )?;
         tx.commit()?;
@@ -769,7 +970,7 @@ impl Ledger {
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET target=?1,paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'target_changed' END,rev=rev+1", [target])?;
         tx.execute(
-            "UPDATE receipts SET state='held',reason='target_changed' WHERE state='accepted'",
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed' WHERE state='accepted'",
             [],
         )?;
         tx.commit()?;
@@ -814,11 +1015,12 @@ impl Ledger {
         {
             return Err(Error::Protocol("STATE_CONFLICT"));
         }
+        validate_uuid(id)?;
         let row = self
-            .query(session, id)?
+            .find(&session.device, id)?
             .ok_or(Error::Protocol("UNKNOWN_ID"))?;
         let is_image: bool = self.database.query_row(
-            "SELECT image_resource IS NOT NULL FROM receipts WHERE device=?1 AND id=?2",
+            "SELECT image_resource IS NOT NULL FROM receipts WHERE pair_id=?1 AND id=?2",
             params![session.device, id],
             |r| r.get(0),
         )?;
@@ -829,7 +1031,7 @@ impl Ledger {
             return Err(Error::Protocol("TOO_LATE"));
         }
         let tx = self.database.transaction()?;
-        tx.execute("UPDATE receipts SET state='accepted',reason=NULL,execute_target=?1 WHERE device=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
+        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='accepted',reason=NULL,execute_target=?1 WHERE pair_id=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
         tx.execute("UPDATE control SET rev=rev+1", [])?;
         tx.commit()?;
         // Releasing old text never renews its original acceptance deadline.
@@ -840,24 +1042,31 @@ impl Ledger {
     pub fn cancel(&mut self, session: &Session, id: &str) -> Result<Receipt> {
         self.authorize(session)?;
         validate_uuid(id)?;
-        if let Some(existing) = self.query(session, id)? {
+        if let Some(existing) = self.find(&session.device, id)? {
             if existing.st == State::Cancelled {
                 return Ok(existing);
             }
             if !matches!(existing.st, State::Accepted | State::Held) {
                 return Err(Error::Protocol("TOO_LATE"));
             }
-            self.database.execute("UPDATE receipts SET state='cancelled',reason='user_cancelled',payload=NULL,bytes=0 WHERE device=?1 AND id=?2", params![session.device,id])?;
+            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='user_cancelled',payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2", params![session.device,id])?;
         } else {
+            if self.transferred_source(&session.device, id)?.is_some() {
+                return Err(Error::Protocol("TOO_LATE"));
+            }
             let count: i64 = self.database.query_row(
-                "SELECT receipt_count FROM devices WHERE id=?1",
+                "SELECT cancel_count FROM pairs WHERE id=?1",
                 [&session.device],
                 |row| row.get(0),
             )?;
             if count >= 1_000_000 {
                 return Err(Error::Protocol("RECEIPT_LIMIT"));
             }
-            self.database.execute("INSERT INTO receipts(device,id,state,reason) VALUES(?1,?2,'cancelled','cancelled_before_accept')", params![session.device,id])?;
+            self.database.execute(
+                "INSERT INTO receipts(pair_id,id,state,reason,execution_stage,confirmed)
+                 VALUES(?1,?2,'cancelled','cancelled_before_accept','not_started',0)",
+                params![session.device, id],
+            )?;
         }
         self.deadlines
             .remove(&(session.device.clone(), id.to_owned()));
@@ -868,8 +1077,8 @@ impl Ledger {
     pub fn revoke(&mut self, device: &str) -> Result<()> {
         self.invalidate_device_images(device);
         let tx = self.database.transaction()?;
-        tx.execute("UPDATE devices SET revoked=1 WHERE id=?1", [device])?;
-        tx.execute("UPDATE receipts SET state='cancelled',reason='device_revoked',payload=NULL,bytes=0 WHERE device=?1 AND state IN ('accepted','held')", [device])?;
+        tx.execute("UPDATE pairs SET revoked=1 WHERE id=?1", [device])?;
+        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='device_revoked',payload=NULL,bytes=0 WHERE pair_id=?1 AND state IN ('accepted','held')", [device])?;
         tx.execute("UPDATE control SET paused=1,pause_reason='device_revoked',active_device=NULL,rev=rev+1 WHERE active_device=?1", [device])?;
         tx.commit()?;
         self.sessions.remove(device);
@@ -894,7 +1103,7 @@ impl Ledger {
         let tx = self.database.transaction()?;
         let mut changed = false;
         for (device, id) in &due {
-            changed |= tx.execute("UPDATE receipts SET state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE device=?1 AND id=?2 AND state IN ('accepted','held')", params![device,id])? > 0;
+            changed |= tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2 AND state IN ('accepted','held')", params![device,id])? > 0;
         }
         tx.commit()?;
         for key in due {
@@ -915,7 +1124,7 @@ impl Ledger {
             return Ok(None);
         }
         let row: Option<PendingRow> = self.database.query_row(
-            "SELECT device,id,state,payload,execute_target FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [],
+            "SELECT pair_id,id,state,payload,execute_target FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [],
             |row| Ok(PendingRow { device:row.get(0)?,id:row.get(1)?,state:row.get(2)?,payload:row.get(3)?,target:row.get(4)? })).optional()?;
         let Some(PendingRow {
             device,
@@ -932,7 +1141,7 @@ impl Ledger {
         }
         let deadline = self.deadlines.get(&(device.clone(), id.clone()));
         if deadline.is_none() || deadline.is_some_and(|deadline| Instant::now() >= *deadline) {
-            self.database.execute("UPDATE receipts SET state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE device=?1 AND id=?2", params![device,id])?;
+            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2", params![device,id])?;
             self.deadlines.remove(&(device, id));
             return self.prepare_next();
         }
@@ -940,7 +1149,7 @@ impl Ledger {
             return Ok(None);
         }
         if control.active_device_id.as_deref() != Some(&device) || control.target != target {
-            self.database.execute("UPDATE receipts SET state='held',reason='target_changed' WHERE device=?1 AND id=?2", params![device,id])?;
+            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed' WHERE pair_id=?1 AND id=?2", params![device,id])?;
             return Ok(None);
         }
         let ciphertext = payload.ok_or(Error::Protocol("MISSING_PENDING_PAYLOAD"))?;
@@ -954,7 +1163,7 @@ impl Ledger {
                 .get(&image.resource_id)
                 .map(|(_, value)| value.clone());
             if !alive.as_ref().is_some_and(|value| value.valid()) {
-                self.database.execute("UPDATE receipts SET state='held',reason='image_session_ended' WHERE device=?1 AND id=?2", params![device,id])?;
+                self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='image_session_ended' WHERE pair_id=?1 AND id=?2", params![device,id])?;
                 return Ok(None);
             }
             alive
@@ -971,7 +1180,7 @@ impl Ledger {
     }
 
     pub fn hold(&mut self, job: &Execution, reason: &str) -> Result<()> {
-        self.database.execute("UPDATE receipts SET state='held',reason=?1 WHERE device=?2 AND id=?3 AND state='accepted'",params![reason,job.device,job.id])?;
+        self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1 WHERE pair_id=?2 AND id=?3 AND state='accepted'",params![reason,job.device,job.id])?;
         Ok(())
     }
 
@@ -1005,7 +1214,7 @@ impl Ledger {
             .get(&(job.device.clone(), job.id.clone()))
             .is_none_or(|deadline| Instant::now() >= *deadline);
         if expired {
-            self.database.execute("UPDATE receipts SET state='expired',reason='expired_before_input',payload=NULL,bytes=0 WHERE device=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
+            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason='expired_before_input',payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
             self.deadlines.remove(&(job.device.clone(), job.id.clone()));
             return Ok(false);
         }
@@ -1013,9 +1222,9 @@ impl Ledger {
             .map(|t| self.target_payload(&job.device, &job.id, t))
             .transpose()?;
         let tx = self.database.transaction()?;
-        let changed=tx.execute("UPDATE receipts SET state='executing',reason=NULL WHERE device=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
+        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL WHERE pair_id=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
         if changed == 1 {
-            tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE device=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
+            tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE pair_id=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
         }
         tx.commit()?;
         Ok(changed == 1)
@@ -1029,22 +1238,24 @@ impl Ledger {
         };
         let result = (|| -> Result<()> {
             let tx = self.database.transaction()?;
-            let changed = tx.execute("UPDATE receipts SET state=?1,reason=?2,method=?3,payload=NULL,bytes=0 WHERE device=?4 AND id=?5 AND state='executing'", params![state.key(),reason,method,job.device,job.id])?;
+            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=CASE WHEN ?1='uncertain' THEN 'global' END,payload=NULL,bytes=0 WHERE pair_id=?4 AND id=?5 AND state='executing'", params![state.key(),reason,method,job.device,job.id])?;
             if changed != 1 {
-                return Err(Error::Protocol("INVALID_EXECUTION_STATE"));
+                return Err(Error::Protocol("STATE_CONFLICT"));
             }
             if state == State::Uncertain {
                 tx.execute(
                     "UPDATE control SET paused=1,pause_reason='outcome_review_required',rev=rev+1",
                     [],
                 )?;
-                tx.execute("UPDATE receipts SET state='held',reason='outcome_review_required' WHERE state='accepted'", [])?;
+                tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='outcome_review_required' WHERE state='accepted'", [])?;
             }
             tx.commit()?;
             Ok(())
         })();
         if let Err(error) = result {
-            self.healthy = false;
+            if !matches!(error, Error::Protocol("STATE_CONFLICT")) {
+                self.healthy = false;
+            }
             return Err(error);
         }
         self.deadlines.remove(&(job.device.clone(), job.id.clone()));
@@ -1103,6 +1314,152 @@ mod tests {
     }
     fn refill(ledger: &mut Ledger, session: &Session) {
         ledger.rates.remove(&session.device);
+    }
+
+    fn select_test_pair(ledger: &Ledger, device: &str) {
+        // v2 admits one sender at a time. Leave the other pairs' rows pending
+        // so the production admission path still checks the global counters.
+        ledger
+            .database
+            .execute("UPDATE control SET active_device=?1", [device])
+            .unwrap();
+    }
+
+    #[test]
+    fn global_count_allows_thirty_two_across_pairs_and_reuses_terminal_slot() {
+        let (mut ledger, first, target, directory) = fixture();
+        let mut sessions = vec![first];
+        for token in [[3; 32], [4; 32]] {
+            let device = Uuid::new_v4().to_string();
+            ledger
+                .provision_device(&device, &token, String::new())
+                .unwrap();
+            sessions.push(ledger.authenticate(&device, &token).unwrap());
+        }
+        let mut earliest = None;
+        let mut last_order = 0;
+        for (session, count) in sessions.iter().zip([16, 15, 1]) {
+            select_test_pair(&ledger, session.device());
+            for _ in 0..count {
+                refill(&mut ledger, session);
+                let message = submit(session, &target, "pending".into());
+                let order: i64 = ledger
+                    .submit(session, &message)
+                    .unwrap()
+                    .order
+                    .parse()
+                    .unwrap();
+                assert!(order > last_order);
+                last_order = order;
+                earliest.get_or_insert(message);
+            }
+        }
+        let third = &sessions[2];
+        let overflow = submit(third, &target, "global count overflow".into());
+        assert!(matches!(
+            ledger.submit(third, &overflow),
+            Err(Error::Protocol("QUEUE_FULL"))
+        ));
+        ledger.cancel(&sessions[0], &earliest.unwrap().id).unwrap();
+        assert_eq!(ledger.submit(third, &overflow).unwrap().st, State::Accepted);
+        assert_eq!(ledger.snapshot().unwrap().pending, 32);
+        drop(ledger);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn byte_quotas_allow_exact_caps_and_reject_one_more_byte() {
+        let (mut ledger, first, target, directory) = fixture();
+        let mut sessions = vec![first];
+        for token in [[3; 32], [4; 32]] {
+            let device = Uuid::new_v4().to_string();
+            ledger
+                .provision_device(&device, &token, String::new())
+                .unwrap();
+            sessions.push(ledger.authenticate(&device, &token).unwrap());
+        }
+        for session in &sessions[..2] {
+            select_test_pair(&ledger, session.device());
+            for bytes in [16_000, 16_000, 16_000, 16_000, 1536] {
+                refill(&mut ledger, session);
+                ledger
+                    .submit(session, &submit(session, &target, "😀".repeat(bytes / 4)))
+                    .unwrap();
+            }
+            let extra = submit(session, &target, "x".into());
+            assert!(matches!(
+                ledger.submit(session, &extra),
+                Err(Error::Protocol("QUEUE_FULL"))
+            ));
+        }
+        let third = &sessions[2];
+        select_test_pair(&ledger, third.device());
+        assert!(matches!(
+            ledger.submit(third, &submit(third, &target, "x".into())),
+            Err(Error::Protocol("QUEUE_FULL"))
+        ));
+        assert_eq!(ledger.snapshot().unwrap().pending, 10);
+        drop(ledger);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn cancellation_keys_are_counted_separately_from_accepted_requests() {
+        let (mut ledger, session, target, directory) = fixture();
+        let message = submit(&session, &target, "accepted".into());
+        ledger.submit(&session, &message).unwrap();
+        ledger.cancel(&session, &message.id).unwrap();
+        let unseen = Uuid::new_v4().to_string();
+        let cancelled = ledger.cancel(&session, &unseen).unwrap();
+        assert_eq!(
+            ledger.cancel(&session, &unseen).unwrap().order,
+            cancelled.order
+        );
+        let counts: (i64, i64, i64, i64) = ledger.database.query_row(
+            "SELECT receipt_count,cancel_count,pending_count,pending_bytes FROM pairs WHERE id=?1",
+            [session.device()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).unwrap();
+        assert_eq!(counts, (2, 1, 0, 0));
+
+        // Reach each storage limit independently without manufacturing a
+        // million receipts or measuring wall-clock time.
+        ledger
+            .database
+            .execute(
+                "UPDATE pairs SET receipt_count=1000000,cancel_count=0 WHERE id=?1",
+                [session.device()],
+            )
+            .unwrap();
+        ledger
+            .cancel(&session, &Uuid::new_v4().to_string())
+            .unwrap();
+        assert!(matches!(
+            ledger.submit(
+                &session,
+                &submit(&session, &target, "normal receipt cap".into())
+            ),
+            Err(Error::Protocol("RECEIPT_LIMIT"))
+        ));
+        ledger
+            .database
+            .execute(
+                "UPDATE pairs SET receipt_count=1000001,cancel_count=1000000 WHERE id=?1",
+                [session.device()],
+            )
+            .unwrap();
+        assert!(matches!(
+            ledger.cancel(&session, &Uuid::new_v4().to_string()),
+            Err(Error::Protocol("RECEIPT_LIMIT"))
+        ));
+        ledger
+            .submit(
+                &session,
+                &submit(&session, &target, "normal space available".into()),
+            )
+            .unwrap();
+        drop(ledger);
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -1329,7 +1686,7 @@ mod tests {
         let tx = ledger.database.transaction().unwrap();
         for _ in 0..10_000 {
             tx.execute(
-                "INSERT INTO receipts(device,id,state) VALUES(?1,?2,'cancelled')",
+                "INSERT INTO receipts(pair_id,id,state) VALUES(?1,?2,'cancelled')",
                 params![session.device, Uuid::new_v4().to_string()],
             )
             .unwrap();
@@ -1341,7 +1698,7 @@ mod tests {
         let counts: (u32, u32, u32) = ledger
             .database
             .query_row(
-                "SELECT receipt_count,pending_count,pending_bytes FROM devices WHERE id=?1",
+                "SELECT receipt_count,pending_count,pending_bytes FROM pairs WHERE id=?1",
                 [&session.device],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
@@ -1364,7 +1721,7 @@ mod tests {
         let counts: (u32, u32, u32) = ledger
             .database
             .query_row(
-                "SELECT receipt_count,pending_count,pending_bytes FROM devices WHERE id=?1",
+                "SELECT receipt_count,pending_count,pending_bytes FROM pairs WHERE id=?1",
                 [&session.device],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )

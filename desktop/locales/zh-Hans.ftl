@@ -52,6 +52,7 @@ receipt-cancelled = 已取消
 receipt-expired = 已过期
 receipt-failed = 失败
 receipt-uncertain = 输入结果待核对
+receipt-uncertain-acknowledged = 已核对不确定结果
 network-public = 公用网络
 network-private = 专用网络
 network-domain = 域网络

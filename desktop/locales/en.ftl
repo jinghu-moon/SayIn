@@ -52,6 +52,7 @@ receipt-cancelled = Cancelled
 receipt-expired = Expired
 receipt-failed = Failed
 receipt-uncertain = Input outcome needs review
+receipt-uncertain-acknowledged = Uncertain result reviewed
 network-public = Public network
 network-private = Private network
 network-domain = Domain network

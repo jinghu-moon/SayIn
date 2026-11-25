@@ -260,6 +260,8 @@ pub enum State {
     Expired,
     Failed,
     Uncertain,
+    #[serde(rename = "uncertain_acknowledged")]
+    UncertainAcknowledged,
 }
 impl State {
     pub fn key(self) -> &'static str {
@@ -272,12 +274,18 @@ impl State {
             Self::Expired => "expired",
             Self::Failed => "failed",
             Self::Uncertain => "uncertain",
+            Self::UncertainAcknowledged => "uncertain_acknowledged",
         }
     }
     pub fn is_terminal(self) -> bool {
         matches!(
             self,
-            Self::Injected | Self::Cancelled | Self::Expired | Self::Failed | Self::Uncertain
+            Self::Injected
+                | Self::Cancelled
+                | Self::Expired
+                | Self::Failed
+                | Self::Uncertain
+                | Self::UncertainAcknowledged
         )
     }
 }

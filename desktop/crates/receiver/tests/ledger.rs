@@ -409,12 +409,12 @@ fn uncertain_pauses_queue_and_finish_cannot_be_committed_twice() {
     assert!(ledger.state().unwrap().paused);
     code(
         ledger.finish(&job, InputOutcome::Injected { method: "unicode" }),
-        "INVALID_EXECUTION_STATE",
+        "STATE_CONFLICT",
     );
-    code(
-        ledger.submit(&session, &fixture.submit(&session, "no more")),
-        "STORAGE_UNAVAILABLE",
-    );
+    let retained = ledger.query(&session, &submit.id).unwrap().unwrap();
+    assert_eq!(retained.st, State::Uncertain);
+    assert_eq!(retained.reason, receipt.reason);
+    assert!(ledger.snapshot().unwrap().storage_healthy);
 }
 
 #[test]
@@ -681,16 +681,39 @@ fn missing_installed_history_fails_without_changing_receipts() {
 }
 
 #[test]
-fn additive_history_upgrade_preserves_device_and_receipt_identity() {
+fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
     use voicelink_receiver::history::HistoryQuery;
-    for version in [1, 2, 3, 4, 5] {
+    for version in [1, 2, 3, 4, 5, 6] {
         let fixture = Fixture::new();
         let (mut ledger, session) = fixture.ready();
         let message = fixture.submit(&session, "existing pending original");
         let accepted = ledger.submit(&session, &message).unwrap();
+        let cancelled_id = Uuid::new_v4().to_string();
+        let cancelled = ledger.cancel(&session, &cancelled_id).unwrap();
         drop(ledger);
         let database = rusqlite::Connection::open(fixture.path()).unwrap();
-        database.execute_batch("DROP TRIGGER image_history_retired; DROP TRIGGER image_receipt_retired; DROP INDEX image_pending; DROP TABLE image_resources; DROP TABLE image_garbage; ALTER TABLE receipts DROP COLUMN image_resource;").unwrap();
+        database
+            .execute_batch(
+                "DROP TRIGGER receipt_state_insert;
+             DROP TRIGGER receipt_state_transition;
+             DROP TRIGGER receipt_terminal_immutable;
+             DROP TRIGGER cancellation_insert;
+             DROP TRIGGER cancellation_delete;
+             DROP TABLE transferred_receipts;
+             ALTER TABLE pairs DROP COLUMN cancel_count;
+             ALTER TABLE image_resources RENAME COLUMN pair_id TO device;
+             ALTER TABLE receipts RENAME COLUMN pair_id TO device;
+             ALTER TABLE pairs RENAME TO devices;
+             ALTER TABLE receipts DROP COLUMN request_rev;
+             ALTER TABLE receipts DROP COLUMN execution_stage;
+             ALTER TABLE receipts DROP COLUMN confirmed;
+             ALTER TABLE receipts DROP COLUMN uncertain_scope;
+             ALTER TABLE receipts DROP COLUMN hold_expires_at;",
+            )
+            .unwrap();
+        if version < 6 {
+            database.execute_batch("DROP TRIGGER image_history_retired; DROP TRIGGER image_receipt_retired; DROP INDEX image_pending; DROP TABLE image_resources; DROP TABLE image_garbage; ALTER TABLE receipts DROP COLUMN image_resource;").unwrap();
+        }
         if version < 5 {
             database
                 .execute_batch("ALTER TABLE message_history DROP COLUMN source_name;")
@@ -714,8 +737,8 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
             .unwrap();
         let identity: (Vec<u8>, Vec<u8>) = database
             .query_row(
-                "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device",
-                [],
+                "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device WHERE r.id=?1",
+                [&message.id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
@@ -727,6 +750,15 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
         let receipt = ledger.query(&restored, &message.id).unwrap().unwrap();
         assert_eq!(receipt.order, accepted.order);
         assert_eq!(receipt.st, State::Held);
+        let tombstone = ledger.query(&restored, &cancelled_id).unwrap().unwrap();
+        assert_eq!(tombstone.order, cancelled.order);
+        assert_eq!(tombstone.st, State::Cancelled);
+        let mut replay = message.clone();
+        replay.session_id = restored.id().to_owned();
+        assert_eq!(
+            ledger.submit(&restored, &replay).unwrap().order,
+            accepted.order
+        );
         let page = ledger.history(&HistoryQuery::default()).unwrap();
         assert_eq!(page.entries.len(), 1);
         assert_eq!(page.entries[0].device, fixture.device);
@@ -745,11 +777,25 @@ fn additive_history_upgrade_preserves_device_and_receipt_identity() {
         let installed: u32 = database
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .unwrap();
-        assert_eq!(installed, 6);
+        assert_eq!(installed, 7);
+        let counts = database
+            .query_row(
+                "SELECT receipt_count,cancel_count,pending_count FROM pairs WHERE id=?1",
+                [&fixture.device],
+                |r| {
+                    Ok((
+                        r.get::<_, u32>(0)?,
+                        r.get::<_, u32>(1)?,
+                        r.get::<_, u32>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(counts, (2, 1, 1));
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
-                "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device",
-                [],
+                "SELECT d.token_mac,r.payload_mac FROM pairs d JOIN receipts r ON d.id=r.pair_id WHERE r.id=?1",
+                [&message.id],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .unwrap();
@@ -767,7 +813,7 @@ fn missing_installed_device_name_fails_before_recovery() {
     drop(ledger);
     let database = rusqlite::Connection::open(fixture.path()).unwrap();
     database
-        .execute_batch("ALTER TABLE devices DROP COLUMN display_name")
+        .execute_batch("ALTER TABLE pairs DROP COLUMN display_name")
         .unwrap();
     drop(database);
     assert!(
@@ -865,7 +911,7 @@ fn history_pagination_is_bounded_and_does_not_skip_records() {
     // Bulk fixture construction bypasses the intentional live token bucket.
     let database = rusqlite::Connection::open(fixture.path()).unwrap();
     for _ in 0..299 {
-        database.execute("INSERT INTO receipts(device,id,payload_mac,original_target,state) SELECT device,?1,payload_mac,original_target,'injected' FROM receipts WHERE accept_order=1",[Uuid::new_v4().to_string()]).unwrap();
+        database.execute("INSERT INTO receipts(pair_id,id,payload_mac,original_target,state) SELECT pair_id,?1,payload_mac,original_target,'injected' FROM receipts WHERE accept_order=1",[Uuid::new_v4().to_string()]).unwrap();
         database.execute("INSERT INTO message_history(accept_order,body,received_at) SELECT (SELECT MAX(accept_order) FROM receipts),body,received_at FROM message_history WHERE accept_order=1",[]).unwrap();
     }
     drop(database);
@@ -1444,4 +1490,343 @@ fn image_history_cleanup_preserves_undo_pending_and_dedup_receipts() {
         ledger.query(&session, &message.id).unwrap().unwrap().st,
         State::Injected
     );
+}
+
+#[test]
+fn new_ledger_creates_schema_seven_with_pair_key_and_execution_fields() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let message = fixture.submit(&session, "schema fields");
+    ledger.submit(&session, &message).unwrap();
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    let version: u32 = db
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 7);
+    let row: (String, i64, Option<String>, Option<i64>, Option<String>, Option<i64>) = db.query_row(
+        "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at FROM receipts WHERE id=?1",
+        [&message.id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))
+    ).unwrap();
+    assert_eq!(row, (fixture.device.clone(), 0, None, None, None, None));
+    let fk: (String, String) = db
+        .query_row(
+            "SELECT [table], [from] FROM pragma_foreign_key_list('receipts')",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(fk, ("pairs".into(), "pair_id".into()));
+    assert!(
+        db.execute(
+            "INSERT INTO receipts(pair_id,id,state) VALUES(?1,?2,'cancelled')",
+            rusqlite::params![fixture.device, message.id]
+        )
+        .is_err()
+    );
+}
+
+#[test]
+fn receipt_state_matrix_rejects_illegal_transitions_atomically() {
+    let fixture = Fixture::new();
+    let (ledger, _) = fixture.ready();
+    let mut db = rusqlite::Connection::open(fixture.path()).unwrap();
+    let allowed = [
+        ("accepted", "held"),
+        ("accepted", "executing"),
+        ("accepted", "expired"),
+        ("accepted", "cancelled"),
+        ("held", "accepted"),
+        ("held", "expired"),
+        ("held", "cancelled"),
+        ("executing", "injected"),
+        ("executing", "failed"),
+        ("executing", "uncertain"),
+        ("uncertain", "uncertain_acknowledged"),
+    ];
+    let states = [
+        "accepted",
+        "held",
+        "executing",
+        "injected",
+        "failed",
+        "cancelled",
+        "expired",
+        "uncertain",
+        "uncertain_acknowledged",
+        "saved",
+    ];
+    for from in states {
+        for to in states {
+            let tx = db.transaction().unwrap();
+            let inserted = tx.execute(
+                "INSERT INTO receipts(pair_id,id,state,reason) VALUES(?1,'matrix',?2,'before')",
+                rusqlite::params![fixture.device, from],
+            );
+            if from == "saved" {
+                assert!(
+                    inserted.is_err(),
+                    "phone-side saved is never persisted by the receiver"
+                );
+                continue;
+            }
+            inserted.unwrap();
+            let result = tx.execute(
+                "UPDATE receipts SET state=?1,reason='after',request_rev=request_rev+1 WHERE id='matrix'",
+                [to],
+            );
+            let after: (String, String, i64) = tx
+                .query_row(
+                    "SELECT state,reason,request_rev FROM receipts WHERE id='matrix'",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )
+                .unwrap();
+            if allowed.contains(&(from, to)) {
+                assert_eq!(result.unwrap(), 1, "{from} -> {to}");
+                assert_eq!(after, (to.into(), "after".into(), 1));
+            } else {
+                assert!(
+                    result.unwrap_err().to_string().contains("STATE_CONFLICT"),
+                    "{from} -> {to}"
+                );
+                assert_eq!(after, (from.into(), "before".into(), 0));
+            }
+        }
+    }
+    drop(ledger);
+}
+
+#[test]
+fn terminal_receipt_metadata_cannot_be_rewritten() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let id = Uuid::new_v4().to_string();
+    let receipt = ledger.cancel(&session, &id).unwrap();
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    let result = db.execute("UPDATE receipts SET reason='rewrite' WHERE id=?1", [&id]);
+    assert!(result.unwrap_err().to_string().contains("STATE_CONFLICT"));
+    assert_eq!(
+        ledger.query(&session, &id).unwrap().unwrap().reason,
+        receipt.reason
+    );
+}
+#[test]
+fn request_revision_advances_on_mutation_but_not_query_and_accept_order_is_global() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let first = fixture.submit(&session, "revision first");
+    let second = fixture.submit(&session, "revision second");
+    let accepted = ledger.submit(&session, &first).unwrap();
+    let second_accepted = ledger.submit(&session, &second).unwrap();
+    assert!(accepted.order.parse::<u64>().unwrap() < second_accepted.order.parse::<u64>().unwrap());
+    let rev = |id: &str| -> i64 {
+        rusqlite::Connection::open(fixture.path())
+            .unwrap()
+            .query_row(
+                "SELECT request_rev FROM receipts WHERE pair_id=?1 AND id=?2",
+                rusqlite::params![fixture.device, id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(rev(&first.id), 0);
+    assert_eq!(
+        ledger.query(&session, &first.id).unwrap().unwrap().order,
+        accepted.order
+    );
+    assert_eq!(rev(&first.id), 0);
+    ledger.cancel(&session, &first.id).unwrap();
+    assert_eq!(rev(&first.id), 1);
+    drop(ledger);
+    let mut reopened = fixture.open();
+    let session = reopened
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    assert_eq!(
+        reopened.query(&session, &first.id).unwrap().unwrap().order,
+        accepted.order
+    );
+    assert_eq!(rev(&first.id), 1);
+    assert_eq!(
+        reopened.query(&session, &second.id).unwrap().unwrap().order,
+        second_accepted.order
+    );
+}
+
+#[test]
+fn competing_writers_cannot_advance_the_same_request_revision() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let message = fixture.submit(&session, "concurrent revision");
+    ledger.submit(&session, &message).unwrap();
+    let barrier = std::sync::Barrier::new(2);
+    let outcomes = std::thread::scope(|scope| {
+        let writers = ["held", "cancelled"].map(|state| {
+            let barrier = &barrier;
+            let fixture = &fixture;
+            let id = &message.id;
+            scope.spawn(move || {
+                let db = rusqlite::Connection::open(fixture.path()).unwrap();
+                db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+                let rev: i64 = db
+                    .query_row("SELECT request_rev FROM receipts WHERE id=?1", [id], |r| {
+                        r.get(0)
+                    })
+                    .unwrap();
+                barrier.wait();
+                db.execute(
+                    "UPDATE receipts SET state=?1, request_rev=?2
+                     WHERE id=?3 AND request_rev=?4",
+                    rusqlite::params![state, rev + 1, id, rev],
+                )
+                .unwrap()
+            })
+        });
+        writers.map(|writer| writer.join().unwrap())
+    });
+    assert_eq!(outcomes.iter().sum::<usize>(), 1);
+
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    let advanced: i64 = db
+        .query_row(
+            "SELECT request_rev FROM receipts WHERE id=?1",
+            [&message.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(advanced, 1);
+}
+
+#[test]
+fn receipt_transition_requires_exactly_one_revision_increment() {
+    let fixture = Fixture::new();
+    let (mut ledger, session) = fixture.ready();
+    let message = fixture.submit(&session, "revision guard");
+    ledger.submit(&session, &message).unwrap();
+
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    for sql in [
+        "UPDATE receipts SET state='held' WHERE id=?1",
+        "UPDATE receipts SET state='held',request_rev=2 WHERE id=?1",
+        "UPDATE receipts SET request_rev=1 WHERE id=?1",
+    ] {
+        let err = db.execute(sql, [&message.id]).unwrap_err();
+        assert!(err.to_string().contains("STATE_CONFLICT"), "{err}");
+    }
+    assert_eq!(
+        ledger.query(&session, &message.id).unwrap().unwrap().st,
+        State::Accepted
+    );
+    let at_limit = Uuid::new_v4().to_string();
+    db.execute(
+        "INSERT INTO receipts(pair_id,id,state,request_rev) VALUES(?1,?2,'accepted',?3)",
+        rusqlite::params![session.device(), at_limit, i64::MAX],
+    )
+    .unwrap();
+    assert!(matches!(
+        ledger.cancel(&session, &at_limit),
+        Err(Error::Protocol("STATE_CONFLICT"))
+    ));
+    let unchanged = db
+        .query_row(
+            "SELECT state,request_rev FROM receipts WHERE id=?1",
+            [&at_limit],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+        )
+        .unwrap();
+    assert_eq!(unchanged, ("accepted".into(), i64::MAX));
+}
+
+#[test]
+fn replacing_a_pair_at_capacity_transfers_only_read_only_terminal_receipts() {
+    let fixture = Fixture::new();
+    let (mut ledger, old) = fixture.ready();
+    let mut other_pairs = Vec::new();
+    for byte in 20..27 {
+        let pair = Uuid::new_v4().to_string();
+        let token = [byte; 32];
+        ledger
+            .provision_device(&pair, &token, String::new())
+            .unwrap();
+        other_pairs.push(ledger.authenticate(&pair, &token).unwrap());
+    }
+
+    let message = fixture.submit(&old, "replace only after completion");
+    let accepted = ledger.submit(&old, &message).unwrap();
+    let replacement = Uuid::new_v4().to_string();
+    let replacement_token = [32; 32];
+    assert!(matches!(
+        ledger.replace_pair(&old, &replacement, &replacement_token, String::new()),
+        Err(Error::Protocol("PAIR_REPLACE_BLOCKED"))
+    ));
+    assert!(ledger.query(&old, &message.id).unwrap().is_some());
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    let terminal = ledger
+        .finish(&job, InputOutcome::Injected { method: "test" })
+        .unwrap();
+    ledger
+        .replace_pair(&old, &replacement, &replacement_token, String::new())
+        .unwrap();
+
+    assert!(
+        ledger
+            .authenticate(&fixture.device, &fixture.token)
+            .is_err()
+    );
+    assert!(ledger.query(&old, &message.id).is_err());
+    let new = ledger
+        .authenticate(&replacement, &replacement_token)
+        .unwrap();
+    let copied = ledger.query(&new, &message.id).unwrap().unwrap();
+    assert_eq!(
+        (&copied.order, copied.st, copied.method),
+        (&accepted.order, terminal.st, terminal.method)
+    );
+    assert!(
+        ledger
+            .query(&other_pairs[0], &message.id)
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        ledger.cancel(&new, &message.id),
+        Err(Error::Protocol("TOO_LATE"))
+    ));
+    let mut replay = message;
+    replay.session_id = new.id().into();
+    assert!(matches!(
+        ledger.submit(&new, &replay),
+        Err(Error::Protocol("ID_CONFLICT"))
+    ));
+    assert_eq!(ledger.snapshot().unwrap().pending, 0);
+    assert!(matches!(
+        ledger.provision_device(&Uuid::new_v4().to_string(), &[99; 32], String::new()),
+        Err(Error::Protocol("DEVICE_LIMIT"))
+    ));
+    drop(ledger);
+
+    let mut reopened = fixture.open();
+    let session = reopened
+        .authenticate(&replacement, &replacement_token)
+        .unwrap();
+    assert_eq!(
+        reopened.query(&session, &replay.id).unwrap().unwrap().order,
+        accepted.order
+    );
+    let db = rusqlite::Connection::open(fixture.path()).unwrap();
+    let counts = db
+        .query_row(
+            "SELECT receipt_count,cancel_count,pending_count FROM pairs WHERE id=?1",
+            [&replacement],
+            |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    row.get::<_, u32>(1)?,
+                    row.get::<_, u32>(2)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!(counts, (0, 0, 0));
 }
