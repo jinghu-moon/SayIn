@@ -1,0 +1,231 @@
+SayIn 本地中译英｜Hy-MT2 1.8B 三种量化真机测试
+
+设备为 Redmi K40（M2012K11AC，Snapdragon 870，Android 13，约 12 GB RAM）。
+三份 GGUF 均由 SayIn 正常文件夹入口导入，长度与 SHA-256 均匹配制品清单。
+仪器化测试读取日常 Debug 包已导入的文件，调用与说话页相同的 SerialTranslator。4 个 CPU 线程，4096 token 上下文，输入最多 1024 token，输出最多 2048 token，单次推理限时 120 秒。
+test.txt 中的五段中文分别整篇提交，保留原文段落。每款模型在新进程先冷跑案例 1 一次，再依次热跑五例两轮；运行时未清理系统页缓存。
+首段耗时为原生推理生成第一份可输出文本所需时间。推理耗时涵盖预填充和生成。总耗时从调用到返回，冷跑总耗时包含校验与加载。
+PSS 每 500 ms 采样一次，并采集调用前后值。RSS 峰值来自内核 VmHWM。内存均为整进程占用，测试时未同时加载 ASR 权重。
+
+总览
+量化 | 文件 GB | 冷跑总耗时 s | 冷跑校验 ms | 冷跑加载 ms | 峰值 PSS GiB | 峰值 RSS GiB | 结束为 Complete
+Q4_K_M | 1.133 | 10.679 | 1208 | 238 | 1.66 | 1.78 | 11/11
+Q6_K | 1.475 | 18.786 | 3665 | 362 | 1.97 | 2.09 | 9/11
+Q8_0 | 1.909 | 18.678 | 6040 | 907 | 2.38 | 2.50 | 11/11
+
+热运行耗时中位数（两次）
+案例 | 模型 | 首段 s | 推理 s | 总耗时 s | 输出 token（两次）
+1 新闻与客观陈述 | Q4_K_M | 3.492 | 10.524 | 10.526 | 59/59
+1 新闻与客观陈述 | Q6_K | 7.099 | 16.882 | 16.884 | 50/50
+1 新闻与客观陈述 | Q8_0 | 4.420 | 11.182 | 11.185 | 51/51
+2 跨文化俗语 | Q4_K_M | 4.399 | 12.888 | 12.891 | 70/70
+2 跨文化俗语 | Q6_K | 8.176 | 21.559 | 21.571 | 67/67
+2 跨文化俗语 | Q8_0 | 5.246 | 13.927 | 13.936 | 67/67
+3 科技长文 | Q4_K_M | 21.931 | 78.330 | 78.333 | 388/388
+3 科技长文 | Q6_K | 40.048 | 120.001 | 120.003 | 357/294
+3 科技长文 | Q8_0 | 24.689 | 94.637 | 94.639 | 395/395
+4 道德哲学与技术的悖论 | Q4_K_M | 20.600 | 73.554 | 73.556 | 326/326
+4 道德哲学与技术的悖论 | Q6_K | 38.850 | 109.677 | 109.680 | 316/316
+4 道德哲学与技术的悖论 | Q8_0 | 21.219 | 68.533 | 68.535 | 316/316
+5 辩论赛现场交锋 | Q4_K_M | 15.937 | 50.923 | 50.926 | 229/229
+5 辩论赛现场交锋 | Q6_K | 26.772 | 77.029 | 77.032 | 217/217
+5 辩论赛现场交锋 | Q8_0 | 13.976 | 45.475 | 45.477 | 218/218
+
+超时用例补测（同一原文，限时 300 秒）
+模型 | 案例 | 结束状态 | 首段 s | 推理 s | 总耗时 s | 输出 token
+Q6_K | 3 | Complete | 39.379 | 130.575 | 134.627 | 393
+补测仍为整篇输入。应用的正式超时仍为 120 秒，主表保留原有结果。
+
+按原文核对译文
+
+1. 新闻。三款都译对了 carbon emissions 和 renewable energy。Q4 完整保留各国政府和研发。Q6 把「研发投入」泛化为「可再生能源投入」。Q8 保留 research，弱化了 development，也省略了「各国」。
+2. 俗语。Q4 用 “what seems like a loss may actually be a blessing” 解释「塞翁失马」，保留反转含义。Q6 和 Q8 保留了丢马的字面意象，并用 “emerge victorious” 把「脱颖而出」强化为「获胜」。
+3. 科技长文。Q4 和 Q8 首轮都保留了四段、就业论点的两面和结尾。Q4 把「知识灌输式教育」弱化为 “knowledge-based teaching methods”。Q8 用 “convincing data” 表达「以假乱真的信息」，削弱了真伪含义。Q6 两轮都触发 120 秒推理期限，未能给出完整结尾。
+4. 哲学。三款均保留 technical rationality、value rationality、utilitarianism 和 deontology，并能指回功利主义与义务论。Q4 的 “regulation imposed by technology” 把「对技术的规训」的施受关系译反，且把「不可化约」与实现集体目标错误地并在一起。Q6 与 Q8 译为 “regulation of technology”。Q6 明确译出「不可化约」但有 “a illusion” 的语法错误。Q8 漏掉「不可化约」这一层。两款都弱化了「自救」。
+5. 辩论。三款保留了让步转折和结尾反问。Q6 与 Q8 的 “human agency” 比 Q4 的 “the subject’s strength” 更贴近「主体力量」。三款都在最后一段把反方口中的「对方」译成反方自身，这是足以改变辩论归属的错误。Q6 与 Q8 还省略了「退一万步讲」的语气标记。
+
+这五例支持在 Redmi K40 上优先采用 Q4。它对案例 1、2 保真更好，长文按应用当前时限完成。Q8 可按哲学类文本的取舍选用。三款都需要人工核对复杂话语中的阵营指代。
+
+原始译文
+
+案例 1｜新闻与客观陈述
+中文原文
+随着全球气候变暖加剧，极端天气事件频发。各国政府必须采取紧急措施减少碳排放，并加大对可再生能源的研发投入。这不仅关乎环境的可持续发展，更直接影响着人类的未来生存。
+
+Q4_K_M
+cold、warm-1、warm-2 ｜ Complete
+As global climate warming intensifies, extreme weather events become more frequent. Governments around the world must take urgent measures to reduce carbon emissions and increase investment in renewable energy research and development. This is not only important for the sustainable development of the environment, but also directly affects the future survival of humanity.
+
+Q6_K
+cold、warm-1、warm-2 ｜ Complete
+As global warming intensifies, extreme weather events become more frequent. Governments must take urgent measures to reduce carbon emissions and increase investment in renewable energy. This is not only related to sustainable environmental development but also directly affects the survival of humanity in the future.
+
+Q8_0
+cold、warm-1、warm-2 ｜ Complete
+As global warming intensifies, extreme weather events become more frequent. Governments must take urgent measures to reduce carbon emissions and increase investment in renewable energy research. This is not only important for sustainable environmental development but also directly affects the survival of humanity in the future.
+
+案例 2｜跨文化俗语
+中文原文
+面对突如其来的市场变化，这家企业起初有些措手不及。但经过管理层的运筹帷幄，他们不仅稳住了阵脚，还顺势而为，最终在激烈的竞争中脱颖而出，可谓“塞翁失马，焉知非福”。
+
+Q4_K_M
+warm-1、warm-2 ｜ Complete
+Faced with sudden market changes, the company was initially caught off guard. However, thanks to the strategic planning of the management team, they not only managed to stay stable, but also seized the opportunity. As a result, they stood out in the fierce competition—it can be said that “what seems like a loss may actually be a blessing.”
+
+Q6_K
+warm-1、warm-2 ｜ Complete
+Faced with sudden market changes, the company was initially caught off guard. But with the careful planning of its management, they not only managed to stay steady, but also seized the opportunity to emerge victorious in the fierce competition. It can be said that “even though one loses a horse, it might turn out to be a blessing.”
+
+Q8_0
+warm-1、warm-2 ｜ Complete
+Faced with sudden market changes, the company was initially caught off guard. But with the careful management of its leadership, they not only managed to stay steady, but also seized the opportunity to emerge victorious in the fierce competition. It can be said that “even if one loses a horse, it might turn out to be a blessing.”
+
+案例 3｜科技长文
+中文原文
+过去十年间，人工智能技术的突破性进展正在重塑人类社会的运转模式。从自动驾驶汽车穿梭于城市街道，到医疗影像辅助系统在几秒钟内完成癌症筛查，算法和算力已经渗透到我们生活的方方面面。然而，这种前所未有的技术浪潮并非只有益处，它也引发了深刻的社会焦虑。
+在就业市场上，自动化和智能化的双刃剑效应尤为明显。一方面，繁重、重复且危险的体力劳动逐渐被机器人取代，这无疑大大提高了生产效率，并降低了工伤事故率。另一方面，白领阶层同样面临危机。那些曾经被认为需要高度认知能力的岗位——如初级数据分析、基础法务审查甚至新闻撰写——如今正面临被大型语言模型替代的风险。许多经济学家指出，如果缺乏完善的社会保障体系和再就业培训机制，技术红利将集中在少数科技巨头手中，从而进一步拉大贫富差距。
+与此同时，教育领域的变革同样迫在眉睫。传统的知识灌输式教育在信息爆炸的时代显得越来越苍白无力。既然任何知识都可以在一秒钟内被搜索引擎或智能助手检索到，那么学校教育的核心目标就必须转向培养批判性思维、创造力以及解决复杂问题的能力。教育工作者不仅要教会学生如何使用这些强大的工具，更要引导他们思考技术背后的伦理问题：算法是否会存在偏见？个人隐私如何得到保障？当机器能够生成以假乱真的信息时，我们该如何辨别真相？
+归根结底，技术的发展本身没有好坏之分，它只是人类意愿的延伸。真正决定未来的，是我们能否在拥抱技术创新的同时，建立起与之匹配的道德规范与制度约束。面对汹涌而来的智能革命，我们不能仅仅做被动的适应者，更应该成为积极的塑造者。
+
+Q4_K_M
+warm-1、warm-2 ｜ Complete
+Over the past decade, breakthroughs in artificial intelligence technology have been reshaping the way human society operates. From self-driving cars navigating city streets to medical imaging systems that can perform cancer screening in just a few seconds, algorithms and computing power have permeated every aspect of our lives. However, this unprecedented technological wave brings not only benefits but also deep social concerns.
+
+In the job market, the dual-edged nature of automation and intelligence is particularly evident. On one hand, heavy, repetitive, and dangerous physical labor is being replaced by robots, which undoubtedly improves productivity and reduces workplace accidents. On the other hand, the white-collar class also faces challenges. Roles that once required high cognitive abilities—such as basic data analysis, legal review, and even news writing—are now at risk of being replaced by large language models. Many economists argue that without a robust social safety net and re-employment training programs, the benefits of technology will remain with a few tech giants, further widening the gap between rich and poor.
+
+At the same time, changes in education are also urgent. Traditional knowledge-based teaching methods become less effective in an era of information overload. Since any knowledge can be retrieved by search engines or smart assistants in just a second, the core goal of school education should shift toward developing critical thinking, creativity, and the ability to solve complex problems. Educators should not only teach students how to use these powerful tools but also guide them to consider the ethical issues behind technology: Are algorithms biased? How is personal privacy protected? How can we distinguish truth from false information when machines can generate convincing misinformation?
+
+In the end, technological development itself is neither good nor bad; it is merely an extension of human will. What truly determines the future is whether we can establish appropriate moral norms and institutional constraints alongside embracing technological innovation. In the face of this rapid intelligent revolution, we cannot simply be passive adaptors; we must become active architects.
+
+Q6_K
+warm-1 ｜ Timeout
+Over the past decade, breakthroughs in artificial intelligence technology have been reshaping the way human society operates. From autonomous vehicles navigating city streets to medical imaging systems that can screen for cancer in just seconds, algorithms and computing power have permeated every aspect of our lives. However, this unprecedented technological wave brings not only benefits but also deep social anxieties.
+
+In the job market, the dual-edged effects of automation and intelligence are particularly evident. On one hand, heavy, repetitive, and dangerous physical labor is being replaced by robots, which undoubtedly improves productivity and reduces workplace accidents. On the other hand, white-collar workers also face challenges. Positions that once required high cognitive abilities—such as basic data analysis, basic legal review, and even news writing—are now at risk of being replaced by large language models. Many economists argue that if there is no adequate social security system and reemployment training, the benefits of technology will remain in the hands of a few tech giants, further widening the gap between the rich and the poor.
+
+At the same time, changes in education are also urgent. Traditional knowledge-based education becomes increasingly ineffective in an era of information explosion. Since any knowledge can be retrieved by search engines or intelligent assistants in just seconds, the core goal of school education must shift to fostering critical thinking, creativity, and the ability to solve complex problems. Educators must not only teach students how to use these powerful tools but also guide them to consider the ethical issues behind technology: Are algorithms biased? How can personal privacy be protected? How can we distinguish truth from false information when machines can create convincing data?
+
+In the end, the development of technology itself has no good or bad qualities; it is simply an extension of human will. What truly determines the future is whether we can establish
+warm-2 ｜ Timeout
+Over the past decade, breakthroughs in artificial intelligence technology have been reshaping the way human society operates. From autonomous vehicles navigating city streets to medical imaging systems that can screen for cancer in just seconds, algorithms and computing power have permeated every aspect of our lives. However, this unprecedented technological wave brings not only benefits but also deep social anxieties.
+
+In the job market, the dual-edged effects of automation and intelligence are particularly evident. On one hand, heavy, repetitive, and dangerous physical labor is being replaced by robots, which undoubtedly improves productivity and reduces workplace accidents. On the other hand, white-collar workers also face challenges. Positions that once required high cognitive abilities—such as basic data analysis, basic legal review, and even news writing—are now at risk of being replaced by large language models. Many economists argue that if there is no adequate social security system and reemployment training, the benefits of technology will remain in the hands of a few tech giants, further widening the gap between the rich and the poor.
+
+At the same time, changes in education are also urgent. Traditional knowledge-based education becomes increasingly ineffective in an era of information explosion. Since any knowledge can be retrieved by search engines or intelligent assistants in just seconds, the core goal of school education must shift to fostering critical thinking, creativity, and the ability to solve complex problems. Educators must not only teach students how to use these powerful tools but also guide them to consider the ethical issues behind
+300 秒补测 ｜ Complete
+Over the past decade, breakthroughs in artificial intelligence technology have been reshaping the way human society operates. From autonomous vehicles navigating city streets to medical imaging systems that can screen for cancer in just seconds, algorithms and computing power have permeated every aspect of our lives. However, this unprecedented technological wave brings not only benefits but also deep social anxieties.
+
+In the job market, the dual-edged effects of automation and intelligence are particularly evident. On one hand, heavy, repetitive, and dangerous physical labor is being replaced by robots, which undoubtedly improves productivity and reduces workplace accidents. On the other hand, white-collar workers also face challenges. Positions that once required high cognitive abilities—such as basic data analysis, basic legal review, and even news writing—are now at risk of being replaced by large language models. Many economists argue that if there is no adequate social security system and reemployment training, the benefits of technology will remain in the hands of a few tech giants, further widening the gap between the rich and the poor.
+
+At the same time, changes in education are also urgent. Traditional knowledge-based education becomes increasingly ineffective in an era of information explosion. Since any knowledge can be retrieved by search engines or intelligent assistants in just seconds, the core goal of school education must shift to fostering critical thinking, creativity, and the ability to solve complex problems. Educators must not only teach students how to use these powerful tools but also guide them to consider the ethical issues behind technology: Are algorithms biased? How can personal privacy be protected? How can we distinguish truth from false information when machines can create convincing data?
+
+In the end, the development of technology itself has no good or bad qualities; it is simply an extension of human will. What truly determines the future is whether we can establish appropriate moral norms and institutional constraints while embracing technological innovation. In the face of this surging intelligent revolution, we cannot merely be passive adaptors; we must become active shapers.
+
+Q8_0
+warm-1、warm-2 ｜ Complete
+Over the past decade, breakthroughs in artificial intelligence technology have been reshaping the way human society operates. From autonomous vehicles navigating city streets to medical imaging systems that can screen for cancer in just seconds, algorithms and computing power have permeated every aspect of our lives. However, this unprecedented technological wave brings not only benefits but also deep social anxieties.
+
+In the job market, the dual-edged effects of automation and intelligence are particularly evident. On one hand, heavy, repetitive, and dangerous physical labor is being replaced by robots, which undoubtedly improves productivity and reduces workplace accidents. On the other hand, the white-collar class also faces challenges. Positions that once required high cognitive abilities—such as basic data analysis, basic legal review, and even news writing—are now at risk of being replaced by large language models. Many economists point out that without a comprehensive social security system and re-employment training programs, the benefits of technology will remain in the hands of a few tech giants, further widening the gap between the rich and the poor.
+
+At the same time, changes in education are also imminent. Traditional knowledge-based education becomes increasingly ineffective in an era of information explosion. Since any knowledge can be retrieved by search engines or intelligent assistants in just seconds, the core goal of school education must shift to fostering critical thinking, creativity, and the ability to solve complex problems. Educators must not only teach students how to use these powerful tools but also guide them to consider the ethical issues behind technology: Are algorithms biased? How can personal privacy be protected? How can we distinguish truth from false information when machines can create convincing data?
+
+In the end, the development of technology itself has no good or bad qualities; it is simply an extension of human will. What truly determines the future is whether we can establish appropriate moral norms and institutional constraints while embracing technological innovation. In the face of this surging intelligent revolution, we cannot simply be passive adapters; we must become active shapers.
+
+案例 4｜道德哲学与技术的悖论
+中文原文
+现代性语境下，技术理性的过度膨胀往往伴随着价值理性的式微。我们误以为工具的精进必然带来人类福祉的绝对增益，却忽视了这样一个深刻的辩证法：每一次对外部世界控制力的跃升，实质上都是以对人类自身主体性的隐性让渡为代价的。当算法不仅替代我们做出选择，甚至开始预先形塑我们的欲望时，所谓的“自由意志”便极易沦为一种被数据喂养的幻象。
+这一困境在道德哲学领域尤为凸显。功利主义试图以“最大多数人的最大幸福”为圭臬，倾向于将复杂的伦理抉择简化为冰冷的效用计算；而义务论则针锋相对地指出，个体的尊严与权利具有不可化约的绝对价值，绝不能沦为达成集体目标的筹码。二者之间的内在张力，恰恰构成了现代社会制度设计的底层逻辑。然而，在人工智能日益具备高度自主决策能力的今天，这种传统的二元对立正面临着被彻底解构的风险。
+更深层的追问在于：倘若我们将认知过程完全外包给大语言模型，人类的批判性思维是否终将面临不可逆的退化？这绝非危言耸听。知识的获取越是便捷，思维的惰性便越容易滋生。如果人类丧失了独立审视与批判反思的能力，那么，即便我们创造出了看似无所不能的智能体，也无异于亲手建造了一座囚禁自身的华丽牢笼。因此，对技术的规训，本质上是一场关乎人类自身理性的自救。
+
+Q4_K_M
+warm-1、warm-2 ｜ Complete
+In the context of modernity, the excessive expansion of technical rationality often goes hand in hand with the decline of value rationality. We mistakenly believe that the improvement of tools will inevitably bring absolute benefits to human well-being, yet we overlook the profound dialectic: every increase in our control over the external world essentially comes at the cost of a hidden surrender of our own subjectivity. When algorithms not only replace us in making decisions but even begin to shape our desires in advance, the so-called “free will” easily turns into an illusion nourished by data.
+
+This dilemma is particularly evident in the field of moral philosophy. Utilitarianism attempts to base its principles on “the greatest happiness for the greatest number,” tending to simplify complex ethical choices into cold utility calculations; on the other hand, deontology counterpoints by emphasizing that the dignity and rights of individuals possess absolute value that cannot be reduced to achieving collective goals. The internal tension between these two approaches forms the underlying logic of modern social institutional design. However, as artificial intelligence becomes increasingly capable of autonomous decision-making, this traditional binary opposition is at risk of being completely dismantled.
+
+A deeper question is: if we completely outsource the cognitive process to large language models, will human critical thinking eventually suffer irreversible decline? This is not an exaggeration. The more easily knowledge can be obtained, the more inertia can arise in thinking. If humans lose the ability to independently examine and critically reflect, then even if we create seemingly omnipotent intelligent beings, it is like building a magnificent cage that confines ourselves. Therefore, the regulation imposed by technology is essentially a self-saving effort for human rationality itself.
+
+Q6_K
+warm-1、warm-2 ｜ Complete
+In the context of modernity, the excessive expansion of technical rationality often coincides with the decline of value rationality. We mistakenly believe that the improvement of tools inevitably brings absolute benefits to human well-being, while ignoring the profound dialectical truth that every increase in control over the external world comes at the cost of implicitly surrendering human subjectivity. When algorithms not only replace us in making decisions but even begin to shape our desires in advance, so-called “free will” easily becomes a illusion fed by data.
+
+This dilemma is particularly evident in the field of moral philosophy. Utilitarianism seeks to base its principles on “the greatest happiness of the greatest number,” tending to simplify complex ethical choices into mere calculations of utility; whereas deontology, in contrast, argues that the dignity and rights of individuals possess absolute value that cannot be reduced, and must never be used as a means to achieve collective goals. This inherent tension constitutes the underlying logic of modern social institutional design. However, today, as artificial intelligence becomes increasingly capable of autonomous decision-making, this traditional binary opposition is at risk of being completely dismantled.
+
+A deeper question is: If we completely outsource cognitive processes to large language models, will human critical thinking eventually suffer irreversible decline? This is not an exaggeration. The more convenient knowledge becomes, the more likely inertia in thinking will arise. If humans lose the ability to independently examine and critically reflect, then even if we create seemingly omnipotent intelligent agents, we are essentially building a magnificent prison for ourselves. Therefore, the regulation of technology is, in essence, a struggle for human rationality itself.
+
+Q8_0
+warm-1、warm-2 ｜ Complete
+In the context of modernity, the excessive expansion of technical rationality often coincides with the decline of value rationality. We mistakenly believe that the improvement of tools inevitably brings absolute benefits to human well-being, while ignoring the profound dialectical truth that every increase in control over the external world is essentially at the expense of implicit surrender of human subjectivity. When algorithms not only replace us in making decisions but even begin to shape our desires in advance, so-called “free will” easily becomes an illusion fed by data.
+
+This dilemma is particularly evident in the field of moral philosophy. Utilitarianism seeks to base its principles on “the greatest happiness of the greatest number,” tending to simplify complex ethical choices into mere calculations of utility; on the other hand, deontology argues that the dignity and rights of individuals have absolute value and must never be used as a means to achieve collective goals. The inherent tension between these two approaches constitutes the underlying logic of modern social institutional design. However, today, as artificial intelligence becomes increasingly capable of autonomous decision-making, this traditional binary opposition is at risk of being completely dismantled.
+
+A deeper question is: If we completely outsource cognitive processes to large language models, will human critical thinking eventually suffer irreversible decline? This is not an exaggeration. The more convenient knowledge becomes, the more likely inertia in thinking will arise. If humans lose the ability to independently examine and critically reflect, then even if we create seemingly omnipotent intelligent beings, we are essentially building a magnificent prison for ourselves. Therefore, the regulation of technology is, in essence, a struggle for human rationality itself.
+
+案例 5｜辩论赛现场交锋
+中文原文
+“正方认为，人工智能的普及将彻底解放人类，使我们免于繁重的体力劳动，从而有更多时间去追求艺术与精神的升华。这听起来很美好，但这是一种极其天真的技术乌托邦主义。
+反方必须指出，对方辩友严重混淆了‘闲暇’与‘价值’的概念。人类之所以能在劳动中获得尊严，是因为劳动本身是对客观世界的改造，是主体力量的确认。如果我们将这一切交由机器代劳，人类不仅不会升入天堂，反而会陷入深刻的虚无。
+我们退一万步讲，即便物质极大丰富，分配机制又当如何？在资本逐利的逻辑下，技术红利绝不会自动惠及大众，反而会加剧垄断，形成更极端的阶级壁垒。因此，对方所描绘的‘解放’，实质上是一场将人类降格为算法附庸的灾难。我们不仅要问：一个不需要人类参与的世界，究竟是谁的乌托邦？”
+
+Q4_K_M
+warm-1、warm-2 ｜ Complete
+The pro-side believes that the widespread use of artificial intelligence will completely liberate humans, freeing us from heavy physical labor, thereby allowing us more time to pursue artistic and spiritual development. This sounds wonderful, but it is a highly naive techno-utopianism.  
+The counter-side must point out that the opposing argument seriously confuses the concepts of “leisure” and “value”. Humans can gain dignity through labor because labor itself is a transformation of the objective world and a confirmation of the subject’s strength. If we let machines do all this work, humans will not ascend to heaven; instead, they will fall into profound emptiness.  
+Let’s take it further: even if material resources are extremely abundant, what about the distribution mechanism? Under the logic of capital pursuit of profit, technological benefits will never benefit the public automatically; instead, they will exacerbate monopolies and create even more extreme class barriers. Therefore, the “liberation” depicted by the counter-side is, in essence, a disaster that reduces humans to mere appendages of algorithms. We must ask: whose utopia is this world without human participation?
+
+Q6_K
+warm-1、warm-2 ｜ Complete
+The pro-side believes that the widespread use of artificial intelligence will completely liberate humanity, freeing us from heavy physical labor, thereby giving us more time to pursue artistic and spiritual development. This sounds wonderful, but it is a highly naive form of techno-utopianism.
+
+The anti-side must point out that they have seriously confused the concepts of “leisure” and “value”. Humans can gain dignity through labor because labor itself is a transformation of the objective world and a confirmation of human agency. If we leave all this to machines, humans will not ascend to heaven; instead, they will fall into deep emptiness.
+
+Even if material resources are extremely abundant, what about the distribution mechanism? Under the logic of capital seeking profit, technological benefits will never automatically benefit the public. Instead, they will exacerbate monopolies and create even more extreme class barriers. Therefore, the “liberation” depicted by the anti-side is, in essence, a disaster that reduces humans to mere slaves of algorithms. We must ask: Whose utopia is this world that requires no human participation?
+
+Q8_0
+warm-1、warm-2 ｜ Complete
+The pro-side believes that the widespread use of artificial intelligence will completely liberate humanity, freeing us from heavy physical labor, thereby giving us more time to pursue artistic and spiritual development. This sounds wonderful, but it is a highly naive form of techno-utopianism.
+
+The anti-side must point out that they have seriously confused the concepts of “leisure” and “value”. Humans can gain dignity through labor because labor itself is a transformation of the objective world and a confirmation of human agency. If we leave all this to machines, humans will not ascend to heaven; instead, they will fall into deep emptiness.
+
+Even if material resources are extremely abundant, what will happen to the distribution mechanism? Under the logic of capital seeking profit, technological benefits will never automatically benefit the public. Instead, they will exacerbate monopolies and create even more extreme class barriers. Therefore, the “liberation” depicted by the anti-side is, in essence, a disaster that reduces humans to mere slaves of algorithms. We must ask: whose utopia is this world that requires no human participation?
+
+逐次原始指标
+模型 | 案例 | 轮次 | 结束状态 | 源 / 提示 / 生成 token | 校验 ms | 加载 ms | 预填充 s | 首段 s | 推理 s | 总耗时 s | PSS 峰值 MiB
+Q4_K_M | 1 | cold | Complete | 38/56/59 | 1208 | 238 | 3.213 | 3.214 | 9.139 | 10.679 | 1449.3
+Q4_K_M | 1 | warm-1 | Complete | 38/56/59 | 0 | 0 | 2.934 | 2.935 | 9.181 | 9.183 | 1449.3
+Q4_K_M | 2 | warm-1 | Complete | 52/70/70 | 0 | 0 | 3.746 | 3.746 | 11.242 | 11.244 | 1446.7
+Q4_K_M | 3 | warm-1 | Complete | 322/340/388 | 0 | 0 | 19.635 | 19.636 | 71.384 | 71.387 | 1453.0
+Q4_K_M | 4 | warm-1 | Complete | 285/303/326 | 0 | 0 | 19.907 | 19.908 | 68.969 | 68.972 | 1700.6
+Q4_K_M | 5 | warm-1 | Complete | 185/203/229 | 0 | 0 | 17.551 | 17.552 | 51.036 | 51.038 | 1688.6
+Q4_K_M | 1 | warm-2 | Complete | 38/56/59 | 0 | 0 | 4.049 | 4.050 | 11.867 | 11.869 | 1689.2
+Q4_K_M | 2 | warm-2 | Complete | 52/70/70 | 0 | 0 | 5.051 | 5.051 | 14.535 | 14.539 | 1579.8
+Q4_K_M | 3 | warm-2 | Complete | 322/340/388 | 0 | 0 | 24.226 | 24.227 | 85.276 | 85.279 | 1504.2
+Q4_K_M | 4 | warm-2 | Complete | 285/303/326 | 0 | 0 | 21.292 | 21.293 | 78.138 | 78.141 | 1458.8
+Q4_K_M | 5 | warm-2 | Complete | 185/203/229 | 0 | 0 | 14.323 | 14.323 | 50.810 | 50.813 | 1469.8
+Q6_K | 1 | cold | Complete | 38/56/50 | 3665 | 362 | 5.835 | 5.836 | 14.745 | 18.786 | 1774.0
+Q6_K | 1 | warm-1 | Complete | 38/56/50 | 0 | 0 | 5.764 | 5.764 | 14.846 | 14.848 | 1772.3
+Q6_K | 2 | warm-1 | Complete | 52/70/67 | 0 | 0 | 7.447 | 7.448 | 18.945 | 18.948 | 1774.9
+Q6_K | 3 | warm-1 | Timeout | 322/340/357 | 0 | 0 | 36.347 | 36.348 | 120.001 | 120.004 | 1786.4
+Q6_K | 4 | warm-1 | Complete | 285/303/316 | 0 | 0 | 37.484 | 37.485 | 108.186 | 108.189 | 1787.3
+Q6_K | 5 | warm-1 | Complete | 185/203/217 | 0 | 0 | 27.791 | 27.791 | 79.586 | 79.588 | 2016.8
+Q6_K | 1 | warm-2 | Complete | 38/56/50 | 0 | 0 | 8.432 | 8.433 | 18.919 | 18.920 | 2016.0
+Q6_K | 2 | warm-2 | Complete | 52/70/67 | 0 | 0 | 8.904 | 8.905 | 24.173 | 24.194 | 2019.5
+Q6_K | 3 | warm-2 | Timeout | 322/340/294 | 0 | 0 | 43.746 | 43.747 | 120.000 | 120.003 | 1782.2
+Q6_K | 4 | warm-2 | Complete | 285/303/316 | 0 | 0 | 40.215 | 40.216 | 111.168 | 111.171 | 1795.6
+Q6_K | 5 | warm-2 | Complete | 185/203/217 | 0 | 0 | 25.752 | 25.753 | 74.473 | 74.475 | 1794.8
+Q8_0 | 1 | cold | Complete | 38/56/51 | 6040 | 907 | 4.596 | 4.597 | 11.704 | 18.678 | 2193.7
+Q8_0 | 1 | warm-1 | Complete | 38/56/51 | 0 | 0 | 4.139 | 4.140 | 11.589 | 11.592 | 2197.4
+Q8_0 | 2 | warm-1 | Complete | 52/70/67 | 0 | 0 | 5.458 | 5.459 | 14.831 | 14.833 | 2190.7
+Q8_0 | 3 | warm-1 | Complete | 322/340/395 | 0 | 0 | 25.505 | 25.506 | 103.251 | 103.254 | 2204.1
+Q8_0 | 4 | warm-1 | Complete | 285/303/316 | 0 | 0 | 21.368 | 21.369 | 68.339 | 68.341 | 2200.7
+Q8_0 | 5 | warm-1 | Complete | 185/203/218 | 0 | 0 | 13.948 | 13.948 | 44.555 | 44.558 | 2212.9
+Q8_0 | 1 | warm-2 | Complete | 38/56/51 | 0 | 0 | 4.698 | 4.699 | 10.775 | 10.778 | 2200.0
+Q8_0 | 2 | warm-2 | Complete | 52/70/67 | 0 | 0 | 5.032 | 5.032 | 13.023 | 13.039 | 2436.6
+Q8_0 | 3 | warm-2 | Complete | 322/340/395 | 0 | 0 | 23.871 | 23.872 | 86.022 | 86.024 | 2202.9
+Q8_0 | 4 | warm-2 | Complete | 285/303/316 | 0 | 0 | 21.068 | 21.069 | 68.726 | 68.728 | 2212.2
+Q8_0 | 5 | warm-2 | Complete | 185/203/218 | 0 | 0 | 14.004 | 14.004 | 46.395 | 46.397 | 2442.0
+
+制品 SHA-256
+Q4_K_M  dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699
+Q6_K  d98fe604dec1f28f58f80d7d560f7177e584d3b8e5835862687660e5ff97cb40
+Q8_0  5c3fe0b1408a5ceb0143184ef247b11b579c525f4b02b060e6c851bb76fef1a4

@@ -324,7 +324,7 @@
 - 最新四页原生界面、托盘生命周期、账本 schema 3 和验收边界见[16桌面端重构实施记录](docs/16-desktop-ui-refactor-implementation.md)。正文历史和执行时目标在协调线程保存；目标 metadata 先于输入执行持久化，不能在浏览历史时抓当前程序补填。旧配对/收据身份必须保留；缺失已安装的历史结构或设备名称列时先拒绝打开，不能先执行崩溃恢复写入。
 - 当前历史页与账本 schema 4 见[25历史界面重构](docs/25-desktop-history-ui-refactor.md)：响应式卡片、后台应用图标、删除撤销和保留策略。清理仅影响展示历史，不删除收据、去重指纹或队列；默认永久保留。用户指定的 `win-icon-extractor =0.3.0` 为 AGPL-3.0-only，不得把含该依赖的桌面分发物全部标为 MIT。
 - 当前账本 schema 5 与设备名称见[26历史去向与设备商品名称](docs/26-history-route-and-device-display-name.md)：Android 普通权限读取商品名，`hello.name` 必需且仅在 UUID/令牌认证成功后刷新同一设备。改名不改变接收闸门/身份、不补发；历史来源名称在接收事务中保存快照，不能关联当前设备名回写旧历史。软件可读名称与图标一并在后台从 exe 资源读取，完整路径留在详情。
-- 接收后 30 秒期限覆盖 accepted 与 held，人工 release 不续期；协调线程必须在无查询/界面刷新时主动过期并通知。有效 held 队首仍阻塞后续，执行中及 uncertain 不由定时器改判，正文历史保留。根因、双端原因提示和回归证据见[19已接收但未落字修复](docs/19-received-but-not-typed-queue-expiry-fix.md)。
+- 执行期限从成为可执行队首起算 30 秒，人工 release 不续期；`held` 不占执行期限，但有 10 分钟保留期，到期 `expired`/`hold_expired`；重启时 `accepted` 收敛为 `expired`，`held` 保留。协调线程必须在无查询/界面刷新时主动过期并通知。有效 held 队首仍阻塞后续，执行中及 uncertain 不由定时器改判，正文历史保留。多设备规范见 [86](docs/86-multi-host-multi-device-design.md)。根因、双端原因提示和回归证据见[19已接收但未落字修复](docs/19-received-but-not-typed-queue-expiry-fix.md)。
 - Windows 输入权限按双方 `TokenIntegrityLevel` 比较，允许向相同或更低级别目标提交；不能仅凭目标管理员标志拒绝。查询失败仍拒绝，勿默认提权。held 到期保留原始阻断 reason，避免过期掩盖原因；真实 EDIT 进程验证工具及 tranvoice 对比见[20输入权限修复](docs/20-native-input-integrity-and-tranvoice-comparison.md)。
 - 显式打开主窗口必须同时处理隐藏、最小化和已关闭三种状态，不能仅调用 `activate_window()` 假设窗口会显示。Windows 启动可见主界面使用普通可见模式，并核对主窗口而不只核对进程存活；真实窗口回归和退出销毁顺序见[17托盘打开修复](docs/17-tray-main-window-restore-fix.md)。
 
