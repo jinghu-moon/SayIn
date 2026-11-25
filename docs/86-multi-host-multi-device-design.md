@@ -193,7 +193,7 @@
 ### 6.3 query、cancel 与 release
 
 - `query`：`{"v":3,"t":"query","ref":"<uuid>","ids":[...]}`，有界（首轮 64 个 id），必须是每条连接的第一条应用消息。
-- 每个 id 回一条 `status`；本 pair 没有该请求回执时回 `st:"unknown"`，不带 `accept_order`、`request_rev`、`execution`。由于回执在提交前写入，`unknown` 可判定为该请求未被接受；手机仍只能用原 `(pair_id, request_id)` 并由用户显式操作重试。
+- 每个 id 回一条 `status`；本 pair 没有该请求回执时回 `st:"unknown"`，只带 `v`、`t`、`session_id`、`id`、`st`。由于回执在提交前写入，`unknown` 可判定为该请求未被接受；手机仍只能用原 `(pair_id, request_id)` 并由用户显式操作重试。
 - 手机不得在提交结果返回前查询同一 `request_id`；`unknown` 只在提交已成功或失败返回后才解释为未被接受，否则会把在途请求误判为丢失并产生第二个 UUID。
 - 批次结束：`{"v":3,"t":"queried","session_id":...,"ref":"<同一 uuid>"}`。手机在收到 `queried` 前不得认为查询完成，也不得开始新提交。
 - 错误帧携带 `ref`（批次）与 `id`（单条）。
@@ -232,7 +232,7 @@
 | 字段 | 规则 |
 | --- | --- |
 | `id` | 原请求 UUID；只在本 session 的 pair 内解释 |
-| `accept_order` | 无符号十进制字符串，0..2^63−1；仅 `accepted` 及之后存在；**是接受序号，不是执行顺序** |
+| `accept_order` | 无符号十进制字符串，0..2^63−1；已接受的回执始终携带此字段。接受前写入的 `cancelled` 和查询回答 `unknown` 省略此字段。**是接受序号，不是执行顺序** |
 | `request_rev` | 无符号十进制字符串，0..2^63−1；单调递增；仅在有回执时存在；客户端丢弃更旧 rev |
 | `st` | 生命周期状态；终态集合：`injected/failed/cancelled/expired/uncertain_acknowledged` |
 | `execution` | 见下表；v2 迁移的旧回执可整体缺省，表示未记录执行方式 |
@@ -245,14 +245,14 @@
 
 | `st` | 允许的 `stage` | 允许的 `method` |
 | --- | --- | --- |
-| `accepted` | `not_started` | `none` |
+| `accepted`、`held` | `not_started` | `none` |
 | `executing` | `prepared`、`file_saved`、`input_submitted`、`paste_submitted` | 非 `none` |
 | `injected` | `input_submitted`、`paste_submitted`、`paste_confirmed` | 非 `none` |
 | `failed` | `not_started` | `none` |
 | `failed` | `prepared`、`file_saved` | 非 `none` |
 | `cancelled` | `not_started`、`prepared` | `none` |
 | `expired` | `not_started`、`prepared` | `none` |
-| `uncertain` | `input_submitted`、`paste_submitted` | 非 `none` |
+| `uncertain` | `input_submitted`、`paste_submitted`；重启恢复还可保留 `prepared`、`file_saved` | 非 `none` |
 | `uncertain_acknowledged` | 与 `uncertain` 相同，核对时不得改写 | 同左 |
 
 `stage` 枚举：`not_started`、`prepared`、`input_submitted`、`file_saved`、`paste_submitted`、`paste_confirmed`。  
@@ -263,6 +263,7 @@
 - `stage=paste_confirmed` 与 `confirmed=true` 必须同时成立或同时不成立。`paste_confirmed` 只在确实观察到目标插入时使用；无法观察时保持 `paste_submitted` 且 `confirmed=false`。
 - 已提交任何输入事件之后不得记 `failed`，只能是 `injected` 或 `uncertain`。
 - 文件已保存但粘贴失败：`st=failed`、`stage=file_saved`、`method=clipboard_image_path/clipboard_image`、`reason=paste_not_started`。手机据此显示"已保存到电脑，未粘贴"。
+- 重启恢复采用最后持久化的执行阶段与方式。若阶段仍为 `prepared` 或 `file_saved`，保留该阶段并写 `reason=restart_during_input`、`uncertain_scope=global`，不得补记未观察到的提交。接受前的取消记录使用 `not_started/none/false`，并带独立 `request_rev`。
 - `uncertain` 不是终态；电脑本地核对后写 `uncertain_acknowledged`，`request_rev` 再增一次，之后不再变化。
 - `query` 返回同一字段集；重复查询不能改变终态，也不能伪造新的 `request_rev`。
 
@@ -373,12 +374,12 @@
 | v2 状态 | 迁移后 | 规则 |
 | --- | --- | --- |
 | `held` | `held` | 保留内容；保留期从迁移完成时刻重新起算，不因迁移立即过期 |
-| `accepted` | `expired` | `reason=restart_confirmation`：迁移发生在进程启动时，v2 自己的重启规则也会把它过期；保留会复活陈旧意图 |
+| `accepted` | `expired` | `reason=restart_confirmation`：迁移采用 v3 重启规则。v2 重启曾把未执行请求转为 `held`，迁移中的 `accepted` 直接过期以免复活陈旧意图 |
 | `executing` | `uncertain` | 与重启同规则；不重试 |
 | `uncertain` | `uncertain` | 回填 `uncertain_scope=global`：v2 只有一个全局闸门，不能假定为 `target` |
 | `injected/failed/cancelled/expired` | 不变 | 终态不改写 |
 
-- v2 收据没有 `accept_order`：迁移时按原接受顺序写入序号；没有 `request_rev` 的写 0 并从此递增；没有 `execution`/`server_ms` 的整体缺省，手机显示"执行方式未记录"，不得补造。
+- v2 线回执没有 `accept_order`，账本已有原接受顺序：迁移时保留账本接受序号；没有 `request_rev` 的写 0 并从此递增；没有 `execution`/`server_ms` 的整体缺省，手机显示"执行方式未记录"，不得补造。
 - 手机 Outbox 里的 `saved` 项不迁移到新 pair，也不能改挂；由用户在重配前显式取消或删除（§2.3 第 7 条）。
 
 ## 9. 独立变更轴
