@@ -375,7 +375,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P2 | T11 | 完成。`held` 独立保留 10 分钟，到期推送 `expired/hold_expired`，暂停和查询不续期。 | 同 T09 |
 | P2 | T12 | 完成。重启把 `executing` 转为 `uncertain`、`accepted` 转为 `expired/restart_confirmation`，保留 `held` 的原期限，主动推送到期回执。 | 同 T09 |
 | P3 | T13–T16 | 完成。输入不确定性按目标窗口或全局范围分类，审查票据绑定请求与控制代次，局部与全局闸门均通过回归测试。 | 本提交 |
-| P4 | T17–T22 | 完成。v3 路径、认证、fencing、查询边界、控制错误、出站预算和连接槽回归通过。 | 待本轮门禁提交 |
+| P4 | T17–T22 | 完成。v3 路径、认证、fencing、查询边界、控制错误、出站预算和连接槽回归通过。 | `d780826` |
 | P5–P9 | T23–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
 
 | 门禁 | 实际结果 |
