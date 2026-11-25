@@ -217,7 +217,7 @@ impl Receiver {
                     None => match commands.recv_timeout(Duration::from_millis(250)) {
                         Ok(command) => command,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
-                            match owner.ledger.expire_pending(Instant::now()) {
+                            match owner.ledger.expire_pending(owner.ledger.now()) {
                                 Ok(true) => { owner.dispatch(); owner.notify(); },
                                 Ok(false) => {},
                                 Err(error) => { owner.paused.pause(); let _=owner.ledger.pause(); eprintln!("Pending expiry could not be committed: {error}"); },
@@ -227,7 +227,7 @@ impl Receiver {
                         Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     },
                 };
-                match owner.ledger.expire_pending(Instant::now()) {
+                match owner.ledger.expire_pending(owner.ledger.now()) {
                     Ok(true) => { needs_dispatch=true; owner.notify(); },
                     Ok(false) => {},
                     Err(error) => { owner.paused.pause(); let _=owner.ledger.pause(); eprintln!("Pending expiry could not be committed: {error}"); },

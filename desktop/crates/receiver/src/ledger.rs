@@ -8,16 +8,42 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, hash_map::Entry},
     path::Path,
-    time::{Duration, Instant},
+    sync::Arc,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
+const EXECUTION_WINDOW: Duration = Duration::from_secs(30);
+const HOLD_RETENTION: Duration = Duration::from_secs(10 * 60);
+
 pub trait Protector: Send + 'static {
     fn protect(&self, plaintext: &[u8]) -> Result<Vec<u8>>;
     fn unprotect(&self, ciphertext: &[u8]) -> Result<Zeroizing<Vec<u8>>>;
+}
+
+/// Monotonic execution time paired with a wall-clock value for durable
+/// deadlines. Tests inject this trait so expiry never depends on sleeping.
+pub trait Clock: Send + Sync + 'static {
+    fn now(&self) -> Instant;
+    fn unix_millis(&self) -> i64;
+}
+
+pub(crate) struct SystemClock;
+
+impl Clock for SystemClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+
+    fn unix_millis(&self) -> i64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system clock before unix epoch")
+            .as_millis() as i64
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -61,6 +87,7 @@ impl Session {
 pub struct Execution {
     device: String,
     id: String,
+    request_rev: i64,
     target: String,
     operation: Operation,
     image_authorization: Option<std::sync::Arc<crate::images::ImageAuthorization>>,
@@ -111,9 +138,14 @@ struct Bucket {
 struct PendingRow {
     device: String,
     id: String,
-    state: String,
-    payload: Option<Vec<u8>>,
-    target: Option<String>,
+    state: State,
+}
+
+/// Input is in acceptance order. The first pending row of a pair owns its turn.
+fn select_oldest_pair_head(rows: &[PendingRow]) -> Option<&PendingRow> {
+    let mut seen = HashSet::new();
+    rows.iter()
+        .find(|row| seen.insert(row.device.as_str()) && row.state == State::Accepted)
 }
 impl Bucket {
     fn take(&mut self, now: Instant) -> bool {
@@ -134,6 +166,8 @@ pub struct Ledger {
     sessions: HashMap<String, String>,
     rates: HashMap<String, Bucket>,
     deadlines: HashMap<(String, String), Instant>,
+    hold_deadlines: HashMap<(String, String), Instant>,
+    clock: Arc<dyn Clock>,
     healthy: bool,
     pub(crate) image_store: Option<crate::images::storage::ImageStore>,
     pub(crate) prepared_images: HashMap<
@@ -151,9 +185,8 @@ pub struct Ledger {
     _lock: std::fs::File,
 }
 
-pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
-    let state: String = row.get(2)?;
-    let st = match state.as_str() {
+fn state_from_db(state: &str) -> rusqlite::Result<State> {
+    Ok(match state {
         "accepted" => State::Accepted,
         "held" => State::Held,
         "executing" => State::Executing,
@@ -164,11 +197,14 @@ pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
         "uncertain" => State::Uncertain,
         "uncertain_acknowledged" => State::UncertainAcknowledged,
         _ => return Err(rusqlite::Error::InvalidQuery),
-    };
+    })
+}
+
+pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
     Ok(Receipt {
         id: row.get(0)?,
         order: row.get::<_, i64>(1)?.to_string(),
-        st,
+        st: state_from_db(&row.get::<_, String>(2)?)?,
         reason: row.get(3)?,
         method: row.get(4)?,
         application: None,
@@ -180,6 +216,15 @@ impl Ledger {
         path: &Path,
         key: Zeroizing<Vec<u8>>,
         protector: Box<dyn Protector>,
+    ) -> Result<Self> {
+        Self::open_with_clock(path, key, protector, Arc::new(SystemClock))
+    }
+
+    pub fn open_with_clock(
+        path: &Path,
+        key: Zeroizing<Vec<u8>>,
+        protector: Box<dyn Protector>,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self> {
         if key.len() != 32 {
             return Err(Error::Protocol("INVALID_LEDGER_KEY"));
@@ -286,6 +331,8 @@ impl Ledger {
             sessions: HashMap::new(),
             rates: HashMap::new(),
             deadlines: HashMap::new(),
+            hold_deadlines: HashMap::new(),
+            clock,
             healthy: true,
             image_store: None,
             prepared_images: HashMap::new(),
@@ -402,6 +449,7 @@ impl Ledger {
                  ALTER TABLE receipts ADD COLUMN confirmed INTEGER CHECK(confirmed IN (0,1));
                  ALTER TABLE receipts ADD COLUMN uncertain_scope TEXT CHECK(uncertain_scope IN ('target','global'));
                  ALTER TABLE receipts ADD COLUMN hold_expires_at INTEGER;
+                 ALTER TABLE receipts ADD COLUMN executable_at INTEGER;
                  CREATE TABLE transferred_receipts (
                      pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
                      source_order INTEGER NOT NULL REFERENCES receipts(accept_order),
@@ -464,6 +512,16 @@ impl Ledger {
                  );",
             )?;
         }
+        let has_executable_at: bool = ledger.database.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('receipts') WHERE name='executable_at')",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_executable_at {
+            ledger
+                .database
+                .execute_batch("ALTER TABLE receipts ADD COLUMN executable_at INTEGER;")?;
+        }
         ledger.database.execute_batch(
             "CREATE TABLE IF NOT EXISTS transferred_receipts (
                 pair_id TEXT NOT NULL REFERENCES pairs(id), id TEXT NOT NULL,
@@ -478,7 +536,7 @@ impl Ledger {
              BEGIN UPDATE pairs SET cancel_count=cancel_count-1 WHERE id=OLD.pair_id; END;",
         )?;
         ledger.database.prepare(
-            "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at FROM receipts LIMIT 0",
+            "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at,executable_at FROM receipts LIMIT 0",
         )?;
         ledger
             .database
@@ -496,6 +554,8 @@ impl Ledger {
             return Err(Error::Protocol("LEDGER_SCHEMA_CORRUPT"));
         }
         ledger.recover()?;
+        ledger.refresh_hold_deadlines()?;
+        ledger.expire_pending(ledger.now())?;
         Ok(ledger)
     }
 
@@ -514,19 +574,57 @@ impl Ledger {
         mac.verify_slice(expected).is_ok()
     }
 
+    pub(crate) fn now(&self) -> Instant {
+        self.clock.now()
+    }
+
+    fn unix_millis(&self) -> i64 {
+        self.clock.unix_millis()
+    }
+
+    fn hold_expiry(&self) -> i64 {
+        self.unix_millis() + HOLD_RETENTION.as_millis() as i64
+    }
+
+    fn refresh_hold_deadlines(&mut self) -> Result<()> {
+        let now_millis = self.unix_millis();
+        let now = self.now();
+        let mut rows = self.database.prepare(
+            "SELECT pair_id,id,hold_expires_at FROM receipts INDEXED BY pending_order
+             WHERE state IN ('accepted','held','executing') AND state='held'",
+        )?;
+        let held = rows
+            .query_map([], |row| {
+                Ok((
+                    (row.get::<_, String>(0)?, row.get::<_, String>(1)?),
+                    row.get::<_, i64>(2)?,
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        for (key, expiry) in held {
+            self.deadlines.remove(&key);
+            self.hold_deadlines.entry(key).or_insert_with(|| {
+                let remaining = expiry.saturating_sub(now_millis).max(0) as u64;
+                now + Duration::from_millis(remaining).min(HOLD_RETENTION)
+            });
+        }
+        Ok(())
+    }
+
     fn recover(&mut self) -> Result<()> {
         let previous = self.state()?.pause_reason;
+        let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
-        let interrupted = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='uncertain',reason='restart_during_input',uncertain_scope='global',payload=NULL,bytes=0 WHERE state='executing'", [])?;
+        let interrupted = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='uncertain',reason='restart_during_input',uncertain_scope='global',executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE state='executing'", [])?;
         tx.execute(
-            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='restart_confirmation'
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason='restart_confirmation',executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0
              WHERE state='accepted'",
             [],
         )?;
         tx.execute(
-            "UPDATE receipts SET reason='restart_confirmation'
-             WHERE state='held' AND reason='outcome_review_required'",
-            [],
+            "UPDATE receipts SET hold_expires_at=?1
+             WHERE state='held' AND hold_expires_at IS NULL",
+            [hold_expires_at],
         )?;
         let review: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM control WHERE pause_reason='outcome_review_required')",
@@ -756,7 +854,7 @@ impl Ledger {
     }
 
     pub fn submit(&mut self, session: &Session, submit: &Submit) -> Result<Receipt> {
-        self.submit_at(session, submit, Instant::now())
+        self.submit_at(session, submit, self.now())
     }
 
     fn submit_at(&mut self, session: &Session, submit: &Submit, now: Instant) -> Result<Receipt> {
@@ -785,9 +883,6 @@ impl Ledger {
             return Err(Error::Protocol("ID_CONFLICT"));
         }
         let control = self.state()?;
-        if control.active_device_id.as_deref() != Some(&session.device) {
-            return Err(Error::Protocol("NOT_ACTIVE_DEVICE"));
-        }
         if control.target.as_deref() != Some(&submit.target) {
             return Err(Error::Protocol("TARGET_MISMATCH"));
         }
@@ -826,6 +921,7 @@ impl Ledger {
             serde_json::to_vec(&submit.op).expect("operation JSON"),
         ))?;
         let history = protected.clone();
+        let hold_expires_at = control.paused.then(|| self.hold_expiry());
         let tx = self.database.transaction()?;
         let (device_count, device_bytes, receipts): (i64, i64, i64) = tx.query_row(
             "SELECT pending_count,pending_bytes,receipt_count-cancel_count FROM pairs WHERE id=?1",
@@ -860,8 +956,8 @@ impl Ledger {
             State::Accepted
         };
         let reason = control.paused.then_some("paused");
-        tx.execute("INSERT INTO receipts(pair_id,id,payload_mac,payload,original_target,execute_target,bytes,state,reason) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8)",
-            params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason])?;
+        tx.execute("INSERT INTO receipts(pair_id,id,payload_mac,payload,original_target,execute_target,bytes,state,reason,hold_expires_at) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8,?9)",
+            params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason, hold_expires_at])?;
         let accept_order = tx.last_insert_rowid();
         let order = accept_order.to_string();
         if let Operation::Image { image } = &submit.op {
@@ -881,15 +977,17 @@ impl Ledger {
             ],
         )?;
         tx.commit()?;
+        if hold_expires_at.is_some() {
+            self.hold_deadlines.insert(
+                (session.device.clone(), submit.id.clone()),
+                now + HOLD_RETENTION,
+            );
+        }
         if let Operation::Image { image } = &submit.op
             && let Some((_, resource, _)) = self.prepared_images.remove(&image.resource_id)
         {
             resource.accept();
         }
-        self.deadlines.insert(
-            (session.device.clone(), submit.id.clone()),
-            Instant::now() + Duration::from_secs(30),
-        );
         Ok(Receipt {
             id: submit.id.clone(),
             order,
@@ -941,39 +1039,45 @@ impl Ledger {
 
     pub fn pause(&mut self) -> Result<ControlState> {
         self.invalidate_all_images();
+        let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'paused' END,rev=rev+1", [])?;
         tx.execute(
-            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='paused' WHERE state='accepted'",
-            [],
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='paused',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'",
+            [hold_expires_at],
         )?;
         tx.commit()?;
+        self.refresh_hold_deadlines()?;
         self.state()
     }
 
     /// Suspend a live input scope without replacing an existing user/review pause.
     /// Previously accepted text stays held; reconnect never implicitly releases it.
     pub fn network_lost(&mut self) -> Result<ControlState> {
+        let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET pause_reason=CASE WHEN paused=0 THEN 'network_unavailable' ELSE pause_reason END,paused=1,rev=rev+1", [])?;
         tx.execute(
-            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='network_unavailable' WHERE state='accepted'",
-            [],
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='network_unavailable',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'",
+            [hold_expires_at],
         )?;
         tx.commit()?;
+        self.refresh_hold_deadlines()?;
         self.state()
     }
 
     pub fn bind_target(&mut self, target: &str) -> Result<ControlState> {
         validate_uuid(target)?;
         self.invalidate_all_images();
+        let hold_expires_at = self.hold_expiry();
         let tx = self.database.transaction()?;
         tx.execute("UPDATE control SET target=?1,paused=1,pause_reason=CASE WHEN pause_reason='outcome_review_required' THEN pause_reason ELSE 'target_changed' END,rev=rev+1", [target])?;
         tx.execute(
-            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed' WHERE state='accepted'",
-            [],
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'",
+            [hold_expires_at],
         )?;
         tx.commit()?;
+        self.refresh_hold_deadlines()?;
         self.state()
     }
 
@@ -1006,12 +1110,11 @@ impl Ledger {
         expected_rev: &str,
     ) -> Result<Receipt> {
         self.authorize(session)?;
-        self.expire_pending(Instant::now())?;
+        self.expire_pending(self.now())?;
         let control = self.state()?;
         if control.paused
             || control.state_rev != expected_rev
             || control.target.as_deref() != Some(target)
-            || control.active_device_id.as_deref() != Some(&session.device)
         {
             return Err(Error::Protocol("STATE_CONFLICT"));
         }
@@ -1031,10 +1134,11 @@ impl Ledger {
             return Err(Error::Protocol("TOO_LATE"));
         }
         let tx = self.database.transaction()?;
-        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='accepted',reason=NULL,execute_target=?1 WHERE pair_id=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
+        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='accepted',reason=NULL,execute_target=?1,hold_expires_at=NULL,executable_at=NULL WHERE pair_id=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
         tx.execute("UPDATE control SET rev=rev+1", [])?;
         tx.commit()?;
-        // Releasing old text never renews its original acceptance deadline.
+        self.hold_deadlines
+            .remove(&(session.device.clone(), id.to_owned()));
         self.find(&session.device, id)?
             .ok_or(Error::Protocol("UNKNOWN_ID"))
     }
@@ -1049,7 +1153,7 @@ impl Ledger {
             if !matches!(existing.st, State::Accepted | State::Held) {
                 return Err(Error::Protocol("TOO_LATE"));
             }
-            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='user_cancelled',payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2", params![session.device,id])?;
+            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='user_cancelled',payload=NULL,bytes=0,executable_at=NULL,hold_expires_at=NULL WHERE pair_id=?1 AND id=?2", params![session.device,id])?;
         } else {
             if self.transferred_source(&session.device, id)?.is_some() {
                 return Err(Error::Protocol("TOO_LATE"));
@@ -1070,6 +1174,8 @@ impl Ledger {
         }
         self.deadlines
             .remove(&(session.device.clone(), id.to_owned()));
+        self.hold_deadlines
+            .remove(&(session.device.clone(), id.to_owned()));
         self.find(&session.device, id)?
             .ok_or(Error::Protocol("UNKNOWN_ID"))
     }
@@ -1078,12 +1184,13 @@ impl Ledger {
         self.invalidate_device_images(device);
         let tx = self.database.transaction()?;
         tx.execute("UPDATE pairs SET revoked=1 WHERE id=?1", [device])?;
-        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='device_revoked',payload=NULL,bytes=0 WHERE pair_id=?1 AND state IN ('accepted','held')", [device])?;
+        tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='cancelled',reason='device_revoked',payload=NULL,bytes=0,executable_at=NULL,hold_expires_at=NULL WHERE pair_id=?1 AND state IN ('accepted','held')", [device])?;
         tx.execute("UPDATE control SET paused=1,pause_reason='device_revoked',active_device=NULL,rev=rev+1 WHERE active_device=?1", [device])?;
         tx.commit()?;
         self.sessions.remove(device);
         self.rates.remove(device);
         self.deadlines.retain(|(owner, _), _| owner != device);
+        self.hold_deadlines.retain(|(owner, _), _| owner != device);
         Ok(())
     }
 
@@ -1091,23 +1198,38 @@ impl Ledger {
     /// No history scan and no timer-based transition can resurrect old text.
     pub(crate) fn expire_pending(&mut self, now: Instant) -> Result<bool> {
         self.prune_images(now)?;
-        let due = self
+        let mut due = self
             .deadlines
             .iter()
-            .filter(|(_, deadline)| now >= **deadline)
-            .map(|(key, _)| key.clone())
+            .filter(|(_, deadline)| now > **deadline)
+            .map(|(key, _)| (key.clone(), false))
             .collect::<Vec<_>>();
+        due.extend(
+            self.hold_deadlines
+                .iter()
+                .filter(|(_, deadline)| now >= **deadline)
+                .map(|(key, _)| (key.clone(), true)),
+        );
         if due.is_empty() {
             return Ok(false);
         }
         let tx = self.database.transaction()?;
         let mut changed = false;
-        for (device, id) in &due {
-            changed |= tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2 AND state IN ('accepted','held')", params![device,id])? > 0;
+        for ((device, id), held) in &due {
+            let (reason, state): (&str, &str) = if *held {
+                ("hold_expired", "held")
+            } else {
+                ("expired_before_input", "accepted")
+            };
+            changed |= tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason=?1,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?2 AND id=?3 AND state=?4", params![reason,device,id,state])? > 0;
         }
         tx.commit()?;
-        for key in due {
-            self.deadlines.remove(&key);
+        for (key, held) in due {
+            if held {
+                self.hold_deadlines.remove(&key);
+            } else {
+                self.deadlines.remove(&key);
+            }
         }
         Ok(changed)
     }
@@ -1118,69 +1240,103 @@ impl Ledger {
         if !self.healthy {
             return Err(Error::Protocol("STORAGE_UNAVAILABLE"));
         }
-        self.expire_pending(Instant::now())?;
-        let control = self.state()?;
-        if control.paused {
-            return Ok(None);
-        }
-        let row: Option<PendingRow> = self.database.query_row(
-            "SELECT pair_id,id,state,payload,execute_target FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [],
-            |row| Ok(PendingRow { device:row.get(0)?,id:row.get(1)?,state:row.get(2)?,payload:row.get(3)?,target:row.get(4)? })).optional()?;
-        let Some(PendingRow {
-            device,
-            id,
-            state,
-            payload,
-            target,
-        }) = row
-        else {
-            return Ok(None);
-        };
-        if state == "executing" {
-            return Ok(None);
-        }
-        let deadline = self.deadlines.get(&(device.clone(), id.clone()));
-        if deadline.is_none() || deadline.is_some_and(|deadline| Instant::now() >= *deadline) {
-            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason=CASE WHEN state='held' AND reason IS NOT NULL THEN reason ELSE 'expired_before_input' END,payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2", params![device,id])?;
-            self.deadlines.remove(&(device, id));
-            return self.prepare_next();
-        }
-        if state != "accepted" {
-            return Ok(None);
-        }
-        if control.active_device_id.as_deref() != Some(&device) || control.target != target {
-            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='target_changed' WHERE pair_id=?1 AND id=?2", params![device,id])?;
-            return Ok(None);
-        }
-        let ciphertext = payload.ok_or(Error::Protocol("MISSING_PENDING_PAYLOAD"))?;
-        let plaintext = self.protector.unprotect(&ciphertext)?;
-        let operation: Operation = serde_json::from_slice(&plaintext)
-            .map_err(|_| Error::Protocol("CORRUPT_PENDING_PAYLOAD"))?;
-        operation.validate()?;
-        let image_authorization = if let Operation::Image { image } = &operation {
-            let alive = self
-                .image_authorizations
-                .get(&image.resource_id)
-                .map(|(_, value)| value.clone());
-            if !alive.as_ref().is_some_and(|value| value.valid()) {
-                self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='image_session_ended' WHERE pair_id=?1 AND id=?2", params![device,id])?;
+        loop {
+            let now = self.now();
+            self.expire_pending(now)?;
+            let control = self.state()?;
+            if control.paused {
                 return Ok(None);
             }
-            alive
-        } else {
-            None
-        };
-        Ok(Some(Execution {
-            device,
-            id,
-            target: target.ok_or(Error::Protocol("MISSING_TARGET"))?,
-            operation,
-            image_authorization,
-        }))
+            let rows = {
+                let mut statement = self.database.prepare(
+                    "SELECT pair_id,id,state FROM receipts INDEXED BY pending_order
+                     WHERE state IN ('accepted','held','executing') ORDER BY accept_order",
+                )?;
+                statement
+                    .query_map([], |row| {
+                        Ok(PendingRow {
+                            device: row.get(0)?,
+                            id: row.get(1)?,
+                            state: state_from_db(&row.get::<_, String>(2)?)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+            let Some(PendingRow { device, id, .. }) = select_oldest_pair_head(&rows) else {
+                return Ok(None);
+            };
+            let (request_rev, payload, target): (i64, Option<Vec<u8>>, Option<String>) =
+                self.database.query_row(
+                    "SELECT request_rev,payload,execute_target FROM receipts WHERE pair_id=?1 AND id=?2",
+                    params![device, id],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+            if control.target != target {
+                self.hold_request(device, id, request_rev, "target_changed")?;
+                continue;
+            }
+            let ciphertext = payload.ok_or(Error::Protocol("MISSING_PENDING_PAYLOAD"))?;
+            let plaintext = self.protector.unprotect(&ciphertext)?;
+            let operation: Operation = serde_json::from_slice(&plaintext)
+                .map_err(|_| Error::Protocol("CORRUPT_PENDING_PAYLOAD"))?;
+            operation.validate()?;
+            let image_authorization = if let Operation::Image { image } = &operation {
+                let alive = self
+                    .image_authorizations
+                    .get(&image.resource_id)
+                    .map(|(_, value)| value.clone());
+                if !alive.as_ref().is_some_and(|value| value.valid()) {
+                    self.hold_request(device, id, request_rev, "image_session_ended")?;
+                    continue;
+                }
+                alive
+            } else {
+                None
+            };
+            let key = (device.clone(), id.clone());
+            let executable_at = self.unix_millis();
+            let deadline = self.now() + EXECUTION_WINDOW;
+            if let Entry::Vacant(entry) = self.deadlines.entry(key) {
+                self.database.execute(
+                    "UPDATE receipts SET executable_at=?1 WHERE pair_id=?2 AND id=?3 AND state='accepted'",
+                    params![executable_at, device, id],
+                )?;
+                entry.insert(deadline);
+            }
+            return Ok(Some(Execution {
+                device: device.clone(),
+                id: id.clone(),
+                request_rev,
+                target: target.ok_or(Error::Protocol("MISSING_TARGET"))?,
+                operation,
+                image_authorization,
+            }));
+        }
     }
 
     pub fn hold(&mut self, job: &Execution, reason: &str) -> Result<()> {
-        self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1 WHERE pair_id=?2 AND id=?3 AND state='accepted'",params![reason,job.device,job.id])?;
+        self.hold_request(&job.device, &job.id, job.request_rev, reason)
+    }
+
+    fn hold_request(
+        &mut self,
+        device: &str,
+        id: &str,
+        request_rev: i64,
+        reason: &str,
+    ) -> Result<()> {
+        let hold_expires_at = self.hold_expiry();
+        let deadline = self.now() + HOLD_RETENTION;
+        let changed = self.database.execute(
+            "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason=?1,executable_at=NULL,hold_expires_at=?2
+             WHERE pair_id=?3 AND id=?4 AND request_rev=?5 AND state='accepted'",
+            params![reason, hold_expires_at, device, id, request_rev],
+        )?;
+        if changed == 1 {
+            let key = (device.to_owned(), id.to_owned());
+            self.deadlines.remove(&key);
+            self.hold_deadlines.insert(key, deadline);
+        }
         Ok(())
     }
 
@@ -1202,31 +1358,27 @@ impl Ledger {
             self.hold(job, "image_session_ended")?;
             return Ok(false);
         }
-        if state.paused
-            || state.target.as_deref() != Some(&job.target)
-            || state.active_device_id.as_deref() != Some(&job.device)
-        {
+        if state.paused || state.target.as_deref() != Some(&job.target) {
             self.hold(job, "paused_or_target_changed")?;
-            return Ok(false);
-        }
-        let expired = self
-            .deadlines
-            .get(&(job.device.clone(), job.id.clone()))
-            .is_none_or(|deadline| Instant::now() >= *deadline);
-        if expired {
-            self.database.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='expired',reason='expired_before_input',payload=NULL,bytes=0 WHERE pair_id=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
-            self.deadlines.remove(&(job.device.clone(), job.id.clone()));
             return Ok(false);
         }
         let protected = target
             .map(|t| self.target_payload(&job.device, &job.id, t))
             .transpose()?;
+        let key = (job.device.clone(), job.id.clone());
+        self.expire_pending(self.now())?;
+        if !self.deadlines.contains_key(&key) {
+            return Ok(false);
+        }
         let tx = self.database.transaction()?;
-        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL WHERE pair_id=?1 AND id=?2 AND state='accepted'",params![job.device,job.id])?;
+        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev])?;
         if changed == 1 {
             tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE pair_id=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
         }
         tx.commit()?;
+        if changed == 1 {
+            self.deadlines.remove(&key);
+        }
         Ok(changed == 1)
     }
 
@@ -1236,9 +1388,10 @@ impl Ledger {
             InputOutcome::Failed { reason } => (State::Failed, Some(reason), None),
             InputOutcome::Uncertain { reason } => (State::Uncertain, Some(reason), None),
         };
+        let review_hold_expires_at = self.hold_expiry();
         let result = (|| -> Result<()> {
             let tx = self.database.transaction()?;
-            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=CASE WHEN ?1='uncertain' THEN 'global' END,payload=NULL,bytes=0 WHERE pair_id=?4 AND id=?5 AND state='executing'", params![state.key(),reason,method,job.device,job.id])?;
+            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=CASE WHEN ?1='uncertain' THEN 'global' END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?4 AND id=?5 AND state='executing'", params![state.key(),reason,method,job.device,job.id])?;
             if changed != 1 {
                 return Err(Error::Protocol("STATE_CONFLICT"));
             }
@@ -1247,7 +1400,7 @@ impl Ledger {
                     "UPDATE control SET paused=1,pause_reason='outcome_review_required',rev=rev+1",
                     [],
                 )?;
-                tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='outcome_review_required' WHERE state='accepted'", [])?;
+                tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='held',reason='outcome_review_required',executable_at=NULL,hold_expires_at=?1 WHERE state='accepted'", [review_hold_expires_at])?;
             }
             tx.commit()?;
             Ok(())
@@ -1259,6 +1412,9 @@ impl Ledger {
             return Err(error);
         }
         self.deadlines.remove(&(job.device.clone(), job.id.clone()));
+        if state == State::Uncertain {
+            self.refresh_hold_deadlines()?;
+        }
         if let Operation::Image { image } = &job.operation {
             self.image_authorizations.remove(&image.resource_id);
         }
@@ -1316,13 +1472,37 @@ mod tests {
         ledger.rates.remove(&session.device);
     }
 
-    fn select_test_pair(ledger: &Ledger, device: &str) {
-        // v2 admits one sender at a time. Leave the other pairs' rows pending
-        // so the production admission path still checks the global counters.
-        ledger
-            .database
-            .execute("UPDATE control SET active_device=?1", [device])
-            .unwrap();
+    #[test]
+    fn pair_head_selection_checks_each_pending_state_in_acceptance_order() {
+        let states = [State::Accepted, State::Held, State::Executing];
+        let row = |device: &str, id: &str, state| PendingRow {
+            device: device.into(),
+            id: id.into(),
+            state,
+        };
+        assert!(select_oldest_pair_head(&[]).is_none());
+        for first in states {
+            for second in states {
+                for successor in states {
+                    let rows = [
+                        row("A", "A1", first),
+                        row("A", "A2", successor),
+                        row("B", "B1", second),
+                        row("B", "B2", successor),
+                    ];
+                    let expected = match (first, second) {
+                        (State::Accepted, _) => Some("A1"),
+                        (_, State::Accepted) => Some("B1"),
+                        _ => None,
+                    };
+                    assert_eq!(
+                        select_oldest_pair_head(&rows).map(|row| row.id.as_str()),
+                        expected,
+                        "{first:?}, {second:?}, {successor:?}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -1339,7 +1519,6 @@ mod tests {
         let mut earliest = None;
         let mut last_order = 0;
         for (session, count) in sessions.iter().zip([16, 15, 1]) {
-            select_test_pair(&ledger, session.device());
             for _ in 0..count {
                 refill(&mut ledger, session);
                 let message = submit(session, &target, "pending".into());
@@ -1379,7 +1558,6 @@ mod tests {
             sessions.push(ledger.authenticate(&device, &token).unwrap());
         }
         for session in &sessions[..2] {
-            select_test_pair(&ledger, session.device());
             for bytes in [16_000, 16_000, 16_000, 16_000, 1536] {
                 refill(&mut ledger, session);
                 ledger
@@ -1393,7 +1571,6 @@ mod tests {
             ));
         }
         let third = &sessions[2];
-        select_test_pair(&ledger, third.device());
         assert!(matches!(
             ledger.submit(third, &submit(third, &target, "x".into())),
             Err(Error::Protocol("QUEUE_FULL"))
@@ -1575,22 +1752,24 @@ mod tests {
         let job = ledger.prepare_next().unwrap().unwrap();
         ledger.hold(&job, "receiver_focused").unwrap();
         let key = (session.device.clone(), first.id.clone());
-        let deadline = ledger.deadlines[&key];
         let revision = ledger.state().unwrap().state_rev;
         ledger
             .release(&session, &first.id, &target, &revision)
             .unwrap();
-        assert_eq!(
-            ledger.deadlines[&key], deadline,
-            "release must not grant another 30 seconds"
-        );
-        ledger.hold(&job, "receiver_focused").unwrap();
+        assert!(!ledger.deadlines.contains_key(&key));
+        assert!(!ledger.hold_deadlines.contains_key(&key));
+        let released = ledger.prepare_next().unwrap().unwrap();
+        let executable_deadline = ledger.deadlines[&key];
+        assert!(executable_deadline <= ledger.now() + EXECUTION_WINDOW);
+        ledger.hold(&released, "receiver_focused").unwrap();
         let second = submit(&session, &target, "queued".into());
         ledger.submit(&session, &second).unwrap();
         ledger.pause().unwrap();
+        let second_hold_deadline =
+            ledger.hold_deadlines[&(session.device.clone(), second.id.clone())];
         assert!(
             ledger
-                .expire_pending(deadline + Duration::from_secs(1))
+                .expire_pending(second_hold_deadline + Duration::from_secs(1))
                 .unwrap()
         );
         for id in [&first.id, &second.id] {
@@ -1627,8 +1806,8 @@ mod tests {
         let (mut ledger, session, target, directory) = fixture();
         let message = submit(&session, &target, "input".into());
         ledger.submit(&session, &message).unwrap();
-        let deadline = ledger.deadlines[&(session.device.clone(), message.id.clone())];
         let job = ledger.prepare_next().unwrap().unwrap();
+        let deadline = ledger.deadlines[&(session.device.clone(), message.id.clone())];
         ledger.mark_executing(&job).unwrap();
         assert!(!ledger.expire_pending(deadline).unwrap());
         assert_eq!(
@@ -1658,17 +1837,17 @@ mod tests {
     }
 
     #[test]
-    fn expiry_retains_preflight_cause_for_diagnosis_without_removing_history() {
+    fn hold_expiry_records_terminal_reason_without_removing_history() {
         let (mut ledger, session, target, directory) = fixture();
         let message = submit(&session, &target, "diagnostic cause".into());
         ledger.submit(&session, &message).unwrap();
         let job = ledger.prepare_next().unwrap().unwrap();
         ledger.hold(&job, "elevated_target").unwrap();
-        let deadline = ledger.deadlines[&(session.device.clone(), message.id.clone())];
+        let deadline = ledger.hold_deadlines[&(session.device.clone(), message.id.clone())];
         assert!(ledger.expire_pending(deadline).unwrap());
         let receipt = ledger.query(&session, &message.id).unwrap().unwrap();
         assert_eq!(receipt.st, State::Expired);
-        assert_eq!(receipt.reason.as_deref(), Some("elevated_target"));
+        assert_eq!(receipt.reason.as_deref(), Some("hold_expired"));
         assert_eq!(ledger.snapshot().unwrap().pending, 0);
         let history = ledger.history(&Default::default()).unwrap();
         assert_eq!(history.entries[0].receipt.reason, receipt.reason);

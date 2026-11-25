@@ -369,8 +369,12 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P0 | T02 | 严格回执解析红、绿和 receiver 回归已通过。 | P0 本提交 |
 | P0 | T03 | 73 个合法执行组合及其余 467 个组合、查询未命中和帧预算均通过。图标样本用于测量编码长度，真实 WebP 的编码和解码在 P9 验收。 | P0 本提交 |
 | P0 | T04 | 17 个错误码与规范一致，16 个可出站，`PAIR_ALREADY_EXISTS` 只在手机本地映射。Rust 和 Android 测试均通过。 | P0 本提交 |
-| P1 | T05–T08 | 完成。schema 7、状态机、request_rev/accept_order、配额与计数均已实现并通过测试。 | `00278ea` |
-| P2–P9 | T09–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
+| P1 | T05–T08 | 完成。schema 7、状态机、request_rev/accept_order、配额与计数均已实现并通过测试。 | `ed65f23` |
+| P2 | T09 | 完成。按各配对队首的 `accept_order` 调度，`held` 保留本配对顺序，其他配对可以执行。 | `feat(receiver)!: add fair scheduling and durable deadlines` |
+| P2 | T10 | 完成。成为可执行队首后才开始计时，恰好 30 秒仍可执行，30.001 秒过期。注入时钟覆盖等待与重复放行。 | 同 T09 |
+| P2 | T11 | 完成。`held` 独立保留 10 分钟，到期推送 `expired/hold_expired`，暂停和查询不续期。 | 同 T09 |
+| P2 | T12 | 完成。重启把 `executing` 转为 `uncertain`、`accepted` 转为 `expired/restart_confirmation`，保留 `held` 的原期限，主动推送到期回执。 | 同 T09 |
+| P3–P9 | T13–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -389,3 +393,15 @@ scripts/verify_android_transport.ps1 -FullSuite
 | v3 状态和错误 | 活跃连接使用 v2。 | v3 编解码和 Android 本地文案通过测试，活跃连接仍使用 v2。 |
 
 用户确认暂缓真实 2×2，继续实施。当前已有的 K40 证据来自 ADB reverse 和假输入。89 §6 的真实局域网、2×2 并发、真实落字和功耗证据及相应门槛保留为未执行。v3 迁移、配对隔离、状态机、输入副作用、配额与故障注入依次由后续阶段验收。
+
+### P2 门禁与行为对比
+
+- Rust 1.99.1 工作区 `test --workspace --all-targets --locked` 共 185 项通过，0 失败。receiver 单元 50 项、ledger 45 项、worker 15 项、transport 网络 8 项。loopback 到期推送用例先因夹具缺少 DPAPI 账本密钥失败，改为通过正式初始化入口注入测试时钟后，定向测试 1 项和工作区测试均通过。
+- 工作区 `clippy --all-targets --locked -- -D warnings`、`build --workspace --locked`、包级 `fmt --check`、i18n 和桌面依赖检查通过。Android `:app:testDebugUnitTest` 和 `:app:lintDebug` 成功，测试与 lint 复用有效构建产物。
+- 真实 2×2、真实局域网与真机落字未执行。P2 网络证据来自 loopback TLS 和测试输入适配器。
+
+| 项目 | 修改前 | 实测修改后 |
+| --- | --- | --- |
+| 调度 | 只接受活动设备，单一队首阻断后续请求。 | 各配对只看本配对队首，取最早的可执行队首。某配对被阻断时，其他配对继续。 |
+| 执行期限 | `accepted` 和 `held` 共用接受后 30 秒期限。 | `accepted` 从成为可执行队首起计时。`held` 自进入起保留 10 分钟，放行并成为可执行队首时启动新的 30 秒期限。 |
+| 重启 | 待执行请求进入 `held`，恢复后缺少原单调时钟期限。 | `accepted` 终止为 `expired/restart_confirmation`。`held` 保留原期限。`executing` 进入 `uncertain`，已 `injected` 的请求保持原终态。 |

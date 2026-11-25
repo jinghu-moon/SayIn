@@ -1,4 +1,8 @@
+#[path = "../../../tests/support/manual_clock.rs"]
+mod manual_clock;
+
 use futures_util::{SinkExt, StreamExt};
+use manual_clock::ManualClock;
 use rustls::{
     ClientConfig, RootCertStore,
     pki_types::{CertificateDer, ServerName},
@@ -21,7 +25,7 @@ use voicelink_pairing::{Invitation, decode};
 use voicelink_receiver::{
     gate::InputGate,
     ledger::{Execution, InputOutcome},
-    windows_input::open_ledger,
+    windows_input::{open_ledger, open_ledger_with_clock},
     worker::{InputAdapter, Receiver},
 };
 use voicelink_transport::{HostIdentity, server::NetworkService, storage::secure_directory};
@@ -77,8 +81,10 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
     let directory = Directory::new();
     let ready = Arc::new(AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
+    let clock = ManualClock::new();
+    let ledger = open_ledger_with_clock(&directory.0, clock.clone()).unwrap();
     let receiver = Receiver::start(
-        open_ledger(&directory.0).unwrap(),
+        ledger,
         RecoveringAdapter {
             ready: ready.clone(),
             calls: calls.clone(),
@@ -124,7 +130,13 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
         assert_eq!(status["st"], "accepted");
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    clock.advance(Duration::from_secs(600));
+    // Only consume server pushes. No query, UI refresh or control may drive TTL.
+    let expired = next(&mut socket, "status").await;
+    assert_eq!(expired["id"], first);
+    assert_eq!(expired["st"], "expired");
+    assert_eq!(expired["reason"], "hold_expired");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
     ready.store(true, Ordering::SeqCst);
     let second = Uuid::new_v4().to_string();
     send(
@@ -136,30 +148,14 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
     let accepted = next(&mut socket, "status").await;
     assert_eq!(accepted["id"], second);
     assert_eq!(accepted["st"], "accepted");
-    // Only consume server pushes. No query, UI refresh or control may drive TTL.
-    timeout(Duration::from_secs(35), async {
-        let (mut expired, mut injected) = (false, false);
-        while !expired || !injected {
-            if let Message::Text(value) = socket.next().await.unwrap().unwrap() {
-                let status: Value = serde_json::from_str(&value).unwrap();
-                if status["t"] != "status" {
-                    continue;
-                }
-                if status["id"] == first {
-                    assert_eq!(status["st"], "expired");
-                    assert_eq!(status["reason"], "receiver_focused");
-                    expired = true;
-                } else if status["id"] == second {
-                    assert!(status["st"] == "executing" || status["st"] == "injected");
-                    injected |= status["st"] == "injected";
-                } else {
-                    panic!("unexpected receipt");
-                }
-            }
+    loop {
+        let status = next(&mut socket, "status").await;
+        assert_eq!(status["id"], second);
+        if status["st"] == "injected" {
+            break;
         }
-    })
-    .await
-    .unwrap();
+        assert_eq!(status["st"], "executing");
+    }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();

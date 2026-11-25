@@ -714,23 +714,22 @@ fn uncertain_input_requires_local_checkbox_and_does_not_release_held_text(cx: &m
     await_receiver(cx, &receiver, |s| {
         !s.is_busy() && !s.snapshot().unwrap().control.paused
     });
-    // This fixture reopens SQLite, so pending text has no trusted monotonic
-    // deadline. Global resume must expire it, never authorize it at a new cursor.
+    // A held request keeps its retention across restart and still needs explicit release.
     await_receiver(cx, &receiver, |s| {
-        s.snapshot().unwrap().pending == 0
+        s.snapshot().unwrap().pending == 1
             && !s.history_loading()
             && s.history().entries.len() == 2
             && s.history()
                 .entries
                 .iter()
-                .any(|entry| entry.receipt.st == State::Expired)
+                .any(|entry| entry.receipt.st == State::Held)
     });
     receiver.read_with(cx, |s, _| {
         let entries = &s.history().entries;
-        let expired = entries.iter().find(|entry| entry.receipt.st == State::Expired).unwrap();
-        assert_eq!(expired.receipt.reason.as_deref(), Some("restart_confirmation"));
-        assert!(expired.executed_at.is_none(), "recovered old text must not execute");
-        assert!(matches!(&expired.operation, Some(Operation::Text { text, .. }) if text == "fixture old text"));
+        let held = entries.iter().find(|entry| entry.receipt.st == State::Held).unwrap();
+        assert_eq!(held.receipt.reason.as_deref(), Some("outcome_review_required"));
+        assert!(held.executed_at.is_none(), "recovered old text must not execute");
+        assert!(matches!(&held.operation, Some(Operation::Text { text, .. }) if text == "fixture old text"));
         assert!(entries.iter().any(|entry| entry.receipt.st == State::Uncertain));
         assert!(!entries.iter().any(|entry| entry.receipt.st == State::Injected));
     });

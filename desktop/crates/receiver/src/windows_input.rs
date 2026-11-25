@@ -3,7 +3,7 @@ use crate::{
     Error, Result,
     gate::InputGate,
     images::{ImageMime, payload::PreparedImage},
-    ledger::{Execution, InputOutcome, Ledger, Protector},
+    ledger::{Clock, Execution, InputOutcome, Ledger, Protector, SystemClock},
     protocol::{KeyName, Operation},
     windows_image_delivery::{ImageDeliveryMode, SharedImageDeliverySettings},
     worker::InputAdapter,
@@ -12,6 +12,7 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 use windows::{
     Win32::{
@@ -121,6 +122,10 @@ fn dpapi(input: &[u8], decrypt: bool) -> Result<Zeroizing<Vec<u8>>> {
 
 /// Refuse orphaned keys or missing keys instead of reopening an old dedup namespace.
 pub fn open_ledger(directory: &Path) -> Result<Ledger> {
+    open_ledger_with_clock(directory, Arc::new(SystemClock))
+}
+
+pub fn open_ledger_with_clock(directory: &Path, clock: Arc<dyn Clock>) -> Result<Ledger> {
     fs::create_dir_all(directory)?;
     let path = directory.join("receiver.sqlite3");
     let key_path = directory.join("receiver-key.dpapi");
@@ -148,7 +153,7 @@ pub fn open_ledger(directory: &Path) -> Result<Ledger> {
     } else {
         return Err(Error::Protocol("LEDGER_IDENTITY_LOST"));
     };
-    Ledger::open(&path, key, Box::new(protector))
+    Ledger::open_with_clock(&path, key, Box::new(protector), clock)
 }
 
 /// A lease is scoped to one operation, not to a user-managed window lock.

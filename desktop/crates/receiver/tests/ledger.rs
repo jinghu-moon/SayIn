@@ -1,12 +1,20 @@
+#[path = "../../../tests/support/manual_clock.rs"]
+mod manual_clock;
+
+use manual_clock::ManualClock;
 use std::{
     fs,
     path::PathBuf,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+    time::Duration,
 };
 use uuid::Uuid;
 use voicelink_receiver::{
     Error, Result,
-    ledger::{InputOutcome, Ledger, Protector, Session},
+    ledger::{Clock, InputOutcome, Ledger, Protector, Session},
     protocol::{Operation, State, Submit, TextSource},
 };
 use zeroize::Zeroizing;
@@ -136,11 +144,22 @@ impl Fixture {
         )
         .unwrap()
     }
+    fn open_with_clock(&self, clock: Arc<ManualClock>) -> Ledger {
+        Ledger::open_with_clock(
+            &self.path(),
+            Zeroizing::new(self.key.clone()),
+            Box::new(TestProtector),
+            clock,
+        )
+        .unwrap()
+    }
     fn ready(&self) -> (Ledger, Session) {
         self.ready_named("")
     }
     fn ready_named(&self, name: &str) -> (Ledger, Session) {
-        let mut ledger = self.open();
+        self.ready_ledger(self.open(), name)
+    }
+    fn ready_ledger(&self, mut ledger: Ledger, name: &str) -> (Ledger, Session) {
         ledger
             .provision_device(&self.device, &self.token, name.into())
             .unwrap();
@@ -168,6 +187,216 @@ impl Drop for Fixture {
 }
 fn code<T>(result: Result<T>, expected: &str) {
     assert!(matches!(result,Err(Error::Protocol(code)) if code==expected));
+}
+
+#[test]
+fn scheduler_orders_authenticated_pair_heads_and_skips_a_held_pair() {
+    let fixture = Fixture::new();
+    let clock = ManualClock::new();
+    let (mut ledger, a) = fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "A");
+    let other = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&other, &[8; 32], "B".into())
+        .unwrap();
+    let b = ledger.authenticate(&other, &[8; 32]).unwrap();
+    let a1 = fixture.submit(&a, "A1");
+    let a2 = fixture.submit(&a, "A2");
+    let b1 = fixture.submit(&b, "B1");
+    let b2 = fixture.submit(&b, "B2");
+    for (session, request) in [(&a, &a1), (&b, &b1), (&a, &a2), (&b, &b2)] {
+        assert_eq!(ledger.submit(session, request).unwrap().st, State::Accepted);
+    }
+    let head = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(head.id(), a1.id);
+    ledger.hold(&head, "receiver_focused").unwrap();
+    let head = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(head.id(), b1.id);
+    assert!(ledger.mark_executing(&head).unwrap());
+    assert!(ledger.prepare_next().unwrap().is_none());
+    ledger
+        .finish(&head, InputOutcome::Injected { method: "test" })
+        .unwrap();
+    clock.advance(Duration::from_secs(31));
+    assert_eq!(
+        ledger.query(&a, &a2.id).unwrap().unwrap().st,
+        State::Accepted
+    );
+    let rev = ledger.state().unwrap().state_rev;
+    assert_eq!(
+        ledger
+            .release(&a, &a1.id, &fixture.target, &rev)
+            .unwrap()
+            .st,
+        State::Accepted
+    );
+    for expected in [&a1, &a2, &b2] {
+        let job = ledger.prepare_next().unwrap().unwrap();
+        assert_eq!(job.id(), expected.id);
+        assert!(ledger.mark_executing(&job).unwrap());
+        ledger
+            .finish(&job, InputOutcome::Injected { method: "test" })
+            .unwrap();
+    }
+    assert!(ledger.prepare_next().unwrap().is_none());
+}
+
+#[test]
+fn execution_deadline_starts_on_dispatch_and_includes_exactly_thirty_seconds() {
+    let fixture = Fixture::new();
+    let clock = ManualClock::new();
+    let (mut ledger, session) = fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "");
+    let first = fixture.submit(&session, "first");
+    let second = fixture.submit(&session, "second");
+    ledger.submit(&session, &first).unwrap();
+    ledger.submit(&session, &second).unwrap();
+    let head = ledger.prepare_next().unwrap().unwrap();
+    let database = rusqlite::Connection::open(fixture.path()).unwrap();
+    let executable_at = |id: &str| -> Option<i64> {
+        database
+            .query_row(
+                "SELECT executable_at FROM receipts WHERE id=?1",
+                [id],
+                |row| row.get(0),
+            )
+            .unwrap()
+    };
+    assert_eq!(executable_at(&first.id), Some(clock.unix_millis()));
+    assert_eq!(executable_at(&second.id), None);
+    clock.advance(Duration::from_secs(30));
+    assert!(ledger.mark_executing(&head).unwrap());
+    clock.advance(Duration::from_secs(60));
+    assert!(ledger.prepare_next().unwrap().is_none());
+    assert_eq!(executable_at(&second.id), None);
+    ledger
+        .finish(&head, InputOutcome::Injected { method: "test" })
+        .unwrap();
+    let head = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(head.id(), second.id);
+    let started = clock.unix_millis();
+    clock.advance(Duration::from_millis(29_999));
+    assert_eq!(ledger.prepare_next().unwrap().unwrap().id(), second.id);
+    assert_eq!(executable_at(&second.id), Some(started));
+    clock.advance(Duration::from_millis(2));
+    assert!(!ledger.mark_executing(&head).unwrap());
+    let expired = ledger.query(&session, &second.id).unwrap().unwrap();
+    assert_eq!(expired.st, State::Expired);
+    assert_eq!(expired.reason.as_deref(), Some("expired_before_input"));
+}
+
+#[test]
+fn held_retention_starts_on_paused_admission_and_release_does_not_renew_execution() {
+    let fixture = Fixture::new();
+    let clock = ManualClock::new();
+    let (mut ledger, session) = fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "");
+    ledger.pause().unwrap();
+    let first = fixture.submit(&session, "release near the limit");
+    let second = fixture.submit(&session, "expire at the limit");
+    for request in [&first, &second] {
+        assert_eq!(ledger.submit(&session, request).unwrap().st, State::Held);
+    }
+    clock.advance(Duration::from_secs(300));
+    let paused = ledger.pause().unwrap();
+    assert_eq!(
+        ledger.query(&session, &first.id).unwrap().unwrap().st,
+        State::Held
+    );
+    clock.advance(Duration::from_millis(299_999));
+    let resumed = ledger.resume(&paused.state_rev, false).unwrap();
+    ledger
+        .release(&session, &first.id, &fixture.target, &resumed.state_rev)
+        .unwrap();
+    let head = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(head.id(), first.id);
+    clock.advance(Duration::from_millis(1));
+    let rev = ledger.state().unwrap().state_rev;
+    code(
+        ledger.release(&session, &second.id, &fixture.target, &rev),
+        "TOO_LATE",
+    );
+    let expired = ledger.query(&session, &second.id).unwrap().unwrap();
+    assert_eq!(expired.st, State::Expired);
+    assert_eq!(expired.reason.as_deref(), Some("hold_expired"));
+    clock.advance(Duration::from_secs(29));
+    code(
+        ledger.release(&session, &first.id, &fixture.target, &rev),
+        "TOO_LATE",
+    );
+    clock.advance(Duration::from_secs(1));
+    assert!(!ledger.mark_executing(&head).unwrap());
+    assert_eq!(
+        ledger
+            .query(&session, &first.id)
+            .unwrap()
+            .unwrap()
+            .reason
+            .as_deref(),
+        Some("expired_before_input")
+    );
+}
+
+#[test]
+fn restart_keeps_held_retention_and_never_dispatches_old_input() {
+    let fixture = Fixture::new();
+    let clock = ManualClock::new();
+    let (mut ledger, session) = fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "");
+    let injected = fixture.submit(&session, "already injected");
+    ledger.submit(&session, &injected).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    ledger
+        .finish(&job, InputOutcome::Injected { method: "test" })
+        .unwrap();
+    let held = fixture.submit(&session, "still held");
+    ledger.submit(&session, &held).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    ledger.hold(&job, "receiver_focused").unwrap();
+    let accepted = fixture.submit(&session, "queued behind held");
+    ledger.submit(&session, &accepted).unwrap();
+    let other = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&other, &[8; 32], String::new())
+        .unwrap();
+    let second = ledger.authenticate(&other, &[8; 32]).unwrap();
+    let executing = fixture.submit(&second, "interrupted in flight");
+    ledger.submit(&second, &executing).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert!(ledger.mark_executing(&job).unwrap());
+    clock.advance(Duration::from_secs(599));
+    drop(ledger);
+
+    let mut ledger = fixture.open_with_clock(clock.clone());
+    let session = ledger
+        .authenticate(&fixture.device, &fixture.token)
+        .unwrap();
+    let second = ledger.authenticate(&other, &[8; 32]).unwrap();
+    for (session, request, state, reason) in [
+        (&session, &injected, State::Injected, None),
+        (&session, &held, State::Held, Some("receiver_focused")),
+        (
+            &session,
+            &accepted,
+            State::Expired,
+            Some("restart_confirmation"),
+        ),
+        (
+            &second,
+            &executing,
+            State::Uncertain,
+            Some("restart_during_input"),
+        ),
+    ] {
+        let receipt = ledger.query(session, &request.id).unwrap().unwrap();
+        assert_eq!(receipt.st, state);
+        assert_eq!(receipt.reason.as_deref(), reason);
+    }
+    let bound = ledger.bind_target(&fixture.target).unwrap();
+    ledger.resume(&bound.state_rev, true).unwrap();
+    assert!(ledger.prepare_next().unwrap().is_none());
+    clock.advance(Duration::from_secs(1));
+    assert!(ledger.prepare_next().unwrap().is_none());
+    let receipt = ledger.query(&session, &held.id).unwrap().unwrap();
+    assert_eq!(receipt.st, State::Expired);
+    assert_eq!(receipt.reason.as_deref(), Some("hold_expired"));
 }
 
 #[test]
@@ -210,7 +439,7 @@ fn missing_schema_or_key_check_is_not_silently_recreated() {
 }
 
 #[test]
-fn accepted_is_durable_and_restarts_held_without_automatic_input() {
+fn accepted_is_durable_and_expires_without_automatic_input_after_restart() {
     let fixture = Fixture::new();
     let (mut ledger, session) = fixture.ready();
     let submit = fixture.submit(&session, "中文😀");
@@ -223,7 +452,7 @@ fn accepted_is_durable_and_restarts_held_without_automatic_input() {
         .unwrap();
     let receipt = ledger.query(&session, &submit.id).unwrap().unwrap();
     assert_eq!(receipt.order, accepted.order);
-    assert_eq!(receipt.st, State::Held);
+    assert_eq!(receipt.st, State::Expired);
     assert_eq!(receipt.reason.as_deref(), Some("restart_confirmation"));
     assert!(ledger.prepare_next().unwrap().is_none());
 }
@@ -541,7 +770,7 @@ fn unclean_process_exit_preserves_accepted_and_executing_boundaries() {
             if executing {
                 State::Uncertain
             } else {
-                State::Held
+                State::Expired
             }
         );
         assert!(ledger.prepare_next().unwrap().is_none());
@@ -647,7 +876,7 @@ fn history_pending_has_no_fabricated_destination_and_keyset_is_exclusive() {
         recovered
             .entries
             .iter()
-            .all(|e| e.receipt.st == State::Held && e.operation.is_some())
+            .all(|e| e.receipt.st == State::Expired && e.operation.is_some())
     );
 }
 
@@ -708,7 +937,8 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
              ALTER TABLE receipts DROP COLUMN execution_stage;
              ALTER TABLE receipts DROP COLUMN confirmed;
              ALTER TABLE receipts DROP COLUMN uncertain_scope;
-             ALTER TABLE receipts DROP COLUMN hold_expires_at;",
+             ALTER TABLE receipts DROP COLUMN hold_expires_at;
+             ALTER TABLE receipts DROP COLUMN executable_at;",
             )
             .unwrap();
         if version < 6 {
@@ -749,7 +979,8 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             .unwrap();
         let receipt = ledger.query(&restored, &message.id).unwrap().unwrap();
         assert_eq!(receipt.order, accepted.order);
-        assert_eq!(receipt.st, State::Held);
+        assert_eq!(receipt.st, State::Expired);
+        assert_eq!(receipt.reason.as_deref(), Some("restart_confirmation"));
         let tombstone = ledger.query(&restored, &cancelled_id).unwrap().unwrap();
         assert_eq!(tombstone.order, cancelled.order);
         assert_eq!(tombstone.st, State::Cancelled);
@@ -791,7 +1022,7 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
                 },
             )
             .unwrap();
-        assert_eq!(counts, (2, 1, 1));
+        assert_eq!(counts, (2, 1, 0));
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM pairs d JOIN receipts r ON d.id=r.pair_id WHERE r.id=?1",
@@ -1303,7 +1534,7 @@ fn image_acceptance_is_durable_deduplicated_and_never_replays_after_restart() {
             if executing {
                 State::Uncertain
             } else {
-                State::Held
+                State::Expired
             }
         );
         assert!(ledger.prepare_next().unwrap().is_none());

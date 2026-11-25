@@ -1,3 +1,7 @@
+#[path = "../../../tests/support/manual_clock.rs"]
+mod manual_clock;
+
+use manual_clock::ManualClock;
 use std::{
     fs,
     future::Future,
@@ -117,6 +121,9 @@ fn ready_with_protector(
         protector,
     )
     .unwrap();
+    ready_with_ledger(ledger, adapter)
+}
+fn ready_with_ledger(ledger: Ledger, adapter: impl InputAdapter) -> (Receiver, Session, String) {
     let receiver = Receiver::start(ledger, adapter).unwrap();
     let device = Uuid::new_v4().to_string();
     wait(receiver.provision_device(device.clone(), Zeroizing::new(vec![2; 32]), String::new()))
@@ -409,8 +416,16 @@ fn held_head_expires_without_control_traffic_then_fresh_text_executes() {
     let directory = Directory::new();
     let allowed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let calls = Arc::new(Mutex::new(Vec::new()));
-    let (receiver, session, target) = ready(
-        &directory,
+    let clock = ManualClock::new();
+    let ledger = Ledger::open_with_clock(
+        &directory.0.join("receiver.sqlite3"),
+        Zeroizing::new(vec![1; 32]),
+        Box::new(TestProtector),
+        clock.clone(),
+    )
+    .unwrap();
+    let (receiver, session, target) = ready_with_ledger(
+        ledger,
         RecoveringAdapter {
             ready: allowed.clone(),
             calls: calls.clone(),
@@ -419,20 +434,24 @@ fn held_head_expires_without_control_traffic_then_fresh_text_executes() {
     let first = submit(&session, &target, "never replay this old text");
     wait(receiver.submit(session.clone(), first.clone())).unwrap();
     until(&receiver, &session, &first.id, State::Held);
-    thread::sleep(Duration::from_secs(1));
     allowed.store(true, std::sync::atomic::Ordering::SeqCst);
     let second = submit(&session, &target, "fresh valid text");
     wait(receiver.submit(session.clone(), second.clone())).unwrap();
-    // Do not poll: read-only queries must not be required to wake expiration.
-    thread::sleep(Duration::from_millis(29500));
+    // Subscription runs after the submit mutation's notification.
+    let mut updates = wait(receiver.subscribe()).unwrap();
+    while updates.try_recv().is_ok() {}
+    clock.advance(Duration::from_secs(600));
+    // Only the coordinator's timer can publish the next notification.
+    wait(std::future::poll_fn(|_| match updates.try_recv() {
+        Ok(()) => Poll::Ready(()),
+        Err(_) => Poll::Pending,
+    }));
     until(&receiver, &session, &second.id, State::Injected);
-    assert_eq!(
-        wait(receiver.query(session, first.id.clone()))
-            .unwrap()
-            .unwrap()
-            .st,
-        State::Expired
-    );
+    let receipt = wait(receiver.query(session, first.id.clone()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.st, State::Expired);
+    assert_eq!(receipt.reason.as_deref(), Some("hold_expired"));
     assert_eq!(*calls.lock().unwrap(), [second.id]);
     let history =
         wait(receiver.history(voicelink_receiver::history::HistoryQuery::default())).unwrap();
