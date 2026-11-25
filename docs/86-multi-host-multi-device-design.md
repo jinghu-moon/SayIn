@@ -127,7 +127,13 @@ Windows 发布与监听绑定到同一有效网卡和 IPv4 范围，保持已有
 
 ```json
 {"v":3,"t":"hello","pair_id":"f2b8830e-a989-4bd6-845d-b5f483ab6bf1","token":"...","name":"Pixel 8"}
+```
+
+```json
 {"v":3,"t":"submit","session_id":"a9c265c2-7819-4866-a3d8-31c090f6fc25","id":"dcd90d23-d73f-46a6-a998-ad136cd72de9","target":"8231122d-e699-48e0-bcf0-7855b31d71e9","op":{"kind":"text","text":"你好","src":"manual"}}
+```
+
+```json
 {"v":3,"t":"status","session_id":"a9c265c2-7819-4866-a3d8-31c090f6fc25","id":"dcd90d23-d73f-46a6-a998-ad136cd72de9","order":"42","st":"accepted"}
 ```
 
