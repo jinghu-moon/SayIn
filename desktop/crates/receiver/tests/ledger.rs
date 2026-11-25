@@ -1895,7 +1895,17 @@ fn new_ledger_creates_schema_seven_with_pair_key_and_execution_fields() {
         "SELECT pair_id,request_rev,execution_stage,confirmed,uncertain_scope,hold_expires_at FROM receipts WHERE id=?1",
         [&message.id], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?,row.get(5)?))
     ).unwrap();
-    assert_eq!(row, (fixture.device.clone(), 0, None, None, None, None));
+    assert_eq!(
+        row,
+        (
+            fixture.device.clone(),
+            0,
+            Some("not_started".into()),
+            Some(0),
+            None,
+            None,
+        )
+    );
     let fk: (String, String) = db
         .query_row(
             "SELECT [table], [from] FROM pragma_foreign_key_list('receipts')",

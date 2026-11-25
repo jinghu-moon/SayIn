@@ -302,6 +302,12 @@ pub struct Receipt {
     pub method: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub uncertain_scope: Option<crate::protocol_v3::UncertainScope>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_rev: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_stage: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirmed: Option<bool>,
     /// Execution-time display only. Never a route, scope or proof of insertion.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub application: Option<crate::application_icon::ApplicationDisplay>,

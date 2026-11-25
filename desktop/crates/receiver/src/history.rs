@@ -235,7 +235,7 @@ impl Ledger {
             .take(256)
             .collect::<String>()
             .to_lowercase();
-        let mut statement=self.database.prepare("SELECT r.id,r.accept_order,r.state,r.reason,r.method,r.pair_id,h.body,h.received_at,h.executed_at,h.target,r.original_target,r.payload_mac,h.source_name,r.uncertain_scope FROM receipts r JOIN message_history h ON h.accept_order=r.accept_order WHERE h.deleted_at IS NULL AND r.accept_order<?1 AND (?2 IS NULL OR r.state=?2) ORDER BY r.accept_order DESC LIMIT 257")?;
+        let mut statement=self.database.prepare("SELECT r.id,r.accept_order,r.state,r.reason,r.method,r.pair_id,h.body,h.received_at,h.executed_at,h.target,r.original_target,r.payload_mac,h.source_name,r.uncertain_scope,r.request_rev,r.execution_stage,r.confirmed FROM receipts r JOIN message_history h ON h.accept_order=r.accept_order WHERE h.deleted_at IS NULL AND r.accept_order<?1 AND (?2 IS NULL OR r.state=?2) ORDER BY r.accept_order DESC LIMIT 257")?;
         let mut rows = statement.query(params![
             query.before.unwrap_or(i64::MAX),
             query.state.map(State::key)

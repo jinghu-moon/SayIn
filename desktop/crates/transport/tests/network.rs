@@ -108,15 +108,16 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
     )
     .await;
     let welcome = next(&mut socket, "welcome").await;
     let session = welcome["session_id"].as_str().unwrap();
+    query_ready(&mut socket, session).await;
     let first = Uuid::new_v4().to_string();
     send(
         &mut socket,
-        json!({"v":2,"t":"submit","session_id":session,"id":first,"target":target,
+        json!({"v":3,"t":"submit","session_id":session,"id":first,"target":target,
         "op":{"kind":"text","text":"held text must never be typed","src":"manual"}}),
     )
     .await;
@@ -141,7 +142,7 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
     let second = Uuid::new_v4().to_string();
     send(
         &mut socket,
-        json!({"v":2,"t":"submit","session_id":session,"id":second,"target":target,
+        json!({"v":3,"t":"submit","session_id":session,"id":second,"target":target,
         "op":{"kind":"text","text":"fresh text","src":"manual"}}),
     )
     .await;
@@ -162,7 +163,7 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
 }
 
 async fn socket(invitation: &Invitation) -> Socket {
-    socket_path(invitation, "/v2").await
+    socket_path(invitation, "/sayin/v3").await
 }
 async fn socket_path(invitation: &Invitation, path: &str) -> Socket {
     let mut roots = RootCertStore::empty();
@@ -215,7 +216,29 @@ async fn next(socket: &mut Socket, kind: &str) -> Value {
         }
     })
     .await
-    .unwrap()
+    .unwrap_or_else(|_| panic!("timed out waiting for {kind}"))
+}
+async fn query_ready(socket: &mut Socket, session: &str) {
+    let reference = Uuid::new_v4().to_string();
+    send(
+        socket,
+        json!({"v":3,"t":"query","session_id":session,"ref":reference,"ids":[]}),
+    )
+    .await;
+    let value = timeout(Duration::from_secs(5), async {
+        loop {
+            if let Message::Text(value) = socket.next().await.unwrap().unwrap() {
+                let value: Value = serde_json::from_str(&value).unwrap();
+                if value["t"] == "queried" || value["t"] == "err" {
+                    return value;
+                }
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(value["t"], "queried", "query failed: {value}");
+    assert_eq!(value["ref"], reference);
 }
 async fn invitation(service: &NetworkService) -> Invitation {
     service.open_pairing().await.unwrap();
@@ -230,7 +253,7 @@ async fn invitation(service: &NetworkService) -> Invitation {
 }
 async fn pair(service: &NetworkService, invitation: &Invitation) -> Value {
     let mut socket = socket(invitation).await;
-    send(&mut socket,json!({"v":2,"t":"pair","name":"Test Android","window_id":invitation.window_id,"secret":invitation.secret})).await;
+    send(&mut socket,json!({"v":3,"t":"pair","name":"Test Android","window_id":invitation.window_id,"secret":invitation.secret})).await;
     let approval = timeout(Duration::from_secs(5), async {
         loop {
             if let Some(approval) = service.snapshot().unwrap().approval {
@@ -311,7 +334,7 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
             .await
             .unwrap()
             .device_names
-            .get(paired["device_id"].as_str().unwrap())
+            .get(paired["pair_id"].as_str().unwrap())
             .map(String::as_str),
         Some("Test Android")
     );
@@ -321,14 +344,41 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
     )
     .await;
     let welcome = next(&mut socket, "welcome").await;
     let session = welcome["session_id"].as_str().unwrap();
+    query_ready(&mut socket, session).await;
     assert_eq!(welcome["target"], target);
+    let missing = Uuid::new_v4().to_string();
+    let missing_ref = Uuid::new_v4().to_string();
+    send(
+        &mut socket,
+        json!({"v":3,"t":"query","session_id":session,"ref":missing_ref,"ids":[missing]}),
+    )
+    .await;
+    let unknown = next(&mut socket, "status").await;
+    assert_eq!(unknown["st"], "unknown");
+    assert_eq!(unknown["id"], missing);
+    assert!(unknown.get("accept_order").is_none());
+    assert!(unknown.get("request_rev").is_none());
+    assert!(unknown.get("execution").is_none());
+    assert_eq!(next(&mut socket, "queried").await["ref"], missing_ref);
+    let oversized_ref = Uuid::new_v4().to_string();
+    let oversized_ids = (0..65)
+        .map(|_| Uuid::new_v4().to_string())
+        .collect::<Vec<_>>();
+    send(
+        &mut socket,
+        json!({"v":3,"t":"query","session_id":session,"ref":oversized_ref,"ids":oversized_ids}),
+    )
+    .await;
+    let error = next(&mut socket, "err").await;
+    assert_eq!(error["code"], "INVALID_REQUEST");
+    assert_eq!(error["ref"], oversized_ref);
     let id = Uuid::new_v4().to_string();
-    let operation = json!({"v":2,"t":"submit","session_id":session,"id":id,"target":target,"op":{"kind":"text","text":"中文 😀 {ENTER}","src":"manual"}});
+    let operation = json!({"v":3,"t":"submit","session_id":session,"id":id,"target":target,"op":{"kind":"text","text":"中文 😀 {ENTER}","src":"manual"}});
     send(&mut socket, operation.clone()).await;
     loop {
         let status = next(&mut socket, "status").await;
@@ -348,13 +398,14 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
     let original_session = session.to_owned();
     let paused = receiver.pause().await.unwrap();
     let mut reconnect = crate::socket(&invitation).await;
-    send(&mut reconnect, json!({"v":2,"t":"hello","name":"Redmi K40","device_id":paired["device_id"],"token":paired["token"]})).await;
+    send(&mut reconnect, json!({"v":3,"t":"hello","name":"Redmi K40","pair_id":paired["pair_id"],"token":paired["token"]})).await;
     let renamed = next(&mut reconnect, "welcome").await;
+    query_ready(&mut reconnect, renamed["session_id"].as_str().unwrap()).await;
     assert_ne!(renamed["session_id"], original_session);
     assert_eq!(renamed["paused"], true);
     assert_eq!(receiver.state().await.unwrap().state_rev, paused.state_rev);
     assert_eq!(
-        receiver.snapshot().await.unwrap().device_names[paired["device_id"].as_str().unwrap()],
+        receiver.snapshot().await.unwrap().device_names[paired["pair_id"].as_str().unwrap()],
         "Redmi K40"
     );
     assert_eq!(
@@ -370,12 +421,14 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
     let mut socket = reconnect;
     let renamed_session = renamed["session_id"].as_str().unwrap();
     let pause_id = Uuid::new_v4().to_string();
+    let pause_ref = Uuid::new_v4().to_string();
     send(
         &mut socket,
-        json!({"v":2,"t":"control","session_id":renamed_session,"id":pause_id,"name":"pause"}),
+        json!({"v":3,"t":"control","session_id":renamed_session,"ref":pause_ref,"refs":[pause_id],"name":"pause"}),
     )
     .await;
-    assert_eq!(next(&mut socket, "controlled").await["paused"], true);
+    let error = next(&mut socket, "err").await;
+    assert_eq!(error["code"], "UNSUPPORTED");
     assert!(receiver.state().await.unwrap().paused);
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
@@ -414,7 +467,7 @@ async fn wrong_code_never_delivers_identity_and_closed_window_rejects_pending_gr
     let invitation = invitation(&service).await;
     service.close_pairing().await;
     let mut socket = socket(&invitation).await;
-    send(&mut socket,json!({"v":2,"t":"pair","name":"Rejected","window_id":invitation.window_id,"secret":invitation.secret})).await;
+    send(&mut socket,json!({"v":3,"t":"pair","name":"Rejected","window_id":invitation.window_id,"secret":invitation.secret})).await;
     assert!(timeout(Duration::from_secs(2), socket.next()).await.is_ok());
     assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 0);
     service.shutdown().await.unwrap();
@@ -438,13 +491,13 @@ async fn explicit_rejection_and_revocation_prevent_authenticated_input() {
     let invitation = invitation(&service).await;
     let paired = pair(&service, &invitation).await;
     receiver
-        .revoke(paired["device_id"].as_str().unwrap().into())
+        .revoke(paired["pair_id"].as_str().unwrap().into())
         .await
         .unwrap();
     let mut socket = socket(&invitation).await;
     send(
         &mut socket,
-        json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]}),
+        json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
     )
     .await;
     assert!(matches!(
@@ -478,11 +531,12 @@ async fn same_identity_moves_ipv4_and_port_then_queries_without_resuming_or_repl
         .unwrap();
     receiver.resume(state.state_rev, false).await.unwrap();
     let mut original = socket(&invitation).await;
-    let hello = json!({"v":2,"t":"hello","name":"Test Android","device_id":paired["device_id"],"token":paired["token"]});
+    let hello = json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]});
     send(&mut original, hello.clone()).await;
     let welcome = next(&mut original, "welcome").await;
+    query_ready(&mut original, welcome["session_id"].as_str().unwrap()).await;
     let id = Uuid::new_v4().to_string();
-    send(&mut original, json!({"v":2,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"text","text":"once across migration","src":"manual"}})).await;
+    send(&mut original, json!({"v":3,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"text","text":"once across migration","src":"manual"}})).await;
     while next(&mut original, "status").await["st"] != "injected" {}
     receiver.pause().await.unwrap();
     old.shutdown().await.unwrap();
@@ -505,21 +559,22 @@ async fn same_identity_moves_ipv4_and_port_then_queries_without_resuming_or_repl
     let mut connection = socket(&endpoint).await;
     send(&mut connection, hello.clone()).await;
     let restored = next(&mut connection, "welcome").await;
+    query_ready(&mut connection, restored["session_id"].as_str().unwrap()).await;
     assert_eq!(restored["host_id"], invitation.host_id);
-    assert_eq!(restored["device_id"], paired["device_id"]);
+    assert_eq!(restored["pair_id"], paired["pair_id"]);
     assert_eq!(restored["paused"], true);
     assert_ne!(restored["session_id"], welcome["session_id"]);
     let query = Uuid::new_v4().to_string();
     send(
         &mut connection,
-        json!({"v":2,"t":"query","session_id":restored["session_id"],"id":query,"refs":[id]}),
+        json!({"v":3,"t":"query","session_id":restored["session_id"],"ref":query,"ids":[id]}),
     )
     .await;
     assert_eq!(next(&mut connection, "status").await["st"], "injected");
     assert_eq!(next(&mut connection, "queried").await["ref"], query);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     receiver
-        .revoke(paired["device_id"].as_str().unwrap().into())
+        .revoke(paired["pair_id"].as_str().unwrap().into())
         .await
         .unwrap();
     let mut revoked = socket(&endpoint).await;
@@ -563,10 +618,10 @@ async fn image_service(
     (receiver, service)
 }
 async fn image_hello(images: &mut Socket, welcome: &Value, paired: &Value) {
-    send(images,json!({"v":2,"t":"image_hello","session_id":welcome["session_id"],"device_id":paired["device_id"],"binding":welcome["image_channel"]["binding"]})).await;
+    send(images,json!({"v":3,"t":"image_hello","session_id":welcome["session_id"],"pair_id":paired["pair_id"],"binding":welcome["image"]["binding"]})).await;
 }
 async fn image_begin(images: &mut Socket, welcome: &Value, id: &str, bytes: &[u8]) {
-    send(images,json!({"v":2,"t":"image_begin","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"state_rev":welcome["state_rev"],"metadata":{"bytes":bytes.len(),"width":1,"height":1,"mime":"image/png","sha256":voicelink_receiver::images::digest(bytes)}})).await;
+    send(images,json!({"v":3,"t":"image_begin","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"state_rev":welcome["state_rev"],"metadata":{"bytes":bytes.len(),"width":1,"height":1,"mime":"image/png","sha256":voicelink_receiver::images::digest(bytes)}})).await;
     assert_eq!(next(images, "image_begun").await["id"], id);
 }
 async fn connection_closed(socket: &mut Socket) {
@@ -597,10 +652,11 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
         .await
         .unwrap();
     let mut control = socket(&invitation).await;
-    send(&mut control,json!({"v":2,"t":"hello","name":"Image fixture","device_id":paired["device_id"],"token":paired["token"]})).await;
+    send(&mut control,json!({"v":3,"t":"hello","name":"Image fixture","pair_id":paired["pair_id"],"token":paired["token"]})).await;
     let welcome = next(&mut control, "welcome").await;
-    assert_eq!(welcome["image_channel"]["path"], "/v2/images");
-    let mut images = socket_path(&invitation, "/v2/images").await;
+    query_ready(&mut control, welcome["session_id"].as_str().unwrap()).await;
+    assert_eq!(welcome["image"]["path"], "/sayin/v3/images");
+    let mut images = socket_path(&invitation, "/sayin/v3/images").await;
     image_hello(&mut images, &welcome, &paired).await;
     assert_eq!(
         next(&mut images, "image_welcome").await["session_id"],
@@ -612,7 +668,7 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
     let started = std::time::Instant::now();
     send(
         &mut control,
-        json!({"v":2,"t":"ping","session_id":welcome["session_id"],"nonce":"during-image"}),
+        json!({"v":3,"t":"ping","session_id":welcome["session_id"],"nonce":"during-image"}),
     )
     .await;
     assert_eq!(next(&mut control, "pong").await["nonce"], "during-image");
@@ -629,18 +685,18 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
     );
     send(
         &mut images,
-        json!({"v":2,"t":"image_finish","session_id":welcome["session_id"],"id":upload}),
+        json!({"v":3,"t":"image_finish","session_id":welcome["session_id"],"id":upload}),
     )
     .await;
     let ready = next(&mut images, "image_ready").await;
     assert_ne!(ready["image"]["resource_id"], upload);
     let id = Uuid::new_v4().to_string();
-    let submit = json!({"v":2,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"image","image":ready["image"]}});
+    let submit = json!({"v":3,"t":"submit","session_id":welcome["session_id"],"id":id,"target":welcome["target"],"op":{"kind":"image","image":ready["image"]}});
     send(&mut control, submit.clone()).await;
     loop {
         let status = next(&mut control, "status").await;
         if status["st"] == "injected" {
-            assert_eq!(status["method"], "test");
+            assert_eq!(status["execution"]["method"], "unicode");
             break;
         }
         assert!(status["st"] == "accepted" || status["st"] == "executing");
@@ -653,10 +709,10 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
     connection_closed(&mut images).await;
     // Successful image authentication must not accumulate failed-attempt debt.
     for _ in 0..6 {
-        let mut images = socket_path(&invitation, "/v2/images").await;
+        let mut images = socket_path(&invitation, "/sayin/v3/images").await;
         image_hello(&mut images, &welcome, &paired).await;
         next(&mut images, "image_welcome").await;
-        send(&mut images,json!({"v":2,"t":"image_cancel","session_id":welcome["session_id"],"id":Uuid::new_v4().to_string()})).await;
+        send(&mut images,json!({"v":3,"t":"image_cancel","session_id":welcome["session_id"],"id":Uuid::new_v4().to_string()})).await;
         next(&mut images, "image_canceled").await;
         connection_closed(&mut images).await;
     }
@@ -665,7 +721,7 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
 }
 
 #[tokio::test]
-async fn image_channel_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
+async fn image_rejects_wrong_binding_repeated_chunks_and_old_control_session() {
     for fault in [
         "binding",
         "offset",
@@ -686,13 +742,13 @@ async fn image_channel_rejects_wrong_binding_repeated_chunks_and_old_control_ses
             .await
             .unwrap();
         let mut control = socket(&invitation).await;
-        let hello = json!({"v":2,"t":"hello","name":"Image fixture","device_id":paired["device_id"],"token":paired["token"]});
+        let hello = json!({"v":3,"t":"hello","name":"Image fixture","pair_id":paired["pair_id"],"token":paired["token"]});
         send(&mut control, hello.clone()).await;
         let mut welcome = next(&mut control, "welcome").await;
-        let mut images = socket_path(&invitation, "/v2/images").await;
+        query_ready(&mut control, welcome["session_id"].as_str().unwrap()).await;
+        let mut images = socket_path(&invitation, "/sayin/v3/images").await;
         if fault == "binding" {
-            welcome["image_channel"]["binding"] =
-                json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+            welcome["image"]["binding"] = json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
         }
         image_hello(&mut images, &welcome, &paired).await;
         if fault != "binding" {
@@ -712,7 +768,7 @@ async fn image_channel_rejects_wrong_binding_repeated_chunks_and_old_control_ses
                         .unwrap();
                 }
                 "cancel" => {
-                    send(&mut images,json!({"v":2,"t":"image_cancel","session_id":welcome["session_id"],"id":id})).await;
+                    send(&mut images,json!({"v":3,"t":"image_cancel","session_id":welcome["session_id"],"id":id})).await;
                     next(&mut images, "image_canceled").await;
                 }
                 "pause" => {
@@ -728,7 +784,7 @@ async fn image_channel_rejects_wrong_binding_repeated_chunks_and_old_control_ses
                 }
                 "revoke" => {
                     receiver
-                        .revoke(paired["device_id"].as_str().unwrap().into())
+                        .revoke(paired["pair_id"].as_str().unwrap().into())
                         .await
                         .unwrap();
                 }

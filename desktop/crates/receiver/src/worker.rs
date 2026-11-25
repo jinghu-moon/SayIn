@@ -642,8 +642,27 @@ impl Receiver {
         target: String,
         expected_rev: String,
     ) -> Result<Receipt> {
-        self.mutate(move |owner| owner.ledger.release(&session, &id, &target, &expected_rev))
+        self.release_checked(session, id, target, expected_rev, None)
             .await
+    }
+    pub async fn release_checked(
+        &self,
+        session: Session,
+        id: String,
+        target: String,
+        expected_rev: String,
+        expected_request_rev: Option<String>,
+    ) -> Result<Receipt> {
+        self.mutate(move |owner| {
+            owner.ledger.release_checked(
+                &session,
+                &id,
+                &target,
+                &expected_rev,
+                expected_request_rev.as_deref(),
+            )
+        })
+        .await
     }
     pub async fn revoke(&self, device: String) -> Result<()> {
         self.handle.paused.pause();

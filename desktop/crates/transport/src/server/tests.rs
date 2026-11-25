@@ -17,6 +17,32 @@ impl InputAdapter for NoInput {
     }
 }
 
+#[test]
+fn v3_upgrade_accepts_only_scoped_paths_without_origin() {
+    for path in ["/sayin/v3", "/sayin/v3/images"] {
+        let request = Request::builder().uri(path).body(()).unwrap();
+        assert!(validate_upgrade(&request, Response::new(())).is_ok());
+    }
+    for path in ["/v2", "/sayin/v2", "/sayin/v3?x=1", "/other"] {
+        let request = Request::builder().uri(path).body(()).unwrap();
+        let error = validate_upgrade(&request, Response::new(())).unwrap_err();
+        assert_eq!(
+            error.status(),
+            tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN
+        );
+    }
+    let request = Request::builder()
+        .uri("/sayin/v3")
+        .header("origin", "https://example.invalid")
+        .body(())
+        .unwrap();
+    let error = validate_upgrade(&request, Response::new(())).unwrap_err();
+    assert_eq!(
+        error.status(),
+        tokio_tungstenite::tungstenite::http::StatusCode::FORBIDDEN
+    );
+}
+
 #[tokio::test]
 async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_or_query_error() {
     for query_error in [false, true] {
@@ -69,6 +95,7 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
             image_bindings: Mutex::new(HashMap::new()),
             image_slots: Arc::new(Semaphore::new(2)),
             image_decode: Arc::new(Semaphore::new(1)),
+            control_slots: Arc::new(Semaphore::new(8)),
             foreground: watch::channel(foreground::Sample::default()).0,
         });
         let changed = Arc::new(std::sync::atomic::AtomicBool::new(false));

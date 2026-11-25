@@ -1,7 +1,7 @@
 # SayIn 多设备 v3 TDD 实施计划
 
 更新：2026-11-26。  
-状态：P3 工程门禁已通过，按用户确认暂缓真实 2×2 及依赖该环境的性能验收。执行记录见 §9。  
+状态：P4 工程门禁已通过，按用户确认暂缓真实 2×2 及依赖该环境的性能验收。执行记录见 §9。  
 规范：[86 多设备规范](86-multi-host-multi-device-design.md)；验收：[89 验证计划](89-multi-device-verification.md)；独立增量：[90](90-multi-device-increment-design.md)。
 
 ## 1. 自检结论
@@ -375,7 +375,8 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P2 | T11 | 完成。`held` 独立保留 10 分钟，到期推送 `expired/hold_expired`，暂停和查询不续期。 | 同 T09 |
 | P2 | T12 | 完成。重启把 `executing` 转为 `uncertain`、`accepted` 转为 `expired/restart_confirmation`，保留 `held` 的原期限，主动推送到期回执。 | 同 T09 |
 | P3 | T13–T16 | 完成。输入不确定性按目标窗口或全局范围分类，审查票据绑定请求与控制代次，局部与全局闸门均通过回归测试。 | 本提交 |
-| P4–P9 | T17–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
+| P4 | T17–T22 | 完成。v3 路径、认证、fencing、查询边界、控制错误、出站预算和连接槽回归通过。 | 待本轮门禁提交 |
+| P5–P9 | T23–T36 | 待实施。真实环境验收暂缓，其余任务继续。 | — |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -415,3 +416,11 @@ scripts/verify_android_transport.ps1 -FullSuite
 - 桌面端本地核对只接受当前快照对应的具体票据。重启恢复后即使没有当前窗口目标，也能审查全局不确定结果，确认后创建新的前台作用域。
 - 已通过完整 workspace 测试。`cargo +1.99.1 test --manifest-path desktop/Cargo.toml --workspace --all-targets --locked` 的全部测试目标通过，0 失败，其中桌面 shell 13 项、receiver 单元 51 项、ledger 50 项、worker 15 项、transport 网络 8 项。
 - 已通过 `cargo +1.99.1 clippy --manifest-path desktop/Cargo.toml --workspace --all-targets --locked -- -D warnings`、包级 `cargo +1.99.1 fmt --check`、i18n 检查和桌面依赖检查。真实 2×2、真实局域网、真机落字和性能测量仍未执行。
+
+### P4 门禁与行为对比
+
+- v3 控制路径固定为 `/sayin/v3`，图片路径固定为 `/sayin/v3/images`。旧路径、带查询参数的路径和带 `Origin` 的 Upgrade 均返回 403。
+- `welcome` 使用 `pair_id` 和图片通道描述，包含 `foreground_ttl_ms=5000`，不再发送 `active_device_id`。同一 pair 的新会话会使旧会话收到 `STALE_SESSION`。
+- 首条应用消息必须是空或有界 `query`。查询最多 64 个 id，每个 id 返回 `status` 或 `unknown`，批次以 `queried` 结束。手机控制只接受 `cancel` 和 `release`，`pause` 返回 `UNSUPPORTED`。
+- 接收端新回执从 `not_started/none` 开始持久化执行元数据，执行阶段更新为 `prepared`，完成回执映射到合法 v3 输入方式和阶段。测试适配器的内部方法名不会泄漏到线协议。
+- loopback WSS 网络测试 8 项通过，transport 单元测试 13 项通过。真实 2×2、真实局域网、真机落字和性能测量仍未执行。

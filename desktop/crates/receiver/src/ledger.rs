@@ -287,6 +287,13 @@ pub(crate) fn receipt(row: &Row<'_>) -> rusqlite::Result<Receipt> {
             Some("global") => Some(UncertainScope::Global),
             Some(_) => return Err(rusqlite::Error::InvalidQuery),
         },
+        request_rev: row
+            .get::<_, Option<i64>>("request_rev")?
+            .map(|value| value.to_string()),
+        execution_stage: row.get("execution_stage")?,
+        confirmed: row
+            .get::<_, Option<i64>>("confirmed")?
+            .map(|value| value != 0),
         application: None,
     })
 }
@@ -773,12 +780,12 @@ impl Ledger {
             |row| row.get(0),
         )?;
         let mut statement = self.database.prepare(
-            "SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts ORDER BY accept_order DESC LIMIT 100")?;
+            "SELECT id,accept_order,state,reason,method,uncertain_scope,request_rev,execution_stage,confirmed FROM receipts ORDER BY accept_order DESC LIMIT 100")?;
         let recent = statement
             .query_map([], receipt)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let blocked = self.database.query_row(
-            "SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [], receipt
+            "SELECT id,accept_order,state,reason,method,uncertain_scope,request_rev,execution_stage,confirmed FROM receipts INDEXED BY pending_order WHERE state IN ('accepted','held','executing') ORDER BY accept_order LIMIT 1", [], receipt
         ).optional()?.filter(|r| r.st == State::Held);
         Ok(ReceiverSnapshot {
             control: self.state()?,
@@ -1114,7 +1121,7 @@ impl Ledger {
             State::Accepted
         };
         let reason = control.paused.then_some("paused");
-        tx.execute("INSERT INTO receipts(pair_id,id,payload_mac,payload,original_target,execute_target,bytes,state,reason,hold_expires_at) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8,?9)",
+        tx.execute("INSERT INTO receipts(pair_id,id,payload_mac,payload,original_target,execute_target,bytes,state,reason,hold_expires_at,method,execution_stage,confirmed) VALUES(?1,?2,?3,?4,?5,?5,?6,?7,?8,?9,'none','not_started',0)",
             params![session.device, submit.id, digest, protected, submit.target, bytes, state.key(), reason, hold_expires_at])?;
         let accept_order = tx.last_insert_rowid();
         let order = accept_order.to_string();
@@ -1153,6 +1160,9 @@ impl Ledger {
             reason: reason.map(str::to_owned),
             method: None,
             uncertain_scope: None,
+            request_rev: Some("0".into()),
+            execution_stage: Some("not_started".into()),
+            confirmed: Some(false),
             application: None,
         })
     }
@@ -1180,7 +1190,7 @@ impl Ledger {
     }
 
     fn find(&self, device: &str, id: &str) -> Result<Option<Receipt>> {
-        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method,uncertain_scope FROM receipts WHERE pair_id=?1 AND id=?2", params![device,id], receipt).optional()?;
+        let mut result = self.database.query_row("SELECT id,accept_order,state,reason,method,uncertain_scope,request_rev,execution_stage,confirmed FROM receipts WHERE pair_id=?1 AND id=?2", params![device,id], receipt).optional()?;
         if let Some(receipt) = &mut result {
             // Only the same authenticated device's retained history can supply
             // display metadata. Never look up the current foreground process.
@@ -1283,6 +1293,17 @@ impl Ledger {
         target: &str,
         expected_rev: &str,
     ) -> Result<Receipt> {
+        self.release_checked(session, id, target, expected_rev, None)
+    }
+
+    pub fn release_checked(
+        &mut self,
+        session: &Session,
+        id: &str,
+        target: &str,
+        expected_rev: &str,
+        expected_request_rev: Option<&str>,
+    ) -> Result<Receipt> {
         self.authorize(session)?;
         self.expire_pending(self.now())?;
         let control = self.state()?;
@@ -1309,6 +1330,16 @@ impl Ledger {
         }
         if row.reason.as_deref() == Some("uncertain_target") {
             return Err(Error::Protocol("BLOCKED_REVIEW"));
+        }
+        if let Some(expected_request_rev) = expected_request_rev {
+            let current_request_rev: i64 = self.database.query_row(
+                "SELECT request_rev FROM receipts WHERE pair_id=?1 AND id=?2",
+                params![session.device, id],
+                |row| row.get(0),
+            )?;
+            if expected_request_rev.parse::<i64>().ok() != Some(current_request_rev) {
+                return Err(Error::Protocol("STATE_CONFLICT"));
+            }
         }
         let tx = self.database.transaction()?;
         tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='accepted',reason=NULL,execute_target=?1,hold_expires_at=NULL,executable_at=NULL WHERE pair_id=?2 AND id=?3 AND state='held'", params![target,session.device,id])?;
@@ -1582,8 +1613,13 @@ impl Ledger {
             )?;
             return Ok(false);
         }
+        let (method, stage) = match job.operation() {
+            Operation::Key { .. } => ("key", "prepared"),
+            Operation::Image { .. } => ("clipboard_image_path", "prepared"),
+            Operation::Text { .. } | Operation::AutoText { .. } => ("unicode", "prepared"),
+        };
         let tx = self.database.transaction()?;
-        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac])?;
+        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4,method=?5,execution_stage=?6,confirmed=0 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac,method,stage])?;
         if changed == 1 {
             tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE pair_id=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
         }
@@ -1595,14 +1631,30 @@ impl Ledger {
     }
 
     pub fn finish(&mut self, job: &Execution, outcome: InputOutcome) -> Result<Receipt> {
-        let (state, reason, method) = match outcome {
-            InputOutcome::Injected { method } => (State::Injected, None, Some(method)),
-            InputOutcome::Failed { reason } => (State::Failed, Some(reason), None),
-            InputOutcome::Uncertain { reason } => (State::Uncertain, Some(reason), None),
+        let (state, reason, method, stage, confirmed) = match outcome {
+            InputOutcome::Injected { method } => {
+                let stage = match job.operation() {
+                    Operation::Image { .. } => "paste_submitted",
+                    _ => "input_submitted",
+                };
+                (State::Injected, None, Some(method), stage, false)
+            }
+            InputOutcome::Failed { reason } => {
+                (State::Failed, Some(reason), None, "prepared", false)
+            }
+            InputOutcome::Uncertain { reason } => {
+                let stage = match job.operation() {
+                    Operation::Image { .. } => "paste_submitted",
+                    _ => "input_submitted",
+                };
+                (State::Uncertain, Some(reason), None, stage, false)
+            }
             InputOutcome::PartialUnicode => (
                 State::Uncertain,
                 Some("partial_input_or_focus_changed"),
                 Some("unicode"),
+                "input_submitted",
+                false,
             ),
         };
         let review_hold_expires_at = self.hold_expiry();
@@ -1623,7 +1675,7 @@ impl Ledger {
             } else {
                 None
             };
-            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=?3,uncertain_scope=?4,input_window_mac=CASE WHEN ?4='target' THEN input_window_mac END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?5 AND id=?6 AND state='executing'", params![state.key(),reason,method,uncertainty,job.device,job.id])?;
+            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=COALESCE(?3,method),execution_stage=?4,confirmed=?5,uncertain_scope=?6,input_window_mac=CASE WHEN ?6='target' THEN input_window_mac END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?7 AND id=?8 AND state='executing'", params![state.key(),reason,method,stage,confirmed,uncertainty,job.device,job.id])?;
             if changed != 1 {
                 return Err(Error::Protocol("STATE_CONFLICT"));
             }

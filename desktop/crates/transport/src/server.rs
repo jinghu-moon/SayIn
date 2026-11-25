@@ -34,6 +34,7 @@ use voicelink_pairing::{BootstrapInfo, Exchange, Invitation, MAGIC, decode, enco
 use voicelink_receiver::{
     ledger::{ControlState, Session},
     protocol::{Receipt, Submit, strict_json, validate_uuid},
+    protocol_v3::{Execution, ExecutionMethod, ExecutionStage, Status, StatusFrame, StatusState},
     worker::Receiver,
 };
 use zeroize::Zeroizing;
@@ -95,6 +96,7 @@ struct Shared {
     image_bindings: Mutex<HashMap<String, Arc<image_channel::Binding>>>,
     image_slots: Arc<Semaphore>,
     image_decode: Arc<Semaphore>,
+    control_slots: Arc<Semaphore>,
     foreground: watch::Sender<foreground::Sample>,
 }
 impl Shared {
@@ -208,6 +210,7 @@ impl NetworkService {
             image_bindings: Mutex::new(HashMap::new()),
             image_slots: Arc::new(Semaphore::new(2)),
             image_decode: Arc::new(Semaphore::new(1)),
+            control_slots: Arc::new(Semaphore::new(8)),
             foreground: watch::channel(foreground::Sample::default()).0,
         });
         let (stop, mut stopping) = watch::channel(false);
@@ -237,7 +240,9 @@ impl NetworkService {
                     }
                 };
                 let total=Arc::new(Semaphore::new(16));
-                let unauthenticated=Arc::new(Semaphore::new(8));
+                // Four handshake slots remain available while eight control
+                // connections are active. The total listener budget is 16.
+                let unauthenticated=Arc::new(Semaphore::new(12));
                 let mut connections=JoinSet::new();
                 let monitor=tokio::spawn(monitor_profile(state.clone(),binding,policy_stop.clone(),stopping.clone(),crate::interfaces::available_interfaces));
                 let foreground_monitor = tokio::spawn(foreground::monitor(state.clone(), stopping.clone()));
@@ -526,7 +531,7 @@ fn validate_upgrade(
     response: Response,
 ) -> std::result::Result<Response, tokio_tungstenite::tungstenite::handshake::server::ErrorResponse>
 {
-    if !matches!(request.uri().path(), "/v2" | "/v2/images")
+    if !matches!(request.uri().path(), "/sayin/v3" | "/sayin/v3/images")
         || request.uri().query().is_some()
         || request.headers().contains_key("origin")
     {
@@ -580,7 +585,7 @@ async fn connection(
     #[allow(clippy::result_large_err)]
     let upgrade = |request: &Request, response| {
         image_path.store(
-            request.uri().path() == "/v2/images",
+            request.uri().path() == "/sayin/v3/images",
             std::sync::atomic::Ordering::Relaxed,
         );
         validate_upgrade(request, response)
@@ -606,7 +611,7 @@ async fn connection(
         )
         .await;
     }
-    if first.get("v").and_then(Value::as_u64) != Some(2) {
+    if first.get("v").and_then(Value::as_u64) != Some(3) {
         return Err(Error::Protocol("VERSION_MISMATCH"));
     }
     if first.get("t").and_then(Value::as_str) == Some("pair") {
@@ -619,7 +624,7 @@ async fn connection(
     if first.get("t").and_then(Value::as_str) != Some("hello") {
         return Err(Error::Protocol("AUTH_REQUIRED"));
     }
-    let device = field(&first, "device_id")?.to_owned();
+    let device = field(&first, "pair_id")?.to_owned();
     let token = Zeroizing::new(decode(field(&first, "token")?)?);
     if token.len() != 32 {
         return Err(Error::Protocol("UNAUTHORIZED"));
@@ -631,13 +636,18 @@ async fn connection(
         .await?;
     shared.authenticated(peer.ip());
     drop(unauthenticated);
+    let control_slot = shared
+        .control_slots
+        .clone()
+        .try_acquire_owned()
+        .map_err(|_| Error::Protocol("CONNECTION_LIMIT"))?;
     {
         if let Ok(mut snapshot) = shared.snapshot.lock() {
             snapshot.connections += 1;
         }
     }
     shared.notify();
-    let result = authenticated(&shared, &mut socket, session, &mut stop).await;
+    let result = authenticated(&shared, &mut socket, session, control_slot, &mut stop).await;
     {
         if let Ok(mut snapshot) = shared.snapshot.lock() {
             snapshot.connections = snapshot.connections.saturating_sub(1);
@@ -749,7 +759,7 @@ async fn pair(shared: &Shared, socket: &mut Socket, value: Value) -> Result<()> 
         .provision_device(device.clone(), Zeroizing::new(token.to_vec()), name)
         .await?;
     drop(pairing);
-    send(socket,&json!({"v":2,"t":"paired","host_id":shared.identity.host_id,"device_id":device,"token":encode(&*token)})).await
+    send(socket,&json!({"v":3,"t":"paired","host_id":shared.identity.host_id,"pair_id":device,"token":encode(&*token)})).await
 }
 fn constant_time_equal(a: &[u8], b: &[u8]) -> bool {
     use subtle::ConstantTimeEq;
@@ -793,6 +803,7 @@ async fn authenticated(
     shared: &Shared,
     socket: &mut Socket,
     session: Session,
+    _control_slot: tokio::sync::OwnedSemaphorePermit,
     stop: &mut watch::Receiver<bool>,
 ) -> Result<()> {
     let mut notifications = shared.receiver.subscribe().await?;
@@ -801,12 +812,12 @@ async fn authenticated(
     let mut foreground = shared.foreground.subscribe();
     let mut display = foreground::Display::default();
     let image_binding = image_channel::ControlBinding::new(shared, &session)?;
-    send(socket,&json!({"v":2,"t":"welcome","session_id":session.id(),"host_id":shared.identity.host_id,
-        "device_id":session.device(),"active_device_id":control.active_device_id,"state_rev":control.state_rev,
+    send(socket,&json!({"v":3,"t":"welcome","session_id":session.id(),"host_id":shared.identity.host_id,
+        "pair_id":session.device(),"state_rev":control.state_rev,
         "paused":control.paused,"pause_reason":control.pause_reason,"target":control.target,
-        "image_channel":image_binding.description(),
+        "image":image_binding.description(),
         "capabilities":if shared.receiver.image_store().is_some() {vec!["text","auto_text","key_enter","control","query","image"]} else {vec!["text","auto_text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
-            "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536}})).await?;
+            "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536,"foreground_ttl_ms":5000}})).await?;
     let sample = foreground.borrow_and_update().clone();
     display
         .update(socket, &shared.receiver, &session, &sample, &control, true)
@@ -816,6 +827,7 @@ async fn authenticated(
     let mut control_rate = Rate::new();
     let mut inbound_rate = Rate::new();
     let mut last_inbound = Instant::now();
+    let mut first_application = true;
     let mut watchdog = tokio::time::interval(Duration::from_secs(2));
     loop {
         tokio::select! {
@@ -824,12 +836,20 @@ async fn authenticated(
             incoming=read_json(socket)=>{
                 let value=incoming?;last_inbound=Instant::now();
                 inbound_rate.take()?;
-                shared.receiver.check_session(session.clone()).await?;
+                if let Err(error) = shared.receiver.check_session(session.clone()).await {
+                    let error = Error::Receiver(error);
+                    let _ = send_error(socket, &session, &value, &error).await;
+                    return Err(error);
+                }
                 let sample = foreground.borrow().clone();
-                let result=dispatch(shared,socket,&session,&value,&mut tracked,&mut control_rate, (&display, &sample, &control)).await;
+                let mut dispatch_state = DispatchState {
+                    tracked: &mut tracked,
+                    rate: &mut control_rate,
+                    first_application: &mut first_application,
+                };
+                let result=dispatch(shared,socket,&session,&value,(&display, &sample, &control), &mut dispatch_state).await;
                 if let Err(error)=result {
-                    let code=match error {Error::Protocol(code)=>code,Error::Receiver(voicelink_receiver::Error::Protocol(code))=>code,_=>"SERVICE_UNAVAILABLE"};
-                    send(socket,&json!({"v":2,"t":"err","session_id":session.id(),"code":code,"ref":value.get("id")})).await?;
+                    send_error(socket, &session, &value, &error).await?;
                 }
             },
             _=watchdog.tick()=>{
@@ -863,44 +883,143 @@ async fn authenticated(
     }
 }
 async fn send_state(socket: &mut Socket, session: &Session, control: &ControlState) -> Result<()> {
-    send(socket,&json!({"v":2,"t":"state","session_id":session.id(),"state_rev":control.state_rev,
-        "paused":control.paused,"pause_reason":control.pause_reason,"active_device_id":control.active_device_id,"target":control.target})).await
+    send(
+        socket,
+        &json!({"v":3,"t":"state","session_id":session.id(),"state_rev":control.state_rev,
+        "paused":control.paused,"pause_reason":control.pause_reason,"target":control.target}),
+    )
+    .await
 }
 async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt) -> Result<()> {
-    let mut value = serde_json::to_value(receipt)?;
-    value["v"] = json!(2);
-    value["t"] = json!("status");
-    value["session_id"] = json!(session.id());
-    send(socket, &value).await
+    let session_id = Uuid::parse_str(session.id()).map_err(|_| Error::Protocol("INVALID_ID"))?;
+    let id = Uuid::parse_str(&receipt.id).map_err(|_| Error::Protocol("INVALID_ID"))?;
+    let state = match receipt.st {
+        voicelink_receiver::protocol::State::Accepted => StatusState::Accepted,
+        voicelink_receiver::protocol::State::Held => StatusState::Held,
+        voicelink_receiver::protocol::State::Executing => StatusState::Executing,
+        voicelink_receiver::protocol::State::Injected => StatusState::Injected,
+        voicelink_receiver::protocol::State::Failed => StatusState::Failed,
+        voicelink_receiver::protocol::State::Cancelled => StatusState::Cancelled,
+        voicelink_receiver::protocol::State::Expired => StatusState::Expired,
+        voicelink_receiver::protocol::State::Uncertain => StatusState::Uncertain,
+        voicelink_receiver::protocol::State::UncertainAcknowledged => {
+            StatusState::UncertainAcknowledged
+        }
+    };
+    let execution = receipt.execution_stage.as_ref().map(|stage| Execution {
+        stage: match stage.as_str() {
+            "prepared" => ExecutionStage::Prepared,
+            "input_submitted" => ExecutionStage::InputSubmitted,
+            "file_saved" => ExecutionStage::FileSaved,
+            "paste_submitted" => ExecutionStage::PasteSubmitted,
+            "paste_confirmed" => ExecutionStage::PasteConfirmed,
+            _ => ExecutionStage::NotStarted,
+        },
+        method: match receipt.method.as_deref() {
+            Some("unicode") => ExecutionMethod::Unicode,
+            Some("key") => ExecutionMethod::Key,
+            Some("clipboard_image") => ExecutionMethod::ClipboardImage,
+            Some("clipboard_image_path") => ExecutionMethod::ClipboardImagePath,
+            Some("none") | None => ExecutionMethod::None,
+            // Test and third-party adapters may use an internal method label.
+            // Preserve the v3 contract by exposing the closest text-input
+            // method while keeping the raw adapter label out of the wire.
+            Some(_) => ExecutionMethod::Unicode,
+        },
+        confirmed: receipt.confirmed.unwrap_or(false),
+    });
+    let status = Status {
+        session_id,
+        id,
+        accept_order: (receipt.reason.as_deref() != Some("cancelled_before_accept"))
+            .then(|| receipt.order.parse().ok())
+            .flatten(),
+        request_rev: receipt
+            .request_rev
+            .as_deref()
+            .unwrap_or("0")
+            .parse()
+            .unwrap_or(0),
+        state,
+        execution,
+        reason: receipt.reason.clone(),
+        server_ms: None,
+        application: None,
+        uncertain_scope: receipt.uncertain_scope,
+    };
+    let encoded = StatusFrame::Receipt(status).encode()?;
+    send(socket, &strict_json(&encoded)?).await
 }
+async fn send_unknown(socket: &mut Socket, session: &Session, id: &str) -> Result<()> {
+    let session_id = Uuid::parse_str(session.id()).map_err(|_| Error::Protocol("INVALID_ID"))?;
+    let id = Uuid::parse_str(id).map_err(|_| Error::Protocol("INVALID_ID"))?;
+    let encoded = StatusFrame::Unknown { session_id, id }.encode()?;
+    send(socket, &strict_json(&encoded)?).await
+}
+async fn send_error(
+    socket: &mut Socket,
+    session: &Session,
+    value: &Value,
+    error: &Error,
+) -> Result<()> {
+    let code = match error {
+        Error::Protocol(code) | Error::Receiver(voicelink_receiver::Error::Protocol(code)) => {
+            match *code {
+                "BAD_MESSAGE" | "INVALID_JSON" | "INVALID_SUBMIT" | "INVALID_ID" | "TEXT_LIMIT"
+                | "MESSAGE_LIMIT" => "INVALID_REQUEST",
+                "UNKNOWN_OPERATION" => "UNSUPPORTED",
+                other => other,
+            }
+        }
+        _ => "STORAGE_UNAVAILABLE",
+    };
+    let mut frame = json!({"v":3,"t":"err","code":code,"session_id":session.id()});
+    if let Some(reference) = value.get("ref").or_else(|| value.get("id")) {
+        frame["ref"] = reference.clone();
+    }
+    send(socket, &frame).await
+}
+struct DispatchState<'a> {
+    tracked: &'a mut HashMap<String, Receipt>,
+    rate: &'a mut Rate,
+    first_application: &'a mut bool,
+}
+
 async fn dispatch(
     shared: &Shared,
     socket: &mut Socket,
     session: &Session,
     value: &Value,
-    tracked: &mut HashMap<String, Receipt>,
-    rate: &mut Rate,
     foreground: (&foreground::Display, &foreground::Sample, &ControlState),
+    state: &mut DispatchState<'_>,
 ) -> Result<()> {
-    if value.get("v").and_then(Value::as_u64) != Some(2)
+    if value.get("v").and_then(Value::as_u64) != Some(3)
         || field(value, "session_id")? != session.id()
     {
         return Err(Error::Protocol("STALE_SESSION"));
     }
     let kind = field(value, "t")?;
+    if *state.first_application {
+        *state.first_application = false;
+        if kind != "query" {
+            return Err(Error::Protocol("INVALID_REQUEST"));
+        }
+    }
     if kind == "submit" {
-        let submit = Submit::decode(&serde_json::to_vec(value)?)?;
+        let mut legacy = value.clone();
+        legacy["v"] = json!(2);
+        let submit = Submit::decode(&serde_json::to_vec(&legacy)?)?;
         let receipt = shared.receiver.submit(session.clone(), submit).await?;
         send_receipt(socket, session, &receipt).await?;
         if !receipt.st.is_terminal() {
-            if tracked.len() >= 16 && !tracked.contains_key(&receipt.id) {
+            if state.tracked.len() >= 16 && !state.tracked.contains_key(&receipt.id) {
                 return Err(Error::Protocol("TRACKING_LIMIT"));
             }
-            tracked.insert(receipt.id.clone(), receipt);
+            state.tracked.insert(receipt.id.clone(), receipt);
         }
         return Ok(());
     }
-    rate.take()?;
+    state.rate.take()?;
     if kind == "ping" {
         let nonce = field(value, "nonce")?;
         if nonce.len() > 64 {
@@ -908,88 +1027,84 @@ async fn dispatch(
         }
         return send(
             socket,
-            &json!({"v":2,"t":"pong","session_id":session.id(),"nonce":nonce,"foreground_seq":foreground.0.confirmation(foreground.1,foreground.2,session)}),
+            &json!({"v":3,"t":"pong","session_id":session.id(),"nonce":nonce,"foreground_seq":foreground.0.confirmation(foreground.1,foreground.2,session)}),
         )
         .await;
     }
-    let id = field(value, "id")?;
-    validate_uuid(id)?;
     match kind {
         "query" => {
+            let reference = field(value, "ref")?;
+            validate_uuid(reference)?;
             let refs = value
-                .get("refs")
+                .get("ids")
                 .and_then(Value::as_array)
                 .ok_or(Error::Protocol("BAD_MESSAGE"))?;
-            if refs.len() > 32 {
+            if refs.len() > 64 {
                 return Err(Error::Protocol("BAD_MESSAGE"));
             }
-            for reference in refs {
-                let reference = reference.as_str().ok_or(Error::Protocol("BAD_MESSAGE"))?;
+            for id in refs {
+                let id = id.as_str().ok_or(Error::Protocol("BAD_MESSAGE"))?;
+                validate_uuid(id)?;
                 if let Some(receipt) = shared
                     .receiver
-                    .query(session.clone(), reference.to_owned())
+                    .query(session.clone(), id.to_owned())
                     .await?
                 {
                     send_receipt(socket, session, &receipt).await?;
-                    if !receipt.st.is_terminal() && tracked.len() < 16 {
-                        tracked.insert(receipt.id.clone(), receipt);
+                    if !receipt.st.is_terminal() && state.tracked.len() < 16 {
+                        state.tracked.insert(receipt.id.clone(), receipt);
                     }
                 } else {
-                    send(socket,&json!({"v":2,"t":"status","session_id":session.id(),"id":reference,"st":"unknown"})).await?;
+                    send_unknown(socket, session, id).await?;
                 }
             }
             send(
                 socket,
-                &json!({"v":2,"t":"queried","session_id":session.id(),"ref":id}),
+                &json!({"v":3,"t":"queried","session_id":session.id(),"ref":reference}),
             )
             .await
         }
         "control" => {
+            let reference = field(value, "ref")?;
+            validate_uuid(reference)?;
+            let refs = value
+                .get("refs")
+                .and_then(Value::as_array)
+                .ok_or(Error::Protocol("BAD_MESSAGE"))?;
+            if refs.len() != 1 {
+                return Err(Error::Protocol("ONE_OPERATION_REQUIRED"));
+            }
+            let id = refs[0]
+                .as_str()
+                .ok_or(Error::Protocol("BAD_MESSAGE"))?
+                .to_owned();
+            validate_uuid(&id)?;
             match field(value, "name")? {
-                "pause" => {
-                    shared.receiver.pause().await?;
-                }
-                "resume" => {
-                    shared
-                        .receiver
-                        .resume(field(value, "expected_rev")?.into(), false)
-                        .await?;
-                }
                 "cancel" | "release" => {
-                    let refs = value
-                        .get("refs")
-                        .and_then(Value::as_array)
-                        .ok_or(Error::Protocol("BAD_MESSAGE"))?;
-                    if refs.len() != 1 {
-                        return Err(Error::Protocol("ONE_OPERATION_REQUIRED"));
-                    }
-                    let reference = refs[0]
-                        .as_str()
-                        .ok_or(Error::Protocol("BAD_MESSAGE"))?
-                        .to_owned();
                     let receipt = if field(value, "name")? == "cancel" {
-                        shared.receiver.cancel(session.clone(), reference).await?
+                        shared.receiver.cancel(session.clone(), id).await?
                     } else {
                         shared
                             .receiver
-                            .release(
+                            .release_checked(
                                 session.clone(),
-                                reference,
+                                id,
                                 field(value, "target")?.into(),
                                 field(value, "expected_rev")?.into(),
+                                Some(field(value, "expected_request_rev")?.into()),
                             )
                             .await?
                     };
                     send_receipt(socket, session, &receipt).await?;
                 }
-                _ => return Err(Error::Protocol("UNKNOWN_CONTROL")),
+                _ => return Err(Error::Protocol("UNSUPPORTED")),
             }
             let control = shared.receiver.state().await?;
             send(
                 socket,
-                &json!({"v":2,"t":"controlled","session_id":session.id(),"ref":id,"ok":true,
+                &json!({"v":3,"t":"controlled","session_id":session.id(),"ref":reference,"ok":true,
                 "state_rev":control.state_rev,"paused":control.paused,"target":control.target,
-                "active_device_id":control.active_device_id,"pause_reason":control.pause_reason}),
+                "pause_reason":control.pause_reason}),
             )
             .await
         }

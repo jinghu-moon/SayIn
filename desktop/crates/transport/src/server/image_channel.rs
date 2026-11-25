@@ -40,7 +40,7 @@ impl<'a> ControlBinding<'a> {
         Ok(Self { shared, binding })
     }
     pub fn description(&self) -> Value {
-        self.binding.as_ref().map_or(Value::Null, |binding| json!({"path":"/v2/images","binding":encode(&binding.token),"max_image_bytes":10485760,"max_pixels":16000000,"max_side":8192,"chunk_bytes":49152}))
+        self.binding.as_ref().map_or(Value::Null, |binding| json!({"path":"/sayin/v3/images","binding":encode(&binding.token),"max_image_bytes":10485760,"max_pixels":16000000,"max_side":8192,"chunk_bytes":49152}))
     }
 }
 impl Drop for ControlBinding<'_> {
@@ -88,7 +88,7 @@ pub(super) async fn serve(
     peer: IpAddr,
     unauthenticated: tokio::sync::OwnedSemaphorePermit,
 ) -> Result<()> {
-    if hello.get("v").and_then(Value::as_u64) != Some(2) || field(&hello, "t")? != "image_hello" {
+    if hello.get("v").and_then(Value::as_u64) != Some(3) || field(&hello, "t")? != "image_hello" {
         return Err(Error::Protocol("AUTH_REQUIRED"));
     }
     let binding = shared
@@ -99,7 +99,7 @@ pub(super) async fn serve(
         .cloned()
         .ok_or(Error::Protocol("STALE_SESSION"))?;
     let token = Zeroizing::new(decode(field(&hello, "binding")?)?);
-    if field(&hello, "device_id")? != binding.session.device()
+    if field(&hello, "pair_id")? != binding.session.device()
         || !constant_time_equal(&token, &binding.token)
     {
         return Err(Error::Protocol("UNAUTHORIZED"));
@@ -120,7 +120,7 @@ pub(super) async fn serve(
     let mut initial = scope(shared, &binding).await?;
     shared.authenticated(peer);
     drop(unauthenticated);
-    send(socket,&json!({"v":2,"t":"image_welcome","session_id":binding.session.id(),"host_id":shared.identity.host_id,"device_id":binding.session.device()})).await?;
+    send(socket,&json!({"v":3,"t":"image_welcome","session_id":binding.session.id(),"host_id":shared.identity.host_id,"pair_id":binding.session.device()})).await?;
     let mut ready: Option<ImageReference> = None;
     let result = transfer(shared, socket, &binding, stop, &mut initial, &mut ready).await;
     if let Some(resource) = ready {
@@ -163,12 +163,12 @@ async fn transfer(
                         chunks.take()?;
                         let current=upload.as_mut().ok_or(Error::Protocol("IMAGE_NOT_STARTED"))?;
                         let received=current.push(initial,&frame,Instant::now())?;
-                        send(socket,&json!({"v":2,"t":"image_progress","id":current.id,"received":received})).await?;
+                        send(socket,&json!({"v":3,"t":"image_progress","id":current.id,"received":received})).await?;
                     },
                     Message::Text(text)=>{
                         rate.take()?;
                         let value=strict_json(text.as_bytes())?;
-                        if value.get("v").and_then(Value::as_u64)!=Some(2) || field(&value,"session_id")?!=binding.session.id() {return Err(Error::Protocol("STALE_SESSION"));}
+                        if value.get("v").and_then(Value::as_u64)!=Some(3) || field(&value,"session_id")?!=binding.session.id() {return Err(Error::Protocol("STALE_SESSION"));}
                         let id=field(&value,"id")?;
                         validate_uuid(id)?;
                         match field(&value,"t")? {
@@ -177,7 +177,7 @@ async fn transfer(
                                 if field(&value,"target")? != initial.target || field(&value,"state_rev")? != initial.revision {return Err(Error::Protocol("IMAGE_SCOPE"));}
                                 let metadata:ImageMetadata=serde_json::from_value(value.get("metadata").cloned().ok_or(Error::Protocol("IMAGE_METADATA"))?)?;
                                 upload=Some(Upload::new(id.into(),initial.clone(),metadata,Instant::now())?);
-                                send(socket,&json!({"v":2,"t":"image_begun","id":id})).await?;
+                                send(socket,&json!({"v":3,"t":"image_begun","id":id})).await?;
                             },
                             "image_finish"=>{
                                 let current=upload.take().ok_or(Error::Protocol("IMAGE_NOT_STARTED"))?;
@@ -194,10 +194,10 @@ async fn transfer(
                                 registered?;
                                 let image=resource.image().clone();
                                 *ready=Some(image.clone());
-                                send(socket,&json!({"v":2,"t":"image_ready","id":id,"image":image})).await?;
+                                send(socket,&json!({"v":3,"t":"image_ready","id":id,"image":image})).await?;
                             },
                             "image_cancel"=>{
-                                send(socket,&json!({"v":2,"t":"image_canceled","id":id})).await?;
+                                send(socket,&json!({"v":3,"t":"image_canceled","id":id})).await?;
                                 return Ok(());
                             },
                             _=>return Err(Error::Protocol("UNKNOWN_OPERATION")),
