@@ -5,6 +5,7 @@ import android.util.JsonReader
 import android.util.JsonToken
 import org.json.JSONArray
 import org.json.JSONObject
+import seeyuer.sayin.pairing.NativePairing
 import java.io.StringReader
 import java.net.Inet4Address
 import java.net.InetAddress
@@ -103,26 +104,34 @@ internal open class HostEndpoint(val json: JSONObject) {
     val tlsName: String = json.getString("tls_name")
     val address: String = json.getString("address")
     val port: Int = json.getInt("port")
-    val certificate: X509Certificate
+    val certificateDigest = decode(json.getString("sha256")).also { require(it.size == 32) }
     init {
-        require(json.getInt("v") == 2)
         validId(hostId)
-        require(tlsName == "vl-$hostId.local" && port in 1..65535)
+        require((tlsName == "vl-$hostId.local" || tlsName == "sayin-$hostId.local") && port in 1..65535)
         val ip = numericAddress(address)
-        require(ip is Inet4Address && !ip.isAnyLocalAddress && !ip.isMulticastAddress)
-        val cert = decode(json.getString("cert"))
-        require(cert.size in 1..4096)
-        require(MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(cert), decode(json.getString("sha256"))))
-        certificate = CertificateFactory.getInstance("X.509").generateCertificate(cert.inputStream()) as X509Certificate
+        require(ip is Inet4Address && !ip.isAnyLocalAddress && !ip.isMulticastAddress && address != "255.255.255.255")
+    }
+
+    fun validateCertificate(certificate: X509Certificate) {
+        val encoded = certificate.encoded
+        require(encoded.size in 1..4096)
+        require(MessageDigest.isEqual(MessageDigest.getInstance("SHA-256").digest(encoded), certificateDigest))
         certificate.checkValidity()
-        // Both self-signature and host-specific DNS SAN must be present before
-        // building the dedicated trust store. OkHttp still verifies hostname.
         certificate.verify(certificate.publicKey)
         require(certificate.subjectAlternativeNames?.any { it[0] == 2 && it[1] == tlsName } == true)
     }
 }
 
 internal class PairedHost(json: JSONObject) : HostEndpoint(json) {
+    val certificate: X509Certificate
+    init {
+        require(json.getInt("v") in 2..3)
+        val encoded = decode(json.getString("cert"))
+        require(encoded.size in 1..4096)
+        certificate = CertificateFactory.getInstance("X.509").generateCertificate(encoded.inputStream()) as X509Certificate
+        require(MessageDigest.isEqual(encoded, certificate.encoded))
+        validateCertificate(certificate)
+    }
     val pairId = validId(json.optString("pair_id").ifEmpty { json.getString("device_id") })
     /** Kept as a source-level alias for image/history code while v3 uses pair_id on the wire. */
     val deviceId: String get() = pairId
@@ -146,15 +155,15 @@ internal data class PairedTarget(
 internal fun PairedHost.target(): PairedTarget = PairedTarget(hostId, pairId, address, port)
 
 internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
-    val windowId = validId(json.getString("window_id"))
+    init { require(json.getInt("v") == 3) }
     val secret = json.getString("secret").also { require(decode(it).size == 16) }
 
-    fun paired(response: JSONObject): PairedHost {
+    fun candidate(response: JSONObject, certificate: X509Certificate): PairedHost {
         require(response.getString("host_id") == hostId)
+        validateCertificate(certificate)
         val saved = JSONObject(json.toString()).apply {
-            remove("window_id")
             remove("secret")
-            remove("device_id")
+            put("cert", encode(certificate.encoded))
             put("pair_id", response.getString("pair_id"))
             put("token", response.getString("token"))
         }
@@ -163,8 +172,10 @@ internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
 
     companion object {
         fun fromQr(value: String): PairingInvitation {
-            require(value.startsWith("voicelink://pair/"))
-            return PairingInvitation(strictJson(decode(value.removePrefix("voicelink://pair/")).toString(Charsets.UTF_8)))
+            require(value.length == 114 && value.startsWith("SAYIN3:"))
+            val result = strictJson(NativePairing.parseQr(value))
+            require(result.getBoolean("ok"))
+            return PairingInvitation(result.getJSONObject("invitation"))
         }
     }
 }

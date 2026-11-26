@@ -5,25 +5,46 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ForegroundApplicationHintTest {
-    private fun pngHeader(width: Int = 48): String {
-        val bytes = ByteArray(33)
-        byteArrayOf(0x89.toByte(), 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82).copyInto(bytes)
-        bytes[19] = width.toByte(); bytes[23] = 48
+    @Test fun acceptsBoundedLosslessWebpAndDropsMalformedIconsWithoutLosingName() {
+        val bytes = ByteArray(26)
+        "RIFF".toByteArray().copyInto(bytes)
+        bytes[4] = 18
+        "WEBPVP8L".toByteArray().copyInto(bytes, 8)
+        bytes[16] = 5
+        bytes[20] = 0x2f
+        val dimensions = 47 or (47 shl 14)
+        for (index in 0..3) bytes[21 + index] = (dimensions ushr (index * 8)).toByte()
+        val encoded = java.util.Base64.getEncoder().encodeToString(bytes)
+        assertArrayEquals(bytes, ForegroundApplicationHint.iconBytes(encoded))
+        val current = ForegroundApplicationHint().receive(frame("1").put("icon_webp", encoded))
+        assertEquals("Word", current.name)
+        assertNotNull(current.iconWebp)
+        for (bad in listOf(bytes.copyOf(4097), bytes.copyOf(25), bytes.copyOf().also { it[21] = 48 })) {
+            assertNull(ForegroundApplicationHint.iconBytes(java.util.Base64.getEncoder().encodeToString(bad)))
+        }
+    }
+
+    private fun webpHeader(width: Int = 48): String {
+        val bytes = ByteArray(26)
+        val buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        buffer.putInt(0, 0x46464952).putInt(4, 18).putInt(8, 0x50424557).putInt(12, 0x4c385056).putInt(16, 5)
+        bytes[20] = 0x2f
+        buffer.putInt(21, (width - 1) or (47 shl 14))
         return java.util.Base64.getEncoder().encodeToString(bytes)
     }
     @Test fun boundedIconEnvelopeReplacesAtomicallyAndNeverRevivesAnOldIcon() {
-        val encoded = pngHeader()
-        val current = ForegroundApplicationHint().receive(frame("1").put("icon_png", encoded))
-        assertEquals(encoded, current.iconPng)
-        assertEquals(current, current.receive(frame("1").put("icon_png", JSONObject.NULL)))
-        for (bad in listOf(pngHeader(49), "x".repeat(16388), "https://example/icon.png", "!".repeat(44), encoded.dropLast(1))) {
-            val changed = current.receive(frame("2", "Browser").put("icon_png", bad))
+        val encoded = webpHeader()
+        val current = ForegroundApplicationHint().receive(frame("1").put("icon_webp", encoded))
+        assertEquals(encoded, current.iconWebp)
+        assertEquals(current, current.receive(frame("1").put("icon_webp", JSONObject.NULL)))
+        for (bad in listOf(webpHeader(49), "x".repeat(5468), "https://example/icon.webp", "!".repeat(44), encoded.dropLast(1))) {
+            val changed = current.receive(frame("2", "Browser").put("icon_webp", bad))
             assertEquals("Browser", changed.name)
-            assertNull(changed.iconPng)
+            assertNull(changed.iconWebp)
         }
-        assertNull(current.receive(frame("2")).iconPng)
-        assertNull(current.receive(frame("2", JSONObject.NULL).put("icon_png", encoded)).iconPng)
-        assertNull(current.receive(frame("bad")).iconPng)
+        assertNull(current.receive(frame("2")).iconWebp)
+        assertNull(current.receive(frame("2", JSONObject.NULL).put("icon_webp", encoded)).iconWebp)
+        assertNull(current.receive(frame("bad")).iconWebp)
     }
     private fun frame(sequence: String, name: Any = "Word") = JSONObject().put("seq", sequence).put("name", name)
     @Test fun newerNamesReplaceAndLateFramesCannotOverwriteOrClearCurrentName() {

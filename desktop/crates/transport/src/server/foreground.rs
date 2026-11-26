@@ -118,19 +118,20 @@ impl Display {
             .application
             .as_ref()
             .filter(|app| app.name.chars().count() <= 96);
-        let icon_png = visible
-            .and_then(|app| app.icon_png.as_ref())
-            .map(|png| STANDARD.encode(png));
+        let icon_webp = visible
+            .and_then(|app| app.icon_webp.as_ref())
+            .filter(|bytes| bytes.len() <= voicelink_receiver::application_icon::MAX_ICON_BYTES)
+            .map(|bytes| STANDARD.encode(bytes));
         let mut frame = json!({
-            "v": 2,
+            "v": 3,
             "t": "foreground",
             "session_id": session_id,
             "seq": self.sequence.to_string(),
             "name": visible.map(|app| &app.name),
-            "icon_png": icon_png,
+            "icon_webp": icon_webp,
         });
-        if !frame["icon_png"].is_null() && frame.to_string().len() > MAX_OUTBOUND_BYTES {
-            frame["icon_png"] = Value::Null;
+        if !frame["icon_webp"].is_null() && frame.to_string().len() > MAX_OUTBOUND_BYTES {
+            frame["icon_webp"] = Value::Null;
         }
         Some(frame)
     }
@@ -157,7 +158,7 @@ mod tests {
     fn app(name: &str) -> ApplicationDisplay {
         ApplicationDisplay {
             name: name.into(),
-            icon_png: None,
+            icon_webp: None,
         }
     }
     #[test]
@@ -167,7 +168,7 @@ mod tests {
         let value = display.change(Some(app("Word")), "session", false).unwrap();
         assert_eq!(
             value,
-            json!({"v":2,"t":"foreground","session_id":"session","seq":"2","name":"Word","icon_png":null})
+            json!({"v":3,"t":"foreground","session_id":"session","seq":"2","name":"Word","icon_webp":null})
         );
         for _ in 0..120 {
             assert!(
@@ -198,50 +199,48 @@ mod tests {
     fn same_name_icon_changes_are_atomic_and_missing_icons_clear_the_previous_one() {
         let mut display = Display::default();
         let mut application = app("Terminal");
-        application.icon_png = Some(vec![1, 2, 3]);
+        application.icon_webp = Some(vec![1, 2, 3]);
         let value = display
             .change(Some(application.clone()), "session", true)
             .unwrap();
-        assert_eq!(value["icon_png"], "AQID");
+        assert_eq!(value["icon_webp"], "AQID");
         assert!(
             display
                 .change(Some(application.clone()), "session", false)
                 .is_none()
         );
-        application.icon_png = Some(vec![4, 5, 6]);
+        application.icon_webp = Some(vec![4, 5, 6]);
         assert_eq!(
-            display.change(Some(application), "session", false).unwrap()["icon_png"],
+            display.change(Some(application), "session", false).unwrap()["icon_webp"],
             "BAUG"
         );
         assert!(
             display
                 .change(Some(app("Terminal")), "session", false)
-                .unwrap()["icon_png"]
+                .unwrap()["icon_webp"]
                 .is_null()
         );
         let cleared = display.change(None, "session", false).unwrap();
-        assert!(cleared["name"].is_null() && cleared["icon_png"].is_null());
+        assert!(cleared["name"].is_null() && cleared["icon_webp"].is_null());
     }
     #[test]
     fn foreground_keeps_the_icon_at_8192_bytes_and_omits_it_above_the_limit() {
-        const SESSION: &str = "a9c265c2-7819-4866-a3d8-31c090f6fc25";
         for length in [8_192, 8_193, 8_885] {
-            let mut application = app("Baseline Editor");
+            let mut application = app("Budget Editor");
+            application.icon_webp = Some(vec![42; 4096]);
             let mut unbounded = json!({
-                "v": 2, "t": "foreground", "session_id": SESSION, "seq": "1",
-                "name": application.name, "icon_png": ""
+                "v": 3, "t": "foreground", "session_id": "", "seq": "1",
+                "name": application.name, "icon_webp": STANDARD.encode(application.icon_webp.as_ref().unwrap())
             });
             let base = serde_json::to_vec(&unbounded).unwrap().len();
-            let name_padding = (length - base) % 4;
-            application.name.push_str(&"x".repeat(name_padding));
-            let icon = vec![42; (length - base - name_padding) / 4 * 3];
-            unbounded["name"] = json!(&application.name);
-            unbounded["icon_png"] = json!(STANDARD.encode(&icon));
+            // Pad an internal test session to exercise the serializer boundary
+            // while keeping the production icon and application name budgets.
+            let session = "s".repeat(length - base);
+            unbounded["session_id"] = json!(&session);
             assert_eq!(serde_json::to_vec(&unbounded).unwrap().len(), length);
-            application.icon_png = Some(icon);
             let name = application.name.clone();
             let frame = Display::default()
-                .change(Some(application), SESSION, true)
+                .change(Some(application), &session, true)
                 .unwrap();
             let actual = serde_json::to_vec(&frame).unwrap().len();
             assert_eq!(frame["name"], name);
@@ -250,9 +249,19 @@ mod tests {
                 assert_eq!(frame, unbounded);
             } else {
                 assert!(actual <= 8_192, "foreground serialized to {actual} bytes");
-                assert!(frame["icon_png"].is_null());
+                assert!(frame["icon_webp"].is_null());
             }
         }
+    }
+    #[test]
+    fn oversized_icons_are_omitted_even_when_the_frame_has_room() {
+        let mut application = app("Editor");
+        application.icon_webp = Some(vec![42; 4097]);
+        let frame = Display::default()
+            .change(Some(application), "session", true)
+            .unwrap();
+        assert_eq!(frame["name"], "Editor");
+        assert!(frame["icon_webp"].is_null());
     }
     #[test]
     fn foreground_discards_an_overlong_application_without_losing_the_observation() {
@@ -260,7 +269,7 @@ mod tests {
             .change(Some(app(&"😀".repeat(97))), "session", true)
             .unwrap();
         assert_eq!(frame["seq"], "1");
-        assert!(frame["name"].is_null() && frame["icon_png"].is_null());
+        assert!(frame["name"].is_null() && frame["icon_webp"].is_null());
     }
     #[test]
     fn observation_expires_even_if_native_query_stalls() {

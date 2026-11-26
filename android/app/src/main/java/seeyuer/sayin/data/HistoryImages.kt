@@ -43,8 +43,8 @@ internal object HistoryImages {
         } finally { bytes.fill(0) }
     }
 
-    fun uri(context: Context, id: String): Uri = Uri.Builder().scheme("content").authority("${context.packageName}.history-images")
-        .appendPath(validId(id)).build()
+    fun uri(context: Context, key: OutboxKey): Uri = Uri.Builder().scheme("content").authority("${context.packageName}.history-images")
+        .appendPath(validId(key.hostId)).appendPath(validId(key.pairId)).appendPath(validId(key.id)).build()
 }
 
 /** Clipboard readers receive a read-only URI grant. Decryption streams through
@@ -56,15 +56,17 @@ class HistoryImageProvider : ContentProvider() {
     private val app get() = requireNotNull(context).applicationContext
     private val database by lazy {
         Room.databaseBuilder(app, OutboxDatabase::class.java, "outbox.db")
-            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
+            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS,
+                OutboxDatabase.SCOPE_REQUEST_KEYS).build()
     }
     override fun onCreate() = true
-    private fun id(uri: Uri): String {
-        require(uri.scheme == "content" && uri.authority == "${app.packageName}.history-images" && uri.query == null && uri.fragment == null && uri.pathSegments.size == 1)
-        return validId(uri.pathSegments.single())
+    private fun key(uri: Uri): OutboxKey {
+        require(uri.scheme == "content" && uri.authority == "${app.packageName}.history-images" && uri.query == null && uri.fragment == null && uri.pathSegments.size == 3)
+        val (host, pair, id) = uri.pathSegments
+        return OutboxKey(validId(host), validId(pair), validId(id))
     }
     private fun item(uri: Uri): OutboxItem = runBlocking(Dispatchers.IO) {
-        database.outbox().visible(id(uri))?.takeIf { it.kind == "image" } ?: throw FileNotFoundException()
+        database.outbox().visible(key(uri))?.takeIf { it.kind == "image" } ?: throw FileNotFoundException()
     }
     override fun getType(uri: Uri): String {
         val row = item(uri)
@@ -74,7 +76,7 @@ class HistoryImageProvider : ContentProvider() {
     }
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor {
         if (mode != "r") throw FileNotFoundException("Read only")
-        try { id(uri) } catch (_: Exception) { throw FileNotFoundException() }
+        try { key(uri) } catch (_: Exception) { throw FileNotFoundException() }
         if (!slots.tryAcquire()) throw FileNotFoundException("Busy")
         val pipe = try { ParcelFileDescriptor.createReliablePipe() } catch (failure: Exception) { slots.release(); throw failure }
         // A recipient that never reads cannot occupy both workers indefinitely.

@@ -49,7 +49,7 @@ fn receipt_application_is_an_identity_bound_execution_snapshot_not_live_metadata
     );
     target.display = Some(ApplicationDisplay {
         name: "Original editor".into(),
-        icon_png: None,
+        icon_webp: None,
     });
     let job = ledger.prepare_next().unwrap().unwrap();
     assert!(ledger.mark_executing_at(&job, Some(target)).unwrap());

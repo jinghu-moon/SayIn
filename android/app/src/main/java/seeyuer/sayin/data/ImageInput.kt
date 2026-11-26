@@ -212,13 +212,13 @@ internal class ImageInput(
             { active.get() && state.value.receptionScope == event.reception })
         val current = ImageRun(item, event.reception, transfer, active)
         run = current
-        state.update { it.copy(imageBusy = true, imageSubmitted = false, imageProgress = 0, imageIssue = null, imageRequest = item.id) }
+        state.update { it.copy(imageBusy = true, imageSubmitted = false, imageProgress = 0, imageIssue = null, imageRequest = item.key) }
         current.job = scope.launch {
             try {
                 val bytes = try { files.read(saved.hostId, saved.deviceId, draft.image) }
                     catch (error: Exception) { emit(ImageEvent.StorageFailed); throw error }
                 val image = try { transfer.upload(draft.image.metadata, bytes) { received ->
-                    state.update { if (it.imageRequest == item.id && it.imageBusy) it.copy(imageProgress = received) else it }
+                    state.update { if (it.imageRequest == item.key && it.imageBusy) it.copy(imageProgress = received) else it }
                 } } finally { bytes.fill(0) }
                 if (!emit(ImageEvent.Ready(current, image))) current.stop()
             } catch (cancel: CancellationException) { active.set(false); current.stop(); throw cancel }
@@ -246,9 +246,9 @@ internal class ImageInput(
         if (run === current) { run = null; state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure) } }
     }
     suspend fun status(item: OutboxItem, status: String, terminal: Boolean) {
-        if (item.id == state.value.imageRequest && item.kind == "image") state.update { it.copy(imageIssue = null) }
+        if (item.key == state.value.imageRequest && item.kind == "image") state.update { it.copy(imageIssue = null) }
         val current = run
-        if (current != null && item.id == current.item.id && item.hostId == current.item.hostId && item.deviceId == current.item.deviceId) {
+        if (current != null && item.key == current.item.key) {
             // The immutable reference has now been consumed by a durable receipt.
             current.stop(); run = null
             state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = null) }
@@ -259,6 +259,7 @@ internal class ImageInput(
     /** Removes the single-use input draft once its request can never be uploaded again. */
     private suspend fun dropFinishedDraft(item: OutboxItem) {
         val saved = host() ?: return
+        if (item.hostId != saved.hostId || item.deviceId != saved.pairId) return
         val draft = dao.imageDraft(saved.hostId, saved.deviceId) ?: return
         if (item.imageResource != draft.resourceId) return
         dao.deleteImageDraft(saved.hostId, saved.deviceId)
@@ -266,7 +267,7 @@ internal class ImageInput(
         state.update {
             it.copy(
                 imageDraft = null, imagePreparing = false,
-                imageRequest = if (it.imageRequest == item.id) null else it.imageRequest,
+                imageRequest = if (it.imageRequest == item.key) null else it.imageRequest,
             )
         }
     }

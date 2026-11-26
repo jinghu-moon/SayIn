@@ -4,8 +4,13 @@ mod manual_clock;
 use futures_util::{SinkExt, StreamExt};
 use manual_clock::ManualClock;
 use rustls::{
-    ClientConfig, RootCertStore,
-    pki_types::{CertificateDer, ServerName},
+    ClientConfig, DigitallySignedStruct, Error as TlsError, RootCertStore, SignatureScheme,
+    client::{
+        WebPkiServerVerifier,
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    },
+    crypto::{CryptoProvider, verify_tls13_signature},
+    pki_types::{CertificateDer, ServerName, UnixTime},
 };
 use serde_json::{Value, json};
 use std::{
@@ -21,7 +26,7 @@ use tokio::{net::TcpStream, time::timeout};
 use tokio_rustls::{TlsConnector, client::TlsStream};
 use tokio_tungstenite::{WebSocketStream, client_async, tungstenite::Message};
 use uuid::Uuid;
-use voicelink_pairing::{Invitation, decode};
+use voicelink_pairing::Invitation;
 use voicelink_receiver::{
     gate::InputGate,
     ledger::{Execution, InputOutcome},
@@ -165,27 +170,78 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
 async fn socket(invitation: &Invitation) -> Socket {
     socket_path(invitation, "/sayin/v3").await
 }
-async fn socket_path(invitation: &Invitation, path: &str) -> Socket {
-    let mut roots = RootCertStore::empty();
-    roots
-        .add(CertificateDer::from(decode(&invitation.cert).unwrap()))
-        .unwrap();
-    let config =
-        ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_protocol_versions(&[&rustls::version::TLS13])
-            .unwrap()
-            .with_root_certificates(roots)
-            .with_no_client_auth();
-    let tcp = TcpStream::connect((invitation.address, invitation.port))
-        .await
-        .unwrap();
-    let tls = TlsConnector::from(Arc::new(config))
+#[derive(Debug)]
+struct DigestVerifier {
+    digest: String,
+    crypto: Arc<CryptoProvider>,
+}
+impl ServerCertVerifier for DigestVerifier {
+    fn verify_server_cert(
+        &self,
+        leaf: &CertificateDer<'_>,
+        chain: &[CertificateDer<'_>],
+        name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, TlsError> {
+        if !chain.is_empty() || voicelink_pairing::fingerprint(leaf.as_ref()) != self.digest {
+            return Err(TlsError::General("Unexpected leaf certificate".into()));
+        }
+        let mut roots = RootCertStore::empty();
+        roots.add(leaf.clone())?;
+        WebPkiServerVerifier::builder_with_provider(Arc::new(roots), self.crypto.clone())
+            .build()
+            .map_err(|error| TlsError::General(error.to_string()))?
+            .verify_server_cert(leaf, chain, name, ocsp, now)
+    }
+    fn verify_tls12_signature(
+        &self,
+        _: &[u8],
+        _: &CertificateDer<'_>,
+        _: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        Err(TlsError::General("TLS 1.3 required".into()))
+    }
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        leaf: &CertificateDer<'_>,
+        signature: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, TlsError> {
+        verify_tls13_signature(
+            message,
+            leaf,
+            signature,
+            &self.crypto.signature_verification_algorithms,
+        )
+    }
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.crypto
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+async fn pinned_tls(invitation: &Invitation) -> std::io::Result<TlsStream<TcpStream>> {
+    let crypto = Arc::new(rustls::crypto::ring::default_provider());
+    let config = ClientConfig::builder_with_provider(crypto.clone())
+        .with_protocol_versions(&[&rustls::version::TLS13])
+        .unwrap()
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(DigestVerifier {
+            digest: invitation.sha256.clone(),
+            crypto,
+        }))
+        .with_no_client_auth();
+    let tcp = TcpStream::connect((invitation.address, invitation.port)).await?;
+    TlsConnector::from(Arc::new(config))
         .connect(
             ServerName::try_from(invitation.tls_name.clone()).unwrap(),
             tcp,
         )
         .await
-        .unwrap();
+}
+async fn socket_path(invitation: &Invitation, path: &str) -> Socket {
+    let tls = pinned_tls(invitation).await.unwrap();
     assert_eq!(
         tls.get_ref().1.protocol_version(),
         Some(rustls::ProtocolVersion::TLSv1_3)
@@ -212,6 +268,10 @@ async fn next(socket: &mut Socket, kind: &str) -> Value {
                 if value["t"] == kind {
                     return value;
                 }
+                assert_ne!(
+                    value["t"], "err",
+                    "received an error while waiting for {kind}"
+                );
             }
         }
     })
@@ -242,6 +302,9 @@ async fn query_ready(socket: &mut Socket, session: &str) {
 }
 async fn invitation(service: &NetworkService) -> Invitation {
     service.open_pairing().await.unwrap();
+    current_invitation(service).await
+}
+async fn current_invitation(service: &NetworkService) -> Invitation {
     let snapshot = service.snapshot().unwrap();
     let code = snapshot.window.unwrap().code.to_string();
     tokio::task::spawn_blocking(move || {
@@ -252,8 +315,28 @@ async fn invitation(service: &NetworkService) -> Invitation {
     .unwrap()
 }
 async fn pair(service: &NetworkService, invitation: &Invitation) -> Value {
+    pair_with_request(
+        service,
+        invitation,
+        json!({"v":3,"t":"pair","name":"Test Android","secret":invitation.secret}),
+    )
+    .await
+}
+
+async fn pair_with_request(
+    service: &NetworkService,
+    invitation: &Invitation,
+    request: Value,
+) -> Value {
     let mut socket = socket(invitation).await;
-    send(&mut socket,json!({"v":3,"t":"pair","name":"Test Android","window_id":invitation.window_id,"secret":invitation.secret})).await;
+    send(&mut socket, request).await;
+    let candidate = next(&mut socket, "pair_candidate").await;
+    assert!(service.snapshot().unwrap().approval.is_none());
+    send(
+        &mut socket,
+        json!({"v":3,"t":"pair_saved","pair_id":candidate["pair_id"]}),
+    )
+    .await;
     let approval = timeout(Duration::from_secs(5), async {
         loop {
             if let Some(approval) = service.snapshot().unwrap().approval {
@@ -265,8 +348,180 @@ async fn pair(service: &NetworkService, invitation: &Invitation) -> Value {
     .await
     .unwrap();
     assert_eq!(approval.name, "Test Android");
+    assert_eq!(approval.source.to_string(), "127.0.0.1");
     service.decide(&approval.id, true).await.unwrap();
-    next(&mut socket, "paired").await
+    let paired = next(&mut socket, "paired").await;
+    assert_eq!(paired["pair_id"], candidate["pair_id"]);
+    assert_eq!(paired["host_id"], candidate["host_id"]);
+    assert!(paired.get("token").is_none());
+    candidate
+}
+
+#[tokio::test]
+async fn replacement_requires_selected_old_pair_and_its_token() {
+    let directory = Directory::new();
+    let receiver = Receiver::start(
+        open_ledger(&directory.0).unwrap(),
+        Adapter(Arc::new(AtomicUsize::new(0))),
+    )
+    .unwrap();
+    let service = NetworkService::start_loopback(
+        receiver.clone(),
+        HostIdentity::open(&directory.0, 0).unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let invite = invitation(&service).await;
+    let original = pair(&service, &invite).await;
+    let old_id = original["pair_id"].as_str().unwrap();
+    let mut previous = socket(&invite).await;
+    let old_hello =
+        json!({"v":3,"t":"hello","pair_id":old_id,"token":original["token"],"name":"Test Android"});
+    send(&mut previous, old_hello.clone()).await;
+    let old_session = next(&mut previous, "welcome").await["session_id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    query_ready(&mut previous, &old_session).await;
+    service
+        .open_pairing_replacing(old_id.to_owned())
+        .await
+        .unwrap();
+    let invite = current_invitation(&service).await;
+    let actual = json!({"v":3,"t":"pair","name":"Test Android","secret":invite.secret,
+        "replace_pair_id":old_id,"replace_token":original["token"]});
+    let mut bad = socket(&invite).await;
+    let mut invalid = actual.clone();
+    invalid["replace_token"] = json!(voicelink_pairing::encode(&[0; 32]));
+    send(&mut bad, invalid).await;
+    assert_eq!(next(&mut bad, "err").await["code"], "UNAUTHORIZED");
+    assert!(service.snapshot().unwrap().approval.is_none());
+    query_ready(&mut previous, &old_session).await;
+
+    let replacement = pair_with_request(&service, &invite, actual).await;
+    assert_eq!(replacement["host_id"], original["host_id"]);
+    assert_ne!(replacement["pair_id"], original["pair_id"]);
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 1);
+    let mut revoked = socket(&invite).await;
+    send(&mut revoked, old_hello).await;
+    assert_eq!(next(&mut revoked, "err").await["code"], "UNAUTHORIZED");
+    let mut restored = socket(&invite).await;
+    send(&mut restored, json!({"v":3,"t":"hello","pair_id":replacement["pair_id"],"token":replacement["token"],"name":"Test Android"})).await;
+    assert_eq!(
+        next(&mut restored, "welcome").await["pair_id"],
+        replacement["pair_id"]
+    );
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn candidate_cannot_authenticate_or_be_approved_from_another_socket() {
+    let directory = Directory::new();
+    let receiver = Receiver::start(
+        open_ledger(&directory.0).unwrap(),
+        Adapter(Arc::new(AtomicUsize::new(0))),
+    )
+    .unwrap();
+    let service = NetworkService::start_loopback(
+        receiver.clone(),
+        HostIdentity::open(&directory.0, 0).unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let invite = invitation(&service).await;
+    let request = json!({"v":3,"t":"pair","name":"Test Android","secret":invite.secret});
+    let mut original = socket(&invite).await;
+    send(&mut original, request.clone()).await;
+    let candidate = next(&mut original, "pair_candidate").await;
+    assert!(service.snapshot().unwrap().approval.is_none());
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 0);
+    assert!(
+        service
+            .decide(candidate["pair_id"].as_str().unwrap(), true)
+            .await
+            .is_err()
+    );
+
+    let mut other = socket(&invite).await;
+    send(
+        &mut other,
+        json!({"v":3,"t":"pair_saved","pair_id":candidate["pair_id"]}),
+    )
+    .await;
+    assert_eq!(next(&mut other, "err").await["code"], "UNSUPPORTED");
+    let mut auth = socket(&invite).await;
+    send(&mut auth, json!({"v":3,"t":"hello","name":"Test Android","pair_id":candidate["pair_id"],"token":candidate["token"]})).await;
+    assert_eq!(next(&mut auth, "err").await["code"], "UNAUTHORIZED");
+    assert!(service.snapshot().unwrap().approval.is_none());
+
+    send(
+        &mut original,
+        json!({"v":3,"t":"pair_saved","pair_id":Uuid::new_v4().to_string()}),
+    )
+    .await;
+    assert_eq!(next(&mut original, "err").await["code"], "INVALID_REQUEST");
+    drop(original);
+    assert!(service.snapshot().unwrap().approval.is_none());
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 0);
+
+    let fresh = pair(&service, &invite).await;
+    assert_ne!(fresh["pair_id"], candidate["pair_id"]);
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 1);
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn candidate_reserves_invitation_and_close_clears_it_after_confirmation() {
+    let directory = Directory::new();
+    let receiver = Receiver::start(
+        open_ledger(&directory.0).unwrap(),
+        Adapter(Arc::new(AtomicUsize::new(0))),
+    )
+    .unwrap();
+    let service = NetworkService::start_loopback(
+        receiver.clone(),
+        HostIdentity::open(&directory.0, 0).unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let mut updates = service.subscribe().unwrap();
+    let invite = invitation(&service).await;
+    let request = json!({"v":3,"t":"pair","name":"Test Android","secret":invite.secret});
+    let mut original = socket(&invite).await;
+    send(&mut original, request.clone()).await;
+    let candidate = next(&mut original, "pair_candidate").await;
+    let mut competing = socket(&invite).await;
+    send(&mut competing, request).await;
+    assert_eq!(next(&mut competing, "err").await["code"], "PAIRING_BUSY");
+    send(
+        &mut original,
+        json!({"v":3,"t":"pair_saved","pair_id":candidate["pair_id"]}),
+    )
+    .await;
+    timeout(Duration::from_secs(5), async {
+        while service.snapshot().unwrap().approval.is_none() {
+            updates.next().await.unwrap();
+        }
+        original.close(None).await.unwrap();
+        while service.snapshot().unwrap().approval.is_some() {
+            updates.next().await.unwrap();
+        }
+    })
+    .await
+    .unwrap();
+    assert!(
+        service
+            .decide(candidate["pair_id"].as_str().unwrap(), true)
+            .await
+            .is_err()
+    );
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 0);
+    pair(&service, &invite).await;
+    assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 1);
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
 }
 
 #[tokio::test]
@@ -324,6 +579,11 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
         NetworkService::start_loopback(receiver.clone(), identity, "127.0.0.1:0".parse().unwrap())
             .unwrap();
     let invitation = invitation(&service).await;
+    assert_eq!(service.snapshot().unwrap().window.unwrap().qr_modules(), 45);
+    assert!(invitation.tls_name.starts_with("sayin-"));
+    let mut wrong_certificate = invitation.clone();
+    wrong_certificate.sha256 = voicelink_pairing::fingerprint(b"unrelated");
+    assert!(pinned_tls(&wrong_certificate).await.is_err());
     let invitation = Invitation::from_qr(&invitation.qr().unwrap()).unwrap();
     let paired = pair(&service, &invitation).await;
     assert!(service.snapshot().unwrap().window.is_none());
@@ -467,7 +727,11 @@ async fn wrong_code_never_delivers_identity_and_closed_window_rejects_pending_gr
     let invitation = invitation(&service).await;
     service.close_pairing().await;
     let mut socket = socket(&invitation).await;
-    send(&mut socket,json!({"v":3,"t":"pair","name":"Rejected","window_id":invitation.window_id,"secret":invitation.secret})).await;
+    send(
+        &mut socket,
+        json!({"v":3,"t":"pair","name":"Rejected","secret":invitation.secret}),
+    )
+    .await;
     assert!(timeout(Duration::from_secs(2), socket.next()).await.is_ok());
     assert_eq!(receiver.snapshot().await.unwrap().paired_devices, 0);
     service.shutdown().await.unwrap();
@@ -500,12 +764,7 @@ async fn explicit_rejection_and_revocation_prevent_authenticated_input() {
         json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
     )
     .await;
-    assert!(matches!(
-        timeout(Duration::from_secs(2), socket.next())
-            .await
-            .unwrap(),
-        None | Some(Err(_))
-    ));
+    assert_eq!(next(&mut socket, "err").await["code"], "UNAUTHORIZED");
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
 }
@@ -579,12 +838,7 @@ async fn same_identity_moves_ipv4_and_port_then_queries_without_resuming_or_repl
         .unwrap();
     let mut revoked = socket(&endpoint).await;
     send(&mut revoked, hello).await;
-    assert!(matches!(
-        timeout(Duration::from_secs(2), revoked.next())
-            .await
-            .unwrap(),
-        None | Some(Err(_))
-    ));
+    assert_eq!(next(&mut revoked, "err").await["code"], "UNAUTHORIZED");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     moved.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();

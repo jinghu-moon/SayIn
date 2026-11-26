@@ -40,6 +40,7 @@ internal fun ConnectionActions(
     onUpdateAddress: (String, String) -> Unit,
     onForget: () -> Unit,
     onSelectHost: (String) -> Unit = {},
+    onReplace: () -> Unit = {},
 ) {
     var form by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
@@ -63,7 +64,8 @@ internal fun ConnectionActions(
     }
     if (!state.storageHealthy || state.connection == Connection.LOADING || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (!state.busy) {
+        if (state.replacingPair && !pairing) Caption(stringResource(R.string.connection_replace_help))
+        if (!state.busy && !state.pairingRecoveryPending) {
             if (!form) {
                 Action(R.string.scan_qr, primary = !state.paired, onClick = onScan)
                 ConnectionTextAction(R.string.use_pair_code) { form = true }
@@ -82,8 +84,8 @@ internal fun ConnectionActions(
                 ConnectionTextAction(R.string.connection_back) { form = false; code = TextFieldValue() }
             }
         }
-        if (pairing || !state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
-        if (state.paired && !pairing && !form) {
+        if (pairing || state.replacingPair || !state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
+        if (state.paired && !pairing && !form && !state.replacingPair) {
             if (state.pairedTargets.map { it.hostId }.distinct().size > 1) {
                 PairedHostSelector(state.pairedTargets, state.selectedHostId, onSelectHost)
             }
@@ -103,6 +105,9 @@ internal fun ConnectionActions(
                     }
                     ConnectionTextAction(R.string.connection_back) { updating = false }
                 }
+            }
+            if (!state.busy && !state.pairingRecoveryPending && !state.discovering) {
+                Action(R.string.connection_replace_pairing, onClick = onReplace)
             }
             UnpairButton { confirmUnpair = true }
         }

@@ -137,7 +137,8 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
                     onCancel = repository::cancelPairing,
                     onUpdateAddress = { address, port -> withNetwork { repository.updateAddress(address, port) } },
                      onForget = repository::forget,
-                     onSelectHost = { hostId -> withNetwork { repository.selectHost(hostId) } })
+                     onSelectHost = { hostId -> withNetwork { repository.selectHost(hostId) } },
+                     onReplace = { withNetwork(repository::prepareReplacement) })
                 state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION, ClientIssue.LOCAL_NETWORK_PERMISSION) }
                     ?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
                 if (permissionDenied || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
@@ -188,6 +189,7 @@ internal fun connectionText(value: Connection): Int = when (value) {
 }
 internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.INVALID_PAIRING -> R.string.error_pairing
+    ClientIssue.PAIRING_BUSY -> R.string.v3_error_pairing_busy
     ClientIssue.PAIR_ALREADY_EXISTS -> R.string.v3_error_pair_already_exists
     ClientIssue.PAIR_REPLACE_BLOCKED -> R.string.v3_error_pair_replace_blocked
     ClientIssue.CONNECTION -> R.string.error_connection
@@ -196,6 +198,7 @@ internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.QUOTA -> R.string.error_quota
     ClientIssue.NOT_READY -> R.string.error_not_ready
     ClientIssue.PROTOCOL -> R.string.error_protocol
+    ClientIssue.VERSION_MISMATCH -> R.string.v3_error_version_mismatch
     ClientIssue.LOCAL_NETWORK_PERMISSION -> R.string.network_permission_denied
     ClientIssue.DISCOVERY -> R.string.error_discovery
     ClientIssue.CANDIDATE_CONNECTION -> R.string.error_candidate_connection

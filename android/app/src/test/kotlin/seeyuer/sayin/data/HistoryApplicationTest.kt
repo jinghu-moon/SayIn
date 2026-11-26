@@ -8,9 +8,9 @@ class HistoryApplicationTest {
     @Test fun boundedNamesAndInvalidIconsDoNotAffectReceiptState() {
         for (name in listOf("", " ", "x".repeat(97), "Editor\nspoof"))
             assertNull(HistoryApplication.parse(JSONObject().put("name", name)))
-        val value = HistoryApplication.parse(JSONObject().put("name", "Editor").put("icon_png", "https://untrusted/icon"))!!
+        val value = HistoryApplication.parse(JSONObject().put("name", "Editor").put("icon_webp", "https://untrusted/icon"))!!
         assertEquals("Editor", value.name)
-        assertNull(value.iconPng)
+        assertNull(value.iconWebp)
         assertEquals("😀".repeat(96), HistoryApplication.parse(JSONObject().put("name", "😀".repeat(96)))?.name)
     }
     @Test fun protectedDisplayIsBoundToOriginalRequestHostAndDevice() {
@@ -22,5 +22,10 @@ class HistoryApplicationTest {
             assertThrows(IllegalArgumentException::class.java) { HistoryApplication.restore(bytes, wrong) }
         }
         assertFalse(bytes.toString(Charsets.UTF_8).contains("scope"))
+    }
+    @Test fun legacyPngHistoryRetainsItsNameWhileDroppingTheOldIcon() {
+        val value = HistoryApplication.parse(JSONObject().put("name", "Original editor").put("icon_png", "legacy-icon"))!!
+        assertEquals("Original editor", value.name)
+        assertNull(value.iconWebp)
     }
 }

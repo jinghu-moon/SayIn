@@ -18,7 +18,7 @@ class HistoryImagesInstrumentedTest {
         val context = instrumentation.targetContext
         check(context.packageName == "seeyuer.sayin.imagetest")
         val database = Room.databaseBuilder(context, OutboxDatabase::class.java, "outbox.db")
-            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
+            .addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS, OutboxDatabase.SCOPE_REQUEST_KEYS).build()
         val store = ProtectedStore(context)
         val files = ImageFiles(File(context.noBackupFilesDir, "images/outbox"), store)
         val bitmap = Bitmap.createBitmap(800, 1200, Bitmap.Config.ARGB_8888).apply { eraseColor(0x882277aa.toInt()) }
@@ -37,7 +37,7 @@ class HistoryImagesInstrumentedTest {
             val preview = HistoryImages.read(context, store, item, 256)
             assertTrue(preview.width <= 256 && preview.height <= 256)
             assertTrue(preview.hasAlpha()); preview.recycle()
-            val uri = HistoryImages.uri(context, id)
+            val uri = HistoryImages.uri(context, item.key)
             assertEquals("image/png", context.contentResolver.getType(uri))
             assertArrayEquals(bytes, context.contentResolver.openInputStream(uri)!!.use { it.readBytes() })
             assertThrows(Exception::class.java) { context.contentResolver.openFileDescriptor(uri, "rw") }
@@ -48,7 +48,7 @@ class HistoryImagesInstrumentedTest {
                 context.checkUriPermission(uri, 0, 2000, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
             assertEquals(android.content.pm.PackageManager.PERMISSION_DENIED,
                 context.checkUriPermission(uri, 0, 2000, android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
-            database.outbox().hide(id)
+            database.outbox().hide(item.key)
             assertThrows(Exception::class.java) { context.contentResolver.openInputStream(uri)!!.use { it.readBytes() } }
             assertEquals("injected", database.outbox().find(id, host, device)!!.state)
         } finally {

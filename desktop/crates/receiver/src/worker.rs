@@ -461,6 +461,30 @@ impl Receiver {
         self.mutate(move |owner| owner.ledger.provision_device(&device, &token, name))
             .await
     }
+    pub async fn verify_pair_token(
+        &self,
+        device: String,
+        token: zeroize::Zeroizing<Vec<u8>>,
+    ) -> Result<()> {
+        self.call(move |owner| owner.ledger.verify_pair_token(&device, &token))
+            .await
+    }
+
+    pub async fn replace_pair_by_token(
+        &self,
+        old_pair: String,
+        old_token: zeroize::Zeroizing<Vec<u8>>,
+        new_pair: String,
+        new_token: zeroize::Zeroizing<Vec<u8>>,
+        name: String,
+    ) -> Result<()> {
+        self.mutate(move |owner| {
+            owner
+                .ledger
+                .replace_pair_by_token(&old_pair, &old_token, &new_pair, &new_token, name)
+        })
+        .await
+    }
     pub async fn authenticate(
         &self,
         device: String,

@@ -17,6 +17,26 @@ class V3MobilePolicyTest {
         assertEquals(1_000L, reconnectDelayMs(-1))
     }
 
+    @Test fun reconnectDelayAndResetBelongToTheHostAndPair() {
+        val retry = PairReconnectPolicy()
+        assertEquals(1_000L, retry.nextDelay("host-a", "pair-a"))
+        assertEquals(2_000L, retry.nextDelay("host-a", "pair-a"))
+        assertEquals(1_000L, retry.nextDelay("host-b", "pair-b"))
+        assertEquals(5_000L, retry.nextDelay("host-a", "pair-a"))
+        retry.reset("host-b", "pair-b")
+        assertEquals(10_000L, retry.nextDelay("host-a", "pair-a"))
+        assertEquals(1_000L, retry.nextDelay("host-b", "pair-b"))
+        assertEquals(1_000L, retry.nextDelay("host-a", "replacement"))
+    }
+
+    @Test fun onlyCurrentAndTheLastTargetWithUnresolvedReceiptsStayHot() {
+        assertEquals(listOf("b", "a"), hotPairIds("b", "a", true))
+        assertEquals(listOf("c", "b"), hotPairIds("c", "b", true))
+        assertEquals(listOf("c"), hotPairIds("c", "b", false))
+        assertEquals(listOf("b"), hotPairIds("b", "b", true))
+        assertEquals(listOf("b"), hotPairIds("b", null, true))
+    }
+
     @Test fun receiptMatrixCoversTenStatesAndFourInputKinds() {
         val states = listOf("saved", "accepted", "held", "executing", "injected", "cancelled", "expired", "failed", "uncertain", "uncertain_acknowledged")
         val items = listOf(

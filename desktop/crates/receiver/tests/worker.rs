@@ -334,7 +334,7 @@ fn automatic_text_executes_only_in_the_requested_application() {
             let mut target = TargetApplication::new("Editor.exe".into(), "".into(), 77, 1);
             target.display = Some(ApplicationDisplay {
                 name: "Editor".into(),
-                icon_png: None,
+                icon_webp: None,
             });
             Some(target)
         }

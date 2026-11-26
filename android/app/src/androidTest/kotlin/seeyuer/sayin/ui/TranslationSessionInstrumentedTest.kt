@@ -91,10 +91,10 @@ class TranslationSessionInstrumentedTest {
                 val store = SpeakingDraftStore(instrumentation.targetContext, suffix)
                 lateinit var saved: SavedSpeakingDraft
                 main { saved = session.savedState }
-                store.save(saved)
-                val loaded = store.load()!!
+                val ciphertext = store.seal(saved, createKey = true)
+                val loaded = store.open(ciphertext)
                 assertEquals(saved, loaded)
-                assertFalse(file.readBytes().toString(Charsets.UTF_8).contains("Edited English"))
+                assertFalse(ciphertext.toString(Charsets.UTF_8).contains("Edited English"))
                 main {
                     val restored = session(Engine())
                     try {

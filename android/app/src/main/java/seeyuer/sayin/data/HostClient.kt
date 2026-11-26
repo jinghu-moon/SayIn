@@ -26,13 +26,7 @@ internal class HostClient(endpoint: HostEndpoint, network: Network? = null) {
     private val url = "https://${endpoint.tlsName}:${endpoint.port}/sayin/v3"
 
     init {
-        val roots = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
-            load(null)
-            setCertificateEntry("paired-host", endpoint.certificate)
-        }
-        val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(roots) }
-        val delegate = factory.trustManagers.filterIsInstance<X509TrustManager>().single()
-        val trust = PinnedTrust(delegate, endpoint.certificate, endpoint.tlsName)
+        val trust = PinnedTrust(endpoint)
         val tls = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
         check("TLSv1.3" in tls.supportedSSLParameters.protocols) { "TLS13_REQUIRED" }
         val address = numericAddress(endpoint.address)
@@ -62,20 +56,38 @@ internal class HostClient(endpoint: HostEndpoint, network: Network? = null) {
 
 /** Public three-argument overload is required by Android's certificate cleaner. */
 internal class PinnedTrust(
-    private val delegate: X509TrustManager,
-    private val certificate: X509Certificate,
-    private val host: String,
+    private val endpoint: HostEndpoint,
 ) : X509TrustManager {
-    override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf(certificate)
+    private val fixed = (endpoint as? PairedHost)?.certificate
+    private val fixedTrust = fixed?.let(::trustFor)
+
+    private fun trustFor(certificate: X509Certificate): X509TrustManager {
+        val roots = KeyStore.getInstance(KeyStore.getDefaultType()).apply {
+            load(null)
+            setCertificateEntry("paired-host", certificate)
+        }
+        val factory = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm()).apply { init(roots) }
+        return factory.trustManagers.filterIsInstance<X509TrustManager>().single()
+    }
+
+    override fun getAcceptedIssuers(): Array<X509Certificate> = fixed?.let { arrayOf(it) } ?: emptyArray()
     override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) = throw CertificateException()
     override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {
-        if (chain.size != 1 || !MessageDigest.isEqual(chain[0].encoded, certificate.encoded)) throw CertificateException()
-        chain[0].checkValidity()
-        delegate.checkServerTrusted(chain, authType)
+        if (chain.size != 1) throw CertificateException()
+        val leaf = chain[0]
+        try {
+            if (fixed != null) {
+                if (!MessageDigest.isEqual(leaf.encoded, fixed.encoded)) throw CertificateException()
+                leaf.checkValidity()
+            } else endpoint.validateCertificate(leaf)
+            (fixedTrust ?: trustFor(leaf)).checkServerTrusted(chain, authType)
+        } catch (error: Exception) {
+            throw CertificateException(error)
+        }
     }
     @Suppress("unused")
     fun checkServerTrusted(chain: Array<X509Certificate>, authType: String, hostname: String): List<X509Certificate> {
-        if (hostname != host) throw CertificateException()
+        if (hostname != endpoint.tlsName) throw CertificateException()
         checkServerTrusted(chain, authType)
         return chain.toList()
     }

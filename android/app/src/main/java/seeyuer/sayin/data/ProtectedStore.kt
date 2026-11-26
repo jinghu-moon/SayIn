@@ -107,6 +107,69 @@ internal class ProtectedStore(context: Context) {
     }
 
     @Synchronized
+    fun saveCandidate(value: JSONObject) {
+        migrateLegacyIfNeeded()
+        val hostId = value.getString("host_id")
+        val pairId = value.getString("pair_id")
+        val item = key(hostId, pairId)
+        check(preferences.getString("candidate", null) == null)
+        candidatePredecessor(value, identities())
+        val create = !preferences.contains("key_created:$item")
+        val encrypted = encrypt(value.toString().toByteArray(), "VoiceLink/candidate/v3/$item",
+            keyFor(hostId, pairId, create))
+        check(preferences.edit().putString("candidate", item)
+            .putString("candidate_credential", encode(encrypted)).commit())
+    }
+
+    @Synchronized
+    fun loadCandidate(): JSONObject? {
+        val item = preferences.getString("candidate", null) ?: return null
+        val value = preferences.getString("candidate_credential", null) ?: error("Missing candidate credential")
+        val json = strictJson(decrypt(decode(value), "VoiceLink/candidate/v3/$item",
+            keyFor(hostOf(item), pairOf(item), false)).toString(Charsets.UTF_8))
+        check(key(json.getString("host_id"), json.getString("pair_id")) == item)
+        return json
+    }
+
+    @Synchronized
+    fun activateCandidate(hostId: String, pairId: String): JSONObject {
+        val item = key(hostId, pairId)
+        val ids = identities()
+        if (item in ids && preferences.getString("candidate", null) != item) return readIdentity(item)
+        check(preferences.getString("candidate", null) == item)
+        val value = checkNotNull(loadCandidate())
+        val predecessor = candidatePredecessor(value, ids)
+        value.remove("replaces_pair_id")
+        val encrypted = encrypt(value.toString().toByteArray(), "VoiceLink/private/v3/$item",
+            keyFor(hostId, pairId, false))
+        check(preferences.edit().putString("identity:$item", encode(encrypted))
+            .putStringSet("identities", ids.apply { if (predecessor != null) remove(predecessor); add(item) })
+            .putString("selected", item).putString("selected_host_id", hostId)
+            .putBoolean("key_created:$item", true)
+            .apply { if (predecessor != null) remove("identity:$predecessor") }
+            .remove("candidate").remove("candidate_credential").commit())
+        return value
+    }
+
+    private fun candidatePredecessor(value: JSONObject, ids: Set<String>): String? {
+        val hostId = value.getString("host_id")
+        val pairId = value.getString("pair_id")
+        val previous = if (value.has("replaces_pair_id")) value.getString("replaces_pair_id") else null
+        check(previous != pairId)
+        val predecessor = previous?.let { key(hostId, it) }
+        check(ids.filter { hostOf(it) == hostId } == listOfNotNull(predecessor))
+        return predecessor
+    }
+
+    @Synchronized
+    fun removeCandidate(hostId: String, pairId: String) {
+        val item = key(hostId, pairId)
+        if (preferences.getString("candidate", null) != item) return
+        check(preferences.edit().remove("candidate").remove("candidate_credential").commit())
+        if (!preferences.contains("key_created:$item")) keyStore.deleteEntry(alias(hostId, pairId))
+    }
+
+    @Synchronized
     fun load(hostId: String, pairId: String): JSONObject? {
         migrateLegacyIfNeeded()
         val item = key(hostId, pairId)
@@ -124,7 +187,7 @@ internal class ProtectedStore(context: Context) {
         check(preferences.edit().putString("selected", item).putString("selected_host_id", hostId).commit())
     }
     @Synchronized
-    fun save(value: JSONObject) {
+    fun save(value: JSONObject, select: Boolean = true) {
         migrateLegacyIfNeeded()
         val hostId = value.getString("host_id")
         val pairId = value.optString("pair_id").ifEmpty { value.getString("device_id") }
@@ -133,7 +196,7 @@ internal class ProtectedStore(context: Context) {
         val create = !preferences.contains("key_created:$item") && !preferences.contains("identity:$item")
         val encrypted = encrypt(value.toString().toByteArray(), "VoiceLink/private/v3/$item", keyFor(hostId, pairId, create))
         check(preferences.edit().putString("identity:$item", encode(encrypted)).putStringSet("identities", ids)
-            .putString("selected", item).putString("selected_host_id", hostId)
+            .apply { if (select) putString("selected", item).putString("selected_host_id", hostId) }
             .putBoolean("key_created:$item", true).commit())
     }
     fun load(): JSONObject? = selectedKey()?.let { load(hostOf(it), pairOf(it)) }

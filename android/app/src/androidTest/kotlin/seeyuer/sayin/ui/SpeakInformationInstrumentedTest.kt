@@ -57,14 +57,14 @@ class SpeakInformationInstrumentedTest {
         var scale by mutableStateOf(1f)
         var dark by mutableStateOf(false)
         var quick by mutableStateOf(false)
-        val bitmap = Bitmap.createBitmap(48, 48, Bitmap.Config.ARGB_8888).apply { eraseColor(android.graphics.Color.BLUE) }
-        val bytes = java.io.ByteArrayOutputStream().also { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-        val encoded = java.util.Base64.getEncoder().encodeToString(bytes)
+        // 48×48 opaque blue, lossless WebP with a single VP8L chunk.
+        val encoded = "UklGRiIAAABXRUJQVlA4TBUAAAAvL8ALAAcQ0f/+B4CE8H+9GNH/1AMA"
         val decoded = ForegroundApplication.from(ForegroundApplicationHint(1, "Word", encoded))!!
         assertEquals(48, decoded.icon!!.width)
         assertEquals(android.graphics.Color.BLUE, decoded.icon.getPixel(24, 24))
         assertNull(ForegroundApplication.from(ForegroundApplicationHint(2, "Word", "invalid"))!!.icon)
-        val truncated = java.util.Base64.getEncoder().encodeToString(bytes.copyOf(33))
+        // The envelope and dimensions remain valid, but no pixel data follows.
+        val truncated = "UklGRhIAAABXRUJQVlA4TAUAAAAvL8ALAAA="
         assertNotNull(ForegroundApplicationHint.iconBytes(truncated))
         assertNull(ForegroundApplication.from(ForegroundApplicationHint(3, "Word", truncated))!!.icon)
         val state = ClientState(connection = Connection.ONLINE, paired = true, paused = false, active = true,

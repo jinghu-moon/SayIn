@@ -16,9 +16,11 @@ import org.json.JSONObject
 import seeyuer.sayin.asr.*
 import seeyuer.sayin.data.AutoSendDestination
 import seeyuer.sayin.data.ClientState
+import seeyuer.sayin.data.OutboxKey
 import seeyuer.sayin.data.ReceptionScope
 import seeyuer.sayin.data.receptionScope
 import seeyuer.sayin.data.SavedSpeakingDraft
+import seeyuer.sayin.data.selectedTarget
 import seeyuer.sayin.data.autoSendDestination
 import seeyuer.sayin.polish.*
 import seeyuer.sayin.translation.*
@@ -245,7 +247,8 @@ internal class SpeakSession(
             translation.takeIf { it.complete }?.value?.text,
             translation.takeIf { it.complete }?.ticket?.modelSha256,
             translation.takeIf { it.complete }?.ticket?.templateRevision,
-            translationShown && translation.complete, request?.translated ?: false)
+            translationShown && translation.complete, request?.translated ?: false,
+            request?.hostId, request?.pairId)
     }
     var onSendReady: (AutoSendDestination?) -> Unit = {}
     var requestMicrophoneService: ((Long) -> Unit)? = null
@@ -379,20 +382,39 @@ internal class SpeakSession(
             recordingDestination = null
         }
         receiver = value
-        val request = submitted ?: return
-        if (value.rejectedDraft == request.id) {
+        var request = submitted ?: return
+        // Older drafts had a globally unique request id and no saved pair.
+        // Restore their scope only when there is one matching ledger entry.
+        if (request.hostId == null) {
+            value.history.singleOrNull { it.id == request.id }?.let {
+                request = request.copy(hostId = it.hostId, pairId = it.deviceId)
+                submitted = request
+            }
+        }
+        val selected = value.selectedTarget
+        if (request.hostId != null && selected != null &&
+            (request.hostId != selected.hostId || request.pairId != selected.pairId)) {
+            submitted = null
+            if (draftId == request.id) renewDraftId()
+            invalidateAssist()
+            return
+        }
+        val rejectedScope = value.rejectedDraftScope
+        if (value.rejectedDraft == request.id && request.hostId == rejectedScope?.hostId &&
+            request.pairId == rejectedScope?.pairId) {
             submitted = request.copy(state = "failed")
             if (submitted != request) invalidateAssist()
             return
         }
-        val item = value.history.firstOrNull { it.id == request.id } ?: return
+        val item = value.history.singleOrNull {
+            it.key == request.key
+        } ?: return
         submitted = request.copy(state = item.state, reason = item.reason)
         if (submitted != request) invalidateAssist()
         if (item.state == "injected" && request.state != "injected") { history.clear(); historyRevision++; undoDraft = null }
         if (item.state == "injected" && request.translated && draftId == request.id) {
             // Retaining the original must not retain an already consumed request identity after restart.
-            draftId = UUID.randomUUID().toString()
-            translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
+            renewDraftId()
         }
         if (item.state == "injected" && !request.translated && draftId == request.id && draft.text == request.value.text) {
             changeDraft(TextFieldValue(), fromRecognition = true)
@@ -410,7 +432,10 @@ internal class SpeakSession(
                 checkNotNull(saved.translationModelSha256), checkNotNull(saved.translationTemplate)), TextFieldValue(saved.translationText), end = TranslationEnd.Complete)
             translationShown = saved.translationShown
         }
-        submitted = saved.requestId?.let { SubmittedDraft(it, TextFieldValue(saved.requestText.orEmpty()), saved.requestState ?: "saved", saved.requestTranslated) }
+        submitted = saved.requestId?.let {
+            SubmittedDraft(it, TextFieldValue(saved.requestText.orEmpty()), saved.requestState ?: "saved",
+                saved.requestTranslated, hostId = saved.requestHostId, pairId = saved.requestPairId)
+        }
         // The ledger, not this snapshot, remains authoritative about execution.
         updateReceiver(receiver)
         invalidateAssist()
@@ -852,11 +877,18 @@ internal class SpeakSession(
         if (busy || requestLocked || draftRestoring || draftStorageIssue || !canSendRepresentation || !receiver.ready || value.text.isBlank() || value.composition != null ||
             runCatching { seeyuer.sayin.data.normalizedText(value.text) }.isFailure) return false
         polishState = polishState.copy(confirmationPending = false)
-        if (submitted != null) {
-            draftId = UUID.randomUUID().toString()
-            translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
-        }
-        cancelAutoSend(); submitted = SubmittedDraft(draftId, value, translated = sendingTranslation); invalidateAssist(); return true
+        if (submitted != null) renewDraftId()
+        val target = receiver.selectedTarget
+        cancelAutoSend()
+        submitted = SubmittedDraft(draftId, value, translated = sendingTranslation,
+            hostId = target?.hostId, pairId = target?.pairId)
+        invalidateAssist()
+        return true
+    }
+
+    private fun renewDraftId() {
+        draftId = UUID.randomUUID().toString()
+        translation.ticket?.let { translation = translation.copy(ticket = it.copy(draftId = draftId)) }
     }
 
     fun toggleTranslation() {
@@ -1034,6 +1066,11 @@ internal data class SubmittedDraft(
     val state: String = "saved",
     val translated: Boolean = false,
     val reason: String? = null,
-)
+    val hostId: String? = null,
+    val pairId: String? = null,
+) {
+    val key: OutboxKey?
+        get() = hostId?.let { host -> pairId?.let { pair -> OutboxKey(host, pair, id) } }
+}
 
 private data class SpeakingSnapshot(val draft: TextFieldValue, val translation: DraftTranslation, val translationShown: Boolean, val duration: Long)

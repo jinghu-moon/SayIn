@@ -1,0 +1,42 @@
+--- a/android/app/src/androidTest/kotlin/seeyuer/sayin/data/TransportInstrumentedTest.kt
++++ b/android/app/src/androidTest/kotlin/seeyuer/sayin/data/TransportInstrumentedTest.kt
+@@ -4,0 +5,3 @@
++import android.graphics.Bitmap
++import androidx.core.content.FileProvider
++import java.io.File
+@@ -133,0 +137,24 @@
++            if (keepUpgradeFixture) {
++                val body = Bitmap.createBitmap(32, 32, Bitmap.Config.ARGB_8888)
++                body.eraseColor(0xff2277aa.toInt())
++                val source = File(target.filesDir, "test-images/v2-upgrade.png")
++                source.parentFile!!.mkdirs()
++                try {
++                    source.outputStream().use { check(body.compress(Bitmap.CompressFormat.PNG, 100, it)) }
++                    val uri = FileProvider.getUriForFile(target, target.packageName + ".fixtures", source)
++                    repository.selectImage(uri)
++                    val prepared = waitFor { it.imageDraft != null && !it.imagePreparing }
++                    val reference = checkNotNull(prepared.imageDraft).image
++                    repository.sendImage(reference.resourceId)
++                    val deliveredImage = waitFor { state ->
++                        state.history.any { it.kind == "image" && it.state == "injected" }
++                    }.history.single { it.kind == "image" }
++                    assertEquals(reference.resourceId, deliveredImage.imageResource)
++                    val preview = checkNotNull(repository.historyImage(deliveredImage.id, 256))
++                    try { assertEquals(0xff2277aa.toInt(), preview.getPixel(16, 16)) }
++                    finally { preview.recycle() }
++                } finally {
++                    body.recycle()
++                    source.delete()
++                }
++            }
+@@ -144 +171 @@
+-            assertEquals(3, repository.state.value.history.size)
++            assertEquals(if (keepUpgradeFixture) 4 else 3, repository.state.value.history.size)
+--- a/scripts/verify_android_transport.ps1
++++ b/scripts/verify_android_transport.ps1
+@@ -39 +39 @@
+-$expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
++$expectedCalls = if ($KeepUpgradeFixture) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+@@ -107 +107 @@
+-    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
++    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture; retained_upgrade_image = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8

@@ -34,8 +34,8 @@ pub(crate) fn load(path: &str, previous: Option<ApplicationIcon>) -> Application
 }
 
 fn extract(path: &Path) -> Option<Arc<Image>> {
-    let png = voicelink_receiver::application_icon::png(path)?;
-    Some(Arc::new(Image::from_bytes(ImageFormat::Png, png)))
+    let bytes = voicelink_receiver::application_icon::webp(path)?;
+    Some(Arc::new(Image::from_bytes(ImageFormat::Webp, bytes)))
 }
 
 use voicelink_receiver::application_name::display_name;

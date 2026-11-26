@@ -31,6 +31,9 @@
     <string name="resume_input">Resume input</string>
     <string name="pause_input">Pause input</string>
     <string name="reconnect">Reconnect</string>
+    <string name="connection_retry_pairing">Check pairing result</string>
+    <string name="connection_replace_pairing">Replace pairing</string>
+    <string name="connection_replace_help">On this computer, choose Replace pairing for this phone. Then scan its QR code or enter its pairing code.</string>
     <string name="unpair_computer">Unpair computer</string>
     <string name="unpair_title">Unpair this computer?</string>
     <string name="unpair_message">You’ll need to pair again to reconnect. The authorization on the computer is not revoked.</string>

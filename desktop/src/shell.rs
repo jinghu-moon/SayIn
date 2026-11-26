@@ -246,7 +246,9 @@ fn devices(
     if let Some(snapshot) = snapshot.filter(|s| !s.device_ids.is_empty()) {
         for device in &snapshot.device_ids {
             let owner = reception.clone();
+            let replace = reception.clone();
             let id = device.clone();
+            let replace_id = device.clone();
             let name = snapshot
                 .device_names
                 .get(device)
@@ -282,6 +284,18 @@ fn devices(
                                 ),
                                 cx,
                             )),
+                    )
+                    .child(
+                        YueButton::new(
+                            gpui_kit::SharedString::from(format!("replace-pairing-{device}")),
+                            settings.text(M::ReplacePairing),
+                        )
+                        .variant(ButtonVariant::Ghost)
+                        .disabled(!service.is_ready() || service.is_busy())
+                        .on_click(move |_, _, cx| {
+                            replace
+                                .update(cx, |s, cx| s.prepare_replacement(replace_id.clone(), cx))
+                        }),
                     )
                     .child(
                         YueButton::icon(

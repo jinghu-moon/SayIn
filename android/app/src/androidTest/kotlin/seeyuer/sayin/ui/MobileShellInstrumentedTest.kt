@@ -44,6 +44,7 @@ import seeyuer.sayin.asr.CloudConfigurationStore
 import seeyuer.sayin.asr.CloudProvider
 import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsStatus
+import seeyuer.sayin.data.OutboxKey
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.ForegroundApplication
@@ -103,10 +104,10 @@ class MobileShellInstrumentedTest {
     @Test fun historyUsesOriginalApplicationAndSupportsSearchCopyAndLocalHide() {
         val id = java.util.UUID.randomUUID().toString()
         var state by mutableStateOf(ready().copy(history = listOf(item("injected", id)),
-            historyText = mapOf(id to "Original words"),
-            historyApplications = mapOf(id to seeyuer.sayin.data.ForegroundApplication("Original Editor")),
+            historyText = mapOf(OutboxKey("host", "device", id) to "Original words"),
+            historyApplications = mapOf(OutboxKey("host", "device", id) to seeyuer.sayin.data.ForegroundApplication("Original Editor")),
             foregroundApplication = seeyuer.sayin.data.ForegroundApplication("Current Browser")))
-        val actions = mutableListOf<Pair<String, String>>()
+        val actions = mutableListOf<Pair<OutboxKey, String>>()
         setTestContent { VoiceLinkTheme { Scaffold {
             MobileHistoryPage(state, action = { request, command ->
                 actions += request to command
@@ -126,31 +127,33 @@ class MobileShellInstrumentedTest {
         assertTrue(actions.isEmpty())
         compose.onNodeWithTag("history-confirm-delete").performClick()
         compose.onNodeWithTag("history-text-$id").assertDoesNotExist()
-        assertEquals(listOf(id to "delete"), actions)
+        assertEquals(listOf(OutboxKey("host", "device", id) to "delete"), actions)
         assertEquals("injected", state.history.single().state)
     }
 
-    @Test fun historyFiltersExposeSelectionStateAndFilterRows() {
-        val submitted = java.util.UUID.randomUUID().toString()
-        val review = java.util.UUID.randomUUID().toString()
-        val state = ready().copy(history = listOf(item("injected", submitted), item("saved", review)),
-            historyText = mapOf(submitted to "Submitted words", review to "Review words"))
+    @Test fun historyFiltersExposeSelectionStateAndFilterRowsWithTheSameRequestId() {
+        val id = java.util.UUID.randomUUID().toString()
+        val submitted = item("injected", id)
+        val review = item("saved", id).copy(hostId = "second-host", deviceId = "second-device")
+        val state = ready().copy(history = listOf(submitted, review),
+            historyText = mapOf(submitted.key to "Submitted words", review.key to "Review words"))
         setTestContent { VoiceLinkTheme { Scaffold {
             MobileHistoryPage(state, action = { _, _ -> })
         } } }
         fun tab(label: Int) = compose.onNode(hasText(context.getString(label)) and hasClickAction())
         tab(R.string.history_all).assertIsSelected()
         tab(R.string.history_submitted).assertIsNotSelected()
-        compose.onNodeWithTag("history-text-$review").assertExists()
+        compose.onNodeWithText("Submitted words").assertExists()
+        compose.onNodeWithText("Review words").assertExists()
         tab(R.string.history_submitted).performClick()
         tab(R.string.history_submitted).assertIsSelected()
         tab(R.string.history_all).assertIsNotSelected()
-        compose.onNodeWithTag("history-text-$submitted").assertExists()
-        compose.onNodeWithTag("history-text-$review").assertDoesNotExist()
+        compose.onNodeWithText("Submitted words").assertExists()
+        compose.onNodeWithText("Review words").assertDoesNotExist()
         tab(R.string.history_attention).performClick()
         tab(R.string.history_attention).assertIsSelected()
-        compose.onNodeWithTag("history-text-$review").assertExists()
-        compose.onNodeWithTag("history-text-$submitted").assertDoesNotExist()
+        compose.onNodeWithText("Review words").assertExists()
+        compose.onNodeWithText("Submitted words").assertDoesNotExist()
     }
 
     @Test fun historyDateAndApplicationFiltersComposeWithBulkDeleteAndExport() {
@@ -162,13 +165,13 @@ class MobileShellInstrumentedTest {
                 item("injected", todayId).copy(createdAt = now),
                 item("injected", oldId).copy(createdAt = now - 10L * 24 * 60 * 60 * 1000),
             ),
-            historyText = mapOf(todayId to "Today words", oldId to "Old words"),
+            historyText = mapOf(OutboxKey("host", "device", todayId) to "Today words", OutboxKey("host", "device", oldId) to "Old words"),
             historyApplications = mapOf(
-                todayId to seeyuer.sayin.data.ForegroundApplication("Chat"),
-                oldId to seeyuer.sayin.data.ForegroundApplication("Editor"),
+                OutboxKey("host", "device", todayId) to seeyuer.sayin.data.ForegroundApplication("Chat"),
+                OutboxKey("host", "device", oldId) to seeyuer.sayin.data.ForegroundApplication("Editor"),
             ),
         )
-        val hidden = mutableListOf<List<String>>()
+        val hidden = mutableListOf<List<OutboxKey>>()
         setTestContent { VoiceLinkTheme { Scaffold {
             MobileHistoryPage(state, action = { _, _ -> }, onHideHistory = { hidden += it })
         } } }
@@ -196,12 +199,12 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithTag("history-delete-selected").performClick()
         compose.onNodeWithText(context.getString(R.string.history_delete_multiple_help, 2)).assertExists()
         compose.onNodeWithTag("history-confirm-delete").performClick()
-        assertEquals(listOf(listOf(todayId, oldId)), hidden)
+        assertEquals(listOf(listOf(OutboxKey("host", "device", todayId), OutboxKey("host", "device", oldId))), hidden)
     }
 
     @Test fun historyExportSheetRequiresALongEnoughBackupPassphrase() {
         val id = java.util.UUID.randomUUID().toString()
-        val state = ready().copy(history = listOf(item("injected", id)), historyText = mapOf(id to "Export me"))
+        val state = ready().copy(history = listOf(item("injected", id)), historyText = mapOf(OutboxKey("host", "device", id) to "Export me"))
         setTestContent { VoiceLinkTheme { Scaffold {
             MobileHistoryPage(state, action = { _, _ -> })
         } } }
@@ -411,7 +414,7 @@ class MobileShellInstrumentedTest {
     }
 
     @Test fun uncertainReceiptHasNoRetryAndReviewQueriesOriginalIdentity() {
-        val callbacks = mutableListOf<Pair<String, String>>()
+        val callbacks = mutableListOf<Pair<OutboxKey, String>>()
         val unknown = item("review", "review-id")
         val uncertain = item("uncertain", "uncertain-id")
         setTestContent {
@@ -423,7 +426,7 @@ class MobileShellInstrumentedTest {
         compose.onNodeWithTag("nav-History").performClick()
         compose.onAllNodesWithText(context.getString(R.string.retry_same_request)).assertCountEquals(0)
         compose.onNodeWithText(context.getString(R.string.speak_query)).performScrollTo().performClick()
-        assertEquals(listOf("review-id" to "query"), callbacks)
+        assertEquals(listOf(unknown.key to "query"), callbacks)
         compose.onNodeWithText(context.getString(R.string.uncertain_warning)).performScrollTo().assertIsDisplayed()
     }
 
@@ -930,7 +933,7 @@ class MobileShellInstrumentedTest {
     @Composable
     private fun TestVoiceLinkContent(state: ClientState, draft: TextFieldValue,
         onDraftChange: (TextFieldValue) -> Unit, onSend: () -> Unit,
-        onHistoryAction: (String, String) -> Unit, connectionActions: @Composable () -> Unit,
+        onHistoryAction: (OutboxKey, String) -> Unit, connectionActions: @Composable () -> Unit,
         onReconnect: () -> Unit = {}, sharedText: String? = null, shareVersion: Int = 0,
         translationModel: seeyuer.sayin.translation.TranslationModel? = null) {
         val context = LocalContext.current

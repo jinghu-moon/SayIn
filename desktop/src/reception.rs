@@ -100,6 +100,7 @@ pub struct ReceptionState {
     network_watch: Option<Task<()>>,
     network_retry: Option<Task<()>>,
     pairing_requested: bool,
+    replacing_pair: Option<String>,
     revoking: Option<String>,
     history: HistoryPage,
     latest: HistoryPage,
@@ -163,6 +164,7 @@ impl ReceptionState {
             network_watch: None,
             network_retry: None,
             pairing_requested: false,
+            replacing_pair: None,
             revoking: None,
             history: HistoryPage::default(),
             latest: HistoryPage::default(),
@@ -242,70 +244,74 @@ impl ReceptionState {
     }
 
     fn observe(&mut self, receiver: Receiver, cx: &mut Context<Self>) {
-        self.watch =
-            Some(cx.spawn(async move |owner, cx| {
-                let mut notifications = match receiver.subscribe().await {
-                    Ok(notifications) => notifications,
-                    Err(error) => {
-                        eprintln!("Receiver subscription: {error}");
-                        let _ = owner.update(cx, |this, cx| {
-                            this.phase = ReceptionPhase::Failed;
-                            this.issue = Some(ReceptionIssue::Command);
-                            cx.notify();
-                        });
-                        return;
-                    }
-                };
-                while notifications.next().await.is_some() {
-                    let snapshot = receiver.snapshot().await;
-                    if owner
-                        .update(cx, |this, cx| {
-                            if this.closing {
-                                return;
-                            }
-                            match snapshot {
-                                Ok(snapshot) => {
-                                    this.phase = ReceptionPhase::Ready;
-                                    if !snapshot.storage_healthy {
-                                        this.issue = Some(ReceptionIssue::Storage);
-                                    }
-                                    if this.snapshot.as_ref().is_some_and(|old| {
-                                        old.paired_devices < snapshot.paired_devices
-                                    }) {
-                                        this.pairing_requested = false;
-                                    }
-                                    if this.snapshot.as_ref().map(|s| &s.control.state_rev)
-                                        != Some(&snapshot.control.state_rev)
-                                    {
-                                        this.review_entry = None;
-                                        this.review_revision = None;
-                                    }
-                                    this.snapshot = Some(snapshot);
-                                    this.refresh_history(cx);
-                                    if !this.bootstrapped {
-                                        this.bootstrapped = true;
-                                        this.pairing_requested = this
-                                            .snapshot
-                                            .as_ref()
-                                            .is_some_and(|s| s.paired_devices == 0);
-                                        this.discover_network(cx);
-                                        this.watch_network_recovery(cx);
-                                    }
-                                    this.maybe_enable(cx);
-                                }
-                                Err(error) => {
-                                    eprintln!("Receiver snapshot: {error}");
-                                    this.issue = Some(ReceptionIssue::Command);
-                                }
-                            }
-                            cx.notify();
-                        })
-                        .is_err()
-                    {
-                        break;
-                    }
+        self.watch = Some(cx.spawn(async move |owner, cx| {
+            let mut notifications = match receiver.subscribe().await {
+                Ok(notifications) => notifications,
+                Err(error) => {
+                    eprintln!("Receiver subscription: {error}");
+                    let _ = owner.update(cx, |this, cx| {
+                        this.phase = ReceptionPhase::Failed;
+                        this.issue = Some(ReceptionIssue::Command);
+                        cx.notify();
+                    });
+                    return;
                 }
-            }));
+            };
+            while notifications.next().await.is_some() {
+                let snapshot = receiver.snapshot().await;
+                if owner
+                    .update(cx, |this, cx| {
+                        if this.closing {
+                            return;
+                        }
+                        match snapshot {
+                            Ok(snapshot) => {
+                                this.phase = ReceptionPhase::Ready;
+                                if !snapshot.storage_healthy {
+                                    this.issue = Some(ReceptionIssue::Storage);
+                                }
+                                if this.snapshot.as_ref().is_some_and(|old| {
+                                    old.paired_devices < snapshot.paired_devices
+                                        || this.replacing_pair.as_ref().is_some_and(|id| {
+                                            old.device_ids.contains(id)
+                                                && !snapshot.device_ids.contains(id)
+                                        })
+                                }) {
+                                    this.pairing_requested = false;
+                                    this.replacing_pair = None;
+                                }
+                                if this.snapshot.as_ref().map(|s| &s.control.state_rev)
+                                    != Some(&snapshot.control.state_rev)
+                                {
+                                    this.review_entry = None;
+                                    this.review_revision = None;
+                                }
+                                this.snapshot = Some(snapshot);
+                                this.refresh_history(cx);
+                                if !this.bootstrapped {
+                                    this.bootstrapped = true;
+                                    this.pairing_requested = this
+                                        .snapshot
+                                        .as_ref()
+                                        .is_some_and(|s| s.paired_devices == 0);
+                                    this.discover_network(cx);
+                                    this.watch_network_recovery(cx);
+                                }
+                                this.maybe_enable(cx);
+                            }
+                            Err(error) => {
+                                eprintln!("Receiver snapshot: {error}");
+                                this.issue = Some(ReceptionIssue::Command);
+                            }
+                        }
+                        cx.notify();
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
     }
 
     pub fn background_available(&self) -> bool {
@@ -534,12 +540,30 @@ impl ReceptionState {
     pub fn pairing_requested(&self) -> bool {
         self.pairing_requested
     }
-    /// Explicit pairing is for adding a phone, never for restoring a network.
+    pub fn replacing_pair(&self) -> Option<&str> {
+        self.replacing_pair.as_deref()
+    }
+
     pub fn prepare_network(&mut self, cx: &mut Context<Self>) {
+        self.prepare_pairing(None, cx);
+    }
+
+    pub fn prepare_replacement(&mut self, device: String, cx: &mut Context<Self>) {
+        if self
+            .snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.device_ids.contains(&device))
+        {
+            self.prepare_pairing(Some(device), cx);
+        }
+    }
+
+    fn prepare_pairing(&mut self, replacing: Option<String>, cx: &mut Context<Self>) {
         if !self.is_ready() || self.is_busy() || self.closing {
             return;
         }
         self.pairing_requested = true;
+        self.replacing_pair = replacing;
         if self.network.is_some() {
             self.open_pairing(cx);
         } else {
@@ -769,7 +793,13 @@ impl ReceptionState {
         let Some(service) = self.network.clone() else {
             return;
         };
-        let operation = cx.background_spawn(async move { service.open_pairing().await });
+        let replacing = self.replacing_pair.clone();
+        let operation = cx.background_spawn(async move {
+            match replacing {
+                Some(device) => service.open_pairing_replacing(device).await,
+                None => service.open_pairing().await,
+            }
+        });
         self.network_task = Some(cx.spawn(async move |owner, cx| {
             let result = operation.await;
             let _ = owner.update(cx, |this, cx| {
@@ -785,6 +815,7 @@ impl ReceptionState {
     }
     pub fn close_pairing(&mut self, cx: &mut Context<Self>) {
         self.pairing_requested = false;
+        self.replacing_pair = None;
         cx.notify();
         let Some(service) = self.network.clone() else {
             return;

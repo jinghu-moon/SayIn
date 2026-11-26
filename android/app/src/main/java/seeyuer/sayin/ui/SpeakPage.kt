@@ -1,5 +1,6 @@
 package seeyuer.sayin.ui
 
+import seeyuer.sayin.data.OutboxKey
 import seeyuer.sayin.data.receiptTitle
 
 import android.Manifest
@@ -87,7 +88,7 @@ internal fun SpeakPage(
     quick: Boolean = false,
     onExpand: () -> Unit = {},
     onDismiss: () -> Unit = {},
-    onRequestAction: (String, String) -> Unit = { _, _ -> },
+    onRequestAction: (OutboxKey, String) -> Unit = { _, _ -> },
     onImage: () -> Unit = {},
     onConfigurePolish: () -> Unit = {},
     pageActive: Boolean = true,
@@ -516,15 +517,15 @@ internal fun SpeakPage(
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(stringResource(receiptTitle(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp)
                         if (request.state in setOf("saved", "accepted", "held", "executing", "review")) TextButton(
-                            stringResource(R.string.speak_query), { onRequestAction(request.id, "query") }, minHeight = 48.dp,
+                            stringResource(R.string.speak_query), { request.key?.let { onRequestAction(it, "query") } }, minHeight = 48.dp,
                             enabled = state.connection == Connection.ONLINE, colors = plainTextButtonColors())
                         if (request.state == "held" && state.ready) TextButton(stringResource(R.string.release_request),
-                            { onRequestAction(request.id, "release") }, minHeight = 48.dp, colors = plainTextButtonColors())
+                            { request.key?.let { onRequestAction(it, "release") } }, minHeight = 48.dp, colors = plainTextButtonColors())
                         if (request.state == "uncertain" && state.ready) TextButton(stringResource(R.string.speak_new_draft),
                             session::newDraft, minHeight = 48.dp, colors = plainTextButtonColors())
                     }
                     if (request.state == "review") TextButton(stringResource(R.string.speak_keep_draft), {
-                        onRequestAction(request.id, "discard")
+                        request.key?.let { onRequestAction(it, "discard") }
                     }, modifier = Modifier.testTag("keep-draft"), minHeight = 48.dp, colors = plainTextButtonColors())
                     if (request.state == "uncertain") Text(stringResource(R.string.uncertain_warning), fontSize = 12.sp, color = color.onSurfaceSecondary)
                     if (request.reason == "automatic_target_changed") Text(

@@ -15,6 +15,67 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 
 class ProtectedStoreInstrumentedTest {
+    @Test fun candidateSurvivesReopenWithoutEnteringSelectionUntilConfirmed() {
+        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName == "seeyuer.sayin.imagetest")
+        val namespace = "candidate-${UUID.randomUUID()}-"
+        val context = object : ContextWrapper(target) {
+            override fun getSharedPreferences(name: String, mode: Int) =
+                target.getSharedPreferences(namespace + name, mode)
+        }
+        val host = UUID.randomUUID().toString()
+        val pair = UUID.randomUUID().toString()
+        val rejected = UUID.randomUUID().toString()
+        val value = JSONObject().put("host_id", host).put("pair_id", pair)
+            .put("token", UUID.randomUUID().toString())
+        val preferences = context.getSharedPreferences("paired_host", Context.MODE_PRIVATE)
+        try {
+            ProtectedStore(context).saveCandidate(value)
+            val reopened = ProtectedStore(context)
+            assertNull(reopened.load())
+            assertTrue(reopened.loadAll().isEmpty())
+            assertFalse(preferences.all.values.any { it.toString().contains(value.getString("token")) })
+            assertEquals(value.getString("token"), reopened.loadCandidate()!!.getString("token"))
+            assertThrows(IllegalStateException::class.java) { reopened.activateCandidate(host, rejected) }
+            reopened.activateCandidate(host, pair)
+            reopened.activateCandidate(host, pair)
+            assertNull(ProtectedStore(context).loadCandidate())
+            assertEquals(pair, ProtectedStore(context).load()!!.getString("pair_id"))
+
+            val otherHost = UUID.randomUUID().toString()
+            try {
+                reopened.saveCandidate(JSONObject().put("host_id", otherHost).put("pair_id", rejected))
+                reopened.removeCandidate(otherHost, rejected)
+                assertNull(ProtectedStore(context).loadCandidate())
+                assertEquals(pair, ProtectedStore(context).load()!!.getString("pair_id"))
+            } finally {
+                val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                keys.deleteEntry("voicelink.private.v3.${otherHost.replace('-', '_')}.${rejected.replace('-', '_')}")
+            }
+
+            val originalHistory = byteArrayOf(3, 2, 1)
+            val encryptedHistory = reopened.encrypt(host, pair, originalHistory)
+            val replacement = UUID.randomUUID().toString()
+            try {
+                reopened.saveCandidate(JSONObject().put("host_id", host).put("pair_id", replacement)
+                    .put("replaces_pair_id", pair))
+                assertEquals(pair, reopened.load()!!.getString("pair_id"))
+                assertFalse(reopened.activateCandidate(host, replacement).has("replaces_pair_id"))
+                assertEquals(replacement, reopened.load()!!.getString("pair_id"))
+                assertEquals(1, reopened.loadAll().size)
+                assertNull(reopened.load(host, pair))
+                assertArrayEquals(originalHistory, reopened.decrypt(host, pair, encryptedHistory))
+            } finally {
+                val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+                keys.deleteEntry("voicelink.private.v3.${host.replace('-', '_')}.${replacement.replace('-', '_')}")
+            }
+        } finally {
+            val keys = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+            keys.deleteEntry("voicelink.private.v3.${host.replace('-', '_')}.${pair.replace('-', '_')}")
+            target.deleteSharedPreferences(namespace + "paired_host")
+        }
+    }
+
     @Test fun migratedRecordsStayBoundToTheirPairAndMissingKeysFailClosed() {
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         check(target.packageName == "seeyuer.sayin.imagetest")

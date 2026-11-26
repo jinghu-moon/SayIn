@@ -1,7 +1,7 @@
 # SayIn 多设备 v3 TDD 实施计划
 
 更新：2026-11-26。  
-状态：P4 工程门禁已通过。P5 实现、P6 图片通道和 P7 迁移的隔离回归已通过，P8 真实环境验收暂缓。真实 2×2 及相关真实局域网、实际输入和性能验收暂缓。执行记录见 §9。  
+状态：P0–P7 工程门禁通过。P8 有一对一真实局域网验证记录，真实 2×2 按用户安排暂缓。P9 的紧凑二维码和 WebP 已实现，多图原型已完成。执行记录见 §9。  
 规范：[86 多设备规范](86-multi-host-multi-device-design.md)；验收：[89 验证计划](89-multi-device-verification.md)；独立增量：[90](90-multi-device-increment-design.md)。
 
 ## 1. 自检结论
@@ -376,11 +376,13 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P2 | T12 | 完成。重启把 `executing` 转为 `uncertain`、`accepted` 转为 `expired/restart_confirmation`，保留 `held` 的原期限，主动推送到期回执。 | 同 T09 |
 | P3 | T13–T16 | 完成。输入不确定性按目标窗口或全局范围分类，审查票据绑定请求与控制代次，局部与全局闸门均通过回归测试。 | 本提交 |
 | P4 | T17–T22 | 完成。v3 路径、认证、fencing、查询边界、控制错误、出站预算和连接槽回归通过。 | `d780826` |
-| P5 | T23–T26 | 部分实现。多主机选择、凭据隔离、双层配额、回执和重连首帧已接入。未决旧连接保留、主动重配和批准前凭据确认仍待实现。 | — |
-| P6 | T27–T29 | 双配对可同时上传并登记资源，绑定拒绝用例通过 loopback。等待公平性和 Android 草稿端到端门禁待验证。 | — |
-| P7 | T30–T31 | Windows 合成旧账本迁移测试通过。Room 迁移和 Keystore 回归已补，原地升级样本的端到端比对待执行。 | — |
-| P8 | T32–T33 | 真实环境验收暂缓。 | — |
-| P9 | T34–T36 | 待实施。 | — |
+| P5 | T23–T26 | 持久候选、主动重配、每配对退避和上一目标的未决回执连接已接入。三目标隔离回归、草稿与 Outbox 同事务落盘、K40 日常包安装通过。 | 本提交 |
+| P6 | T27–T29 | 双配对可同时上传并登记资源，绑定拒绝与 Android 图片草稿隔离回归通过。一对一真实 LAN 原生图片已验证，真实 2×2 暂缓。 | `bfbcbc4` |
+| P7 | T30–T31 | 旧配对、草稿、文字及图片回执原地升级通过，原图片可解密，K40 隔离全套和日常包安装通过。 | 本提交 |
+| P8 | T32–T33 | 已取得 1×1 真实 LAN 发现、图片粘贴和暂停恢复证据。完整性能门槛、2×2 和 M1–M28 验收待完成。 | — |
+| P9 | T34 | 71 字节邀请、V5-M 原生渲染、K40 短码和二维码数据配对通过。物理相机对屏待验证。 | — |
+| P9 | T35 | 无损 WebP、完整帧预算、本机样本和 K40 解码与加密历史恢复通过。 | 本提交 |
+| P9 | T36 | Windows 原生 RichEdit 原型已比较整批、逐张和局部遗漏。Android 多选与逐张发送产品化待实施。 | — |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -431,11 +433,19 @@ scripts/verify_android_transport.ps1 -FullSuite
 
 ### P5 门禁与行为对比
 
-- T23 从单份凭据扩展到按 `(host_id, pair_id)` 保存，历史使用原配对的密钥读取，忘记电脑后仍可查看对应历史。补充旧身份、文本、图片密文和缺失密钥的隔离测试。桌面端批准前要求手机确认候选凭据已持久化的流程仍待实现。
+- T23 从单份凭据扩展到按 `(host_id, pair_id)` 保存。手机先用 Keystore 加密落盘，再在同一固定证书连接确认，桌面随后才显示含来源 IP 的批准。桌面旧实现红测等待 `pair_candidate` 超时。修复后，批准前候选认证、跨 socket 确认、错误 ID 均被拒绝，断开释放占位。K40 复验了已批准候选恢复、明确拒绝后清理候选，以及旧回执查询未重放。历史继续使用原配对的密钥读取。
+- 主动重配需要桌面选中原设备和手机持有原授权。桌面 loopback 测试覆盖错误旧 token、旧会话不被提前关闭、批准后只保留一个有效配对、旧 token 失效。Android 通过加密候选原子替换可发送凭据，保留历史解密密钥。
 - T24 从单一 Outbox 配额扩展到配对和主机两层。每配对最多 16 条、64 KiB、1 张图片，每主机最多 32 条、128 KiB、2 张图片。每次连接先查旧回执，查询结束才允许发送，结果不明的请求进入手动核对。
 - T25 统一回执标题，补充 `uncertain_scope`、`file_saved` 和缺失执行方式的文案。`uncertain` 可继续接收核对后的回执。JVM 展示映射测试通过。
-- T26 增加电脑选择入口并记住选择，重连退避为 1/2/5/10 秒。当前切换仍会关闭旧连接，旧目标未决时的双热连接及各配对独立退避待实现。
+- T26 退避序列 1/2/5/10 秒按主机与配对独立。原切换关闭旧连接，当前保留仍有未决回执的上一目标，并隔离两个控制会话。K40 三目标 ADB reverse 测试中，B 发送时 A 可取消并收回执。切到 C 后，B 保持可查询与取消，A 冷却并在再选中时重新建连。三个隔离电脑共计 1 次 fake 输入，未重放。
 - K40 首次复跑安装曾返回 `INSTALL_FAILED_USER_RESTRICTED`。后续使用原隔离脚本成功安装应用 APK 和测试 APK，设备回归继续验证。
+- 本轮日常 APK 通过 `:app:assembleDebug` 后执行覆盖安装。K40 的 MIUI `AdbInstallActivity` 恢复前台约 59 ms 后以 `app-request` 退出，ADB 返回 `INSTALL_FAILED_USER_RESTRICTED`。当时包管理器未登记 `seeyuer.sayin`。
+
+- K40 主动重配定向测试通过。有未决回执时拒绝重配。取消未决请求后可更换同一电脑的配对，旧配对凭据移除，原历史仍用原密钥解密。
+- 边界红测中，第二个配对插入同一请求 UUID 会触发 `UNIQUE constraint failed: outbox.id`。Android Room 由 schema 7 升至 8，用主机、配对、请求 UUID 确定一条记录。历史正文、应用、图片、隐藏和回执操作沿用完整身份。升级事务保留旧行及其密文。
+- 草稿定向用例首次误用了旧的应用 APK。应用和测试 APK 对齐后通过。切到 B 后解除 A 的草稿锁，A 的迟到回执和同 UUID 的 A 回执都不会清空 B 的正文。B 自己的 `injected` 回执可以清空对应草稿。
+
+- 最新隔离 APK 在 K40 通过 12 项定向测试，0 项跳过，涵盖 Room 旧库升级、独立回执、单条隐藏、图片读取和历史筛选。`-HotTargets` 与 `-PairReplacement` 各通过 1 项，0 项跳过，各有 1 次 fake 输入。三电脑夹具中 A 和 B 使用同一个请求 UUID，A 取消后 B 的状态仍为 `injected`，两个配对的正文各自解密，无重放。该组经 ADB reverse 连接。
 
 ### P6–P7 工程验证
 
@@ -450,3 +460,74 @@ scripts/verify_android_transport.ps1 -FullSuite
 - Android JVM 单元测试和 lint 通过：`:app:testDebugUnitTest`、`:app:lintDebug`。
 - Rust 门禁通过：workspace 全目标测试、transport 网络 9 项、workspace clippy `-D warnings`、包级 rustfmt、i18n 和桌面依赖检查。
 - 真实 2×2、真实局域网、真机实际落字、性能和功耗验收仍未执行。当前 Android 证据来自隔离安装、ADB reverse、loopback WSS、测试输入适配器和 fake input，不能替代 L3 真机证据。
+
+### P7 原地升级验证（2026-11-26）
+
+- 原基线留存文件的 Android Keystore 密钥已随隔离包清数据失效。本次从冻结的 `cd2b92a` 源码重建 v2 隔离应用和桌面夹具，重新捕获可解密的匹配样本。两份源码曾共享构建目录，首次捕获误用了 v3 缓存制品。核对 SQLite 版本定位后，重新构建并用 schema 6 验证来源。
+- v2 留存测试 1 项通过，双方保存 `injected`、`expired`、`uncertain` 各一条。v3 通过 `adb install -r -t` 原地覆盖隔离包，保留数据库、偏好和 Keystore。原配对认证和三条旧回执查询通过，草稿与历史可解密，隐藏标记与待核对闸门保留。
+- 初次升级测试在查询旧回执时失败。终态已清空 payload，原 `saveStatus` 因此跳过新元数据。现在只有已认证、配对和请求匹配、状态及接受序号相同、尚无 `request_rev` 的旧行能回填元数据，原状态、原因、正文和历史标记继续保留。空接受序号的补充测试先失败，改用 SQLite `IS` 后通过。该用例同时验证跨主机、错误状态和重复回填均被拒绝。
+- Windows SQLite 实测 6 → 7。原配对、3 条回执、3 条历史的所有旧列逐项一致，原 DPAPI 文件和源快照哈希一致，`uncertain_scope=global`，`request_rev=0`，执行信息保持缺省，`integrity_check=ok`。升级期间 fake/native 输入调用均为 0。安全汇总见 [升级证据](research/91-upgrade-2026-11-26.json)。原始数据库、凭据与日志仅留在被忽略的本地构建目录。
+- Rust 工作区 193 项通过，Clippy `-D warnings`、四包 rustfmt、i18n 和桌面依赖检查通过。Android JVM 243 项通过，lint 和 Debug 构建成功。新增 Room 边界设备测试 1 项通过。
+- 完整设备回归期间 K40 进入安全锁屏。解锁后，原先失败的 7 项逐项复核全部通过，包含 `AssistStorageInstrumentedTest` 2 项和 `AssistPanelInstrumentedTest` 5 项。
+- 在包含 T34/T35 的工作区中运行 `-FullSuite -SkipBuild -SkipInstall`，文字和界面 167 项通过、7 项条件跳过，图片 4 项通过，0 失败。两套隔离电脑身份分别记录 2 次和 1 次 fake input，未重放。
+- 日常 APK 在解锁及用户确认准备后再用 `adb -s dc39c31d install -r` 尝试，MIUI `AdbInstallActivity` 进入前台后约 80 ms 退出，系统返回 `INSTALL_FAILED_USER_RESTRICTED`。设备包管理器未登记 `seeyuer.sayin`，同一设备的隔离包和测试 APK 可通过仪器化脚本安装。后续日常包安装结果见下文。
+- Windows 独立原生文字夹具通过。临时 EDIT 控件收到预期的中文、emoji 和字面括号文本，原前缀保留，无附加 Enter，重复请求未执行。该验证只覆盖本机输入路径。
+
+### P9 WebP 图标（T35）
+
+- Windows 从原始 RGBA 编码 48×48 无损 WebP。资源管理器样本解码后逐字节匹配原始像素，包含透明度。旧 PNG 历史仍显示原应用名。名称、序号及回执在图标超出 4,096 字节或帧预算时继续传输。
+- 编码格式红测试实测收到 PNG，改用 WebP 后通过；Android 解析红测试原先拒绝 WebP，改用有界 WebP 解析后通过。前台显示 7 项定向测试覆盖 8,192 字节、8,193 字节、超长应用名和图标字段上限。
+- 本机 6 个可执行文件采样，4 个保留图标：资源管理器 3,496 字节、命令处理程序 1,736 字节、任务管理器 2,954 字节、Windows PowerShell 4,024 字节。记事本和 Edge 未获得符合预算的图标。此样本用于观察当前机器覆盖率。
+- Rust 工作区 195 项和 Android JVM 245 项通过。Clippy、四包 rustfmt、i18n、桌面依赖检查、Android lint、Debug 构建和隔离 APK 构建通过。
+- K40 运行 `scripts/verify_android_transport.ps1 -DeviceSerial dc39c31d -TransportOnly -SkipBuild`，1 项通过、0 跳过，2 次 fake input。生产 WebP 从回执进入 Android 真实位图解码并随加密历史读回。该回归使用 ADB reverse。
+- 首轮全套定位到说话页测试仍提供旧 PNG，导致位图为空。将测试数据更新为 48×48 无损 WebP，保留像素核对和损坏数据拒绝断言。该项定向复跑通过，随后完整隔离门禁通过。
+
+### P9 紧凑二维码（T34）
+
+- 旧邀请的红测试实际输出 436 字符，预期 114 字符。紧凑布局启用后，二维码和 CPace 短码 AEAD 正文共用 71 字节数据。固定向量、非法字符、Base45 分组溢出和非法路由、UUID 均已验证。
+- 手机上通过 TLS 1.3 核对叶证书 DER 摘要、SAN、有效期与自签名，确认后才发送邀请秘密，配对完成保存完整 DER。旧主机继续使用原 SAN，新主机采用 `sayin-` 前缀。错误摘要的回环 TLS 握手被拒绝。
+- `scripts/verify_pairing_qr.ps1 -Iterations 3` 在 Windows 上采集 18 张原生渲染帧，包含亮暗模式和 3 个字号。ZXing 全部解码并核对 114 字符，含静区为 45×45 模块。
+- Rust 工作区 196 项、Clippy、四包 rustfmt、i18n 和桌面依赖检查已通过。Android JVM 245 项、lint、Debug 构建和隔离 APK 构建通过。
+- K40 短码和 `-TransportOnly -SkipInstall -QrPairing` 分别通过 1 项，均 0 跳过、2 次 fake input。扫码 Activity 配置和 JNI 定向测试 2 项通过，独立图片回归 4 项通过。配对测试以 ADB reverse 传入二维码数据。物理相机对屏扫码仍待验证。
+
+### P9 多图原型（T36）
+
+- `powershell.exe -NoProfile -Sta -File scripts/verification/probe_image_batch.ps1` 使用 3 张生成图片和两个本地原生 RichEdit 目标。通过 `IRichEditOle::ImportDataObject` 直接交付，读取目标 RTF 中的图片数和宽度顺序。系统剪贴板、焦点和日常应用数据保持原样。
+- `RICHEDIT50W` 连续 5 组均正确收到 3 张，目标中图片宽度依次为 105、195、165 twips。整批 1 次 OLE 调用耗时 0.15～5.04 ms，逐张 3 次调用合计 0.29～0.57 ms。耗时仅覆盖本机控件调用。
+- 第一轮默认 WinForms RichEdit 无法导入整批 RTF。定向复查确认 `RichEdit20W` 整批收到 0 张，逐张位图导入收到 3 张。另一个故障注入将第二张截断，`RICHEDIT50W` 返回成功且已插入第一、三张。批量 API 的成功返回无法指明第二张被跳过。
+- 原型支持采用“一次选择、逐张发送”的单一产品模型。手机多选、逐张 UUID、进度与停止位置仍待实施，真实目标应用组合仍需补验。
+
+### P8 一对一真机验证（2026-11-26）
+
+Redmi K40（Android 13 / API 33）使用独立 `imageTest` 包，电脑使用随机 LAN 端口和隔离账本。发现与常规图片使用 Debug 夹具，原生粘贴和暂停使用 Release 接收核心。五组验证均走真实 LAN，无 ADB reverse。手机已安装的应用和测试 APK 与本地构建产物的 SHA-256 一致。
+
+| 验证 | 实际结果 | 本地证据目录（`desktop/target/` 下） |
+| --- | --- | --- |
+| `verify_android_transport.ps1 -Lan -SkipBuild -SkipInstall` | 4 项通过、0 跳过，恰好 1 次 fake 输入 | `image-android-fixture-a89dbca9-ffc9-4add-8ea2-ad28ade4d593/` |
+| `verify_android_discovery.ps1 -Lan -SkipInstall` | 1 项通过，NSD 找回同一主机在同 IP 上的新端口，保留原身份和暂停，恰好 1 次 fake 输入，无重放 | `discovery-fixture-17657e34-26aa-4bb1-ad5e-f2c3b8137cdf/` |
+| `verify_android_discovery.ps1 -Lan -Revoked -SkipInstall` | 1 项通过，配对撤销后未恢复在线，保存地址未被新端口覆盖，恰好 1 次撤销前的 fake 输入，无重放 | `discovery-fixture-2d4435f6-13bc-42a9-9c56-e8f7dc6d641c/` |
+| `verify_image_performance.ps1 -ImageDirectory refer/image-test -Native -Repeats 3 -SkipBuild -SkipInstall` | 5 张图片各发 3 次。隔离 RichEdit 确认新增 15 次，保留原文，无额外 Enter。15 次原生调用，0 次 fake 输入。3 张超 10 MiB 的源图在读取阶段拒绝 | `image-performance-ea13f5a0-56e4-476f-893e-c3e1d508100e/` |
+| `verify_image_performance.ps1 -ImageDirectory refer/image-test -PauseProbe -SkipBuild -SkipInstall` | 5 次在首个 48 KiB 图片块确认后触发电脑暂停，重连保留暂停及图片草稿，无自动重放，0 次输入。手机测试标记到观察到暂停的 p50/p95 为 129.8/136.8 ms，含标记往返及夹具轮询 | `image-performance-94d6a0c5-88ea-4d53-9a06-5d26a5ff1937/` |
+
+原生测试与 [v2 历史实测](46-image-input-production-validation.md#2-实际结果) 的 8 个源文件 SHA-256 一致，15 条归一化字节数一致。下表单位为毫秒，每轮 15 条，nearest-rank 的 p95 和 p99 均为单轮最大值。
+
+| 耗时 | v2 历史 p50 / p95 | v3 本轮 p50 / p95 |
+| --- | ---: | ---: |
+| 手机准备 | 589.5 / 1,278.4 | 721.4 / 1,654.6 |
+| 发送到 RichEdit 确认终态 | 1,869.8 / 3,433.0 | 2,306.6 / 4,081.3 |
+| 选图到确认终态 | 2,455.9 / 4,701.9 | 2,980.3 / 5,735.9 |
+
+v2 参照来自另一天。发送到确认终态的 p95 本轮高约 648 ms，需交替复跑固定 v2 与当前 v3，分段判断手机准备、网络、持久化及原生确认的影响。接收核心峰值工作集为 252.3 MiB，RichEdit 为 243.7 MiB，手机采样最大 PSS 为 158.9 MiB。隔离 RichEdit 观察的是单图新增次数。完整性能门槛、2×2、物理相机对屏、DHCP 换 IP 和其他实际目标应用仍待验证。
+
+本轮 `:app:assembleDebug` 通过。日常包的 `adb install -r` 流式及非流式重试均被 MIUI `AdbInstallActivity` 拒绝，返回 `INSTALL_FAILED_USER_RESTRICTED`。当时设备包管理器未查到 `seeyuer.sayin`。
+
+### K40 日常包安装与配对隔离复验（2026-11-26）
+
+- 用户授权使用设备现有 Root。对日常 Debug APK 运行 `pm install -r` 返回 `Success`，包管理器登记 `seeyuer.sayin` 0.1.0。已安装 `base.apk` 与本地构建的 SHA-256 同为 `D48C4879773EB700AA2F8B4CC4682741ECAA878BDDE11CD07B0A6AFC3133273F`。
+- 最终隔离 APK 的文字/UI 为 170 项通过、9 项条件跳过，图片为 4 项通过、0 项跳过。两套夹具分别记录 2 次和 1 次 fake 输入，无重放。证据目录分别为 `desktop/target/image-android-fixture-05a2ddee-094a-4998-b382-a0af6b093d7d/` 和 `desktop/target/image-android-fixture-756e1f99-743a-45c5-80f9-baa837e29571/`。Android JVM 247 项通过，lint 与 Debug 构建成功。
+
+### 草稿事务、图片迁移与性能门槛（2026-11-26）
+
+- P5 真机红测确认旧发送路径持久化 Outbox 后没有 Room 草稿快照，报 `no such table: speaking_draft`。Room schema 9 在一个事务保存文字 Outbox 行和含主机、配对、请求 UUID 及提交内容的 Keystore 加密快照，提交成功才允许网络发送。编辑自动保存通过同一仓库串行处理。旧加密草稿先解密校验，再把原密文导入 Room，成功后移除旧文件。
+- P7 从 `cd2b92a` 导出 v2，在导出目录用 `git apply --unidiff-zero` 应用[仪器化样本补丁](../scripts/verification/v2-upgrade-image-fixture.patch)，运行 `verify_android_transport.ps1 -TransportOnly -KeepUpgradeFixture` 捕获文字和图片样本。K40 原地覆盖隔离 APK，保留原配对、草稿、3 条文字回执及 1 条图片回执。升级后核对 Android 历史图片尺寸、像素、加密草稿及全部回执，输入重放为 0。Windows SQLite 6 → 7 逐列比对一致，含 4 条回执、4 条历史及 1 条图片资源。比较工具首轮被 PowerShell 的标量参数展开阻断，修正参数数组后用同一轮冻结账本完成比对。[迁移汇总](research/91-upgrade-2026-11-26.json)
+- K40 完整回归为 170 项文字/UI 通过、9 项条件跳过，以及 4 项图片通过，0 项失败。Room 故障注入确认第二次写入失败时不保存新 Outbox 行，旧草稿保留。提交后重启可读取原快照，迁移后篡改会阻止发送。三目标和主动重配各复跑 1 项通过。Android JVM 247 项、lint、Debug 构建通过，Rust 工作区 199 项、Clippy、包级 rustfmt、i18n 和依赖检查通过。日常 Debug APK 已在 K40 覆盖，安装文件 SHA-256 为 `D9086C3838BBC2566ED1185913525F81CC37C49C46DE84CDEB23502E4277E7D9`。

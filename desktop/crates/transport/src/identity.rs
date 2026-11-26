@@ -36,6 +36,7 @@ impl Drop for Material {
 pub struct HostIdentity {
     pub(crate) host_id: String,
     pub(crate) cert: Vec<u8>,
+    pub(crate) tls_name: String,
     pub(crate) tls: Arc<ServerConfig>,
 }
 
@@ -55,7 +56,7 @@ impl HostIdentity {
             }
             let plaintext = Dpapi.unprotect(&bytes)?;
             let material: Material = serde_json::from_slice(&plaintext)?;
-            if material.version != 1
+            if !matches!(material.version, 1 | 2)
                 || material.ledger_key_fingerprint != ledger_key_fingerprint
                 || Uuid::parse_str(&material.host_id).is_err()
                 || material.expires <= OffsetDateTime::now_utc().unix_timestamp()
@@ -70,7 +71,7 @@ impl HostIdentity {
             let host_id = Uuid::new_v4().to_string();
             let key =
                 KeyPair::generate().map_err(|_| Error::Protocol("CERTIFICATE_CREATE_FAILED"))?;
-            let mut params = CertificateParams::new(vec![format!("vl-{host_id}.local")])
+            let mut params = CertificateParams::new(vec![format!("sayin-{host_id}.local")])
                 .map_err(|_| Error::Protocol("CERTIFICATE_CREATE_FAILED"))?;
             params.not_before = OffsetDateTime::now_utc() - Duration::days(1);
             params.not_after = OffsetDateTime::now_utc() + Duration::days(3650);
@@ -82,7 +83,7 @@ impl HostIdentity {
                 .self_signed(&key)
                 .map_err(|_| Error::Protocol("CERTIFICATE_CREATE_FAILED"))?;
             let material = Material {
-                version: 1,
+                version: 2,
                 host_id,
                 cert: certificate.der().to_vec(),
                 key: key.serialize_der(),
@@ -109,6 +110,11 @@ impl HostIdentity {
         Ok(Self {
             host_id: material.host_id.clone(),
             cert: material.cert.clone(),
+            tls_name: format!(
+                "{}-{}.local",
+                if material.version == 1 { "vl" } else { "sayin" },
+                material.host_id
+            ),
             tls: Arc::new(tls),
         })
     }

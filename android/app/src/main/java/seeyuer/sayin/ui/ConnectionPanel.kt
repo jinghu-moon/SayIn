@@ -75,7 +75,7 @@ internal fun ConnectionDetails(state: ClientState, onReconnect: () -> Unit, acti
                         CircularProgressIndicator(size = 16.dp, strokeWidth = 2.dp)
                         Caption(stringResource(if (state.discovering) R.string.discovering_computer else connectionHelpText(presentation)))
                     }
-                } else if (presentation != ConnectionPresentation.Ready && presentation != ConnectionPresentation.Permission) {
+                } else if (!state.replacingPair && presentation != ConnectionPresentation.Ready && presentation != ConnectionPresentation.Permission) {
                     Caption(stringResource(connectionHelpText(presentation)))
                 }
                 if (state.showConnectionRetry) TextButton(stringResource(R.string.reconnect), onReconnect,
@@ -93,6 +93,14 @@ internal fun ConnectionDetails(state: ClientState, onReconnect: () -> Unit, acti
             }
             presentation != ConnectionPresentation.Permission -> Caption(stringResource(connectionHelpText(presentation)))
         }
+        if (state.pairingRecoveryPending && !state.busy && state.storageHealthy &&
+            presentation != ConnectionPresentation.Permission) {
+            TextButton(stringResource(R.string.connection_retry_pairing), onReconnect,
+                Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("pairing-recovery"),
+                minHeight = 48.dp,
+                colors = ButtonDefaults.textButtonColors(color = androidx.compose.ui.graphics.Color.Transparent,
+                    textColor = MiuixTheme.colorScheme.primary))
+        }
         actions()
     }
 }
@@ -101,6 +109,7 @@ internal fun connectionStatusText(state: ClientState): Int = when {
     !state.storageHealthy || state.connectionPresentation == ConnectionPresentation.Permission -> connectionChipText(state.connectionPresentation)
     state.discovering -> R.string.discovering_computer
     state.ready -> R.string.connect_ready
+    state.replacingPair -> R.string.connection_replace_pairing
     state.connectionPresentation == ConnectionPresentation.Offline -> R.string.connect_retry_wait
     else -> connectionChipText(state.connectionPresentation)
 }

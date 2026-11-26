@@ -49,8 +49,15 @@
         </service>
         <activity
             android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            tools:node="remove" />
+        <activity
+            android:name=".ui.PairingCaptureActivity"
+            android:exported="false"
+            android:clearTaskOnLaunch="true"
             android:screenOrientation="fullUser"
-            tools:replace="android:screenOrientation" />
+            android:stateNotNeeded="true"
+            android:theme="@style/zxing_CaptureTheme"
+            android:windowSoftInputMode="stateAlwaysHidden" />
         <activity
             android:name=".MainActivity"
             android:launchMode="singleTop"

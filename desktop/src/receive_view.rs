@@ -92,6 +92,21 @@ impl ReceiveView {
             .justify_center()
             .gap_3()
             .p_6();
+        let replaces = network
+            .and_then(|snapshot| snapshot.approval.as_ref())
+            .and_then(|approval| approval.replaces.as_deref())
+            .or_else(|| state.replacing_pair());
+        if let Some(id) = replaces {
+            let name = state
+                .snapshot()
+                .and_then(|snapshot| snapshot.device_names.get(id))
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .unwrap_or_else(|| settings.text(M::PhoneDevice));
+            panel = panel
+                .child(note(settings.text(M::ReplacingPairing), cx))
+                .child(div().text_sm().child(format!("{name} · {}", &id[..8])));
+        }
         if let Some(approval) = network.and_then(|s| s.approval.as_ref()) {
             let approve = self.reception.clone();
             let reject = self.reception.clone();
@@ -109,6 +124,7 @@ impl ReceiveView {
                         .font_weight(gpui_kit::FontWeight::SEMIBOLD)
                         .child(approval.name.clone()),
                 )
+                .child(note(approval.source.to_string(), cx))
                 .child(note(settings.text(M::ReceiveApproval), cx))
                 .child(
                     div()

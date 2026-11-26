@@ -1,0 +1,36 @@
+{
+  "source_revision": "cd2b92a",
+  "source_rebuilt_from_frozen_code": true,
+  "device": "Redmi K40",
+  "package": "seeyuer.sayin.imagetest",
+  "transport": "ADB reverse and loopback WSS",
+  "installation": "in-place update without clearing package data",
+  "upgrade_tests_passed": 1,
+  "original_pair_authenticated": true,
+  "draft_and_history_decrypted": true,
+  "source_snapshot_unchanged": true,
+  "protected_identity_unchanged": true,
+  "fake_input_calls": 0,
+  "native_input_calls": 0,
+  "before_windows_schema": 6,
+  "after_windows_schema": 7,
+  "preserved_rows": {
+    "pairs": 1,
+    "receipts": 4,
+    "message_history": 4,
+    "image_resources": 1
+  },
+  "receipt_states": {
+    "expired": 1,
+    "injected": 2,
+    "uncertain": 1
+  },
+  "original_columns_equal": true,
+  "uncertain_scope": "global",
+  "integrity_check": "ok",
+  "real_lan": false,
+  "real_input": false,
+  "after_android_room_schema": 9,
+  "legacy_image_preview_pixels_verified": true,
+  "fixture_patch": "scripts/verification/v2-upgrade-image-fixture.patch"
+}

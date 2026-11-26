@@ -114,7 +114,7 @@ class ImageInputInstrumentedTest {
             db.execSQL("INSERT INTO outbox VALUES(?,?,?,'scope',?,2,'saved',NULL,NULL,1,?)",arrayOf(id,host,device,byteArrayOf(1,2),byteArrayOf(3,4)))
             db.version=2
         }
-        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
+        val database=Room.databaseBuilder(target,OutboxDatabase::class.java,name).addMigrations(OutboxDatabase.KEEP_LEDGER,OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS, OutboxDatabase.SCOPE_REQUEST_KEYS).build()
         try {
             val dao=database.outbox();val original=checkNotNull(dao.find(id,host,device))
             assertEquals("text",original.kind);assertArrayEquals(byteArrayOf(1,2),original.payload)
@@ -161,9 +161,9 @@ class ImageInputInstrumentedTest {
             val first=delivered.history.single()
             assertNull(first.payload);assertEquals("image",first.kind);assertNotNull(first.imageReference)
             assertEquals(0,first.byteCount);assertEquals(image.resourceId,first.imageResource)
-            val thumbnail = checkNotNull(repository.historyImage(first.id, 256))
+            val thumbnail = checkNotNull(repository.historyImage(first.key, 256))
             assertTrue(thumbnail.width <= 256 && thumbnail.height <= 256); thumbnail.recycle()
-            waitFor { it.historyApplications[first.id]?.name == "Fixture Editor" }
+            waitFor { it.historyApplications[first.key]?.name == "Fixture Editor" }
             // A committed image spends the single-use draft; the sheet starts from the picker again.
             waitFor { it.imageDraft == null }
             repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
@@ -176,7 +176,7 @@ class ImageInputInstrumentedTest {
             val pendingDraft=waitFor{it.imageDraft!=null&&!it.imagePreparing}.imageDraft!!.image
             val paired=PairedHost(checkNotNull(ProtectedStore(context).load()))
             repository.foreground(false);waitFor{it.connection==Connection.OFFLINE};repository.close();delay(200)
-            val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS).build()
+            val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS, OutboxDatabase.SCOPE_REQUEST_KEYS).build()
             val pendingId=UUID.randomUUID().toString()
             try {
                 database.outbox().enqueue(OutboxItem(pendingId,paired.hostId,paired.deviceId,checkNotNull(prepared.target),
@@ -190,7 +190,7 @@ class ImageInputInstrumentedTest {
             val restored=waitFor{it.ready&&!it.recovering&&it.history.any{row->row.id==pendingId&&row.state=="review"}}
             assertEquals(pendingDraft,restored.imageDraft!!.image)
             assertNotNull(restored.history.single{it.id==pendingId}.payload)
-            repository.action(pendingId,"retry");delay(250)
+            repository.action(restored.history.single { it.id == pendingId }.key,"retry");delay(250)
             assertEquals("review",repository.state.value.history.single{it.id==pendingId}.state)
             assertEquals(1,repository.state.value.history.count{it.state=="injected"})
         } finally {

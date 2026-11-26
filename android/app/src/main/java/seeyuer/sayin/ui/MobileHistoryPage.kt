@@ -47,6 +47,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import seeyuer.sayin.R
+import seeyuer.sayin.data.OutboxKey
 import seeyuer.sayin.data.*
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
@@ -83,9 +84,9 @@ private data class PendingExport(val name: String, val bytes: ByteArray)
 @Composable
 internal fun MobileHistoryPage(
     state: ClientState,
-    action: (String, String) -> Unit,
-    loadImage: suspend (String, Int) -> Bitmap? = { _, _ -> null },
-    onHideHistory: (List<String>) -> Unit = {},
+    action: (OutboxKey, String) -> Unit,
+    loadImage: suspend (OutboxKey, Int) -> Bitmap? = { _, _ -> null },
+    onHideHistory: (List<OutboxKey>) -> Unit = {},
     onCleanupHistory: (Long) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -95,9 +96,9 @@ internal fun MobileHistoryPage(
     var appFilter by rememberSaveable { mutableStateOf<String?>(null) }
     var dateFilter by rememberSaveable { mutableStateOf(HistoryDateFilter.All) }
     var management by remember { mutableStateOf(false) }
-    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var detailId by remember { mutableStateOf<String?>(null) }
-    var deleteId by remember { mutableStateOf<String?>(null) }
+    var selected by remember { mutableStateOf<Set<OutboxKey>>(emptySet()) }
+    var detailKey by remember { mutableStateOf<OutboxKey?>(null) }
+    var deleteKey by remember { mutableStateOf<OutboxKey?>(null) }
     var filterOpen by remember { mutableStateOf(false) }
     var draftDate by remember { mutableStateOf(HistoryDateFilter.All) }
     var draftApp by remember { mutableStateOf<String?>(null) }
@@ -118,7 +119,7 @@ internal fun MobileHistoryPage(
     val dateCutoff = dateFilter.cutoff(now, zone)
     val appNames = remember(state.history, state.historyApplications) {
         state.history.filter { !it.historyHidden }
-            .mapNotNull { state.historyApplications[it.id]?.name?.takeIf(String::isNotBlank) }
+            .mapNotNull { state.historyApplications[it.key]?.name?.takeIf(String::isNotBlank) }
             .distinct().sortedWith(String.CASE_INSENSITIVE_ORDER)
     }
     LaunchedEffect(appNames) {
@@ -130,28 +131,28 @@ internal fun MobileHistoryPage(
             !item.historyHidden && (status == HistoryFilter.All ||
                 status == HistoryFilter.Submitted && item.state == "injected" ||
                 status == HistoryFilter.Review && item.state in setOf("saved", "uploading", "accepted", "held", "executing", "review", "uncertain", "failed")) &&
-                (app == null || state.historyApplications[item.id]?.name == app) &&
+                (app == null || state.historyApplications[item.key]?.name == app) &&
                 item.createdAt >= cutoff &&
-                (query.isBlank() || (state.historyText[item.id].orEmpty() + " " +
-                    state.historyApplications[item.id]?.name.orEmpty() + " " + item.id)
+                (query.isBlank() || (state.historyText[item.key].orEmpty() + " " +
+                    state.historyApplications[item.key]?.name.orEmpty() + " " + item.id)
                     .contains(query.trim(), ignoreCase = true))
         }
     }
     val rows = remember(filter, appFilter, dateFilter, search.text, state.history, state.historyApplications, state.historyText) {
         filtered(filter, appFilter, dateFilter, search.text)
     }
-    val visibleIds = remember(rows) { rows.map { it.id }.toSet() }
-    LaunchedEffect(visibleIds) { selected = selected.intersect(visibleIds) }
+    val visibleKeys = remember(rows) { rows.map { it.key }.toSet() }
+    LaunchedEffect(visibleKeys) { selected = selected.intersect(visibleKeys) }
     val today = LocalDate.now(zone)
     val groups = rows.groupBy { Instant.ofEpochMilli(it.createdAt).atZone(zone).toLocalDate() }
     val activeFilterCount = (if (dateFilter == HistoryDateFilter.All) 0 else 1) + if (appFilter != null) 1 else 0
     fun record(item: OutboxItem) = HistoryExportRecord(
         id = item.id, createdAt = item.createdAt, state = item.state, kind = item.kind,
-        application = state.historyApplications[item.id]?.name,
-        text = state.historyText[item.id].takeIf { item.kind == "text" },
-        imageWidth = state.historyImages[item.id]?.width,
-        imageHeight = state.historyImages[item.id]?.height,
-        imageBytes = state.historyImages[item.id]?.bytes,
+        application = state.historyApplications[item.key]?.name,
+        text = state.historyText[item.key].takeIf { item.kind == "text" },
+        imageWidth = state.historyImages[item.key]?.width,
+        imageHeight = state.historyImages[item.key]?.height,
+        imageBytes = state.historyImages[item.key]?.bytes,
     )
     fun exportRecords() = rows.map(::record)
     fun stamp(): String = SimpleDateFormat("yyyyMMdd", Locale.US).format(Date())
@@ -207,9 +208,9 @@ internal fun MobileHistoryPage(
             if (management) {
                 HistoryBatchBar(
                     selected = selected.size,
-                    total = visibleIds.size,
+                    total = visibleKeys.size,
                     onSelectAll = {
-                        selected = if (selected.size == visibleIds.size && visibleIds.isNotEmpty()) emptySet() else visibleIds
+                        selected = if (selected.size == visibleKeys.size && visibleKeys.isNotEmpty()) emptySet() else visibleKeys
                     },
                     onDelete = { if (selected.isNotEmpty()) batchConfirm = true },
                     onDone = { management = false; selected = emptySet() },
@@ -251,40 +252,40 @@ internal fun MobileHistoryPage(
                             color = MiuixTheme.colorScheme.onSurfaceSecondary.copy(alpha = .8f))
                     }
                 }
-                items(entries, key = { it.id }) { item ->
+                items(entries, key = { "${it.hostId}/${it.deviceId}/${it.id}" }) { item ->
                     HistoryCard(item, state, timeFormat.format(Date(item.createdAt)), loadImage,
-                        onDetails = { detailId = item.id }, onDelete = { deleteId = item.id }, action = action,
-                        management = management, selected = item.id in selected,
-                        onSelected = { checked -> selected = if (checked) selected + item.id else selected - item.id })
+                        onDetails = { detailKey = item.key }, onDelete = { deleteKey = item.key }, action = action,
+                        management = management, selected = item.key in selected,
+                        onSelected = { checked -> selected = if (checked) selected + item.key else selected - item.key })
                 }
             }
             item("storage") { Caption(stringResource(R.string.history_local_storage)) }
         }
     }
-    val detail = state.history.firstOrNull { it.id == detailId && !it.historyHidden }
-    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = detail != null, onDismissRequest = { detailId = null }) {
+    val detail = state.history.firstOrNull { it.key == detailKey && !it.historyHidden }
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = detail != null, onDismissRequest = { detailKey = null }) {
         if (detail != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().heightIn(max = 640.dp)
             .verticalScroll(rememberScrollState()).padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.history_details), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            if (detail.kind == "image") HistoryThumbnail(detail.id, loadImage, large = true, onClick = {})
-            else Text(state.historyText[detail.id] ?: stringResource(R.string.history_text_unavailable), fontSize = 18.sp, lineHeight = 28.sp)
+            if (detail.kind == "image") HistoryThumbnail(detail.key, loadImage, large = true, onClick = {})
+            else Text(state.historyText[detail.key] ?: stringResource(R.string.history_text_unavailable), fontSize = 18.sp, lineHeight = 28.sp)
             Text(stringResource(historyStatus(detail)))
             if (detail.state == "injected") Caption(stringResource(if (detail.method == IMAGE_PATH_COPY_METHOD)
                 R.string.image_path_paste_help else R.string.history_submitted_help))
-            HistoryApplicationRow(state.historyApplications[detail.id])
+            HistoryApplicationRow(state.historyApplications[detail.key])
             Caption(dateFormat.format(Date(detail.createdAt)) + " " + timeFormat.format(Date(detail.createdAt)))
             Caption(stringResource(R.string.operation_label, detail.id))
             HistoryRecovery(detail, state, action)
         }
     }
-    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = deleteId != null, onDismissRequest = { deleteId = null }) {
-        if (deleteId != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    OverlayBottomSheet(insideMargin = AppSheetInsideMargin, show = deleteKey != null, onDismissRequest = { deleteKey = null }) {
+        if (deleteKey != null) Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text(stringResource(R.string.history_delete), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
             Text(stringResource(R.string.history_delete_help))
             ConfirmCancelButtons(
                 confirm = stringResource(R.string.history_confirm),
-                onConfirm = { deleteId?.let { action(it, "delete") }; deleteId = null; detailId = null },
-                onCancel = { deleteId = null },
+                onConfirm = { deleteKey?.let { action(it, "delete") }; deleteKey = null; detailKey = null },
+                onCancel = { deleteKey = null },
                 confirmTag = "history-confirm-delete",
             )
         }
@@ -701,13 +702,13 @@ private fun historyStatus(item: OutboxItem): Int = when {
 }
 
 @Composable
-private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, loadImage: suspend (String, Int) -> Bitmap?,
-    onDetails: () -> Unit, onDelete: () -> Unit, action: (String, String) -> Unit,
+private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, loadImage: suspend (OutboxKey, Int) -> Bitmap?,
+    onDetails: () -> Unit, onDelete: () -> Unit, action: (OutboxKey, String) -> Unit,
     management: Boolean = false, selected: Boolean = false, onSelected: (Boolean) -> Unit = {}) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var copied by remember(item.id) { mutableStateOf(false) }
-    var copying by remember(item.id) { mutableStateOf(false) }
+    var copied by remember(item.key) { mutableStateOf(false) }
+    var copying by remember(item.key) { mutableStateOf(false) }
     LaunchedEffect(copied) { if (copied) { delay(1500); copied = false } }
     val dark = MiuixTheme.colorScheme.background.luminance() < .5f
     val tone = when (item.state) {
@@ -747,23 +748,23 @@ private fun HistoryCard(item: OutboxItem, state: ClientState, time: String, load
             }
         }
         if (item.kind == "image") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HistoryThumbnail(item.id, loadImage, onClick = onDetails)
+            HistoryThumbnail(item.key, loadImage, onClick = onDetails)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.image_history), fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                state.historyImages[item.id]?.let { metadata -> Caption(stringResource(R.string.image_metadata, metadata.width, metadata.height, (metadata.bytes + 1023) / 1024)) }
+                state.historyImages[item.key]?.let { metadata -> Caption(stringResource(R.string.image_metadata, metadata.width, metadata.height, (metadata.bytes + 1023) / 1024)) }
             }
-        } else Text(state.historyText[item.id] ?: stringResource(R.string.history_text_unavailable), fontSize = 17.sp, lineHeight = 26.sp,
+        } else Text(state.historyText[item.key] ?: stringResource(R.string.history_text_unavailable), fontSize = 17.sp, lineHeight = 26.sp,
             maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("history-text-${item.id}"))
         if (item.state != "injected" && !management) HistoryRecovery(item, state, action)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.weight(1f)) { HistoryApplicationRow(state.historyApplications[item.id]) }
+            Box(Modifier.weight(1f)) { HistoryApplicationRow(state.historyApplications[item.key]) }
             if (!management) {
-                val text = state.historyText[item.id]
+                val text = state.historyText[item.key]
                 if (item.kind == "image" || text != null) IconButton(onClick = {
                     if (!copying) scope.launch {
                         copying = true
                         val clip = withContext(Dispatchers.IO) { runCatching {
-                            if (item.kind == "image") ClipData.newUri(context.contentResolver, "SayIn image", HistoryImages.uri(context, item.id))
+                            if (item.kind == "image") ClipData.newUri(context.contentResolver, "SayIn image", HistoryImages.uri(context, item.key))
                             else ClipData.newPlainText("SayIn", text)
                         }.getOrNull() }
                         if (clip != null) {
@@ -793,11 +794,11 @@ private fun HistoryApplicationRow(application: ForegroundApplication?) {
 }
 
 @Composable
-private fun HistoryThumbnail(id: String, load: suspend (String, Int) -> Bitmap?, large: Boolean = false, onClick: () -> Unit) {
-    val bitmap by produceState<Bitmap?>(null, id, large) { value = load(id, if (large) 1600 else 256) }
+private fun HistoryThumbnail(key: OutboxKey, load: suspend (OutboxKey, Int) -> Bitmap?, large: Boolean = false, onClick: () -> Unit) {
+    val bitmap by produceState<Bitmap?>(null, key, large) { value = load(key, if (large) 1600 else 256) }
     val size = if (large) Modifier.fillMaxWidth().heightIn(min = 120.dp, max = 360.dp) else Modifier.size(64.dp)
     Box(size.clip(RoundedCornerShape(10.dp)).background(MiuixTheme.colorScheme.surfaceContainer).clickable(onClick = onClick)
-        .testTag("history-image-$id"), contentAlignment = Alignment.Center) {
+        .testTag("history-image-${key.id}"), contentAlignment = Alignment.Center) {
         val image = bitmap
         if (image != null) Image(image.asImageBitmap(), stringResource(R.string.image_preview),
             if (large) Modifier.fillMaxWidth().heightIn(max = 360.dp) else Modifier.size(64.dp), contentScale = ContentScale.Fit)
@@ -806,7 +807,7 @@ private fun HistoryThumbnail(id: String, load: suspend (String, Int) -> Bitmap?,
 }
 
 @Composable
-private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (String, String) -> Unit) {
+private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (OutboxKey, String) -> Unit) {
     if (item.kind == "image" && item.state == "failed") {
         imageDeliveryFailure(item.reason)?.let { Caption(stringResource(it)) }
     }
@@ -820,12 +821,12 @@ private fun HistoryRecovery(item: OutboxItem, state: ClientState, action: (Strin
     presentation.scopeRes?.let { Caption(stringResource(it)) }
     if (item.state == "review") {
         Notice(stringResource(R.string.review_warning), VoiceLinkIcon.Alert)
-        Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.id, "query") }
-        Action(R.string.discard_request) { action(item.id, "discard") }
+        Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.key, "query") }
+        Action(R.string.discard_request) { action(item.key, "discard") }
     }
-    if (item.state in setOf("saved", "accepted", "executing")) Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.id, "query") }
+    if (item.state in setOf("saved", "accepted", "executing")) Action(R.string.speak_query, state.connection == Connection.ONLINE) { action(item.key, "query") }
     if (item.state == "held" && item.kind == "image") Caption(stringResource(R.string.image_held))
-    if (item.state == "held" && item.kind != "image") Action(R.string.release_request, state.ready) { action(item.id, "release") }
-    if (item.state in setOf("held", "accepted")) Action(R.string.cancel_request, state.connection == Connection.ONLINE) { action(item.id, "cancel") }
+    if (item.state == "held" && item.kind != "image") Action(R.string.release_request, state.ready) { action(item.key, "release") }
+    if (item.state in setOf("held", "accepted")) Action(R.string.cancel_request, state.connection == Connection.ONLINE) { action(item.key, "cancel") }
     if (item.state == "uncertain") Notice(stringResource(R.string.uncertain_warning), VoiceLinkIcon.Alert)
 }

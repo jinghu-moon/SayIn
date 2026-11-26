@@ -32,7 +32,7 @@ impl InputAdapter for FakeInput {
         );
         target.display = Some(voicelink_receiver::application_icon::ApplicationDisplay {
             name: "Fixture Editor".into(),
-            icon_png: voicelink_receiver::application_icon::png(
+            icon_webp: voicelink_receiver::application_icon::webp(
                 &std::path::PathBuf::from(std::env::var("WINDIR").ok()?).join("explorer.exe"),
             ),
         });
@@ -278,6 +278,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let disposable = std::env::args().any(|arg| arg == "--native-target");
     let manual = std::env::args().any(|arg| arg == "--manual-native");
     let pause_probe = std::env::args().any(|arg| arg == "--pause-probe");
+    let upgrade_probe = std::env::args().any(|arg| arg == "--upgrade-probe");
     if manual && disposable {
         return Err("Choose exactly one native target mode".into());
     }
@@ -353,21 +354,49 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             180
         });
-    service
-        .open_pairing_with_lifetime(Duration::from_secs(lifetime))
-        .await?;
+    if !upgrade_probe {
+        service
+            .open_pairing_with_lifetime(Duration::from_secs(lifetime))
+            .await?;
+    }
     let snapshot = service.snapshot()?;
-    let window = snapshot.window.ok_or("pairing window missing")?;
+    let replacement_control = if std::env::args().any(|arg| arg == "--pair-replacement") {
+        Some(tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?)
+    } else {
+        None
+    };
+    let replacement_port = replacement_control
+        .as_ref()
+        .map(|listener| listener.local_addr())
+        .transpose()?
+        .map(|address| address.port());
+    let code = snapshot.window.map(|window| window.code.to_string());
+    if !upgrade_probe && code.is_none() {
+        return Err("pairing window missing".into());
+    }
+    let qr = if std::env::args().any(|arg| arg == "--qr-pairing") {
+        let code = code.clone().ok_or("pairing code missing")?;
+        let address = snapshot.address;
+        let invitation = tokio::task::spawn_blocking(move || {
+            voicelink_pairing::pair_code(address.ip(), address.port(), &code)
+        })
+        .await??;
+        Some(voicelink_pairing::encode(invitation.qr()?.as_bytes()))
+    } else {
+        None
+    };
     std::fs::write(
         output.join("fixture.json"),
         serde_json::to_vec(
-            &serde_json::json!({"address":snapshot.address.ip().to_string(),"port":snapshot.address.port(),"code":window.code.to_string()}),
+            &serde_json::json!({"address":snapshot.address.ip().to_string(),"port":snapshot.address.port(),"code":code,"qr":qr,"replacement_port":replacement_port}),
         )?,
     )?;
     println!("Isolated Android test fixture ready; native_child_target={native}.");
     let target = Uuid::new_v4().to_string();
     let until = std::time::Instant::now() + Duration::from_secs(lifetime);
-    let mut ready = false;
+    // An upgrade only authenticates and queries retained requests. Preserve the
+    // original target and unresolved gate instead of simulating local approval.
+    let mut ready = upgrade_probe;
     let mut paused_request: Option<String> = None;
     let mut pause_measurements = Vec::new();
     while std::time::Instant::now() < until {
@@ -378,6 +407,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let state = receiver.bind_target(target.clone()).await?;
             receiver.resume(state.state_rev, false).await?;
             ready = true;
+            if let Some(control) = replacement_control.as_ref() {
+                let devices = receiver.snapshot().await?.device_ids;
+                let old = devices.first().ok_or("missing initial pair")?;
+                service.open_pairing_replacing(old.clone()).await?;
+                let window = service
+                    .snapshot()?
+                    .window
+                    .ok_or("missing replacement invitation")?;
+                let listener = control;
+                if let Ok(Ok((mut client, _))) =
+                    tokio::time::timeout(Duration::from_secs(60), listener.accept()).await
+                {
+                    use tokio::io::AsyncWriteExt as _;
+                    client.write_all(window.code.as_bytes()).await?;
+                }
+            }
         }
         if pause_probe {
             if let Ok(request) = pause_events.try_recv() {

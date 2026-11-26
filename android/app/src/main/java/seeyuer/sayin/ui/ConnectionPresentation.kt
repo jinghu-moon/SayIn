@@ -28,5 +28,5 @@ internal val ClientState.connectionPresentation: ConnectionPresentation
 
 /** Retry is an explicit shortcut during backoff, never a second concurrent connection task. */
 internal val ClientState.showConnectionRetry: Boolean
-    get() = paired && storageHealthy && connection == Connection.OFFLINE && !discovering &&
+    get() = paired && !pairingRecoveryPending && !replacingPair && storageHealthy && connection == Connection.OFFLINE && !discovering &&
         issue != ClientIssue.LOCAL_NETWORK_PERMISSION

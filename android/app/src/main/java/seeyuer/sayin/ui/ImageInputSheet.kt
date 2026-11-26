@@ -204,7 +204,7 @@ internal fun ImageInputSheet(
                             onClick = onCancel, minHeight = 44.dp, colors = plainTextButtonColors())
                     }
                     else -> {
-                        val receipt = state.imageRequest?.let { id -> state.history.firstOrNull { it.id == id } }
+                        val receipt = state.history.firstOrNull { it.key == state.imageRequest }
                         val issue = state.imageIssue
                         when {
                             receipt != null && receipt.state == "injected" -> ImageStatus(

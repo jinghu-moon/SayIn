@@ -2,11 +2,13 @@ package seeyuer.sayin.data
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -43,7 +45,9 @@ class TransportInstrumentedTest {
             }
             waitFor { it.connection == Connection.OFFLINE }
             repository.foreground(true)
-            repository.pairCode("127.0.0.1", args.getString("fixturePort") ?: "17888", code!!)
+            val qr = args.getString("fixtureQr")
+            if (qr == null) repository.pairCode("127.0.0.1", args.getString("fixturePort") ?: "17888", code!!)
+            else repository.pairQr(decode(qr).toString(Charsets.US_ASCII))
             assertTrue(waitFor { it.ready }.autoTextSupported)
             val validScope = checkNotNull(repository.state.value.receptionScope)
             repository.send("stale scope must not enqueue", UUID.randomUUID().toString(), validScope.copy(target = "stale-target"))
@@ -60,25 +64,37 @@ class TransportInstrumentedTest {
                     delay(20)
                 }
             }
+            SQLiteDatabase.openDatabase(context.getDatabasePath("outbox.db").path, null, SQLiteDatabase.OPEN_READONLY).use { database ->
+                database.rawQuery("SELECT ciphertext FROM speaking_draft WHERE id=1", null).use { row ->
+                    assertTrue(row.moveToFirst())
+                    assertFalse(row.getBlob(0).toString(Charsets.UTF_8).contains("{ENTER}"))
+                }
+            }
+            val persistedDraft = checkNotNull(repository.loadSpeakingDraft())
+            assertEquals(draftId, persistedDraft.requestId)
+            assertEquals(validScope.hostId, persistedDraft.requestHostId)
+            assertEquals(validScope.pairId, persistedDraft.requestPairId)
+            assertEquals("中文 😀 {ENTER}", persistedDraft.requestText)
             val delivered = waitFor { state -> state.history.any { it.state == "injected" } }
             assertTrue(delivered.paired)
             assertEquals(draftId, delivered.savedDraft)
             assertEquals(1, delivered.history.size)
             assertNull(delivered.history.single().payload)
-            val id = delivered.history.single().id
+            val deliveredKey = delivered.history.single().key
+            val id = deliveredKey.id
             assertNotNull(delivered.history.single().transcript)
-            waitFor { it.historyText[id] == "中文 😀 {ENTER}" && it.historyApplications[id]?.name == "Fixture Editor" }
-            assertNotNull(repository.state.value.historyApplications[id]?.icon)
+            waitFor { it.historyText[deliveredKey] == "中文 😀 {ENTER}" && it.historyApplications[deliveredKey]?.name == "Fixture Editor" }
+            assertNotNull(repository.state.value.historyApplications[deliveredKey]?.icon)
             assertNotNull(repository.state.value.history.single().application)
             // Querying a terminal receipt must retain its original identity and
             // encrypted display text, without submitting another input attempt.
             repeat(2) {
-                repository.action(id, "query")
+                repository.action(deliveredKey, "query")
                 delay(200)
                 val queried = waitFor { it.ready && !it.recovering }
                 assertEquals(id, queried.history.single().id)
                 assertNull(queried.history.single().payload)
-                assertEquals("中文 😀 {ENTER}", queried.historyText[id])
+                assertEquals("中文 😀 {ENTER}", queried.historyText[deliveredKey])
             }
             val heldId = UUID.randomUUID().toString()
             repository.send("fixture: hold without input", heldId)
@@ -101,16 +117,43 @@ class TransportInstrumentedTest {
             waitFor { it.ready }
             repository.close()
             delay(250)
+            val pairingStore = ProtectedStore(context)
+            val established = PairedHost(checkNotNull(pairingStore.load()))
+            pairingStore.forget(established.hostId, established.pairId)
+            val rejected = JSONObject(established.json.toString())
+                .put("pair_id", UUID.randomUUID().toString())
+            pairingStore.saveCandidate(rejected)
             repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
-            waitFor { it.connection == Connection.OFFLINE }
+            assertEquals(heldId, repository.loadSpeakingDraft()?.requestId)
+            waitFor { it.connection == Connection.OFFLINE && it.pairingRecoveryPending }
+            repository.foreground(true)
+            withTimeout(15000) {
+                while (repository.state.value.connection != Connection.OFFLINE ||
+                    repository.state.value.pairingRecoveryPending) delay(20)
+            }
+            assertEquals(ClientIssue.INVALID_PAIRING, repository.state.value.issue)
+            assertFalse(repository.state.value.paired)
+            assertNull(pairingStore.loadCandidate())
+            repository.close()
+            delay(250)
+
+            // Recreate the disk state after the desktop committed approval but
+            // the phone never received paired. A normal pinned hello must
+            // promote exactly this credential and reconnect to its old Outbox.
+            pairingStore.saveCandidate(established.json)
+            repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
+            waitFor { it.connection == Connection.OFFLINE && it.pairingRecoveryPending }
+            assertFalse(repository.state.value.paired)
             repository.foreground(true)
             waitFor { it.ready }
+            assertNull(pairingStore.loadCandidate())
+            assertEquals(established.pairId, pairingStore.load()!!.getString("pair_id"))
             // Duplicate callbacks for the same saved draft must not allocate another request.
             repository.send("中文 😀 {ENTER}", draftId)
             delay(250)
             val restored = repository.state.value.history
-            assertEquals("Fixture Editor", repository.state.value.historyApplications[id]?.name)
-            assertNotNull(repository.state.value.historyApplications[id]?.icon)
+            assertEquals("Fixture Editor", repository.state.value.historyApplications[deliveredKey]?.name)
+            assertNotNull(repository.state.value.historyApplications[deliveredKey]?.icon)
             assertEquals(2, restored.size)
             assertEquals(id, restored.single { it.state == "injected" }.id)
             assertEquals(heldId, restored.single { it.state == "expired" }.id)
@@ -143,9 +186,10 @@ class TransportInstrumentedTest {
             assertFalse(repository.state.value.ready)
             assertEquals(3, repository.state.value.history.size)
             val uncertainId = repository.state.value.history.single { it.state == "uncertain" }.id
-            repository.action(uncertainId, "delete")
+            val uncertainKey = repository.state.value.history.single { it.id == uncertainId }.key
+            repository.action(uncertainKey, "delete")
             waitFor { it.history.single { row -> row.id == uncertainId }.historyHidden }
-            repository.action(uncertainId, "query")
+            repository.action(uncertainKey, "query")
             delay(250)
             assertTrue(repository.state.value.history.single { it.id == uncertainId }.historyHidden)
             assertEquals("outcome_review_required", repository.state.value.pauseReason)
@@ -154,8 +198,9 @@ class TransportInstrumentedTest {
                 val store = SpeakingDraftStore(context, "-v2-upgrade")
                 val body = "fixture draft"
                 val draft = SavedSpeakingDraft(UUID.randomUUID().toString(), body, 0, body.length)
-                store.save(draft)
-                assertEquals(draft, store.load())
+                val ciphertext = store.seal(draft, createKey = true)
+                java.io.File(context.noBackupFilesDir, "speaking-v2-upgrade.bin").writeBytes(ciphertext)
+                assertEquals(draft, store.open(checkNotNull(store.readLegacy())))
             }
             verified = true
         } finally {
@@ -169,3 +214,11 @@ class TransportInstrumentedTest {
         }
     }
 }
+
+internal fun VoiceLinkRepository.send(
+    text: String,
+    id: String,
+    scope: ReceptionScope? = state.value.receptionScope,
+) = send(SavedSpeakingDraft(id, text, 0, text.length,
+    requestId = id, requestText = text, requestState = "saved",
+    requestHostId = scope?.hostId, requestPairId = scope?.pairId), scope)

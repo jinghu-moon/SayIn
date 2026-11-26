@@ -27,6 +27,9 @@
     <string name="resume_input">恢复输入</string>
     <string name="pause_input">暂停输入</string>
     <string name="reconnect">重新连接</string>
+    <string name="connection_retry_pairing">重新检查配对结果</string>
+    <string name="connection_replace_pairing">更换配对</string>
+    <string name="connection_replace_help">在这台电脑的设备列表中，选择当前手机的「更换配对」，再扫描二维码或输入配对短码。</string>
     <string name="unpair_computer">取消配对</string>
     <string name="unpair_title">取消配对？</string>
     <string name="unpair_message">取消后需要重新配对才能连接这台电脑。电脑上的设备授权不会被撤销。</string>

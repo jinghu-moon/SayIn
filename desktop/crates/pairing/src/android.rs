@@ -5,6 +5,31 @@ use jni::{
 };
 use zeroize::Zeroizing;
 
+fn invitation_response<'local>(
+    env: &mut jni::Env<'local>,
+    result: super::Result<super::Invitation>,
+) -> jni::errors::Result<JString<'local>> {
+    let response = match result {
+        Ok(invitation) => serde_json::json!({"ok":true,"invitation":invitation}),
+        Err(error) => serde_json::json!({"ok":false,"code":error.to_string()}),
+    };
+    let text = Zeroizing::new(response.to_string());
+    JString::from_str(env, &*text)
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_seeyuer_sayin_pairing_NativePairing_parseQr<'caller>(
+    mut env: EnvUnowned<'caller>,
+    _this: JObject<'caller>,
+    value: JString<'caller>,
+) -> JString<'caller> {
+    env.with_env(|env| {
+        let text = Zeroizing::new(value.to_string());
+        invitation_response(env, super::Invitation::from_qr(&text))
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
 /// Public bionic API (<sys/system_properties.h>); no Java hidden APIs or shell.
 #[link(name = "c")]
 unsafe extern "C" {
@@ -86,12 +111,7 @@ pub extern "system" fn Java_seeyuer_sayin_pairing_NativePairing_pairCode<'caller
             let port = u16::try_from(port).map_err(|_| super::Error::Invalid)?;
             super::pair_code(address, port, &code)
         })();
-        let response = match result {
-            Ok(invitation) => serde_json::json!({"ok":true,"invitation":invitation}),
-            Err(error) => serde_json::json!({"ok":false,"code":error.to_string()}),
-        };
-        let text = Zeroizing::new(response.to_string());
-        JString::from_str(env, &*text)
+        invitation_response(env, result)
     })
     .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }

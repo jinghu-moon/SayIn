@@ -5,13 +5,10 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.snapshotFlow
 import seeyuer.sayin.data.AutoSendDestination
-import seeyuer.sayin.data.SpeakingDraftStore
 import seeyuer.sayin.quick.RecordingService
 import seeyuer.sayin.data.VoiceLinkRepository
 import seeyuer.sayin.data.autoSendDestination
@@ -32,18 +29,15 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
         speaking.draftRestoring = true
         val initialDraftId = speaking.draftId
         viewModelScope.launch {
-            val store = SpeakingDraftStore(application)
             try {
-                val saved = withContext(Dispatchers.IO) { store.load() }
+                val saved = repository.loadSpeakingDraft()
                 if (saved != null && speaking.draftId == initialDraftId) speaking.restore(saved)
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { speaking.draftStorageIssue = true; return@launch }
             finally { speaking.draftRestoring = false }
             snapshotFlow { speaking.savedState }.collectLatest { saved ->
                 delay(150)
-                try { withContext(Dispatchers.IO) { store.save(saved) }; speaking.draftStorageIssue = false }
-                catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                catch (_: Exception) { speaking.draftStorageIssue = true }
+                if (saved == speaking.savedState) repository.saveSpeakingDraft(saved)
             }
         }
     }
@@ -57,8 +51,7 @@ internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(a
     fun send(destination: AutoSendDestination? = null) {
         if (destination != null && destination != repository.state.value.autoSendDestination) return
         if (!speaking.markSubmitted()) return
-        val draft = checkNotNull(speaking.submitted)
-        repository.send(draft.value.text, draft.id, destination?.scope ?: speaking.receiver.receptionScope, destination)
+        repository.send(speaking.savedState, destination?.scope ?: speaking.receiver.receptionScope, destination)
     }
     override fun onCleared() { speaking.close(); repository.close() }
 }

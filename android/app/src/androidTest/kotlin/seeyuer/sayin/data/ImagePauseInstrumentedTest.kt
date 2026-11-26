@@ -56,10 +56,10 @@ class ImagePauseInstrumentedTest {
                     repository.sendImage(image.resourceId)
                     val inFlight = waitFor { it.imageBusy && it.imageProgress > 0 }
                     assertFalse(inFlight.imageSubmitted)
-                    val cancelledId = checkNotNull(inFlight.imageRequest)
+                    val cancelledKey = checkNotNull(inFlight.imageRequest)
                     val cancelStart = SystemClock.elapsedRealtimeNanos()
                     repository.cancelImage()
-                    waitFor { !it.imageBusy && it.history.any { row -> row.id == cancelledId && row.state == "cancelled" } }
+                    waitFor { !it.imageBusy && it.history.any { row -> row.key == cancelledKey && row.state == "cancelled" } }
                     cancelMs = (SystemClock.elapsedRealtimeNanos() - cancelStart) / 1e6
                     repository.foreground(false); waitFor { it.connection == Connection.OFFLINE }
                     repository.foreground(true)
@@ -78,7 +78,7 @@ class ImagePauseInstrumentedTest {
                 val paused = waitFor { it.paused }
                 val roundtrip = (SystemClock.elapsedRealtimeNanos() - started) / 1e6
                 assertFalse(paused.ready)
-                val cancelled = waitFor { !it.imageBusy && it.history.any { row -> row.id == oldRequest && row.state == "cancelled" } }
+                val cancelled = waitFor { !it.imageBusy && it.history.any { row -> row.key == oldRequest && row.state == "cancelled" } }
                 assertEquals(image, checkNotNull(cancelled.imageDraft).image)
                 assertTrue(cancelled.history.none { it.kind == "image" && it.state == "injected" })
                 // Reconnect queries old requests, retains the pause, and does
@@ -94,11 +94,11 @@ class ImagePauseInstrumentedTest {
                 assertArrayEquals(original.certificate.encoded, saved.certificate.encoded)
                 // This cancellation is only the fixture's cue to perform its
                 // next deliberate local resume, not a product remote resume.
-                repository.action(marker, "cancel")
+                repository.action(repository.state.value.history.single { it.id == marker }.key, "cancel")
                 waitFor { it.ready }
                 delay(250)
                 assertFalse(repository.state.value.imageBusy)
-                assertEquals("cancelled", repository.state.value.history.single { it.id == oldRequest }.state)
+                assertEquals("cancelled", repository.state.value.history.single { it.key == oldRequest }.state)
                 measurements.put(JSONObject().put("iteration", iteration + 1)
                     .put("normalized_bytes", image.metadata.bytes).put("bytes_acked_at_trigger", uploading.imageProgress)
                     .put("explicit_cancel_ms", cancelMs ?: JSONObject.NULL)

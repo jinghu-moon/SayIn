@@ -69,6 +69,8 @@ impl PairingWindow {
 pub struct PendingApproval {
     pub id: String,
     pub name: String,
+    pub source: IpAddr,
+    pub replaces: Option<String>,
 }
 #[derive(Clone)]
 #[non_exhaustive]
@@ -86,7 +88,14 @@ struct Pairing {
     invitation: Invitation,
     expires: Instant,
     attempts: u8,
-    approval: Option<(String, oneshot::Sender<bool>)>,
+    request: Option<PairingRequest>,
+    replaces: Option<String>,
+}
+struct PairingRequest {
+    id: String,
+    saved: bool,
+    decision: Option<oneshot::Sender<bool>>,
+    finished: watch::Sender<()>,
 }
 struct Shared {
     receiver: Receiver,
@@ -333,9 +342,26 @@ impl NetworkService {
             .await
     }
 
+    pub async fn open_pairing_replacing(&self, device: String) -> Result<()> {
+        let state = self.handle.shared.receiver.snapshot().await?;
+        if !state.device_ids.contains(&device) {
+            return Err(Error::Protocol("UNAUTHORIZED"));
+        }
+        self.open_pairing_window(Duration::from_secs(120), Some(device))
+            .await
+    }
+
     /// Test fixture entry point; product callers use the fixed 120 second window.
     #[doc(hidden)]
     pub async fn open_pairing_with_lifetime(&self, lifetime: Duration) -> Result<()> {
+        self.open_pairing_window(lifetime, None).await
+    }
+
+    async fn open_pairing_window(
+        &self,
+        lifetime: Duration,
+        replaces: Option<String>,
+    ) -> Result<()> {
         if *self.handle.stop.borrow() {
             return Err(Error::Protocol("SERVICE_UNAVAILABLE"));
         }
@@ -345,15 +371,23 @@ impl NetworkService {
         let code = voicelink_pairing::pairing_code()?;
         let secret = Zeroizing::new(random::<16>()?);
         let invitation = Invitation::new(
-            &info,
+            &info.host_id,
+            &shared.identity.tls_name,
             shared.address.ip(),
             shared.address.port(),
             &shared.identity.cert,
-            &*secret,
+            &secret,
         )?;
-        let qr = invitation.qr()?;
-        let qr_code = QrCode::with_error_correction_level(qr.as_bytes(), qrcode::EcLevel::M)
-            .map_err(|_| Error::Protocol("QR_CAPACITY"))?;
+        let qr = Zeroizing::new(invitation.qr()?);
+        let qr_code = QrCode::with_version(
+            qr.as_bytes(),
+            qrcode::Version::Normal(5),
+            qrcode::EcLevel::M,
+        )
+        .map_err(|_| Error::Protocol("QR_CAPACITY"))?;
+        if qr_code.version() != qrcode::Version::Normal(5) || qr_code.width() != 37 {
+            return Err(Error::Protocol("QR_CAPACITY"));
+        }
         let qr_modules = qr_code.width() as u32 + 8;
         let qr_svg = qr_code
             .render::<svg::Color>()
@@ -379,7 +413,8 @@ impl NetworkService {
             invitation,
             expires,
             attempts: 0,
-            approval: None,
+            request: None,
+            replaces,
         });
         {
             let mut snapshot = shared
@@ -403,18 +438,15 @@ impl NetworkService {
         if Instant::now() >= window.expires {
             return Err(Error::Protocol("PAIRING_EXPIRED"));
         }
-        let pending = window
-            .approval
-            .as_ref()
+        let decision = window
+            .request
+            .as_mut()
+            .filter(|request| request.saved && request.id == id)
+            .and_then(|request| request.decision.take())
             .ok_or(Error::Protocol("PAIRING_EXPIRED"))?;
-        if pending.0 != id {
-            return Err(Error::Protocol("PAIRING_EXPIRED"));
-        }
-        let (_, decision) = window
-            .approval
-            .take()
-            .ok_or(Error::Protocol("PAIRING_EXPIRED"))?;
-        let _ = decision.send(approved);
+        decision
+            .send(approved)
+            .map_err(|_| Error::Protocol("PAIRING_EXPIRED"))?;
         if let Ok(mut snapshot) = shared.snapshot.lock() {
             snapshot.approval = None;
         }
@@ -523,8 +555,8 @@ async fn bootstrap(shared: Arc<Shared>, stream: &mut TcpStream) -> Result<()> {
     }) {
         return Err(Error::Protocol("PAIRING_EXPIRED"));
     }
-    let plaintext = Zeroizing::new(serde_json::to_vec(&invitation)?);
-    let envelope = key.seal(&info, &plaintext)?;
+    let plaintext = invitation.to_bytes()?;
+    let envelope = key.seal(&info, &*plaintext)?;
     drop(pairing);
     write_frame(stream, &envelope).await
 }
@@ -617,28 +649,54 @@ async fn connection(
         .await;
     }
     if first.get("v").and_then(Value::as_u64) != Some(3) {
-        return Err(Error::Protocol("VERSION_MISMATCH"));
+        return send_handshake_error(&mut socket, "VERSION_MISMATCH").await;
     }
     if first.get("t").and_then(Value::as_str) == Some("pair") {
-        let result = pair(&shared, &mut socket, first).await;
-        if result.is_ok() {
-            shared.authenticated(peer.ip());
+        match pair(&shared, &mut socket, first, peer.ip()).await {
+            Ok(()) => shared.authenticated(peer.ip()),
+            Err(Error::Protocol("CONNECTION_CLOSED") | Error::WebSocket(_)) => {}
+            Err(error) => send_handshake_error(&mut socket, pairing_error_code(&error)).await?,
         }
-        return result;
+        return Ok(());
     }
     if first.get("t").and_then(Value::as_str) != Some("hello") {
-        return Err(Error::Protocol("AUTH_REQUIRED"));
+        return send_handshake_error(&mut socket, "UNSUPPORTED").await;
     }
     let device = field(&first, "pair_id")?.to_owned();
     let token = Zeroizing::new(decode(field(&first, "token")?)?);
     if token.len() != 32 {
-        return Err(Error::Protocol("UNAUTHORIZED"));
+        return send_handshake_error(&mut socket, "UNAUTHORIZED").await;
     }
     let name = field(&first, "name")?.to_owned();
-    let session = shared
+    // Approval can race with reconnect after the phone loses the final frame.
+    // Once a decision is taken, let that request settle before testing its token.
+    let finishing_pairing = {
+        let pairing = shared.pairing.lock().await;
+        pairing.as_ref().and_then(|window| {
+            window
+                .request
+                .as_ref()
+                .filter(|request| request.id == device && request.decision.is_none())
+                .map(|request| request.finished.subscribe())
+        })
+    };
+    if let Some(mut finished) = finishing_pairing
+        && timeout(Duration::from_secs(5), finished.changed())
+            .await
+            .is_err()
+    {
+        return send_handshake_error(&mut socket, "STORAGE_UNAVAILABLE").await;
+    }
+    let session = match shared
         .receiver
         .authenticate_named(device, token, name)
-        .await?;
+        .await
+    {
+        Ok(session) => session,
+        Err(error) => {
+            return send_handshake_error(&mut socket, pairing_error_code(&error.into())).await;
+        }
+    };
     shared.authenticated(peer.ip());
     drop(unauthenticated);
     let control_slot = shared
@@ -694,77 +752,189 @@ async fn send(socket: &mut Socket, value: &Value) -> Result<()> {
     })
     .await
 }
-async fn pair(shared: &Shared, socket: &mut Socket, value: Value) -> Result<()> {
+async fn send_handshake_error(socket: &mut Socket, code: &str) -> Result<()> {
+    send(socket, &json!({"v":3,"t":"err","code":code})).await
+}
+
+fn pairing_error_code(error: &Error) -> &'static str {
+    match error {
+        Error::Protocol(code) | Error::Receiver(voicelink_receiver::Error::Protocol(code)) => {
+            match *code {
+                "PAIRING_BUSY"
+                | "PAIR_REPLACE_BLOCKED"
+                | "UNAUTHORIZED"
+                | "STORAGE_UNAVAILABLE" => code,
+                "PAIRING_EXPIRED" => "TOO_LATE",
+                "PAIRING_CLOSED" | "PAIRING_REJECTED" => "UNAUTHORIZED",
+                "DEVICE_LIMIT" => "QUEUE_FULL",
+                _ => "INVALID_REQUEST",
+            }
+        }
+        Error::Pairing(_) | Error::Json(_) => "INVALID_REQUEST",
+        _ => "STORAGE_UNAVAILABLE",
+    }
+}
+
+async fn pair(shared: &Shared, socket: &mut Socket, value: Value, source: IpAddr) -> Result<()> {
     let name = field(&value, "name")?.to_owned();
-    if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
+    if name.trim().is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
         return Err(Error::Protocol("INVALID_NAME"));
     }
+    if value.get("session_id").is_some() {
+        return Err(Error::Protocol("BAD_MESSAGE"));
+    }
     let secret = Zeroizing::new(decode(field(&value, "secret")?)?);
-    let window_id = field(&value, "window_id")?.to_owned();
+    let replaces = match (value.get("replace_pair_id"), value.get("replace_token")) {
+        (None, None) => None,
+        (Some(_), Some(_)) => {
+            let predecessor = field(&value, "replace_pair_id")?.to_owned();
+            validate_uuid(&predecessor)?;
+            let proof = Zeroizing::new(decode(field(&value, "replace_token")?)?);
+            if proof.len() != 32 {
+                return Err(Error::Protocol("UNAUTHORIZED"));
+            }
+            Some((predecessor, proof))
+        }
+        _ => return Err(Error::Protocol("BAD_MESSAGE")),
+    };
     let id = Uuid::new_v4().to_string();
-    let decision = {
+    let token = Zeroizing::new(random::<32>()?.to_vec());
+    let (expires, mut decision) = {
         let mut pairing = shared.pairing.lock().await;
         let window = pairing.as_mut().ok_or(Error::Protocol("PAIRING_CLOSED"))?;
         // Compare the 128-bit grant without a content-dependent early return.
-        if Instant::now() >= window.expires
-            || window.info.window_id != window_id
-            || !constant_time_equal(&secret, &decode(&window.invitation.secret)?)
-            || window.approval.is_some()
-        {
+        if Instant::now() >= window.expires {
+            return Err(Error::Protocol("PAIRING_EXPIRED"));
+        }
+        if !constant_time_equal(&secret, &decode(&window.invitation.secret)?) {
             return Err(Error::Protocol("PAIRING_REJECTED"));
         }
+        if window.replaces.as_deref() != replaces.as_ref().map(|(pair, _)| pair.as_str()) {
+            return Err(Error::Protocol("UNAUTHORIZED"));
+        }
+        if window.request.is_some() {
+            return Err(Error::Protocol("PAIRING_BUSY"));
+        }
         let (sender, receiver) = oneshot::channel();
-        window.approval = Some((id.clone(), sender));
+        window.request = Some(PairingRequest {
+            id: id.clone(),
+            saved: false,
+            decision: Some(sender),
+            finished: watch::channel(()).0,
+        });
+        (tokio::time::Instant::from_std(window.expires), receiver)
+    };
+
+    let approved = async {
+        if let Some((old_pair, proof)) = &replaces {
+            shared
+                .receiver
+                .verify_pair_token(old_pair.clone(), proof.clone())
+                .await?;
+        }
+        send(
+            socket,
+            &json!({"v":3,"t":"pair_candidate","host_id":shared.identity.host_id,
+            "pair_id":id,"token":encode(&token)}),
+        )
+        .await?;
+        let saved = tokio::select! {
+            _ = &mut decision => return Err(Error::Protocol("PAIRING_EXPIRED")),
+            saved = tokio::time::timeout_at(expires, read_json(socket)) =>
+                saved.map_err(|_| Error::Protocol("PAIRING_EXPIRED"))??,
+        };
+        if saved.get("v").and_then(Value::as_u64) != Some(3)
+            || saved.get("t").and_then(Value::as_str) != Some("pair_saved")
+            || field(&saved, "pair_id")? != id
+            || saved.get("session_id").is_some()
+        {
+            return Err(Error::Protocol("BAD_MESSAGE"));
+        }
+        let mut pairing = shared.pairing.lock().await;
+        let request =
+            current_pairing_request(&mut pairing, &id).ok_or(Error::Protocol("PAIRING_EXPIRED"))?;
+        request.saved = true;
         if let Ok(mut snapshot) = shared.snapshot.lock() {
             snapshot.approval = Some(PendingApproval {
                 id: id.clone(),
                 name: name.clone(),
+                source,
+                replaces: replaces.as_ref().map(|(pair, _)| pair.clone()),
             });
         }
         shared.notify();
-        receiver
-    };
-    let approved = tokio::select! {
-        result=timeout(Duration::from_secs(120), decision)=>result.ok().and_then(std::result::Result::ok).unwrap_or(false),
-        // No post-request application message is valid until approval. Detect
-        // cancellation/close here so the desktop never approves a lost request.
-        _=socket.next()=>false,
-    };
-    if !approved {
-        let mut window = shared.pairing.lock().await;
-        if let Some(window) = window.as_mut().filter(|window| {
+        drop(pairing);
+        tokio::select! {
+            biased;
+            incoming = read_json(socket) => {
+                incoming?;
+                Err(Error::Protocol("BAD_MESSAGE"))
+            },
+            result = tokio::time::timeout_at(expires, decision) => match result {
+                Ok(Ok(true)) => Ok(()),
+                Ok(Ok(false)) => Err(Error::Protocol("PAIRING_REJECTED")),
+                _ => Err(Error::Protocol("PAIRING_EXPIRED")),
+            },
+        }
+    }
+    .await;
+
+    let mut pairing = shared.pairing.lock().await;
+    if let Err(error) = approved {
+        if let Some(window) = pairing.as_mut().filter(|window| {
             window
-                .approval
+                .request
                 .as_ref()
-                .is_some_and(|pending| pending.0 == id)
+                .is_some_and(|request| request.id == id)
         }) {
-            window.approval = None;
+            window.request = None;
             if let Ok(mut snapshot) = shared.snapshot.lock() {
                 snapshot.approval = None;
             }
             shared.notify();
         }
-        return Err(Error::Protocol("PAIRING_REJECTED"));
+        return Err(error);
     }
-    let mut pairing = shared.pairing.lock().await;
-    if !pairing
-        .as_ref()
-        .is_some_and(|window| window.info.window_id == window_id && Instant::now() < window.expires)
-    {
+    if current_pairing_request(&mut pairing, &id).is_none() {
         return Err(Error::Protocol("PAIRING_EXPIRED"));
     }
-    // Consume before awaiting persistence. Failure requires reopening pairing;
-    // a crash also loses the entire short-lived grant, so it cannot be replayed.
+    // Keep ownership through the durable transaction so a recovery hello
+    // observes its result. Consume the invitation even on a storage failure.
+    let provisioned = match replaces {
+        Some((old_pair, proof)) => {
+            shared
+                .receiver
+                .replace_pair_by_token(old_pair, proof, id.clone(), token, name)
+                .await
+        }
+        None => {
+            shared
+                .receiver
+                .provision_device(id.clone(), token, name)
+                .await
+        }
+    };
     *pairing = None;
     shared.clear_pairing_snapshot();
-    let device = Uuid::new_v4().to_string();
-    let token = Zeroizing::new(random::<32>()?);
-    shared
-        .receiver
-        .provision_device(device.clone(), Zeroizing::new(token.to_vec()), name)
-        .await?;
     drop(pairing);
-    send(socket,&json!({"v":3,"t":"paired","host_id":shared.identity.host_id,"pair_id":device,"token":encode(&*token)})).await
+    provisioned?;
+    send(
+        socket,
+        &json!({"v":3,"t":"paired","host_id":shared.identity.host_id,"pair_id":id}),
+    )
+    .await
+}
+
+fn current_pairing_request<'a>(
+    pairing: &'a mut Option<Pairing>,
+    id: &str,
+) -> Option<&'a mut PairingRequest> {
+    pairing
+        .as_mut()
+        .filter(|window| Instant::now() < window.expires)?
+        .request
+        .as_mut()
+        .filter(|request| request.id == id)
 }
 fn constant_time_equal(a: &[u8], b: &[u8]) -> bool {
     use subtle::ConstantTimeEq;
@@ -951,7 +1121,7 @@ async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt)
         server_ms: None,
         application: receipt.application.as_ref().map(|display| Application {
             name: display.name.clone(),
-            icon_webp: display.icon_png.as_ref().map(|icon| STANDARD.encode(icon)),
+            icon_webp: display.icon_webp.as_ref().map(|icon| STANDARD.encode(icon)),
         }),
         uncertain_scope: receipt.uncertain_scope,
     };

@@ -44,6 +44,7 @@ import seeyuer.sayin.asr.CloudSettings
 import seeyuer.sayin.asr.CloudSettingsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import seeyuer.sayin.data.OutboxKey
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
 import seeyuer.sayin.data.PhraseLibrary
@@ -70,7 +71,7 @@ internal fun VoiceLinkContent(
     session: SpeakSession,
     phrases: PhraseLibrary,
     onSend: () -> Unit,
-    onHistoryAction: (String, String) -> Unit,
+    onHistoryAction: (OutboxKey, String) -> Unit,
     connectionActions: @Composable () -> Unit,
     onReconnect: () -> Unit = {},
     cloudSettings: CloudSettings = viewModel(),
@@ -87,8 +88,8 @@ internal fun VoiceLinkContent(
     onCancelImage: () -> Unit = {},
     onClearImage: () -> Unit = {},
     loadDraftImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
-    loadHistoryImage: suspend (String, Int) -> android.graphics.Bitmap? = { _, _ -> null },
-    onHideHistory: (List<String>) -> Unit = {},
+    loadHistoryImage: suspend (OutboxKey, Int) -> android.graphics.Bitmap? = { _, _ -> null },
+    onHideHistory: (List<OutboxKey>) -> Unit = {},
     onCleanupHistory: (Long) -> Unit = {},
     autoRecordVersion: Int = 0,
 ) {

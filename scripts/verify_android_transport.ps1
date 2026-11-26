@@ -1,8 +1,11 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
     [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
-    [switch]$KeepUpgradeFixture)
+    [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
+if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
+if ($HotTargets -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing)) { throw 'HotTargets requires a fresh TransportOnly verification.' }
+if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets)) { throw 'PairReplacement requires a fresh TransportOnly verification.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -28,22 +31,28 @@ $log = Join-Path $targetDirectory "image-android-$testTag.log"
 $remoteApks = @()
 $process = $null
 $port = $null
+$replacementPort = $null
+$additionalFixtures = @()
 if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSuite)) { throw 'FullSuite/TransportOnly are mutually exclusive loopback regressions; use the image suite for LAN.' }
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
-$testClass = if ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' } else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
+$testClass = if ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
+    elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
+    elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' }
+    else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 172
+$expectedTextUiTests = 179
 $expectedImageTests = 4
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
-$expectedCalls = if ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+$expectedCalls = if ($HotTargets) { 0 } elseif ($PairReplacement) { 1 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
     if (!$leaseAcquired) { throw 'Another SayIn device verification is active; run serially.' }
     $activityState = (& $adb -s $DeviceSerial shell dumpsys activity) -join "`n"
     if ($LASTEXITCODE -ne 0 -or $activityState -match 'mRunningInstrumentation=InstrumentationRecord|Active instrumentation:') { throw 'Cannot obtain an idle instrumentation device.' }
     $policy = (& $adb -s $DeviceSerial shell dumpsys window policy) -join "`n"
-    if ($LASTEXITCODE -ne 0 -or ($policy -match '(?m)^\s*showing=true\r?$' -and $policy -match '(?m)^\s*secure=true\r?$')) { throw 'Unlock the selected phone before foreground UI verification.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the selected phone window policy.' }
+    if ($FullSuite -and $policy -match '(?m)^\s*showing=true\r?$' -and $policy -match '(?m)^\s*secure=true\r?$') { throw 'Unlock the selected phone before foreground UI verification.' }
     if ($UseExistingRootInstall) {
         $rootIdentity = & $adb -s $DeviceSerial shell su -c id
         if ($LASTEXITCODE -ne 0 -or $rootIdentity -notmatch 'uid=0\(root\)') { throw 'Existing Root authorization is required; no settings are changed.' }
@@ -74,7 +83,10 @@ try {
         Invoke-Checked { & $adb -s $DeviceSerial shell pm grant seeyuer.sayin.imagetest android.permission.RECORD_AUDIO }
     }
     $fixtureArguments = @("`"$fixtureDirectory`"", '--images', '--port=0', '--lifetime=7200', '--hold-retention-seconds=20')
+    if ($HotTargets) { $fixtureArguments[-1] = '--hold-retention-seconds=120' }
     if ($Lan) { $fixtureArguments += '--lan' }
+    if ($QrPairing) { $fixtureArguments += '--qr-pairing' }
+    if ($PairReplacement) { $fixtureArguments += '--pair-replacement' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     $fixturePath = Join-Path $fixtureDirectory 'fixture.json'
@@ -87,12 +99,40 @@ try {
     if ($port -le 1024 -or $port -gt 65535 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
     if (!$Lan) { Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$port" "tcp:$port" } }
     $arguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '120000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $port, '-e', 'fixtureAddress', $fixture.address)
+    if ($PairReplacement) {
+        $replacementPort = [int]$fixture.replacement_port
+        if ($replacementPort -le 1024 -or $replacementPort -gt 65535) { throw 'Invalid replacement fixture metadata.' }
+        Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$replacementPort" "tcp:$replacementPort" }
+        $arguments += @('-e', 'replacementControlPort', $replacementPort)
+    }
+    if ($HotTargets) {
+        foreach ($position in @('second', 'third')) {
+            $directory = Join-Path $fixtureDirectory $position
+            $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList @("`"$directory`"", '--port=0', '--lifetime=7200', '--hold-retention-seconds=120') -PassThru -WindowStyle Hidden); port = $null }
+            $additionalFixtures += $extra
+            $extraPath = Join-Path $directory 'fixture.json'
+            $deadline = [DateTime]::UtcNow.AddSeconds(10)
+            while (!(Test-Path -LiteralPath $extraPath)) {
+                if ($extra.process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Additional control fixture did not start.' }
+                Start-Sleep -Milliseconds 50
+            }
+            $endpoint = Get-Content -LiteralPath $extraPath -Raw | ConvertFrom-Json
+            $extra.port = [int]$endpoint.port
+            if ($extra.port -le 1024 -or $extra.port -gt 65535 -or $endpoint.code -notmatch '^\d{8}$') { throw 'Invalid additional fixture metadata.' }
+            Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$($extra.port)" "tcp:$($extra.port)" }
+            $arguments += @('-e', "${position}FixturePort", $extra.port, '-e', "${position}FixtureCode", $endpoint.code)
+        }
+    }
     if ($FullSuite) { $arguments += @('-e', 'notAnnotation', 'seeyuer.sayin.ui.RootHelperDeviceTest') }
     # Pairing invitations and active-device gates are single-use state. The
     # image data suite gets its own fresh desktop identity, not a reset gate.
-    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
     if ($KeepUpgradeFixture) { $arguments += @('-e', 'keepUpgradeFixture', 'true') }
+    if ($QrPairing) {
+        if ($fixture.qr -notmatch '^[A-Za-z0-9_-]{152}$') { throw 'Invalid QR fixture metadata.' }
+        $arguments += @('-e', 'fixtureQr', $fixture.qr)
+    }
     $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
     & $adb @arguments > $log 2>&1
     $instrumentExit = $LASTEXITCODE
@@ -103,6 +143,14 @@ try {
     Start-Sleep -Milliseconds 200
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
     if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
+    if ($HotTargets) {
+        for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
+            $directory = $additionalFixtures[$index].directory
+            $extraCalls = Get-Content -LiteralPath (Join-Path $directory 'calls.json') -Raw | ConvertFrom-Json
+            if ($extraCalls.fake_input_calls -ne (1 - $index)) { throw 'A control fixture received an unexpected input count.' }
+        }
+        $expectedCalls = 1
+    }
     if ($KeepUpgradeFixture -and $skippedTests -ne 0) { throw 'The upgrade fixture was not exercised.' }
     @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
@@ -119,6 +167,16 @@ try {
                 if (!$process.WaitForExit(5000)) { Stop-Process -Id $process.Id }
             }
             if ($port -and !$Lan) { & $adb -s $DeviceSerial reverse --remove "tcp:$port" 2>$null | Out-Null }
+            if ($replacementPort) { & $adb -s $DeviceSerial reverse --remove "tcp:$replacementPort" 2>$null | Out-Null }
+            foreach ($extra in $additionalFixtures) {
+                if (!$extra.process.HasExited) {
+                    Set-Content -LiteralPath (Join-Path $extra.directory 'stop') -Value '' -NoNewline
+                    if (!$extra.process.WaitForExit(5000)) { Stop-Process -Id $extra.process.Id }
+                }
+                if ($extra.port) { & $adb -s $DeviceSerial reverse --remove "tcp:$($extra.port)" 2>$null | Out-Null }
+                $extraPath = Join-Path $extra.directory 'fixture.json'
+                if (Test-Path -LiteralPath $extraPath) { Remove-Item -LiteralPath $extraPath }
+            }
             foreach ($remote in $remoteApks) { & $adb -s $DeviceSerial shell rm -f $remote | Out-Null }
             if (Test-Path -LiteralPath (Join-Path $fixtureDirectory 'fixture.json')) { Remove-Item -LiteralPath (Join-Path $fixtureDirectory 'fixture.json') }
         }

@@ -270,6 +270,7 @@ messages! {
     Approve => "approve", Reject => "reject",
 
     AuthorizedDevices => "authorized-devices", RevokeDevice => "revoke-device", RevokeHelp => "revoke-help",
+    ReplacePairing => "replace-pairing", ReplacingPairing => "replacing-pairing",
     ConfirmRevoke => "confirm-revoke", ActiveDevice => "active-device",
 }
 

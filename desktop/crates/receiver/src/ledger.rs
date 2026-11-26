@@ -913,12 +913,35 @@ impl Ledger {
         name: String,
     ) -> Result<()> {
         self.authorize(old)?;
+        self.replace_pair_rows(old.device(), new_pair, new_token, name)
+    }
+
+    /// The old token is rechecked inside the same ledger command as replacement.
+    pub fn replace_pair_by_token(
+        &mut self,
+        old_pair: &str,
+        old_token: &[u8],
+        new_pair: &str,
+        new_token: &[u8],
+        name: String,
+    ) -> Result<()> {
+        self.verify_pair_token(old_pair, old_token)?;
+        self.replace_pair_rows(old_pair, new_pair, new_token, name)
+    }
+
+    fn replace_pair_rows(
+        &mut self,
+        old_pair: &str,
+        new_pair: &str,
+        new_token: &[u8],
+        name: String,
+    ) -> Result<()> {
         let digest = self.pair_token_digest(new_pair, new_token, &name)?;
         let tx = self.database.transaction()?;
         let pending: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM receipts
              WHERE pair_id=?1 AND state IN ('accepted','held','executing','uncertain'))",
-            [old.device()],
+            [old_pair],
             |row| row.get(0),
         )?;
         if pending {
@@ -936,9 +959,9 @@ impl Ledger {
              WHERE pair_id=?2 AND state IN ('injected','failed','cancelled','expired','uncertain_acknowledged')
              UNION ALL
              SELECT ?1,id,source_order FROM transferred_receipts WHERE pair_id=?2",
-            params![new_pair, old.device()],
+            params![new_pair, old_pair],
         )?;
-        tx.execute("UPDATE pairs SET revoked=1 WHERE id=?1", [old.device()])?;
+        tx.execute("UPDATE pairs SET revoked=1 WHERE id=?1", [old_pair])?;
         tx.execute(
             "UPDATE control SET
                 active_device=CASE WHEN active_device=?2 THEN ?1 ELSE active_device END,
@@ -946,12 +969,12 @@ impl Ledger {
                 pause_reason=CASE WHEN active_device=?2 THEN COALESCE(pause_reason,'startup') ELSE pause_reason END,
                 target=CASE WHEN active_device=?2 THEN NULL ELSE target END,
                 rev=rev+1",
-            params![new_pair, old.device()],
+            params![new_pair, old_pair],
         )?;
         tx.commit()?;
-        self.invalidate_device_images(old.device());
-        self.sessions.remove(old.device());
-        self.rates.remove(old.device());
+        self.invalidate_device_images(old_pair);
+        self.sessions.remove(old_pair);
+        self.rates.remove(old_pair);
         Ok(())
     }
 
@@ -966,7 +989,7 @@ impl Ledger {
         Ok(self.mac(b"device-token", token))
     }
 
-    pub fn authenticate(&mut self, device: &str, token: &[u8]) -> Result<Session> {
+    pub fn verify_pair_token(&self, device: &str, token: &[u8]) -> Result<()> {
         validate_uuid(device)?;
         let digest: Option<Vec<u8>> = self
             .database
@@ -982,6 +1005,11 @@ impl Ledger {
         {
             return Err(Error::Protocol("UNAUTHORIZED"));
         }
+        Ok(())
+    }
+
+    pub fn authenticate(&mut self, device: &str, token: &[u8]) -> Result<Session> {
+        self.verify_pair_token(device, token)?;
         self.invalidate_device_images(device);
         let id = Uuid::new_v4().to_string();
         self.sessions.insert(device.to_owned(), id.clone());

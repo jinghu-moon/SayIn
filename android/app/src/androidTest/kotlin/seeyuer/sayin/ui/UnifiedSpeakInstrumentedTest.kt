@@ -295,6 +295,33 @@ class UnifiedSpeakInstrumentedTest {
         }
     }
 
+    @Test fun anotherComputerCanEditAndSendWhileThePriorReceiptIsPending() {
+        mount(TextFieldValue("first draft"))
+        val a = PairedTarget(java.util.UUID.randomUUID().toString(), java.util.UUID.randomUUID().toString(), "127.0.0.1", 7788)
+        val b = PairedTarget(java.util.UUID.randomUUID().toString(), java.util.UUID.randomUUID().toString(), "127.0.0.1", 7789)
+        compose.runOnIdle {
+            val first = ready().copy(pairedTargets = listOf(a, b), selectedHostId = a.hostId)
+            session.updateReceiver(first)
+            assertTrue(session.markSubmitted())
+            val original = session.draftId
+            val held = OutboxItem(original, a.hostId, a.pairId, "target", byteArrayOf(1), 1,
+                "held", "1", null, 1)
+            session.updateReceiver(first.copy(history = listOf(held)))
+            val second = first.copy(selectedHostId = b.hostId, port = b.port, connectionEpoch = 2)
+            session.updateReceiver(second.copy(history = listOf(held)))
+            assertFalse(session.requestLocked)
+            assertNotEquals(original, session.draftId)
+            session.changeDraft(TextFieldValue("second draft"))
+            assertTrue(session.markSubmitted())
+            val secondId = session.draftId
+            session.updateReceiver(second.copy(history = listOf(held.copy(state = "injected"), held.copy(id = secondId, state = "injected"))))
+            assertEquals("second draft", session.draft.text)
+            assertEquals("saved", session.submitted?.state)
+            session.updateReceiver(second.copy(history = listOf(held.copy(id = secondId, hostId = b.hostId, deviceId = b.pairId, state = "injected"))))
+            assertEquals("", session.draft.text)
+        }
+    }
+
     @Test fun entireUtteranceUndoRedoAndCancellationIgnoreLateFinal() {
         val original = TextFieldValue("Keep: ", TextRange(6))
         mount(original); listen("partial")

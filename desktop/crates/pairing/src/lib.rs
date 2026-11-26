@@ -16,9 +16,11 @@ use std::{
 };
 use zeroize::Zeroizing;
 
-pub const MAGIC: &[u8; 6] = b"VLCP2\n";
+pub const MAGIC: &[u8; 6] = b"VLCP3\n";
 pub const MAX_BOOTSTRAP_BYTES: usize = 8192;
-const DOMAIN: &[u8] = b"VoiceLink/v2/code-pairing/CPace-draft06/Ristretto255/SHA512";
+const DOMAIN: &[u8] = b"SayIn/v3/code-pairing/CPace-draft06/Ristretto255/SHA512";
+mod compact;
+pub use compact::Invitation;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -83,94 +85,19 @@ pub struct BootstrapInfo {
 impl BootstrapInfo {
     pub fn new(host_id: String, window_id: String) -> Self {
         Self {
-            v: 2,
+            v: 3,
             host_id,
             window_id,
         }
     }
     fn validate(&self) -> Result<()> {
-        if self.v != 2 {
+        if self.v != 3 {
             return Err(Error::Invalid);
         }
         for value in [&self.host_id, &self.window_id] {
-            let id = uuid::Uuid::parse_str(value).map_err(|_| Error::Invalid)?;
-            if id.get_version_num() != 4
-                || id.get_variant() != uuid::Variant::RFC4122
-                || id.to_string() != *value
-            {
-                return Err(Error::Invalid);
-            }
+            compact::parse_uuid(value)?;
         }
         Ok(())
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[non_exhaustive]
-pub struct Invitation {
-    pub v: u8,
-    pub host_id: String,
-    pub tls_name: String,
-    pub address: IpAddr,
-    pub port: u16,
-    pub cert: String,
-    pub sha256: String,
-    pub window_id: String,
-    pub secret: String,
-}
-impl Invitation {
-    pub fn new(
-        info: &BootstrapInfo,
-        address: IpAddr,
-        port: u16,
-        cert: &[u8],
-        secret: &[u8],
-    ) -> Result<Self> {
-        let invitation = Self {
-            v: 2,
-            host_id: info.host_id.clone(),
-            tls_name: format!("vl-{}.local", info.host_id),
-            address,
-            port,
-            cert: encode(cert),
-            sha256: fingerprint(cert),
-            window_id: info.window_id.clone(),
-            secret: encode(secret),
-        };
-        invitation.validate()?;
-        Ok(invitation)
-    }
-    pub fn validate(&self) -> Result<()> {
-        BootstrapInfo::new(self.host_id.clone(), self.window_id.clone()).validate()?;
-        if self.v != 2
-            || self.port == 0
-            || self.tls_name != format!("vl-{}.local", self.host_id)
-            || self.address.is_unspecified()
-            || self.address.is_multicast()
-            || decode(&self.secret)?.len() != 16
-        {
-            return Err(Error::Invalid);
-        }
-        let cert = decode(&self.cert)?;
-        if cert.is_empty() || cert.len() > 4096 || fingerprint(&cert) != self.sha256 {
-            return Err(Error::Invalid);
-        }
-        Ok(())
-    }
-    pub fn qr(&self) -> Result<String> {
-        self.validate()?;
-        Ok(format!(
-            "voicelink://pair/{}",
-            encode(&serde_json::to_vec(self)?)
-        ))
-    }
-    pub fn from_qr(value: &str) -> Result<Self> {
-        let value = value
-            .strip_prefix("voicelink://pair/")
-            .ok_or(Error::Invalid)?;
-        let invitation: Self = serde_json::from_slice(&decode(value)?)?;
-        invitation.validate()?;
-        Ok(invitation)
     }
 }
 
@@ -360,9 +287,8 @@ pub fn pair_code(address: IpAddr, port: u16, code: &str) -> Result<Invitation> {
     write_frame(&mut stream, &own_tag)?;
     let ciphertext = read_frame(&mut stream)?;
     let plaintext = key.open(&info, &ciphertext)?;
-    let mut invitation: Invitation = serde_json::from_slice(&plaintext)?;
-    invitation.validate()?;
-    if invitation.host_id != info.host_id || invitation.window_id != info.window_id {
+    let mut invitation = Invitation::from_bytes(&plaintext)?;
+    if invitation.host_id != info.host_id || invitation.port != port {
         return Err(Error::Authentication);
     }
     // Route to the IP the user selected; authenticated host identity stays fixed.
@@ -423,22 +349,22 @@ mod tests {
     #[test]
     fn qr_roundtrip_fingerprint_and_input_bounds() {
         let invitation = Invitation::new(
-            &info(),
+            &info().host_id,
+            "vl-12345678-1234-4234-8234-123456789012.local",
             "127.0.0.1".parse().unwrap(),
             7788,
             b"certificate",
             &[1; 16],
         )
         .unwrap();
+        let qr = invitation.qr().unwrap();
+        assert_eq!(qr.len(), 114);
+        assert!(qr.starts_with("SAYIN3:"));
         assert_eq!(
-            Invitation::from_qr(&invitation.qr().unwrap())
-                .unwrap()
-                .host_id,
-            invitation.host_id
+            Invitation::from_qr(&qr).unwrap().to_bytes().unwrap(),
+            invitation.to_bytes().unwrap()
         );
-        let mut bad = invitation;
-        bad.cert = encode(b"other");
-        assert!(bad.validate().is_err());
+        assert_eq!(invitation.sha256, fingerprint(b"certificate"));
         assert!(Initiator::start(&info(), "1234").is_err());
         assert!(read_frame(&mut &u32::MAX.to_be_bytes()[..]).is_err());
         for _ in 0..20 {
