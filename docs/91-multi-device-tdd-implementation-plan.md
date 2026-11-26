@@ -646,3 +646,23 @@ K40 隔离 APK 保持正式 Repository、Room、Keystore 与双 WSS 路径，Win
 - Rust 199 项和 Android JVM 247 项通过，Clippy、包级 rustfmt、i18n、桌面依赖检查、Android lint 与 Debug 构建通过。K40 隔离全套通过文字/UI 170 项、图片 4 项，另有 10 项条件跳过。文字与图片的证据目录后缀分别为 `4754279a-a70b-40ca-945c-7f0ef1115dfb` 和 `0778f04f-6d7d-4fc5-91cb-2ef3db5e850c`。
 - K40 以当前 v3 发现夹具分别复验真实 LAN 路由恢复与撤销。两组各有一次初始假输入，路由迁移保留暂停，撤销后的旧配对保持拒绝，零重放。证据目录为 `discovery-fixture-0944ba63-1ecf-49a1-9d5b-6f76d39826bd` 和 `discovery-fixture-3b281900-f321-44a2-83f7-1e04e7698088`。重建前旧夹具在协议阶段失败，日志位于 `discovery-fixture-ad674710-7777-4dea-9155-49f6ffbea757`。
 - API 29 独立 x86_64 模拟器使用 `sayin.emulatorTests=true` 的隔离 APK，最低系统的 TLS 1.3 能力门禁通过，证据为 `android-platform-api29-08fbf481-8700-443d-ab06-a35739db8178`。
+- API 37 x86_64 Google APIs 镜像已启动。SwiftShader、主机 GPU、软件渲染禁用 GLDMA 和 ANGLE 均未能完成 APK 安装。模拟器进程日志和设备崩溃日志显示 `SurfaceFlinger` 在 `hasReadColorBufferDma` 断言中退出，非流式安装亦出现包管理服务断开。权限用例未执行。日志保留在 `desktop/target/v3-api37-*-crash.log`，测试 AVD 已关闭。
+
+#### M1–M28 证据索引
+
+Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-cargo-test.log`。K40 设备证据来自本节各次隔离测试。验收编号与完整断言见 [89 §4](89-multi-device-verification.md#4-多设备与竞态)。
+
+| 编号 | 已有证据 | 仍缺的验收 |
+| --- | --- | --- |
+| M1 | K40 三桌面身份切换及单对单 LAN。 | 真实 2×2 暂缓。 |
+| M2、M3 | `HotTargetsInstrumentedTest` 复用 UUID 发往不同身份。账本及双 WSS 测试验证旧会话和旧上传绑定失效。 | 同一桌面多手机的同 UUID 查询隔离与完整迟到时序实测。 |
+| M4–M6 | `scheduler_orders_authenticated_pair_heads_and_skips_a_held_pair`、`target_uncertainty_holds_only_the_same_execution_window_across_pairs` 及全局副作用、部分输入的账本和 worker 测试。 | 多手机、多个原生目标窗口的执行与核对。 |
+| M7、M8 | 账本配额、撤销、取消预检和部分输入闸门测试。K40 真实 LAN 撤销后旧凭据保持拒绝。 | 八台并发连接及撤销与各原生输入阶段的竞态。 |
+| M9、M10 | `newer_pause_fences_resume_queued_behind_a_blocked_accept_commit`，K40 100 次上传暂停与重连，三目标待核对回环测试。 | 三个物理桌面目标的热连接数和收尾上界。 |
+| M11–M13 | Android 配对策略回归、桌面单待批准槽，以及 K40 三目标同 UUID 与跨目标回执回归。 | 两台物理手机同时申请，及真实跨目标迟到回执对编辑中草稿的影响。 |
+| M14、M15 | 账本执行期限与队首测试，`two_distinct_pairs_can_hold_image_slots_in_the_same_scope`。K40 顺序多图及损坏项停止。 | 原生图片后接文字的期限，以及图片槽公平性 100 次采样。 |
+| M16、M17 | TLS 撤销回归、短码拒绝和账本请求限速。K40 移动路由后旧凭据未恢复连接。 | 撤销期间其他配对继续工作，以及共享 NAT 来源洪泛下的桶独立性。 |
+| M18、M19 | Rust 完整帧 8,192/8,193 字节、超长应用名、修订字符串、状态单调与并发写入回归。 | 在真实连接上重放旧修订并完成端到端边界检查。 |
+| M20、M21 | K40 主动重配回环测试、Rust 替换配对迁移、重启和 `held` 期限回归。 | 真实 LAN 多配对重配与未决请求并发。 |
+| M22–M24 | Rust 查询缺失向量、账本保留期、恢复及顺序。K40 等待 `hold_expired` 与手机恢复回归。 | 完整的缺失查询后显式重试、暂停期间三条和长保留期到点重配联测。 |
+| M25–M28 | K40 原地迁移、Rust 多不确定性审核和帧预算、Rust 黄金组合与 Android 回执展示矩阵。 | 完整旧 `held` 端到端展示、多设备核对，以及完整回执跨语言逐字节比较。 |
