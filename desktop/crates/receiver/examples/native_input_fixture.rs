@@ -26,7 +26,10 @@ use windows::{
             Ole::CF_UNICODETEXT,
         },
         UI::{
-            Controls::EM_SETSEL,
+            Controls::{
+                EM_SETSEL,
+                RichEdit::{EM_GETTEXTEX, GETTEXTEX, GT_RAWTEXT},
+            },
             Input::KeyboardAndMouse::{GetFocus, SetFocus},
             WindowsAndMessaging::*,
         },
@@ -173,6 +176,7 @@ fn edit_target(
     directory: &Path,
     is_image: bool,
     batch: bool,
+    count_objects: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: This process creates, focuses, pumps and destroys only its own
     // disposable EDIT. The parent validates its HWND and PID before injection.
@@ -284,26 +288,47 @@ fn edit_target(
             let mut buffer = [0u16; 256];
             let length = GetWindowTextW(hwnd, &mut buffer).max(0) as usize;
             let text = String::from_utf16_lossy(&buffer[..length]);
-            let pictures = if is_image && !recorded && length == ORIGINAL.len() + 1 {
-                pictures_in(hwnd)?
+            let pictures =
+                if is_image && !count_objects && !recorded && length == ORIGINAL.len() + 1 {
+                    pictures_in(hwnd)?
+                } else {
+                    PictureCounter::default()
+                };
+            let picture_count = if count_objects && length == ORIGINAL.len() + 1 {
+                let mut raw = [0u16; 256];
+                let request = GETTEXTEX {
+                    cb: size_of_val(&raw) as u32,
+                    flags: GT_RAWTEXT,
+                    codepage: 1200,
+                    ..Default::default()
+                };
+                let copied = SendMessageW(
+                    hwnd,
+                    EM_GETTEXTEX,
+                    Some(WPARAM((&raw const request) as usize)),
+                    Some(LPARAM(raw.as_mut_ptr() as isize)),
+                );
+                usize::from(copied.0 == length as isize && raw[length - 1] == 0xfffc)
             } else {
-                PictureCounter::default()
+                pictures.count
             };
             if !recorded
                 && (if is_image {
-                    pictures.count == 1 && length == ORIGINAL.len() + 1
+                    picture_count == 1 && text == format!("{ORIGINAL} ")
                 } else {
                     text == format!("{ORIGINAL}{TEXT}")
                 })
             {
                 if is_image {
                     observed_images += 1;
-                    picture_widths.push(pictures.first_picture_width());
+                    if !count_objects {
+                        picture_widths.push(pictures.first_picture_width());
+                    }
                 }
                 std::fs::write(
                     directory.join("observed.json"),
                     serde_json::to_vec(
-                        &serde_json::json!({"text":text,"pictures":pictures.count,"observed_images":observed_images,"picture_widths_twips":picture_widths,"pid":std::process::id()}),
+                        &serde_json::json!({"text":text,"pictures":picture_count,"observed_images":observed_images,"picture_widths_twips":picture_widths,"pid":std::process::id()}),
                     )?,
                 )?;
                 recorded = true;
@@ -329,6 +354,7 @@ fn edit_target(
                 "length":length,
                 "pictures":if is_image { pictures_in(hwnd)?.count } else { 0 },
                 "observed_images":observed_images,
+                "observation": if count_objects { "rich_edit_raw_text" } else { "rtf" },
                 "picture_widths_twips":picture_widths,
             }))?,
         )?;
@@ -684,6 +710,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Path::new(&arguments[2]),
             arguments.get(3).is_some_and(|arg| arg == "--image"),
             arguments.iter().any(|arg| arg == "--batch"),
+            arguments.iter().any(|arg| arg == "--count-objects"),
         );
     }
     let directory = std::env::temp_dir().join(format!("voicelink-real-edit-{}", Uuid::new_v4()));

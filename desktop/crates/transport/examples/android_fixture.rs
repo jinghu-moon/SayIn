@@ -182,16 +182,23 @@ struct DisposableTarget {
     child: std::sync::Mutex<std::process::Child>,
 }
 impl DisposableTarget {
-    fn start(directory: PathBuf) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
+    fn start(
+        directory: PathBuf,
+        count_objects: bool,
+    ) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
         std::fs::create_dir(&directory)?;
-        let child = std::process::Command::new(
+        let mut command = std::process::Command::new(
             std::env::current_exe()?.with_file_name("native_input_fixture.exe"),
-        )
-        .arg("--edit-target")
-        .arg(&directory)
-        .args(["--image", "--batch"])
-        .stderr(std::fs::File::create(directory.join("stderr.log"))?)
-        .spawn()?;
+        );
+        command
+            .arg("--edit-target")
+            .arg(&directory)
+            .args(["--image", "--batch"])
+            .stderr(std::fs::File::create(directory.join("stderr.log"))?);
+        if count_objects {
+            command.arg("--count-objects");
+        }
+        let child = command.spawn()?;
         let pid = child.id();
         let mut target = Self {
             directory,
@@ -349,7 +356,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (pause_sender, pause_events) = std::sync::mpsc::sync_channel(1);
     let target = if disposable {
-        Some(DisposableTarget::start(output.join("target"))?)
+        Some(DisposableTarget::start(output.join("target"), benchmark)?)
     } else {
         None
     };

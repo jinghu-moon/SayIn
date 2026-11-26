@@ -144,7 +144,7 @@ try {
             if (!$targetProcess.WaitForExit(10000)) { throw 'Disposable RichEdit did not stop.' }
         }
         $final = Get-Content (Join-Path $directory 'target/final.json') -Raw | ConvertFrom-Json
-        if ($final.observed_images -ne $expected -or $final.pictures -ne 0 -or $final.text -ne 'existing|') { throw 'Disposable RichEdit did not verify every single paste without Enter' }
+        if ($final.observation -ne 'rich_edit_raw_text' -or $final.observed_images -ne $expected -or $final.pictures -ne 0 -or $final.text -ne 'existing|') { throw 'Disposable RichEdit did not verify every single paste without Enter' }
         $afterClock = Measure-PhoneClock
         $frequency = [Diagnostics.Stopwatch]::Frequency
         $drift = ([Diagnostics.Stopwatch]::GetTimestamp() - $clockStart) * (1e9 / $frequency) * 0.0001
@@ -182,7 +182,7 @@ try {
         @{ clock_width_ms = ($upper - $lower) / 1e6; measurements = @($segments) } |
             ConvertTo-Json -Depth 4 | Set-Content (Join-Path $directory 'segments.json') -Encoding utf8
     }
-    $scope = if ($PauseProbe) { 'Production LAN Repository / dual WSS, zero-input pause and reconnect scenario; text marker causes fixture-emulated local pause, explicit marker cancellation cues fixture-emulated local resume' } else { 'Native mode includes test-only RichEdit RTF acknowledgement latency; fake mode excludes native input' }
+    $scope = if ($PauseProbe) { 'Production LAN Repository / dual WSS, zero-input pause and reconnect scenario; text marker causes fixture-emulated local pause, explicit marker cancellation cues fixture-emulated local resume' } else { 'Native mode confirms a new embedded-object marker in RichEdit before returning the input outcome; fake mode excludes native input' }
     if ($proxy) {
         Set-Content (Join-Path $proxyDirectory 'stop') -Value '' -NoNewline
         if (!$proxy.WaitForExit(10000) -or $proxy.ExitCode -ne 0) { throw 'Relay did not stop cleanly' }
