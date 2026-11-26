@@ -49,3 +49,13 @@ XITN-047	两百块	200块	MUST_CHANGE	两等于2
 XITN-048	三千五	三千五	MUST_KEEP	口语缩写保守保留
 XITN-049	九百九十九	999	MUST_CHANGE	裸数字
 XITN-050	一千万	10000000	MUST_CHANGE	千万级
+XITN-051	验证码是七	验证码是7	MUST_CHANGE	标识上下文单数字
+XITN-052	房间号五	房间号5	MUST_CHANGE	标识上下文单数字
+XITN-053	尾号是九	尾号是9	MUST_CHANGE	标识上下文单数字
+XITN-054	密码是二五零八	密码是2508	MUST_CHANGE	标识上下文逐位
+XITN-055	编号十二	编号12	MUST_CHANGE	标识上下文数值
+XITN-056	工号一千零五	工号1005	MUST_CHANGE	标识上下文数值
+XITN-057	账号幺二三四	账号1234	MUST_CHANGE	标识上下文幺
+XITN-058	密码是三个人	密码是三个人	MUST_KEEP	标识上下文不误伤
+XITN-059	编号第一	编号第一	MUST_KEEP	序数不转
+XITN-060	手机号是幺三八零零一三八零零零	手机号是13800138000	MUST_CHANGE	手机号

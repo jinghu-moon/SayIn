@@ -54,10 +54,20 @@ internal object LocalItn {
     // Long digit strings such as 幺二三四… / 六八二九四一.
     private val digitRun = Regex("(?<![${CN}${MAGNITUDE}点])$DIGIT_RUN(?![${CN}${MAGNITUDE}点])")
 
+    // A strong identifier context overrides the conservative single-digit policy:
+    // 验证码是七 -> 验证码是7, 房间号五 -> 房间号5.
+    private val identifierContext = Regex(
+        "((?:验证码|密码|房间号|编号|序号|尾号|工号|订单号|账号|手机号|电话号码|门牌号|车牌号|身份证号|卡号|单号|批次号|学号|座位号|航班号|发票号|合同号|会员号)(?:是|为|：|:)?[ \\t]*)($CN_NUMERAL)(?![$CN$MAGNITUDE])(?=[^\\p{IsHan}]|$)",
+    )
+
     fun normalize(text: String): String = ProtectedText.mapOutside(text, protected) { normalizeProse(it) }
 
     private fun normalizeProse(text: String): String {
-        val withYear = year.replace(text) {
+        val withIdentifiers = identifierContext.replace(text) { match ->
+            val digits = identifierDigits(match.groupValues[2]) ?: return@replace match.value
+            match.groupValues[1] + digits
+        }
+        val withYear = year.replace(withIdentifiers) {
             val raw = it.groupValues[1]
             val value = when {
                 raw == "两千" -> "2000"
@@ -187,6 +197,29 @@ internal object LocalItn {
         '五' to 5L, '六' to 6L, '七' to 7L, '八' to 8L, '九' to 9L,
     )
 
+    /**
+     * Numerals inside an identifier are read digit by digit (leading zeros preserved) unless they
+     * contain a magnitude unit, in which case the numeric value is used.
+     */
+    private fun identifierDigits(raw: String): String? {
+        if (raw.isEmpty()) return null
+        if (raw.any { it in MAGNITUDE }) return parseNumeral(raw)?.toString()
+        if (raw.length == 1) return when (raw[0]) {
+            '幺' -> "1"
+            else -> DIGIT_VALUE[raw[0]]?.toString()
+        }
+        return buildString {
+            for (char in raw) {
+                val value = when (char) {
+                    '幺' -> 1
+                    '〇' -> 0
+                    else -> DIGIT_VALUE[char]?.toInt() ?: return null
+                }
+                append(value)
+            }
+        }
+    }
+
     /** Parses a Chinese numeral up to 亿. Returns null for malformed or colloquial forms. */
     private fun parseNumeral(raw: String): Long? {
         if (raw.isEmpty()) return null
@@ -239,6 +272,8 @@ internal object LocalItn {
         "小时|分钟|厘米|毫米|公里|公斤|毫升|个|人|位|名|家|岁|天|元|块|毛|角|度|米|斤|克|升|秒|次|倍|折|吨|页|行|本|份|张|台|部|只|头|条|件|瓶|杯|盘|辆|字"
     private const val UNITS = "(?:$UNIT_ALTERNATION)"
 }
+
+
 
 
 

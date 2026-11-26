@@ -19,3 +19,6 @@ XPIPE-017	七上八下。	七上八下。	MUST_KEEP	成语
 XPIPE-018	1,000元的预算。	1,000元的预算。	MUST_KEEP	千分位
 XPIPE-019	我用 3 个 GPU 跑模型。	我用3个GPU跑模型。	MUST_CHANGE	中英空格
 XPIPE-020	十万火急，马上出发！	十万火急，马上出发！	MUST_KEEP	成语
+XPIPE-021	验证码是七，房间号五。	验证码是7，房间号5。	MUST_CHANGE	标识上下文
+XPIPE-022	密码是三个人。	密码是三个人。	MUST_KEEP	标识上下文不误伤
+XPIPE-023	订单号是二零二五幺零零一。	订单号是20251001。	MUST_CHANGE	订单号
