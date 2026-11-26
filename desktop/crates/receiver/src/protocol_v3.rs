@@ -332,6 +332,7 @@ error_codes!(
     StateConflict,
     IdConflict,
     QueueFull,
+    ImageUploadLimit,
     RateLimited,
     StorageUnavailable,
     GlobalPaused,
@@ -785,7 +786,7 @@ mod error_tests {
                     .map(|(name, _)| name)
             })
             .collect();
-        assert_eq!(normative.len(), 17);
+        assert_eq!(normative.len(), 18);
         let codes: Vec<_> = ErrorCode::ALL
             .iter()
             .map(|code| serde_json::to_value(code).unwrap())

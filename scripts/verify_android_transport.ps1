@@ -3,7 +3,7 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
-    [switch]$ControlPerformance, [ValidateRange(1,100)][int]$ControlSamples = 100)
+    [switch]$ControlPerformance, [switch]$NativeText, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
@@ -14,6 +14,7 @@ if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires Im
 if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires ImageBatch.' }
 if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
 if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
+if ($NativeText -and !$ControlPerformance) { throw 'NativeText requires ControlPerformance.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -29,7 +30,7 @@ if (!$SkipBuild) {
     Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest }
     Push-Location (Join-Path $projectRoot 'desktop')
     try {
-        if ($NativeBatch) { Invoke-Checked { cargo build --release -p voicelink-receiver --example native_input_fixture -p voicelink-transport --example android_fixture --locked } }
+        if ($NativeBatch -or $NativeText) { Invoke-Checked { cargo build --release -p voicelink-receiver --example native_input_fixture -p voicelink-transport --example android_fixture --locked } }
         elseif ($ControlPerformance) { Invoke-Checked { cargo build --release -p voicelink-transport --example android_fixture --locked } }
         else { Invoke-Checked { cargo build -p voicelink-transport --example android_fixture --locked } }
     } finally { Pop-Location }
@@ -58,7 +59,7 @@ $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceIn
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
 $expectedTextUiTests = 179
-$expectedImageTests = 6
+$expectedImageTests = 7
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
@@ -126,6 +127,7 @@ try {
         $arguments += @('-e', 'replacementControlPort', $replacementPort)
     }
     if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
+    if ($NativeText) { $arguments += @('-e','nativeText','true') }
     if ($BatchInterruption) {
         $batchPort = [int]$fixture.batch_port
         if ($batchPort -le 1024 -or $batchPort -gt 65535) { throw 'Invalid batch control port.' }
@@ -139,8 +141,10 @@ try {
             $extraArguments = @("`"$directory`"", '--port=0', '--lifetime=7200', '--hold-retention-seconds=120')
             if ($Lan) { $extraArguments += '--lan' }
             if ($BatchInterruption) { $extraArguments += '--images' }
-            if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
-if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--text-commit-timing' }
+            if ($ControlPerformance -and $position -eq 'second') {
+                $extraArguments += '--text-commit-timing'
+                if ($NativeText) { $extraArguments += @('--images', '--native-text-target') }
+            }
             $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $extraArguments -PassThru -WindowStyle Hidden); port = $null }
             $additionalFixtures += $extra
             $extraPath = Join-Path $directory 'fixture.json'
@@ -219,11 +223,17 @@ if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--tex
         if (@($samples.warm_text).Count -ne $ControlSamples -or @($samples.cold_switch).Count -ne $ControlSamples -or $skippedTests -ne 0) { throw 'Missing control performance samples.' }
         for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
             $extraCalls = Get-Content -LiteralPath (Join-Path $additionalFixtures[$index].directory 'calls.json') -Raw | ConvertFrom-Json
-            if ($extraCalls.native_input_calls -ne 0 -or $extraCalls.fake_input_calls -ne ($ControlSamples * [int]($index -eq 0))) { throw 'Unexpected control fixture input count.' }
+            $expectedNative = $ControlSamples * [int]($NativeText -and $index -eq 0)
+            $expectedFake = $ControlSamples * [int](!$NativeText -and $index -eq 0)
+            if ($extraCalls.native_input_calls -ne $expectedNative -or $extraCalls.fake_input_calls -ne $expectedFake) { throw 'Unexpected control fixture input count.' }
         }
         $timedFixture = $additionalFixtures[0]
         Set-Content -LiteralPath (Join-Path $timedFixture.directory 'stop') -Value '' -NoNewline
         if (!$timedFixture.process.WaitForExit(15000) -or $timedFixture.process.ExitCode -ne 0) { throw 'Timed fixture did not stop cleanly.' }
+        if ($NativeText) {
+            $final = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'target/final.json') -Raw | ConvertFrom-Json
+            if ($final.observed_texts -ne $ControlSamples -or $final.text -cne 'existing|') { throw 'Disposable EDIT did not observe every exact text sample.' }
+        }
         $commits = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'text-commits.json') -Raw | ConvertFrom-Json -NoEnumerate
         if ($commits.Count -ne (3 * $ControlSamples)) { throw 'Missing desktop commit timestamps.' }
         $desktop = @{}
@@ -251,8 +261,8 @@ if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--tex
         $expectedCalls = 1
     }
     if (($KeepUpgradeFixture -or $ImageBatch) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
-    $inputMode = if ($NativeBatch) { 'native RichEdit' } else { 'fake' }
-    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
+    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall

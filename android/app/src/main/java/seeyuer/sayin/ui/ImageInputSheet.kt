@@ -250,6 +250,7 @@ internal fun ImageInputSheet(
                                 ImageIssue.CONNECTION -> R.string.image_connection_error
                                 ImageIssue.STORAGE -> R.string.error_storage
                                 ImageIssue.QUOTA -> R.string.image_quota
+                                ImageIssue.UPLOAD_LIMIT -> R.string.image_upload_limit
                                 ImageIssue.CANCELLED -> R.string.image_cancelled
                                 ImageIssue.PATH_COPIED -> R.string.image_batch_path_stop
                             }), errorColor())

@@ -343,6 +343,7 @@
     <string name="image_not_ready">The computer is not ready to paste. The image is kept; check the connection or computer reception state.</string>
     <string name="image_unsupported">This computer does not support image input. Update its SayIn app.</string>
     <string name="image_connection_error">Image transfer stopped. The image is kept. Check history before sending again.</string>
+    <string name="image_upload_limit">All image upload slots on the computer are in use. Try again shortly.</string>
     <string name="image_quota">Another image is awaiting a result, or storage is full. Check history first.</string>
     <string name="image_cancelled">Upload cancelled. The image is kept.</string>
     <string name="image_send">Send image</string>

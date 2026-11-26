@@ -97,6 +97,7 @@ struct NativeFixture {
     target: std::sync::Arc<DisposableTarget>,
     calls: Arc<AtomicUsize>,
     benchmark: bool,
+    native_text: bool,
 }
 impl NativeFixture {
     fn is_target(&self) -> bool {
@@ -115,6 +116,12 @@ impl InputAdapter for NativeFixture {
     fn preflight(&mut self, job: &Execution) -> Result<(), &'static str> {
         if !self.is_target() {
             return Err("fixture_not_foreground");
+        }
+        if self.native_text
+            && !matches!(job.operation(),
+            voicelink_receiver::protocol::Operation::Text { text, .. } if text == "中文 😀 literal {ENTER}")
+        {
+            return Err("fixture_unexpected_text");
         }
         let start = std::time::Instant::now();
         let result = self.native.preflight(job);
@@ -142,12 +149,15 @@ impl InputAdapter for NativeFixture {
         let outcome = self.native.execute(job, gate);
         let submitted = std::time::Instant::now();
         let expected = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
-        if matches!(
+        let image = matches!(
             outcome,
             InputOutcome::Injected {
                 method: "clipboard_image"
             }
-        ) {
+        );
+        let text =
+            self.native_text && matches!(outcome, InputOutcome::Injected { method: "unicode" });
+        if image || text {
             // Additional test-only assertion, not a new production receipt
             // promise. The conservative latency includes the target RTF check.
             let deadline = submitted + Duration::from_secs(15);
@@ -156,8 +166,12 @@ impl InputAdapter for NativeFixture {
                     .ok()
                     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
                     .is_some_and(|value| {
-                        value["observed_images"].as_u64() == Some(expected as u64)
-                            && value["pictures"] == 1
+                        if text {
+                            value["observed_texts"].as_u64() == Some(expected as u64)
+                        } else {
+                            value["observed_images"].as_u64() == Some(expected as u64)
+                                && value["pictures"] == 1
+                        }
                     })
                 {
                     break;
@@ -193,6 +207,7 @@ impl DisposableTarget {
     fn start(
         directory: PathBuf,
         count_objects: bool,
+        native_text: bool,
     ) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
         std::fs::create_dir(&directory)?;
         let mut command = std::process::Command::new(
@@ -201,7 +216,7 @@ impl DisposableTarget {
         command
             .arg("--edit-target")
             .arg(&directory)
-            .args(["--image", "--batch"])
+            .args([if native_text { "--text" } else { "--image" }, "--batch"])
             .stderr(std::fs::File::create(directory.join("stderr.log"))?);
         if count_objects {
             command.arg("--count-objects");
@@ -359,7 +374,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let disposable = std::env::args().any(|arg| arg == "--native-target");
+    let native_text = std::env::args().any(|arg| arg == "--native-text-target");
+    let disposable = native_text || std::env::args().any(|arg| arg == "--native-target");
     let path_receipt = std::env::args().any(|arg| arg == "--image-path-receipt");
     let benchmark = std::env::args().any(|arg| arg == "--benchmark");
     if disposable && benchmark {
@@ -386,7 +402,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (release, batch_release) = std::sync::mpsc::sync_channel(1);
     let (pause_sender, pause_events) = std::sync::mpsc::sync_channel(1);
     let target = if disposable {
-        Some(DisposableTarget::start(output.join("target"), benchmark)?)
+        Some(DisposableTarget::start(
+            output.join("target"),
+            benchmark,
+            native_text,
+        )?)
     } else {
         None
     };
@@ -416,6 +436,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             target,
             calls: calls.clone(),
             benchmark,
+            native_text,
         }))
     } else if manual {
         eprintln!(

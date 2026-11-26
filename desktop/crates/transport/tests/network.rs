@@ -1007,6 +1007,9 @@ async fn two_distinct_pairs_can_hold_image_slots_in_the_same_scope() {
         if open_uploads.is_empty() {
             let mut duplicate = socket_path(invite, "/sayin/v3/images").await;
             image_hello(&mut duplicate, &welcome, paired).await;
+            let rejection = next(&mut duplicate, "err").await;
+            assert_eq!(rejection["code"], "IMAGE_UPLOAD_LIMIT");
+            assert_eq!(rejection["session_id"], welcome["session_id"]);
             connection_closed(&mut duplicate).await;
         }
         open_uploads.push((control, images, welcome, id));
@@ -1025,6 +1028,101 @@ async fn two_distinct_pairs_can_hold_image_slots_in_the_same_scope() {
         assert!(next(images, "image_ready").await["image"]["resource_id"].is_string());
     }
     drop(open_uploads);
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn authenticated_image_slot_contention_returns_an_explicit_result() {
+    use std::time::Instant;
+
+    let directory = Directory::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (receiver, service) = image_service(&directory, calls.clone()).await;
+    let mut pairs = Vec::new();
+    for _ in 0..3 {
+        let invite = invitation(&service).await;
+        let paired = pair(&service, &invite).await;
+        pairs.push((invite, paired));
+    }
+    let state = receiver.state().await.unwrap();
+    receiver
+        .enable_foreground_input(state.state_rev, false)
+        .await
+        .unwrap();
+
+    let mut peers = Vec::new();
+    for (invite, paired) in pairs {
+        let mut control = socket(&invite).await;
+        send(&mut control,json!({"v":3,"t":"hello","name":"Slot fixture","pair_id":paired["pair_id"],"token":paired["token"]})).await;
+        let welcome = next(&mut control, "welcome").await;
+        query_ready(&mut control, welcome["session_id"].as_str().unwrap()).await;
+        peers.push((invite, paired, welcome, control));
+    }
+    let [
+        (a, pair_a, welcome_a, _),
+        (b, pair_b, welcome_b, _),
+        (c, pair_c, welcome_c, _),
+    ] = peers.as_mut_slice()
+    else {
+        unreachable!("three authenticated pairs")
+    };
+
+    let mut first = socket_path(a, "/sayin/v3/images").await;
+    image_hello(&mut first, welcome_a, pair_a).await;
+    next(&mut first, "image_welcome").await;
+    image_begin(
+        &mut first,
+        welcome_a,
+        &Uuid::new_v4().to_string(),
+        &test_png(),
+    )
+    .await;
+
+    let mut timings = Vec::new();
+    for _ in 0..100 {
+        let mut duplicate = socket_path(a, "/sayin/v3/images").await;
+        image_hello(&mut duplicate, welcome_a, pair_a).await;
+        assert_eq!(
+            next(&mut duplicate, "err").await["code"],
+            "IMAGE_UPLOAD_LIMIT"
+        );
+        connection_closed(&mut duplicate).await;
+
+        let start = Instant::now();
+        let mut second = socket_path(b, "/sayin/v3/images").await;
+        image_hello(&mut second, welcome_b, pair_b).await;
+        assert_eq!(
+            next(&mut second, "image_welcome").await["pair_id"],
+            pair_b["pair_id"]
+        );
+        let open_ms = start.elapsed().as_secs_f64() * 1000.;
+
+        let start = Instant::now();
+        let mut third = socket_path(c, "/sayin/v3/images").await;
+        image_hello(&mut third, welcome_c, pair_c).await;
+        let rejection = next(&mut third, "err").await;
+        assert_eq!(rejection["code"], "IMAGE_UPLOAD_LIMIT");
+        assert_eq!(rejection["session_id"], welcome_c["session_id"]);
+        let full_ms = start.elapsed().as_secs_f64() * 1000.;
+        timings.push((open_ms, full_ms));
+        connection_closed(&mut third).await;
+
+        let id = Uuid::new_v4().to_string();
+        send(
+            &mut second,
+            json!({"v":3,"t":"image_cancel","session_id":welcome_b["session_id"],"id":id}),
+        )
+        .await;
+        assert_eq!(next(&mut second, "image_canceled").await["id"], id);
+        connection_closed(&mut second).await;
+    }
+    println!("image slot timing samples (free/full ms): {timings:?}");
+    assert!(timings.iter().filter(|(free, _)| *free > 1000.).count() <= 1);
+    assert!(timings.iter().filter(|(_, full)| *full > 1000.).count() <= 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    drop(first);
+    drop(peers);
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
 }

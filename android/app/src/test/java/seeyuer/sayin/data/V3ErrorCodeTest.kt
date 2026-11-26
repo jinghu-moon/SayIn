@@ -18,6 +18,7 @@ class V3ErrorCodeTest {
             "STATE_CONFLICT" to R.string.v3_error_state_conflict,
             "ID_CONFLICT" to R.string.v3_error_id_conflict,
             "QUEUE_FULL" to R.string.v3_error_queue_full,
+            "IMAGE_UPLOAD_LIMIT" to R.string.image_upload_limit,
             "RATE_LIMITED" to R.string.v3_error_rate_limited,
             "STORAGE_UNAVAILABLE" to R.string.v3_error_storage_unavailable,
             "GLOBAL_PAUSED" to R.string.v3_error_global_paused,

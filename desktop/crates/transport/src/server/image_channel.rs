@@ -108,6 +108,8 @@ pub(super) async fn serve(
         return Err(Error::Protocol("UNAUTHORIZED"));
     }
     let mut initial = scope(shared, &binding).await?;
+    shared.authenticated(peer);
+    drop(unauthenticated);
     let pair = binding.session.device();
     if !shared
         .uploading_pairs
@@ -115,19 +117,28 @@ pub(super) async fn serve(
         .map_err(|_| Error::Protocol("SERVICE_UNAVAILABLE"))?
         .insert(pair.to_owned())
     {
-        return Err(Error::Protocol("IMAGE_UPLOAD_LIMIT"));
+        return send_error(
+            socket,
+            &binding.session,
+            &hello,
+            &Error::Protocol("IMAGE_UPLOAD_LIMIT"),
+        )
+        .await;
     }
-    let _pair_slot = PairUploadSlot {
+    let pair_slot = PairUploadSlot {
         pairs: &shared.uploading_pairs,
         pair,
     };
-    let _slot = shared
-        .image_slots
-        .clone()
-        .try_acquire_owned()
-        .map_err(|_| Error::Protocol("IMAGE_UPLOAD_LIMIT"))?;
-    shared.authenticated(peer);
-    drop(unauthenticated);
+    let Ok(_slot) = shared.image_slots.clone().try_acquire_owned() else {
+        drop(pair_slot);
+        return send_error(
+            socket,
+            &binding.session,
+            &hello,
+            &Error::Protocol("IMAGE_UPLOAD_LIMIT"),
+        )
+        .await;
+    };
     send(socket,&json!({"v":3,"t":"image_welcome","session_id":binding.session.id(),"host_id":shared.identity.host_id,"pair_id":binding.session.device()})).await?;
     let mut ready: Option<ImageReference> = None;
     let result = transfer(shared, socket, &binding, stop, &mut initial, &mut ready).await;

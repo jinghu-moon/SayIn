@@ -66,7 +66,7 @@ class ControlPerformanceInstrumentedTest {
             repository.selectHost(second)
             withTimeout(15000) { ready(second) }
             val warmSession = checkNotNull(sessions[second])
-            val texts = listOf("SayIn short text", "中文输入测试。", "日本語と한국어", "Emoji 😀 {ENTER}", "One\nTwo")
+            val texts = if (args.getString("nativeText") == "true") listOf("中文 😀 literal {ENTER}") else listOf("SayIn short text", "中文输入测试。", "日本語と한국어", "Emoji 😀 {ENTER}", "One\nTwo")
             repeat(count) { iteration ->
                 val state = withTimeout(15000) { ready(second) }
                 val scope = checkNotNull(state.receptionScope)

@@ -238,6 +238,7 @@ fn edit_target(
         let deadline = Instant::now() + Duration::from_secs(if batch { 600 } else { 120 });
         let mut recorded = false;
         let mut observed_images = 0;
+        let mut observed_texts = 0;
         let mut picture_widths = Vec::new();
         let mut ready = false;
         let mut reported = false;
@@ -325,10 +326,13 @@ fn edit_target(
                         picture_widths.push(pictures.first_picture_width());
                     }
                 }
+                if !is_image {
+                    observed_texts += 1;
+                }
                 std::fs::write(
                     directory.join("observed.json"),
                     serde_json::to_vec(
-                        &serde_json::json!({"text":text,"pictures":picture_count,"observed_images":observed_images,"picture_widths_twips":picture_widths,"pid":std::process::id()}),
+                        &serde_json::json!({"text":text,"pictures":picture_count,"observed_images":observed_images,"observed_texts":observed_texts,"picture_widths_twips":picture_widths,"pid":std::process::id()}),
                     )?,
                 )?;
                 recorded = true;
@@ -354,6 +358,7 @@ fn edit_target(
                 "length":length,
                 "pictures":if is_image { pictures_in(hwnd)?.count } else { 0 },
                 "observed_images":observed_images,
+                "observed_texts":observed_texts,
                 "observation": if count_objects { "rich_edit_raw_text" } else { "rtf" },
                 "picture_widths_twips":picture_widths,
             }))?,

@@ -222,6 +222,43 @@ class ImageInputInstrumentedTest {
         }
     }
 
+    @Test fun authenticatedCapacityRejectionStopsBeforeUpload() = runBlocking {
+        val bytes = byteArrayOf(1, 2, 3)
+        val metadata = ImageMetadata(bytes.size, ImageMime.PNG, 1, 1, imageDigest(bytes))
+        for (returnedSession in listOf("session", "old-session")) {
+            val frames = mutableListOf<String>()
+            val request = okhttp3.Request.Builder().url("https://localhost/sayin/v3/images").build()
+            val transfer = ImageTransfer(
+                { listener ->
+                    val socket = object : okhttp3.WebSocket {
+                        override fun request() = request
+                        override fun queueSize() = 0L
+                        override fun send(text: String): Boolean {
+                            frames.add(JSONObject(text).getString("t"))
+                            listener.onMessage(this,
+                                JSONObject().put("v", 3).put("t", "err").put("code", "IMAGE_UPLOAD_LIMIT")
+                                    .put("session_id", returnedSession).toString())
+                            return true
+                        }
+                        override fun send(bytes: okio.ByteString) = error("Unexpected image bytes")
+                        override fun close(code: Int, reason: String?) = true
+                        override fun cancel() {}
+                    }
+                    listener.onOpen(socket, okhttp3.Response.Builder().request(request)
+                        .protocol(okhttp3.Protocol.HTTP_1_1).code(101).message("Switching Protocols").build())
+                    socket
+                },
+                "host", "pair", "session", "binding", ReceptionScope("localhost", "target", "1"), { true },
+            )
+            transfer.use {
+                val failure = runCatching { it.upload(metadata, bytes) { error("Unexpected upload progress") } }.exceptionOrNull()
+                if (returnedSession == "session") assertTrue("Received $failure", failure is ImageUploadLimit)
+                else assertTrue("Received $failure", failure is IllegalArgumentException)
+                assertEquals(listOf("image_hello"), frames)
+            }
+        }
+    }
+
     @Test fun interruptedBatchKeepsItsFirstReceiptAndNeverSubmitsTheSecond() = runBlocking {
         val arguments = InstrumentationRegistry.getArguments()
         val controlPort = arguments.getString("batchControlPort")?.toInt()

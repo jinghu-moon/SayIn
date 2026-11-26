@@ -24,7 +24,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal enum class ImageIssue { INVALID, NOT_READY, NOT_SUPPORTED, CONNECTION, STORAGE, QUOTA, CANCELLED, PATH_COPIED }
+internal enum class ImageIssue { INVALID, NOT_READY, NOT_SUPPORTED, CONNECTION, STORAGE, QUOTA, UPLOAD_LIMIT, CANCELLED, PATH_COPIED }
 
 /** A committed input spends the image intention: the next open starts from the picker. Cancelled,
  * failed and uncertain inputs keep the prepared image so the user can retry or inspect it. */
@@ -40,7 +40,7 @@ internal sealed interface ImageEvent {
     data class PreparationFailed(val ticket: Long) : ImageEvent
     data class Send(val resource: String, val reception: ReceptionScope?) : ImageEvent
     data class Ready(val run: ImageRun, val image: ImageReference) : ImageEvent
-    data class Failed(val run: ImageRun) : ImageEvent
+    data class Failed(val run: ImageRun, val issue: ImageIssue = ImageIssue.CONNECTION) : ImageEvent
     data object StorageFailed : ImageEvent
     data object Cancel : ImageEvent
     data object Clear : ImageEvent
@@ -148,7 +148,7 @@ internal class ImageInput(
             }
             is ImageEvent.Send -> if (batchScope == null) send(event)
             is ImageEvent.Ready -> ready(event)
-            is ImageEvent.Failed -> failed(event.run, ImageIssue.CONNECTION)
+            is ImageEvent.Failed -> failed(event.run, event.issue)
             ImageEvent.StorageFailed -> { stopBatch(); run?.stop(); storageFailure() }
             ImageEvent.Cancel -> {
                 cancelPreparation()
@@ -281,7 +281,10 @@ internal class ImageInput(
                 registration?.invoke(image, SystemClock.elapsedRealtimeNanos())
                 if (!emit(ImageEvent.Ready(current, image))) current.stop()
             } catch (cancel: CancellationException) { active.set(false); current.stop(); throw cancel }
-            catch (_: Exception) { active.set(false); current.stop(); emit(ImageEvent.Failed(current)) }
+            catch (error: Exception) {
+                current.stop()
+                emit(ImageEvent.Failed(current, if (error is ImageUploadLimit) ImageIssue.UPLOAD_LIMIT else ImageIssue.CONNECTION))
+            }
         }
     }
     private suspend fun ready(event: ImageEvent.Ready) {
@@ -305,7 +308,8 @@ internal class ImageInput(
         if (run === current) {
             run = null
             stopBatch(failure)
-            state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure) }
+            state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure,
+                imageRequest = it.imageRequest.takeUnless { failure == ImageIssue.UPLOAD_LIMIT }) }
         }
     }
     suspend fun status(item: OutboxItem, status: String, terminal: Boolean) {

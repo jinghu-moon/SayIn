@@ -12,6 +12,8 @@ import java.io.Closeable
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal class ImageUploadLimit : Exception()
+
 /** Owns one on-demand WS until the control receipt confirms durable acceptance.
  * Closing it earlier discards the unaccepted remote resource by design. */
 internal class ImageTransfer(
@@ -48,7 +50,14 @@ internal class ImageTransfer(
         checkScope()
         val text = (incoming.receive() as Incoming.Text).value
         val value = strictJson(text)
-        require(value.getInt("v") == 3 && value.getString("t") == kind)
+        require(value.getInt("v") == 3)
+        if (kind == "image_welcome" && value.optString("t") == "err" &&
+            value.optString("code") == "IMAGE_UPLOAD_LIMIT") {
+            require(value.getString("session_id") == sessionId)
+            checkScope()
+            throw ImageUploadLimit()
+        }
+        require(value.getString("t") == kind)
         if (id != null) require(value.getString("id") == id)
         checkScope()
         value

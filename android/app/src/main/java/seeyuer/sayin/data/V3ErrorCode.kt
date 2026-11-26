@@ -13,6 +13,7 @@ internal enum class V3ErrorCode(@StringRes val messageRes: Int) {
     STATE_CONFLICT(R.string.v3_error_state_conflict),
     ID_CONFLICT(R.string.v3_error_id_conflict),
     QUEUE_FULL(R.string.v3_error_queue_full),
+    IMAGE_UPLOAD_LIMIT(R.string.image_upload_limit),
     RATE_LIMITED(R.string.v3_error_rate_limited),
     STORAGE_UNAVAILABLE(R.string.v3_error_storage_unavailable),
     GLOBAL_PAUSED(R.string.v3_error_global_paused),
