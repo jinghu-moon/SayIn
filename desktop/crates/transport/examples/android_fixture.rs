@@ -22,6 +22,7 @@ struct FakeInput {
     calls: Arc<AtomicUsize>,
     pause: Option<std::sync::mpsc::SyncSender<String>>,
     image_path_receipt: bool,
+    batch_release: Option<std::sync::mpsc::Receiver<()>>,
 }
 impl InputAdapter for FakeInput {
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
@@ -60,6 +61,13 @@ impl InputAdapter for FakeInput {
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         assert!(!gate.is_paused());
         self.calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(release) = self.batch_release.take()
+            && release.recv_timeout(Duration::from_secs(25)).is_err()
+        {
+            return InputOutcome::Failed {
+                reason: "fixture_release_timeout",
+            };
+        }
         // Test-only uncertain result exercises the real pushed desktop pause reason.
         if matches!(job.operation(), voicelink_receiver::protocol::Operation::Text { text, .. }
             if text == "fixture: uncertain")
@@ -368,6 +376,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if pause_probe && (native || image_store.is_none()) {
         return Err("--pause-probe requires --images and forbids real input".into());
     }
+    let batch_switch = std::env::args().any(|arg| arg == "--batch-switch");
+    let batch_revoke = std::env::args().any(|arg| arg == "--batch-revoke");
+    if (batch_switch || batch_revoke)
+        && (native || image_store.is_none() || pause_probe || (batch_switch && batch_revoke))
+    {
+        return Err("Batch interruption requires an isolated fake image adapter".into());
+    }
+    let (release, batch_release) = std::sync::mpsc::sync_channel(1);
     let (pause_sender, pause_events) = std::sync::mpsc::sync_channel(1);
     let target = if disposable {
         Some(DisposableTarget::start(output.join("target"), benchmark)?)
@@ -417,6 +433,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             calls: calls.clone(),
             pause: pause_probe.then_some(pause_sender),
             image_path_receipt: path_receipt,
+            batch_release: (batch_switch || batch_revoke).then_some(batch_release),
         })
     };
     let receiver = Receiver::start(ledger, adapter)?;
@@ -461,6 +478,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|listener| listener.local_addr())
         .transpose()?
         .map(|address| address.port());
+    let batch_control = if batch_switch || batch_revoke {
+        Some(tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?)
+    } else {
+        None
+    };
+    let batch_port = batch_control
+        .as_ref()
+        .map(|listener| listener.local_addr())
+        .transpose()?
+        .map(|address| address.port());
+    let batch_task = batch_control.map(|listener| {
+        let receiver = receiver.clone();
+        tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+            let (mut peer, _) = listener.accept().await?;
+            let command = tokio::time::timeout(Duration::from_secs(5), peer.read_u8()).await??;
+            if command != 1 {
+                return Err("Unexpected batch control command".into());
+            }
+            if batch_revoke {
+                let devices = receiver.snapshot().await?.device_ids;
+                let [device] = devices.as_slice() else {
+                    return Err("Expected one isolated pair".into());
+                };
+                receiver.revoke(device.clone()).await?;
+            }
+            release.send(())?;
+            peer.write_u8(1).await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(())
+        })
+    });
     let code = snapshot.window.map(|window| window.code.to_string());
     if !upgrade_probe && code.is_none() {
         return Err("pairing window missing".into());
@@ -479,7 +527,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::fs::write(
         output.join("fixture.json"),
         serde_json::to_vec(
-            &serde_json::json!({"address":snapshot.address.ip().to_string(),"port":snapshot.address.port(),"code":code,"qr":qr,"replacement_port":replacement_port}),
+            &serde_json::json!({"address":snapshot.address.ip().to_string(),"port":snapshot.address.port(),"code":code,"qr":qr,"replacement_port":replacement_port,"batch_port":batch_port}),
         )?,
     )?;
     println!("Isolated Android test fixture ready; native_child_target={native}.");
@@ -554,6 +602,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if let Some(task) = batch_task {
+        if task.is_finished() {
+            task.await?.map_err(|error| error.to_string())?;
+            let page = receiver.history(Default::default()).await?;
+            let [entry] = page.entries.as_slice() else {
+                return Err("Interrupted batch must have exactly one desktop history entry".into());
+            };
+            if entry.receipt.st != voicelink_receiver::protocol::State::Injected {
+                return Err("Interrupted batch did not persist its first input outcome".into());
+            }
+        } else {
+            task.abort();
+            let _ = task.await;
+        }
     }
     service.shutdown().await?;
     receiver.shutdown().await?;

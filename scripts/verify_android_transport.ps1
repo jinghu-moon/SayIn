@@ -2,6 +2,7 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
+    [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
     [switch]$ControlPerformance, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
@@ -11,6 +12,7 @@ if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairin
 if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
 if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
 if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires ImageBatch.' }
+if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
 if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
@@ -42,6 +44,7 @@ $remoteApks = @()
 $process = $null
 $port = $null
 $replacementPort = $null
+$batchPort = $null
 $additionalFixtures = @()
 if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSuite)) { throw 'FullSuite/TransportOnly are mutually exclusive loopback regressions; use the image suite for LAN.' }
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
@@ -50,13 +53,14 @@ $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceIn
     elseif ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
     elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
     elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' }
+    elseif ($BatchInterruption) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#interruptedBatchKeepsItsFirstReceiptAndNeverSubmitsTheSecond' }
     elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
 $expectedTextUiTests = 179
-$expectedImageTests = 5
+$expectedImageTests = 6
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance) { 1 } else { $expectedImageTests }
-$expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+$expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
     if (!$leaseAcquired) { throw 'Another SayIn device verification is active; run serially.' }
@@ -101,6 +105,7 @@ try {
     if ($PairReplacement) { $fixtureArguments += '--pair-replacement' }
     if ($NativeBatch) { $fixtureArguments += '--native-target' }
     if ($BatchPathReceipt) { $fixtureArguments += '--image-path-receipt' }
+    if ($BatchInterruption) { $fixtureArguments += "--batch-$($BatchInterruption.ToLowerInvariant())" }
     $profile = if ($NativeBatch -or $ControlPerformance) { 'release' } else { 'debug' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -121,12 +126,21 @@ try {
         $arguments += @('-e', 'replacementControlPort', $replacementPort)
     }
     if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
-    if ($HotTargets -or $ControlPerformance) {
-        foreach ($position in @('second', 'third')) {
+    if ($BatchInterruption) {
+        $batchPort = [int]$fixture.batch_port
+        if ($batchPort -le 1024 -or $batchPort -gt 65535) { throw 'Invalid batch control port.' }
+        Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$batchPort" "tcp:$batchPort" }
+        $arguments += @('-e', 'batchControlPort', $batchPort, '-e', 'batchInterruption', $BatchInterruption)
+    }
+    if ($HotTargets -or $ControlPerformance -or $BatchInterruption -eq 'Switch') {
+        $positions = if ($BatchInterruption) { @('second') } else { @('second', 'third') }
+        foreach ($position in $positions) {
             $directory = Join-Path $fixtureDirectory $position
             $extraArguments = @("`"$directory`"", '--port=0', '--lifetime=7200', '--hold-retention-seconds=120')
             if ($Lan) { $extraArguments += '--lan' }
-            if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--text-commit-timing' }
+            if ($BatchInterruption) { $extraArguments += '--images' }
+            if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
+if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--text-commit-timing' }
             $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $extraArguments -PassThru -WindowStyle Hidden); port = $null }
             $additionalFixtures += $extra
             $extraPath = Join-Path $directory 'fixture.json'
@@ -192,6 +206,14 @@ try {
             }
         }
     } elseif ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
+    if ($BatchInterruption) {
+        foreach ($extra in $additionalFixtures) {
+            $extraCalls = Get-Content -LiteralPath (Join-Path $extra.directory 'calls.json') -Raw | ConvertFrom-Json
+            if ($extraCalls.fake_input_calls -ne 0 -or $extraCalls.native_input_calls -ne 0) { throw 'The new target received unexpected input.' }
+        }
+        Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline
+        if (!$process.WaitForExit(15000) -or $process.ExitCode -ne 0) { throw 'Interrupted batch fixture did not persist exactly one input outcome.' }
+    }
     if ($ControlPerformance) {
         $samples = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'control-performance.json') -Raw | ConvertFrom-Json
         if (@($samples.warm_text).Count -ne $ControlSamples -or @($samples.cold_switch).Count -ne $ControlSamples -or $skippedTests -ne 0) { throw 'Missing control performance samples.' }
@@ -230,7 +252,7 @@ try {
     }
     if (($KeepUpgradeFixture -or $ImageBatch) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } else { 'fake' }
-    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
@@ -246,6 +268,7 @@ try {
             }
             if ($port -and !$Lan) { & $adb -s $DeviceSerial reverse --remove "tcp:$port" 2>$null | Out-Null }
             if ($replacementPort) { & $adb -s $DeviceSerial reverse --remove "tcp:$replacementPort" 2>$null | Out-Null }
+            if ($batchPort) { & $adb -s $DeviceSerial reverse --remove "tcp:$batchPort" 2>$null | Out-Null }
             foreach ($extra in $additionalFixtures) {
                 if (!$extra.process.HasExited) {
                     Set-Content -LiteralPath (Join-Path $extra.directory 'stop') -Value '' -NoNewline

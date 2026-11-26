@@ -383,7 +383,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P8 | T33 | 一对一真实 LAN 原生图片准备与上传达标，登记至原生确认和手机观察终态 p95 为 1,092.1–1,115.4 ms，超过 700 ms。本地持久暂停和已配对冷切换各 100 轮达标。短文本假输入基线的首条回执和桌面入队至执行超标，原生短文本、手机可见暂停和 M1–M28 仍待完整验收，真实 2×2 暂缓。 | §9 |
 | P9 | T34 | 71 字节邀请、V5-M 原生渲染、K40 短码和二维码数据配对通过。物理相机对屏待验证。 | — |
 | P9 | T35 | 无损 WebP、完整帧预算、本机样本和 K40 解码与加密历史恢复通过。 | `0e806b7` |
-| P9 | T36 | 已实现 Android 多选和逐张发送。K40 与 Windows RichEdit 真实 LAN 验证顺序、损坏项停止、原生路径复制停止和无重放。暂停与取消有夹具证据。批次专用跨目标、撤销与迟到回执待验证。 | `a7433c8` 与 §9 |
+| P9 | T36 | 已实现 Android 多选和逐张发送。K40 与 Windows RichEdit 真实 LAN 验证顺序、损坏项停止、原生路径复制停止和无重放。暂停、取消、跨目标迟到回执与配对撤销均有夹具证据。 | `a7433c8` 与 §9 |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -501,7 +501,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 - `-ImageBatch -BatchPathReceipt -Lan` 用夹具返回路径复制回执，验证第二张不会覆盖剪贴板中的第一条路径。一次夹具调用，耗时 1.244 秒。真实剪贴板模式仍沿用此前的单图原生验证。证据 `desktop/target/image-android-fixture-4da4eb9c-1c1d-4bd1-8f72-700c58d342fc/`。
 - `verify_image_performance.ps1 -ImageDirectory refer/image-test -PauseProbe -SlowLink -SkipBuild -SkipInstall` 验证上传首块后显式取消五次、暂停五次及重连，每轮余图都停止，电脑输入为 0。仪器化耗时 51.429 秒。证据 `desktop/target/image-performance-67ca4d2b-c723-4443-a718-6e2c048473f6/`。
 - Rust 199 项和 Android JVM 247 项通过，Clippy、包级 rustfmt、i18n、依赖、Android lint 和 Debug 构建通过。最终 K40 常规回归首轮有 40 项界面失败，系统控制中心占据前台。收起后先定向复验 5 项，再复跑完整回归，文字/UI 170 项、图片 4 项通过，10 项条件跳过，0 项失败。两套回归耗时 347.377 / 1.808 秒。最终 APK 的原生批次复跑耗时 1.481 秒，图片宽度与调用次数一致，证据 `desktop/target/image-android-fixture-311d6407-9d38-4b27-b31d-e29ee8f4afe8/`。
-- 日常 Debug APK 已在 K40 用 `pm install -r` 覆盖，安装文件 SHA-256 为 `B8671C2F10E44C9BE421288392372A4C60D221EA3B051B75BD5B6B5B275C5626`。Windows 原生内容证据覆盖隔离 RichEdit。其他生产应用组合、批次中跨主机切换及远端撤销、已提交项的迟到回执没有独立真机证据。
+- 日常 Debug APK 已在 K40 用 `pm install -r` 覆盖，安装文件 SHA-256 为 `B8671C2F10E44C9BE421288392372A4C60D221EA3B051B75BD5B6B5B275C5626`。Windows 原生内容证据覆盖隔离 RichEdit。其他生产应用组合仍未验证。
 
 ### P8 一对一真机验证（2026-11-26）
 
@@ -660,7 +660,7 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 | M4–M6 | `scheduler_orders_authenticated_pair_heads_and_skips_a_held_pair`、`target_uncertainty_holds_only_the_same_execution_window_across_pairs` 及全局副作用、部分输入的账本和 worker 测试。 | 多手机、多个原生目标窗口的执行与核对。 |
 | M7、M8 | 账本配额、撤销、取消预检和部分输入闸门测试。K40 真实 LAN 撤销后旧凭据保持拒绝。 | 八台并发连接及撤销与各原生输入阶段的竞态。 |
 | M9、M10 | `newer_pause_fences_resume_queued_behind_a_blocked_accept_commit`，K40 100 次上传暂停与重连，三目标待核对回环测试。 | 三个物理桌面目标的热连接数和收尾上界。 |
-| M11–M13 | Android 配对策略回归、桌面单待批准槽，以及 K40 三目标同 UUID 与跨目标回执回归。 | 两台物理手机同时申请，及真实跨目标迟到回执对编辑中草稿的影响。 |
+| M11–M13 | Android 配对策略回归、桌面单待批准槽，以及 K40 三目标同 UUID 与跨目标回执回归。 | 两台物理手机同时申请；跨目标图片回执已验证，编辑中文字草稿仍待专项验证。 |
 | M14、M15 | 账本执行期限与队首测试，`two_distinct_pairs_can_hold_image_slots_in_the_same_scope`。K40 顺序多图及损坏项停止。 | 原生图片后接文字的期限，以及图片槽公平性 100 次采样。 |
 | M16、M17 | TLS 撤销回归、短码拒绝和账本请求限速。K40 移动路由后旧凭据未恢复连接。 | 撤销期间其他配对继续工作，以及共享 NAT 来源洪泛下的桶独立性。 |
 | M18、M19 | Rust 完整帧 8,192/8,193 字节、超长应用名、修订字符串、状态单调与并发写入回归。 | 在真实连接上重放旧修订并完成端到端边界检查。 |
@@ -669,3 +669,11 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 | M25–M28 | K40 原地迁移、Rust 多不确定性审核和帧预算、Rust 黄金组合与 Android 回执展示矩阵。 | 完整旧 `held` 端到端展示、多设备核对，以及完整回执跨语言逐字节比较。 |
 
 补齐 M2 同一账本双配对用例和 M3 旧会话查询断言后，账本集成测试 51 项、回环网络集成测试 12 项通过，包级 rustfmt 与 Git diff 检查通过。
+
+#### T36 批次跨目标与撤销（K40）
+
+使用隔离 Android 应用和 Windows 夹具，配对与图片传输走真实 LAN，ADB reverse 仅用于控制夹具放行。首张图片持久进入 executing 后，分别切换目标和撤销配对。两组各 1 项通过、0 跳过、1 次假输入，桌面各保留一条持久终态。
+
+- Switch：两套 Windows 身份。旧目标迟到终态只写入原配对历史，新目标的 38 像素草稿保持原资源 ID。切回旧目标，批次及已使用草稿均未恢复；第二个接收身份零输入。证据目录为 image-android-fixture-6030f94c-7a3f-48c2-80e0-1c305f7f4b22。
+- Revoke：调用桌面正式撤销入口，手机批次停止，第二张未进入执行。已开始的首项在桌面保留原终态。证据目录为 image-android-fixture-3ec66c39-4aea-4beb-a84b-4be01db1dac9。
+- 常规图片套件 4 项通过，2 个定向用例按条件跳过且已单独运行。顺序与损坏项停止回环回归通过，恰好 3 次假输入。Android 仪器包构建、桌面夹具 Clippy 和 Git diff 检查通过。只覆盖安装了 K40 的仪器 APK。

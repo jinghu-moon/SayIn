@@ -222,6 +222,102 @@ class ImageInputInstrumentedTest {
         }
     }
 
+    @Test fun interruptedBatchKeepsItsFirstReceiptAndNeverSubmitsTheSecond() = runBlocking {
+        val arguments = InstrumentationRegistry.getArguments()
+        val controlPort = arguments.getString("batchControlPort")?.toInt()
+        assumeTrue(controlPort != null)
+        val mode = checkNotNull(arguments.getString("batchInterruption"))
+        check(mode == "Switch" || mode == "Revoke")
+        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName == "seeyuer.sayin.imagetest")
+        val namespace = "image-batch-interruption-${UUID.randomUUID()}-"
+        val context = object : ContextWrapper(target) {
+            override fun getApplicationContext(): Context = this
+            override fun getDatabasePath(name: String) = target.getDatabasePath(namespace + name)
+            override fun getSharedPreferences(name: String, mode: Int) =
+                target.getSharedPreferences(namespace + name, mode)
+        }
+        val source = File(target.filesDir, "test-images/$namespace").apply { mkdirs() }
+        val repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
+        try {
+            suspend fun await(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15_000) {
+                repository.state.first { check(it.storageHealthy); predicate(it) }
+            }
+            suspend fun pair(prefix: String): String {
+                val port = checkNotNull(arguments.getString("${prefix}Port"))
+                repository.pairCode(checkNotNull(arguments.getString("${prefix}Address")), port,
+                    checkNotNull(arguments.getString("${prefix}Code")))
+                return checkNotNull(await { it.ready && it.imageSupported && it.port.toString() == port }.selectedHostId)
+            }
+            suspend fun select(host: String) {
+                repository.selectHost(host)
+                await { it.selectedHostId == host && it.ready && it.imageSupported }
+            }
+            fun photo(width: Int): android.net.Uri {
+                val path = File(source, "$width.png")
+                val bitmap = Bitmap.createBitmap(width, 32, Bitmap.Config.ARGB_8888)
+                try { path.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+                finally { bitmap.recycle() }
+                return FileProvider.getUriForFile(target, target.packageName + ".fixtures", path)
+            }
+            suspend fun releaseFirstImage() = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                java.net.Socket().use { socket ->
+                    socket.connect(java.net.InetSocketAddress("127.0.0.1", checkNotNull(controlPort)), 5_000)
+                    socket.soTimeout = 5_000
+                    socket.getOutputStream().write(1)
+                    assertEquals(1, socket.getInputStream().read())
+                }
+            }
+
+            await { it.connection == Connection.OFFLINE }
+            repository.foreground(true)
+            val first = pair("fixture")
+            val second = if (mode == "Switch") pair("secondFixture") else null
+            if (second != null) {
+                assertNotEquals(first, second)
+                select(first)
+            }
+            repository.selectImages(listOf(photo(31), photo(34)))
+            val prepared = await { !it.imagePreparing && it.imageDraft?.image?.metadata?.width == 31 && it.imageBatch?.total == 2 }
+            repository.sendImage(checkNotNull(prepared.imageDraft).image.resourceId)
+            val executing = await { it.history.any { row -> row.hostId == first && row.state == "executing" } }
+            val request = executing.history.single().key
+            assertEquals(ImageBatchProgress(total = 2, active = true), executing.imageBatch)
+
+            if (second == null) {
+                releaseFirstImage()
+                val revoked = await { !it.ready && it.imageBatch?.stopped == true && !it.imageBusy }
+                assertEquals(ImageBatchProgress(total = 2, stopped = true), revoked.imageBatch)
+                assertEquals(request, revoked.history.single().key)
+            } else {
+                select(second)
+                repository.selectImage(photo(38))
+                val draft = checkNotNull(await { it.imageDraft?.image?.metadata?.width == 38 && !it.imagePreparing }.imageDraft)
+                releaseFirstImage()
+                val delivered = await { it.history.any { row -> row.key == request && row.state == "injected" } }
+                assertEquals(second, delivered.selectedHostId)
+                assertEquals(request, delivered.history.single().key)
+                assertEquals(31, delivered.historyImages[request]?.width)
+                assertEquals(draft.image.resourceId, delivered.imageDraft?.image?.resourceId)
+                assertNull(delivered.imageBatch)
+
+                select(first)
+                val returned = repository.state.value
+                assertNull(returned.imageDraft)
+                assertNull(returned.imageBatch)
+                assertEquals(request, returned.history.single().key)
+                select(second)
+                assertEquals(draft.image.resourceId, repository.state.value.imageDraft?.image?.resourceId)
+            }
+        } finally {
+            repository.close()
+            target.deleteDatabase(namespace + "outbox.db")
+            target.deleteSharedPreferences(namespace + "paired_host")
+            File(target.noBackupFilesDir, "images/${namespace}outbox").deleteRecursively()
+            source.deleteRecursively()
+        }
+    }
+
     @Test fun pinnedDualWssImageAndCancellationAndRestartNeverReplay() = runBlocking {
         val args=InstrumentationRegistry.getArguments()
         val code=args.getString("fixtureCode");assumeTrue("Run the isolated --images fixture",code!=null)
