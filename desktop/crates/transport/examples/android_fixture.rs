@@ -126,6 +126,9 @@ impl InputAdapter for NativeFixture {
         }
         let start = std::time::Instant::now();
         let result = self.native.preflight(job);
+        if self.native_text {
+            eprintln!("text_preflight {} {}", job.id(), start.elapsed().as_nanos());
+        }
         if self.benchmark
             && let voicelink_receiver::protocol::Operation::Image { image } = job.operation()
         {
@@ -183,6 +186,14 @@ impl InputAdapter for NativeFixture {
                     };
                 }
                 std::thread::sleep(Duration::from_millis(2));
+            }
+            if text {
+                eprintln!(
+                    "text_native {} {} {}",
+                    job.id(),
+                    submitted.duration_since(start).as_nanos(),
+                    submitted.elapsed().as_nanos()
+                );
             }
             if self.benchmark
                 && let voicelink_receiver::protocol::Operation::Image { image } = job.operation()
@@ -464,7 +475,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 image_store.ok_or("--native-target requires --images")?,
                 image_delivery,
             )
-            .with_image_timing(benchmark),
+            .with_image_timing(benchmark)
+            .with_text_timing(native_text),
             target,
             calls: calls.clone(),
             benchmark,

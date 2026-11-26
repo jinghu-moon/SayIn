@@ -99,9 +99,9 @@
     <string name="receipt_injected">已提交输入</string>
     <string name="receipt_cancelled">已取消</string>
     <string name="receipt_expired">已过期</string>
-    <string name="receipt_accepted_help">已接收，尚未输入。按顺序等待先前请求处理；接收后 30 秒过期。</string>
+    <string name="receipt_accepted_help">已接收，正在按顺序等待。成为可执行队首后，有 30 秒的执行期限。</string>
     <string name="receipt_expired_help">未输入，已超过有效期。旧文字不会补打；请在目标输入框放好光标后重新发送。</string>
-    <string name="receipt_held_help">尚未输入，前台检查未通过或接收已暂停。请检查电脑并处理这条记录；接收后 30 秒过期，不会自动重试。</string>
+    <string name="receipt_held_help">尚未输入，前台检查未通过或接收已暂停。请检查电脑并处理这条记录。暂挂后保留 10 分钟，需手动放行。</string>
     <string name="receipt_receiver_focused">发送时SayIn在前台，未输入。请切到目标输入框。</string>
     <string name="receipt_target_missing">未找到可用的前台窗口，未输入。请点击目标输入框。</string>
     <string name="receipt_elevated_target">目标窗口权限高于SayIn，未输入。请使用普通权限目标窗口，或以相同权限启动SayIn。</string>
@@ -147,7 +147,7 @@
     <string name="mobile_asr_plan">离线识别为后续计划，当前未安装模型。</string>
     <string name="mobile_quick_entry">快捷唤出</string>
     <string name="mobile_quick_entry_plan">悬浮入口与常驻通知为后续计划。</string>
-    <string name="receipt_held_cause_help">%1$s 接收后 30 秒过期，不会自动重试。</string>
+    <string name="receipt_held_cause_help">%1$s 暂挂后保留 10 分钟，需手动放行。</string>
     <string name="receipt_expired_cause_help">%1$s 此请求已过期，不会补打；如需输入，请重新发送。</string>
     <string name="mobile_reconnect_title">与电脑的连接已断开</string>
     <string name="mobile_first_connection">连接电脑，开始发送</string>

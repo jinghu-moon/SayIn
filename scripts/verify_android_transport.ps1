@@ -147,7 +147,12 @@ try {
                 $extraArguments += '--text-commit-timing'
                 if ($NativeText) { $extraArguments += @('--images', '--native-text-target') }
             }
-            $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $extraArguments -PassThru -WindowStyle Hidden); port = $null }
+            $startOptions = @{}
+            if ($ControlPerformance -and $position -eq 'second') {
+                New-Item -ItemType Directory -Path $directory | Out-Null
+                $startOptions.RedirectStandardError = Join-Path $directory 'desktop-stderr.log'
+            }
+            $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $extraArguments -PassThru -WindowStyle Hidden @startOptions); port = $null }
             $additionalFixtures += $extra
             $extraPath = Join-Path $directory 'fixture.json'
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -244,12 +249,42 @@ try {
             if (!$desktop.ContainsKey($commit[0])) { $desktop[$commit[0]] = @{} }
             $desktop[$commit[0]].Add($commit[1], [long]$commit[2])
         }
+        $preflights = @{}
+        $nativeTimings = @{}
+        $nativeStages = @{}
+        if ($NativeText) {
+            foreach ($line in (Get-Content -LiteralPath (Join-Path $timedFixture.directory 'desktop-stderr.log'))) {
+                if ($line -match '^text_preflight ([0-9a-f-]{36}) ([0-9]+)$') {
+                    $preflights.Add($Matches[1], [long]$Matches[2])
+                }
+                if ($line -match '^text_native ([0-9a-f-]{36}) ([0-9]+) ([0-9]+)$') {
+                    $nativeTimings.Add($Matches[1], @([long]$Matches[2], [long]$Matches[3]))
+                }
+                if ($line -match '^text_stage ([0-9a-f-]{36}) (execution_guard|send_guard|send_input|post_input_guard) ([0-9]+)$') {
+                    if (!$nativeStages.ContainsKey($Matches[1])) { $nativeStages[$Matches[1]] = @{} }
+                    $nativeStages[$Matches[1]].Add($Matches[2], [long]$Matches[3])
+                }
+            }
+            if ($preflights.Count -ne $ControlSamples -or $nativeTimings.Count -ne $ControlSamples) { throw 'Missing native text timings.' }
+        }
         foreach ($sample in $samples.warm_text) {
             $times = $desktop[$sample.id]
             if (!$times -or $times.Count -ne 3 -or !$times.ContainsKey('accepted') -or !$times.ContainsKey('executing') -or !$times.ContainsKey('injected') -or
                 $times.accepted -gt $times.executing -or $times.executing -gt $times.injected) { throw 'Unmatched or invalid text commit timestamps.' }
             $sample | Add-Member -NotePropertyName accepted_to_executing_ms -NotePropertyValue (($times.executing - $times.accepted) / 1e6)
             $sample | Add-Member -NotePropertyName executing_to_terminal_ms -NotePropertyValue (($times.injected - $times.executing) / 1e6)
+            if ($NativeText) {
+                $nativeTiming = $nativeTimings[$sample.id]
+                if ($null -eq $nativeTiming -or !$preflights.ContainsKey($sample.id)) { throw 'Unmatched native text timings.' }
+                $sample | Add-Member -NotePropertyName preflight_ms -NotePropertyValue ($preflights[$sample.id] / 1e6)
+                $sample | Add-Member -NotePropertyName native_execute_ms -NotePropertyValue ($nativeTiming[0] / 1e6)
+                $sample | Add-Member -NotePropertyName fixture_observation_ms -NotePropertyValue ($nativeTiming[1] / 1e6)
+                $stages = $nativeStages[$sample.id]
+                if ($stages.Count -ne 4) { throw 'Missing native text execution stages.' }
+                foreach ($stage in $stages.Keys) {
+                    $sample | Add-Member -NotePropertyName ($stage + '_ms') -NotePropertyValue ($stages[$stage] / 1e6)
+                }
+            }
             $desktop.Remove($sample.id)
         }
         $samples | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-segments.json') -Encoding utf8

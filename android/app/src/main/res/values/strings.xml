@@ -103,9 +103,9 @@
     <string name="receipt_injected">Input submitted</string>
     <string name="receipt_cancelled">Cancelled</string>
     <string name="receipt_expired">Expired</string>
-    <string name="receipt_accepted_help">Received, not yet entered. Waiting for earlier requests in order. Expires 30 seconds after acceptance.</string>
+    <string name="receipt_accepted_help">Received and waiting in order. The 30-second execution window starts when this request reaches the front of the queue and can run.</string>
     <string name="receipt_expired_help">Not entered; the request expired. Old text will not be typed later. Place the cursor in your target field and send a new request.</string>
-    <string name="receipt_held_help">Not entered: the foreground check failed or input is paused. Check the computer and handle this item. Expires 30 seconds after acceptance; no automatic retry.</string>
+    <string name="receipt_held_help">Not entered: the foreground check failed or input is paused. Check the computer and handle this item. Expires after 10 minutes on hold. It requires manual release.</string>
     <string name="receipt_receiver_focused">SayIn was in front when sent; no input. Switch to your target field.</string>
     <string name="receipt_target_missing">No usable foreground window; no input. Click your target field.</string>
     <string name="receipt_elevated_target">The target has higher permissions than SayIn; no input. Use a target with normal permissions, or start SayIn with matching permissions.</string>
@@ -151,7 +151,7 @@
     <string name="mobile_asr_plan">Offline recognition is planned. No model is installed yet.</string>
     <string name="mobile_quick_entry">Quick entry</string>
     <string name="mobile_quick_entry_plan">Floating entry and persistent notification are planned.</string>
-    <string name="receipt_held_cause_help">%1$s Expires 30 seconds after acceptance; no automatic retry.</string>
+    <string name="receipt_held_cause_help">%1$s Expires after 10 minutes on hold. It requires manual release.</string>
     <string name="receipt_expired_cause_help">%1$s This request has expired and will not be typed later. Send a new request if needed.</string>
     <string name="mobile_reconnect_title">Computer disconnected</string>
     <string name="mobile_first_connection">Connect your computer</string>
