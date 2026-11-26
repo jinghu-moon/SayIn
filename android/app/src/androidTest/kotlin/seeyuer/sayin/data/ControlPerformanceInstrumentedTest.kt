@@ -19,7 +19,10 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class ControlPerformanceInstrumentedTest {
-    private data class ReceiptTiming(val key: OutboxKey, val status: String, val nanos: Long)
+    private data class ReceiptTiming(
+        val key: OutboxKey, val status: String, val received: Long, val processing: Long, val persisted: Long,
+    )
+    private data class TextTiming(val id: String, val stage: String, val nanos: Long)
 
     @Test fun measureWarmTextAndColdTargetSwitches() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
@@ -36,10 +39,14 @@ class ControlPerformanceInstrumentedTest {
                 target.getSharedPreferences(namespace + name, mode)
         }
         val receipts = Channel<ReceiptTiming>(16)
+        val textStages = Channel<TextTiming>(16)
         val sessions = ConcurrentHashMap<String, String>()
         val repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() },
-            receiptTiming = { key, status, nanos -> receipts.trySend(ReceiptTiming(key, status, nanos)) },
-            sessionObserved = { host, session -> sessions[host] = session })
+            receiptTrace = { key, status, received, processing, persisted ->
+                check(receipts.trySend(ReceiptTiming(key, status, received, processing, persisted)).isSuccess)
+            },
+            sessionObserved = { host, session -> sessions[host] = session },
+            textTiming = { id, stage, nanos -> check(textStages.trySend(TextTiming(id, stage, nanos)).isSuccess) })
         val warm = JSONArray()
         val cold = JSONArray()
         val evidence = File(target.getExternalFilesDir(null), "control-performance-result.json")
@@ -82,8 +89,13 @@ class ControlPerformanceInstrumentedTest {
                     do {
                         terminal = receipts.receive()
                         assertEquals(key, terminal.key)
+                        check(terminal.received in start..terminal.processing && terminal.processing <= terminal.persisted)
                         if (!sample.has("first_ms")) {
-                            sample.put("first_state", terminal.status).put("first_ms", (terminal.nanos - start) / 1e6)
+                            sample.put("first_state", terminal.status)
+                                .put("first_ms", (terminal.persisted - start) / 1e6)
+                                .put("first_received_ms", (terminal.received - start) / 1e6)
+                                .put("first_mailbox_ms", (terminal.processing - terminal.received) / 1e6)
+                                .put("first_persist_ms", (terminal.persisted - terminal.processing) / 1e6)
                         }
                     } while (terminal.status == "accepted" || terminal.status == "executing")
                     terminal
@@ -92,7 +104,31 @@ class ControlPerformanceInstrumentedTest {
                     sample.put("terminal_timeout", true)
                     error("Missing terminal for text sample ${iteration + 1}")
                 }
-                sample.put("terminal_state", outcome.status).put("terminal_ms", (outcome.nanos - start) / 1e6)
+                var previous = start
+                for ((stage, metric) in listOf(
+                    "actor" to "send_mailbox_ms",
+                    "validated" to "send_validation_ms",
+                    "encrypted" to "send_encryption_ms",
+                    "quota_checked" to "send_quota_ms",
+                    "draft_sealed" to "send_seal_draft_ms",
+                    "persisted" to "send_outbox_commit_ms",
+                    "submitting" to "send_after_commit_ms",
+                    "operation_ready" to "send_prepare_operation_ms",
+                    "socket_enqueued" to "send_enqueue_socket_ms",
+                )) {
+                    val point = textStages.tryReceive().getOrThrow()
+                    assertEquals(id, point.id)
+                    assertEquals(stage, point.stage)
+                    check(point.nanos in previous..outcome.processing)
+                    sample.put(metric, (point.nanos - previous) / 1e6)
+                    previous = point.nanos
+                }
+                check(textStages.tryReceive().isFailure)
+                val enqueuedMs = (previous - start) / 1e6
+                sample.put("send_to_socket_ms", enqueuedMs)
+                    .put("socket_to_first_callback_ms", sample.getDouble("first_received_ms") - enqueuedMs)
+                    .put("terminal_state", outcome.status)
+                    .put("terminal_ms", (outcome.persisted - start) / 1e6)
                 assertEquals("injected", outcome.status)
                 assertEquals(warmSession, sessions[second])
             }

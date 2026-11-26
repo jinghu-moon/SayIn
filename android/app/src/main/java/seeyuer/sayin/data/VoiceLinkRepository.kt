@@ -83,6 +83,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private val receiptTiming: ((OutboxKey, String, Long) -> Unit)? = null,
     private val receiptTrace: ((OutboxKey, String, Long, Long, Long) -> Unit)? = null,
     private val sessionObserved: ((String, String) -> Unit)? = null,
+    private val textTiming: ((String, String, Long) -> Unit)? = null,
 ) {
     private val app = context.applicationContext
     private val networkMonitor = LanNetwork(app) { enqueue(Event.NetworkChanged) }
@@ -980,8 +981,13 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private suspend fun sealSpeakingDraft(draft: SavedSpeakingDraft): SpeakingDraftEntity =
         SpeakingDraftEntity(draftStore.seal(draft, createKey = !dao.hasSpeakingDraft()))
 
+    private fun traceText(id: String, stage: String) {
+        textTiming?.invoke(id, stage, SystemClock.elapsedRealtimeNanos())
+    }
+
     private suspend fun saveAndSend(event: Event.Send) {
         val draft = event.draft
+        traceText(draft.id, "actor")
         if (event.expectedScope == null || mutable.value.receptionScope != event.expectedScope ||
             event.destination != null && mutable.value.autoSendDestination != event.destination) {
             mutable.update { it.copy(issue = ClientIssue.NOT_READY, rejectedDraft = draft.id, rejectedDraftScope = event.expectedScope) }; return
@@ -1000,6 +1006,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             mutable.update { it.copy(savedDraft = draft.id, rejectedDraft = null, rejectedDraftScope = null, issue = null) }
             return
         }
+        traceText(id, "validated")
         val target = checkNotNull(mutable.value.target)
         val operation = JSONObject().put("text", normalized)
         if (event.destination == null) operation.put("kind", "text").put("src", "manual")
@@ -1007,6 +1014,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         val payload = try { store.encrypt(saved.hostId, saved.pairId, operation.toString().toByteArray()) } catch (_: Exception) { storageFailed(); return }
         val transcript = try { store.encrypt(saved.hostId, saved.pairId, normalized.toByteArray(Charsets.UTF_8)) } catch (_: Exception) { storageFailed(); return }
         val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis(), transcript)
+        traceText(id, "encrypted")
         if (dao.pendingCountFor(saved.hostId, saved.deviceId) >= 16 ||
             dao.pendingBytesFor(saved.hostId, saved.deviceId) + item.byteCount > 65536 ||
             dao.pendingCountForHost(saved.hostId) >= 32 ||
@@ -1015,11 +1023,16 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             return
         }
         try {
-            val garbage = dao.enqueueSpeaking(item, sealSpeakingDraft(draft))
+            traceText(id, "quota_checked")
+            val snapshot = sealSpeakingDraft(draft)
+            traceText(id, "draft_sealed")
+            val garbage = dao.enqueueSpeaking(item, snapshot)
+            traceText(id, "persisted")
             imageInput?.cleanup(garbage)
         } catch (cancel: CancellationException) { throw cancel }
         catch (_: Exception) { storageFailed(); return }
         mutable.update { it.copy(savedDraft = draft.id, rejectedDraft = null, rejectedDraftScope = null, issue = null) }
+        traceText(id, "submitting")
         submit(item)
     }
     private suspend fun submit(item: OutboxItem) {
@@ -1028,8 +1041,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         catch (_: Exception) { storageFailed(); return }
         if (operation.optString("kind") == "auto_text" && !mutable.value.autoTextSupported) return
         if (item.id in currentPeer.submitting || currentPeer.queries.values.any { item.id in it }) return
+        traceText(item.id, "operation_ready")
         sendFrame(base("submit").put("id", item.id).put("target", item.target).put("op", operation))
         currentPeer.submitting.add(item.id)
+        traceText(item.id, "socket_enqueued")
     }
     private fun queryReceipt(id: String, peer: ControlPeer = currentPeer) {
         if (peer.session == null || peer.welcome == null || peer.queries.size >= 16 ||
