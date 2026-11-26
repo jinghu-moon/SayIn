@@ -1,10 +1,11 @@
 param(
     [string]$DeviceSerial = 'dc39c31d',
-    [string]$ImageDirectory = 'D:/100_Projects/110_Daily/VoiceInput/refer/image-test',
+    [string]$ImageDirectory = (Join-Path $PSScriptRoot '../refer/image-test'),
     [ValidateRange(1,5)][int]$Repeats = 3,
     [switch]$Native,
     [switch]$PauseProbe,
     [switch]$SlowLink,
+    [switch]$ReverseImages,
     [switch]$SkipBuild,
     [switch]$SkipInstall
 )
@@ -15,6 +16,36 @@ $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 $targetDirectory = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $projectRoot 'desktop/target' }
 function Checked([scriptblock]$action) { & $action; if ($LASTEXITCODE -ne 0) { throw 'Benchmark command failed' } }
+function Measure-PhoneClock {
+    $frequency = [Diagnostics.Stopwatch]::Frequency
+    $info = [Diagnostics.ProcessStartInfo]::new($adb)
+    foreach ($argument in @('-s', $DeviceSerial, 'shell', '-T')) { $info.ArgumentList.Add($argument) }
+    $info.UseShellExecute = $false
+    $info.CreateNoWindow = $true
+    $info.RedirectStandardInput = $true
+    $info.RedirectStandardOutput = $true
+    $clock = [Diagnostics.Process]::Start($info)
+    try {
+        $clock.StandardInput.WriteLine('echo clock-ready')
+        if ($clock.StandardOutput.ReadLineAsync().WaitAsync([TimeSpan]::FromSeconds(5)).GetAwaiter().GetResult() -ne 'clock-ready') {
+            throw 'Phone clock shell unavailable'
+        }
+        $bounds = foreach ($probe in 1..10) {
+            $before = [Diagnostics.Stopwatch]::GetTimestamp() * (1e9 / $frequency)
+            $clock.StandardInput.WriteLine('cat /proc/uptime')
+            $uptime = $clock.StandardOutput.ReadLineAsync().WaitAsync([TimeSpan]::FromSeconds(5)).GetAwaiter().GetResult()
+            $after = [Diagnostics.Stopwatch]::GetTimestamp() * (1e9 / $frequency)
+            if ($uptime -notmatch '^([0-9]+\.[0-9]{2}) ') { throw 'Phone monotonic clock unavailable' }
+            $phone = [double]::Parse($Matches[1], [Globalization.CultureInfo]::InvariantCulture) * 1e9
+            # /proc/uptime truncates boottime to centiseconds.
+            @{ lower = $before - $phone - 1e7; upper = $after - $phone }
+        }
+        @{ lower = ($bounds.lower | Measure-Object -Maximum).Maximum; upper = ($bounds.upper | Measure-Object -Minimum).Minimum }
+    } finally {
+        if (!$clock.HasExited) { $clock.Kill(); $clock.WaitForExit() }
+        $clock.Dispose()
+    }
+}
 if (!$SkipBuild) {
     Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest }
     Push-Location (Join-Path $projectRoot 'desktop')
@@ -76,6 +107,13 @@ try {
     $testClass = if ($PauseProbe) { 'seeyuer.sayin.data.ImagePauseInstrumentedTest' } else { 'seeyuer.sayin.data.ImagePerformanceInstrumentedTest' }
     $arguments = @('-s',$DeviceSerial,'shell','am','instrument','-w','-r','-e','timeout_msec','600000','-e','imageBenchmark','true','-e','imagePauseProbe',([string][bool]$PauseProbe).ToLowerInvariant(),'-e','imageRepeats',"$Repeats",'-e','fixtureCode',$fixture.code,'-e','fixturePort',"$($fixture.port)",'-e','fixtureAddress',$fixture.address,'-e','class',$testClass,'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner')
     $arguments = $arguments[0..($arguments.Count-2)] + @('-e','fixtureProxyPort',"$proxyPort",$arguments[-1])
+    if ($ReverseImages) {
+        $arguments = $arguments[0..($arguments.Count-2)] + @('-e','reverseImages','true',$arguments[-1])
+    }
+    if ($Native) {
+        $clockStart = [Diagnostics.Stopwatch]::GetTimestamp()
+        $beforeClock = Measure-PhoneClock
+    }
     $instrument = Start-Process -FilePath $adb -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $directory 'instrumentation.log') -RedirectStandardError (Join-Path $directory 'instrumentation-stderr.log')
     $deadline = [DateTime]::UtcNow.AddMinutes(10)
     while (!$instrument.HasExited) {
@@ -107,6 +145,42 @@ try {
         }
         $final = Get-Content (Join-Path $directory 'target/final.json') -Raw | ConvertFrom-Json
         if ($final.observed_images -ne $expected -or $final.pictures -ne 0 -or $final.text -ne 'existing|') { throw 'Disposable RichEdit did not verify every single paste without Enter' }
+        $afterClock = Measure-PhoneClock
+        $frequency = [Diagnostics.Stopwatch]::Frequency
+        $drift = ([Diagnostics.Stopwatch]::GetTimestamp() - $clockStart) * (1e9 / $frequency) * 0.0001
+        $lower = [Math]::Max($beforeClock.lower, $afterClock.lower) - $drift
+        $upper = [Math]::Min($beforeClock.upper, $afterClock.upper) + $drift
+        if ($upper -lt $lower -or $upper - $lower -gt 1e8) {
+            throw "Phone/desktop clock alignment out of bounds ($lower..$upper ns)"
+        }
+        $registrations = @{}
+        foreach ($line in (Get-Content (Join-Path $directory 'desktop-stderr.log'))) {
+            if ($line -match '^image_registered ([0-9a-f-]{36}) ([0-9]+)$') {
+                $registrations.Add($Matches[1], [long]$Matches[2])
+            }
+        }
+        $mobile = Get-Content (Join-Path $directory 'mobile-result.json') -Raw | ConvertFrom-Json
+        if ($registrations.Count -ne $expected -or @($mobile.measurements).Count -ne $expected) { throw 'Missing desktop registration or mobile timing samples' }
+        $segments = foreach ($sample in $mobile.measurements) {
+            $ticks = $registrations[$sample.resource_id]
+            if ($null -eq $ticks -or $null -eq $sample.send_at_nanos -or $null -eq $sample.terminal_at_nanos) { throw 'Unmatched image registration' }
+            $registrations.Remove($sample.resource_id)
+            $registered = $ticks * (1e9 / $frequency)
+            $phoneEarliest = $registered - $upper
+            $phoneLatest = $registered - $lower
+            if ($phoneLatest -lt $sample.send_at_nanos -or $phoneEarliest -gt $sample.registration_ack_at_nanos) { throw 'Desktop registration outside verified send/ack interval' }
+            $phoneEarliest = [Math]::Max($phoneEarliest, $sample.send_at_nanos)
+            $phoneLatest = [Math]::Min($phoneLatest, $sample.registration_ack_at_nanos)
+            @{
+                file = $sample.file; resource_id = $sample.resource_id; prepare_ms = $sample.prepare_ms
+                upload_lower_ms = ($phoneEarliest - $sample.send_at_nanos) / 1e6
+                upload_upper_ms = ($phoneLatest - $sample.send_at_nanos) / 1e6
+                paste_lower_ms = ($sample.terminal_at_nanos - $phoneLatest) / 1e6
+                paste_upper_ms = ($sample.terminal_at_nanos - $phoneEarliest) / 1e6
+            }
+        }
+        @{ clock_width_ms = ($upper - $lower) / 1e6; measurements = @($segments) } |
+            ConvertTo-Json -Depth 4 | Set-Content (Join-Path $directory 'segments.json') -Encoding utf8
     }
     $scope = if ($PauseProbe) { 'Production LAN Repository / dual WSS, zero-input pause and reconnect scenario; text marker causes fixture-emulated local pause, explicit marker cancellation cues fixture-emulated local resume' } else { 'Native mode includes test-only RichEdit RTF acknowledgement latency; fake mode excludes native input' }
     if ($proxy) {

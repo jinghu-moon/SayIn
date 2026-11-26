@@ -88,6 +88,7 @@ struct NativeFixture {
     native: NativeInput,
     target: std::sync::Arc<DisposableTarget>,
     calls: Arc<AtomicUsize>,
+    benchmark: bool,
 }
 impl NativeFixture {
     fn is_target(&self) -> bool {
@@ -107,7 +108,18 @@ impl InputAdapter for NativeFixture {
         if !self.is_target() {
             return Err("fixture_not_foreground");
         }
-        self.native.preflight(job)
+        let start = std::time::Instant::now();
+        let result = self.native.preflight(job);
+        if self.benchmark
+            && let voicelink_receiver::protocol::Operation::Image { image } = job.operation()
+        {
+            eprintln!(
+                "image_preflight {} {}",
+                image.resource_id,
+                start.elapsed().as_nanos()
+            );
+        }
+        result
     }
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
         self.native.prepared_application()
@@ -118,12 +130,19 @@ impl InputAdapter for NativeFixture {
                 reason: "fixture_not_foreground",
             };
         }
+        let start = std::time::Instant::now();
         let outcome = self.native.execute(job, gate);
+        let submitted = std::time::Instant::now();
         let expected = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
-        if matches!(outcome, InputOutcome::Injected { .. }) {
+        if matches!(
+            outcome,
+            InputOutcome::Injected {
+                method: "clipboard_image"
+            }
+        ) {
             // Additional test-only assertion, not a new production receipt
             // promise. The conservative latency includes the target RTF check.
-            let deadline = std::time::Instant::now() + Duration::from_secs(15);
+            let deadline = submitted + Duration::from_secs(15);
             loop {
                 if std::fs::read(self.target.directory.join("observed.json"))
                     .ok()
@@ -141,6 +160,16 @@ impl InputAdapter for NativeFixture {
                     };
                 }
                 std::thread::sleep(Duration::from_millis(2));
+            }
+            if self.benchmark
+                && let voicelink_receiver::protocol::Operation::Image { image } = job.operation()
+            {
+                eprintln!(
+                    "image_native {} {} {}",
+                    image.resource_id,
+                    submitted.duration_since(start).as_nanos(),
+                    submitted.elapsed().as_nanos()
+                );
             }
         }
         outcome
@@ -161,6 +190,7 @@ impl DisposableTarget {
         .arg("--edit-target")
         .arg(&directory)
         .args(["--image", "--batch"])
+        .stderr(std::fs::File::create(directory.join("stderr.log"))?)
         .spawn()?;
         let pid = child.id();
         let mut target = Self {
@@ -238,6 +268,22 @@ impl InputAdapter for FixtureInput {
     }
 }
 
+struct RegistrationLog;
+
+impl log::Log for RegistrationLog {
+    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
+        metadata.target() == "sayin_image_registration" && metadata.level() == log::Level::Trace
+    }
+
+    fn log(&self, record: &log::Record<'_>) {
+        if self.enabled(record.metadata()) {
+            eprintln!("image_registered {}", record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if std::env::args().any(|argument| argument == "--check-network-profile") {
@@ -285,6 +331,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let disposable = std::env::args().any(|arg| arg == "--native-target");
+    let path_receipt = std::env::args().any(|arg| arg == "--image-path-receipt");
+    let benchmark = std::env::args().any(|arg| arg == "--benchmark");
+    if disposable && benchmark {
+        log::set_logger(&RegistrationLog).map_err(|_| "registration logger already set")?;
+        log::set_max_level(log::LevelFilter::Trace);
+    }
     let manual = std::env::args().any(|arg| arg == "--manual-native");
     let pause_probe = std::env::args().any(|arg| arg == "--pause-probe");
     let upgrade_probe = std::env::args().any(|arg| arg == "--upgrade-probe");
@@ -301,10 +353,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
+    let mut application_modes = std::collections::BTreeMap::new();
+    if disposable && path_receipt {
+        let executable = std::env::current_exe()?.with_file_name("native_input_fixture.exe");
+        application_modes.insert(
+            executable
+                .to_str()
+                .ok_or("non-Unicode fixture path")?
+                .to_owned(),
+            voicelink_receiver::windows_image_delivery::ImageDeliveryMode::CopyPath,
+        );
+    }
     let image_delivery = Arc::new(std::sync::RwLock::new(
         voicelink_receiver::windows_image_delivery::ImageDeliverySettings::new(
             Some(output.join("exports")),
-            Default::default(),
+            application_modes,
         ),
     ));
     let adapter = if let Some(target) = target.clone() {
@@ -315,6 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ),
             target,
             calls: calls.clone(),
+            benchmark,
         }))
     } else if manual {
         eprintln!(
@@ -331,7 +395,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         FixtureInput::Fake(FakeInput {
             calls: calls.clone(),
             pause: pause_probe.then_some(pause_sender),
-            image_path_receipt: std::env::args().any(|arg| arg == "--image-path-receipt"),
+            image_path_receipt: path_receipt,
         })
     };
     let receiver = Receiver::start(ledger, adapter)?;
@@ -359,11 +423,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             arg.strip_prefix("--lifetime=")
                 .and_then(|value| value.parse().ok())
         })
-        .unwrap_or(if std::env::args().any(|arg| arg == "--benchmark") {
-            600
-        } else {
-            180
-        });
+        .unwrap_or(if benchmark { 600 } else { 180 });
     if !upgrade_probe {
         service
             .open_pairing_with_lifetime(Duration::from_secs(lifetime))

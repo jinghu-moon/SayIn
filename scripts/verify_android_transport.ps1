@@ -9,7 +9,7 @@ if ($HotTargets -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing)) {
 if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets)) { throw 'PairReplacement requires a fresh TransportOnly verification.' }
 if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
 if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
-if ($BatchPathReceipt -and (!$ImageBatch -or $NativeBatch)) { throw 'BatchPathReceipt uses the isolated fake image adapter.' }
+if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires ImageBatch.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -157,10 +157,28 @@ try {
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
     if ($NativeBatch) {
         if ($calls.native_input_calls -ne $expectedCalls -or $calls.fake_input_calls -ne 0) { throw 'Unexpected native input call count.' }
-        $observed = Get-Content (Join-Path $fixtureDirectory 'target/observed.json') -Raw | ConvertFrom-Json
-        if ($observed.observed_images -ne $expectedCalls -or $observed.pictures -ne 1 -or
-            $observed.text -ne 'existing| ' -or ($observed.picture_widths_twips -join ',') -ne '465,510,465') {
-            throw 'RichEdit did not observe the expected picture sequence.'
+        if ($BatchPathReceipt) {
+            $exports = @(Get-ChildItem -LiteralPath (Join-Path $fixtureDirectory 'exports') -File)
+            if ($exports.Count -ne 1 -or $exports[0].Length -le 0 -or (Get-Clipboard -Raw) -cne $exports[0].FullName) {
+                throw 'Expected exactly one exported image and its path on the Windows clipboard.'
+            }
+            $window = Get-Content (Join-Path $fixtureDirectory 'target/window.json') -Raw | ConvertFrom-Json
+            $target = Get-Process -Id $window.pid
+            if ($target.ProcessName -ne 'native_input_fixture') { throw 'Wrong disposable RichEdit process.' }
+            Set-Content -LiteralPath (Join-Path $fixtureDirectory 'target/stop') -Value '' -NoNewline
+            if (!$target.WaitForExit(10000)) { throw 'Disposable RichEdit did not stop.' }
+            Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline
+            if (!$process.WaitForExit(15000) -or $process.ExitCode -ne 0) { throw 'Native fixture did not shut down cleanly.' }
+            $final = Get-Content (Join-Path $fixtureDirectory 'target/final.json') -Raw | ConvertFrom-Json
+            if ($final.observed_images -ne 0 -or $final.pictures -ne 0 -or $final.text -ne 'existing|') {
+                throw 'Path copy modified the disposable RichEdit content.'
+            }
+        } else {
+            $observed = Get-Content (Join-Path $fixtureDirectory 'target/observed.json') -Raw | ConvertFrom-Json
+            if ($observed.observed_images -ne $expectedCalls -or $observed.pictures -ne 1 -or
+                $observed.text -ne 'existing| ' -or ($observed.picture_widths_twips -join ',') -ne '465,510,465') {
+                throw 'RichEdit did not observe the expected picture sequence.'
+            }
         }
     } elseif ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
     if ($HotTargets) {

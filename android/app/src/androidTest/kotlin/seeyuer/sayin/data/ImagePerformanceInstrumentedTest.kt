@@ -14,6 +14,7 @@ import org.junit.Test
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.ConcurrentHashMap
 
 /** Explicit, isolated production-path benchmark. Never part of regular suites,
@@ -42,8 +43,10 @@ class ImagePerformanceInstrumentedTest {
             }
         }
         val measurements = ConcurrentHashMap<String, Long>()
+        val registration = AtomicReference<Pair<String, Long>>()
         val repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()},
-            imageTiming = { stage, nanos -> measurements[stage] = nanos })
+            imageTiming = { stage, nanos -> measurements[stage] = nanos },
+            imageRegistration = { image, nanos -> check(registration.compareAndSet(null, image.resourceId to nanos)) })
         val results=JSONArray();val rejections=JSONArray()
         suspend fun waitFor(predicate:(ClientState)->Boolean):ClientState=withTimeout(90000) {
             while(!predicate(repository.state.value)) {check(repository.state.value.storageHealthy);delay(10)}
@@ -60,7 +63,8 @@ class ImagePerformanceInstrumentedTest {
                 waitFor { it.ready && it.imageSupported &&
                     ProtectedStore(context).load()?.let(::PairedHost)?.port == proxyPort }
             }
-            for(source in sources) {
+            val orderedSources = if (args.getString("reverseImages") == "true") sources.asReversed() else sources
+            for(source in orderedSources) {
                 if(source.length()>MAX_IMAGE_BYTES) {
                     val start=SystemClock.elapsedRealtimeNanos()
                     assertThrows(IllegalArgumentException::class.java) {source.inputStream().use{boundedImageRead(it)}}
@@ -81,7 +85,7 @@ class ImagePerformanceInstrumentedTest {
                     repository.sendImage(image.resourceId)
                     val finished=waitFor{state->state.history.any{it.id !in previous&&it.kind=="image"&&it.state in setOf("injected","failed","uncertain","held","expired","cancelled")}}
                     val terminalAt = SystemClock.elapsedRealtimeNanos()
-                    val registeredAt = checkNotNull(measurements.remove("registration_received_at"))
+                    val (registeredResource, registeredAt) = checkNotNull(registration.getAndSet(null))
                     check(registeredAt in sendStart..terminalAt)
                     val receipt=finished.history.single{it.id !in previous&&it.kind=="image"}
                     assertEquals("${source.name}: ${receipt.reason}; pause=${finished.pauseReason}","injected",receipt.state)
@@ -93,6 +97,8 @@ class ImagePerformanceInstrumentedTest {
                     assertArrayEquals(original.certificate.encoded,saved.certificate.encoded)
                     results.put(JSONObject().put("file",source.name).put("iteration",iteration+1).put("source_bytes",source.length())
                         .put("normalized_bytes",image.metadata.bytes).put("width",image.metadata.width).put("height",image.metadata.height)
+                        .put("resource_id", registeredResource).put("send_at_nanos", sendStart)
+                        .put("registration_ack_at_nanos", registeredAt).put("terminal_at_nanos", terminalAt)
                         .put("preparation_stages_ms", JSONObject(measurements.mapValues { (_, nanos) -> nanos / 1e6 }))
                         .put("send_to_registration_ack_ms", (registeredAt - sendStart) / 1e6)
                         .put("registration_ack_to_terminal_ms", (terminalAt - registeredAt) / 1e6)

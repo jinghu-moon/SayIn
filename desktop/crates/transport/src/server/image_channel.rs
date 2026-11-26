@@ -200,6 +200,14 @@ async fn transfer(
                                 let valid=scope(shared,binding).await.is_ok_and(|scope|scope==*initial);
                                 let registered=if valid {shared.receiver.register_image(binding.session.clone(),initial.clone(),resource.clone(),Arc::new(voicelink_receiver::images::ImageAuthorization::new(binding.alive.clone()))).await} else {Err(voicelink_receiver::Error::Protocol("IMAGE_SCOPE"))};
                                 registered?;
+                                #[cfg(windows)]
+                                if log::log_enabled!(target: "sayin_image_registration", log::Level::Trace) {
+                                    let mut ticks = 0;
+                                    // QPC shares the Windows Stopwatch timebase used by verification.
+                                    if unsafe { windows::Win32::System::Performance::QueryPerformanceCounter(&mut ticks) }.is_ok() {
+                                        log::trace!(target: "sayin_image_registration", "{} {ticks}", resource.image().resource_id);
+                                    }
+                                }
                                 let image=resource.image().clone();
                                 *ready=Some(image.clone());
                                 send(socket,&json!({"v":3,"t":"image_ready","id":id,"image":image})).await?;

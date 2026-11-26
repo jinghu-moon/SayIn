@@ -66,6 +66,7 @@ internal class ImageInput(
     private val submit: suspend (OutboxItem) -> Unit,
     private val storageFailure: () -> Unit,
     private val timing: ((String, Long) -> Unit)?,
+    private val registration: ((ImageReference, Long) -> Unit)?,
 ) {
     private val files = ImageFiles(File(app.noBackupFilesDir, "images/${app.getDatabasePath("outbox.db").nameWithoutExtension}"), store)
     private val preparationLimit = Semaphore(1)
@@ -277,7 +278,7 @@ internal class ImageInput(
                 val image = try { transfer.upload(draft.image.metadata, bytes) { received ->
                     state.update { if (it.imageRequest == item.key && it.imageBusy) it.copy(imageProgress = received) else it }
                 } } finally { bytes.fill(0) }
-                timing?.invoke("registration_received_at", SystemClock.elapsedRealtimeNanos())
+                registration?.invoke(image, SystemClock.elapsedRealtimeNanos())
                 if (!emit(ImageEvent.Ready(current, image))) current.stop()
             } catch (cancel: CancellationException) { active.set(false); current.stop(); throw cancel }
             catch (_: Exception) { active.set(false); current.stop(); emit(ImageEvent.Failed(current)) }

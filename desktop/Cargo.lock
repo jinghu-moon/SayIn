@@ -6770,6 +6770,7 @@ dependencies = [
  "futures-channel",
  "futures-util",
  "if-addrs",
+ "log",
  "qrcode",
  "rcgen",
  "rustls",
