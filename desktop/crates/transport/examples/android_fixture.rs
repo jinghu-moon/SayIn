@@ -1,6 +1,9 @@
 //! Opt-in isolated Android fixture: fake input and test-only local approval.
 //! Loopback by default; --lan explicitly uses one validated physical interface.
 //! Never link this into the product or use a daily identity/data directory.
+#[path = "../../../tests/support/manual_clock.rs"]
+mod manual_clock;
+
 use std::{
     path::PathBuf,
     sync::{
@@ -14,7 +17,9 @@ use voicelink_receiver::{
     gate::InputGate,
     ledger::{Execution, InputOutcome},
     protocol::Operation,
-    windows_input::{NativeInput, open_ledger_with_retention},
+    windows_input::{
+        NativeInput, open_ledger_with_clock_and_retention, open_ledger_with_retention,
+    },
     worker::{InputAdapter, Receiver},
 };
 use voicelink_transport::{HostIdentity, server::NetworkService, storage::secure_directory};
@@ -368,7 +373,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .transpose()?
         .map(Duration::from_secs)
         .unwrap_or(voicelink_receiver::ledger::DEFAULT_HOLD_RETENTION);
-    let mut ledger = open_ledger_with_retention(&output, hold_retention)?;
+    let expiry_probe = std::env::args().any(|arg| arg == "--pair-replacement-expiry");
+    let clock = expiry_probe.then(manual_clock::ManualClock::new);
+    let mut ledger = if let Some(clock) = &clock {
+        open_ledger_with_clock_and_retention(&output, clock.clone(), hold_retention)?
+    } else {
+        open_ledger_with_retention(&output, hold_retention)?
+    };
     let text_commits = if std::env::args().any(|arg| arg == "--text-commit-timing") {
         let (sender, events) = std::sync::mpsc::sync_channel(300);
         let origin = std::time::Instant::now();
@@ -533,11 +544,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
     }
     let snapshot = service.snapshot()?;
-    let replacement_control = if std::env::args().any(|arg| arg == "--pair-replacement") {
-        Some(tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?)
-    } else {
-        None
-    };
+    let replacement_control =
+        if expiry_probe || std::env::args().any(|arg| arg == "--pair-replacement") {
+            Some(tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?)
+        } else {
+            None
+        };
     let replacement_port = replacement_control
         .as_ref()
         .map(|listener| listener.local_addr())
@@ -625,6 +637,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 {
                     use tokio::io::AsyncWriteExt as _;
                     client.write_all(window.code.as_bytes()).await?;
+                }
+                if let Some(clock) = &clock {
+                    use tokio::io::AsyncReadExt as _;
+                    let (mut client, _) =
+                        tokio::time::timeout(Duration::from_secs(30), listener.accept()).await??;
+                    let command =
+                        tokio::time::timeout(Duration::from_secs(5), client.read_u8()).await??;
+                    if command != 1 {
+                        return Err("Unexpected expiry clock command".into());
+                    }
+                    clock.advance(hold_retention);
                 }
             }
         }

@@ -1,8 +1,11 @@
 package seeyuer.sayin.asr
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.media.MediaRecorder
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
+import androidx.core.content.ContextCompat
 import androidx.test.core.app.ActivityScenario
 import java.io.FileInputStream
 import kotlinx.coroutines.Dispatchers
@@ -86,6 +89,21 @@ class AudioSourceInstrumentedTest {
         instrumentation.uiAutomation.executeShellCommand(
             "am start -W -n $packageName/androidx.activity.ComponentActivity"
         ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).use { it.readBytes() } }
-        ActivityScenario.launch(ComponentActivity::class.java).use { block() }
+        ActivityScenario.launch(ComponentActivity::class.java).use { scenario ->
+            val context = instrumentation.targetContext
+            val deadline = SystemClock.elapsedRealtime() + 5_000
+            var focused: Boolean
+            var granted: Boolean
+            do {
+                focused = false
+                scenario.onActivity { focused = it.hasWindowFocus() }
+                granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
+                    PackageManager.PERMISSION_GRANTED
+                if (focused && granted) break
+                SystemClock.sleep(20)
+            } while (SystemClock.elapsedRealtime() < deadline)
+            assertTrue("Microphone fixture not ready: focused=$focused, granted=$granted", focused && granted)
+            block()
+        }
     }
 }

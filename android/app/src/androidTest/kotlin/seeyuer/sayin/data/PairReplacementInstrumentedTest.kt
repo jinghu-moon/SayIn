@@ -26,6 +26,8 @@ class PairReplacementInstrumentedTest {
         val controlPort = arguments.getString("replacementControlPort")?.toInt()
         assumeTrue(controlPort != null)
         val port = checkNotNull(arguments.getString("fixturePort"))
+        val address = checkNotNull(arguments.getString("fixtureAddress"))
+        val expiry = arguments.getString("pairReplacementExpiry") == "true"
         val target = registry.targetContext
         check(target.packageName == "seeyuer.sayin.imagetest")
         val namespace = "replace-pair-${UUID.randomUUID()}-"
@@ -45,7 +47,7 @@ class PairReplacementInstrumentedTest {
             }
             await { it.connection == Connection.OFFLINE }
             repository.foreground(true)
-            repository.pairCode("127.0.0.1", port, checkNotNull(arguments.getString("fixtureCode")))
+            repository.pairCode(address, port, checkNotNull(arguments.getString("fixtureCode")))
             val original = await { it.ready }.pairedTargets.single()
             val replacementCode = withContext(Dispatchers.IO) {
                 Socket("127.0.0.1", checkNotNull(controlPort)).use { socket ->
@@ -60,8 +62,20 @@ class PairReplacementInstrumentedTest {
             await { state -> state.history.any { it.id == held && it.state == "held" } }
             repository.prepareReplacement()
             assertFalse(await { it.issue == ClientIssue.PAIR_REPLACE_BLOCKED }.replacingPair)
-            repository.action(OutboxKey(original.hostId, original.pairId, held), "cancel")
-            await { state -> state.history.any { it.id == held && it.state == "cancelled" } }
+            if (expiry) {
+                withContext(Dispatchers.IO) {
+                    Socket("127.0.0.1", checkNotNull(controlPort)).use { socket ->
+                        socket.getOutputStream().write(1)
+                    }
+                }
+                val expired = await { state -> state.history.any { it.id == held && it.state == "expired" } }
+                    .history.single { it.id == held }
+                assertEquals("hold_expired", expired.reason)
+                assertNull(expired.payload)
+            } else {
+                repository.action(OutboxKey(original.hostId, original.pairId, held), "cancel")
+                await { state -> state.history.any { it.id == held && it.state == "cancelled" } }
+            }
 
             val id = UUID.randomUUID().toString()
             val key = OutboxKey(original.hostId, original.pairId, id)
@@ -70,7 +84,7 @@ class PairReplacementInstrumentedTest {
             await { it.history.any { row -> row.id == id && row.state == "injected" } && it.historyText[key] == text }
             repository.prepareReplacement()
             await { it.replacingPair }
-            repository.pairCode("127.0.0.1", port, replacementCode)
+            repository.pairCode(address, port, replacementCode)
             val replaced = await { current -> current.connection == Connection.ONLINE && !current.recovering &&
                 current.pairedTargets.singleOrNull()?.pairId != original.pairId }
             val newPair = replaced.pairedTargets.single()

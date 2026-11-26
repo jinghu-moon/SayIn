@@ -1,6 +1,6 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
     [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
-    [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
+    [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement, [switch]$PairReplacementExpiry,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
     [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [ValidateRange(1,100)][int]$ControlSamples = 100)
@@ -9,6 +9,7 @@ if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requir
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
 if ($HotTargets -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing)) { throw 'HotTargets requires a fresh TransportOnly verification.' }
 if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets)) { throw 'PairReplacement requires a fresh TransportOnly verification.' }
+if ($PairReplacementExpiry -and (!$Lan -or $TransportOnly -or $FullSuite -or $PairReplacement -or $ImageBatch -or $BatchInterruption -or $ControlPerformance -or $MissingReceipt)) { throw 'PairReplacementExpiry requires a separate LAN run.' }
 if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
 if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
 if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires ImageBatch.' }
@@ -54,7 +55,7 @@ $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSeria
 $leaseAcquired = $false
 $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceInstrumentedTest' }
     elseif ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
-    elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
+    elseif ($PairReplacement -or $PairReplacementExpiry) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
     elseif ($MissingReceipt) { 'seeyuer.sayin.data.TransportInstrumentedTest#unknownReceiptRequiresExplicitRetryAfterReconnect' }
     elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest#nativeCodePairingPinnedTlsEncryptedOutboxAndReconnect' }
     elseif ($BatchInterruption) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#interruptedBatchKeepsItsFirstReceiptAndNeverSubmitsTheSecond' }
@@ -63,8 +64,8 @@ $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceIn
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
 $expectedTextUiTests = 181
 $expectedImageTests = 7
-$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance -or $MissingReceipt) { 1 } else { $expectedImageTests }
-$expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance -or $MissingReceipt -or $PairReplacementExpiry) { 1 } else { $expectedImageTests }
+$expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $PairReplacementExpiry -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
     if (!$leaseAcquired) { throw 'Another SayIn device verification is active; run serially.' }
@@ -93,6 +94,10 @@ try {
     if (!$KeepUpgradeFixture) {
         Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
     }
+    if ($FullSuite) {
+        # The package-data-cleared broadcast can revoke a new grant after pm clear returns.
+        Invoke-Checked { & $adb -s $DeviceSerial shell am wait-for-broadcast-idle | Out-Null }
+    }
     $api = [int](& $adb -s $DeviceSerial shell getprop ro.build.version.sdk)
     if ($LASTEXITCODE -ne 0 -or $api -lt 29) { throw 'Cannot determine the supported Android API level.' }
     if ($api -ge 37) {
@@ -107,6 +112,10 @@ try {
     if ($Lan) { $fixtureArguments += '--lan' }
     if ($QrPairing) { $fixtureArguments += '--qr-pairing' }
     if ($PairReplacement) { $fixtureArguments += '--pair-replacement' }
+    if ($PairReplacementExpiry) {
+        $fixtureArguments[3] = '--hold-retention-seconds=600'
+        $fixtureArguments += '--pair-replacement-expiry'
+    }
     if ($NativeBatch) { $fixtureArguments += '--native-target' }
     if ($BatchPathReceipt) { $fixtureArguments += '--image-path-receipt' }
     if ($BatchInterruption) { $fixtureArguments += "--batch-$($BatchInterruption.ToLowerInvariant())" }
@@ -123,12 +132,13 @@ try {
     if ($port -le 1024 -or $port -gt 65535 -or $fixture.code -notmatch '^\d{8}$') { throw 'Invalid fixture metadata.' }
     if (!$Lan) { Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$port" "tcp:$port" } }
     $arguments = @('-s', $DeviceSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '120000', '-e', 'fixtureCode', $fixture.code, '-e', 'fixturePort', $port, '-e', 'fixtureAddress', $fixture.address)
-    if ($PairReplacement) {
+    if ($PairReplacement -or $PairReplacementExpiry) {
         $replacementPort = [int]$fixture.replacement_port
         if ($replacementPort -le 1024 -or $replacementPort -gt 65535) { throw 'Invalid replacement fixture metadata.' }
         Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$replacementPort" "tcp:$replacementPort" }
         $arguments += @('-e', 'replacementControlPort', $replacementPort)
     }
+    if ($PairReplacementExpiry) { $arguments += @('-e','pairReplacementExpiry','true') }
     if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
     if ($NativeText) { $arguments += @('-e','nativeText','true') }
     if ($ControlClick) { $arguments += @('-e','controlClick','true','-e','timeout_msec','600000') }
@@ -312,9 +322,9 @@ try {
         }
         $expectedCalls = 1
     }
-    if (($KeepUpgradeFixture -or $ImageBatch -or $MissingReceipt) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
+    if (($KeepUpgradeFixture -or $ImageBatch -or $MissingReceipt -or $PairReplacementExpiry) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
-    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; pair_replacement_expiry = [bool]$PairReplacementExpiry; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
     if ($ControlClick -and $gate -eq 'fail') { throw "Click-to-durable-receipt performance gate failed. Evidence: $fixtureDirectory" }
     if ($FullSuite) {

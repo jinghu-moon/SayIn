@@ -330,7 +330,8 @@ async fn next(socket: &mut Socket, kind: &str) -> Value {
                 }
                 assert_ne!(
                     value["t"], "err",
-                    "received an error while waiting for {kind}"
+                    "received an error while waiting for {kind}: {}",
+                    value["code"]
                 );
             }
         }
@@ -952,32 +953,67 @@ async fn wrong_code_never_delivers_identity_and_closed_window_rejects_pending_gr
 }
 
 #[tokio::test]
-async fn explicit_rejection_and_revocation_prevent_authenticated_input() {
+async fn revocation_preserves_other_pair_session_across_local_resume() {
     let directory = Directory::new();
-    let receiver = Receiver::start(
-        open_ledger(&directory.0).unwrap(),
-        Adapter(Arc::new(AtomicUsize::new(0))),
-    )
-    .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let receiver =
+        Receiver::start(open_ledger(&directory.0).unwrap(), Adapter(calls.clone())).unwrap();
     let service = NetworkService::start_loopback(
         receiver.clone(),
         HostIdentity::open(&directory.0, 0).unwrap(),
         "127.0.0.1:0".parse().unwrap(),
     )
     .unwrap();
-    let invitation = invitation(&service).await;
-    let paired = pair(&service, &invitation).await;
+    let revoked_invitation = invitation(&service).await;
+    let paired = pair(&service, &revoked_invitation).await;
+    let active_invitation = invitation(&service).await;
+    let active = pair(&service, &active_invitation).await;
+    let target = Uuid::new_v4().to_string();
+    let state = receiver.bind_target(target.clone()).await.unwrap();
+    receiver.resume(state.state_rev, false).await.unwrap();
+    let mut surviving = socket(&active_invitation).await;
+    send(
+        &mut surviving,
+        json!({"v":3,"t":"hello","name":"Other Android","pair_id":active["pair_id"],"token":active["token"]}),
+    )
+    .await;
+    let welcome = next(&mut surviving, "welcome").await;
+    let session = welcome["session_id"].as_str().unwrap();
+    query_ready(&mut surviving, session).await;
     receiver
         .revoke(paired["pair_id"].as_str().unwrap().into())
         .await
         .unwrap();
-    let mut socket = socket(&invitation).await;
+    let mut socket = socket(&revoked_invitation).await;
     send(
         &mut socket,
         json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
     )
     .await;
     assert_eq!(next(&mut socket, "err").await["code"], "UNAUTHORIZED");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    query_ready(&mut surviving, session).await;
+    let paused = receiver.state().await.unwrap();
+    assert!(paused.paused);
+    receiver.resume(paused.state_rev, false).await.unwrap();
+    let id = Uuid::new_v4().to_string();
+    send(
+        &mut surviving,
+        json!({"v":3,"t":"submit","session_id":session,"id":id,"target":target,"op":{"kind":"text","text":"surviving pair","src":"manual"}}),
+    )
+    .await;
+    loop {
+        let status = next(&mut surviving, "status").await;
+        assert_eq!(status["id"], id);
+        if status["st"] == "injected" {
+            break;
+        }
+        assert!(matches!(
+            status["st"].as_str(),
+            Some("accepted" | "executing")
+        ));
+    }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
 }
