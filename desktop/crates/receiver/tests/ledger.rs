@@ -673,6 +673,58 @@ fn terminal_dedup_precedes_stale_target_and_conflicting_id_is_rejected() {
 }
 
 #[test]
+fn identical_request_ids_have_independent_receipts_in_two_pairs() {
+    let fixture = Fixture::new();
+    let (mut ledger, first_pair) = fixture.ready();
+    let second_device = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&second_device, &[5; 32], "second phone".into())
+        .unwrap();
+    let second_pair = ledger.authenticate(&second_device, &[5; 32]).unwrap();
+    let first = fixture.submit(&first_pair, "first pair text");
+    let mut second = fixture.submit(&second_pair, "second pair text");
+    second.id.clone_from(&first.id);
+
+    let first_receipt = ledger.submit(&first_pair, &first).unwrap();
+    assert!(ledger.query(&second_pair, &first.id).unwrap().is_none());
+    let second_receipt = ledger.submit(&second_pair, &second).unwrap();
+    assert_ne!(first_receipt.order, second_receipt.order);
+
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.device(), first_pair.device());
+    assert_eq!(job.operation(), &first.op);
+    assert!(ledger.mark_executing(&job).unwrap());
+    ledger
+        .finish(&job, InputOutcome::Injected { method: "unicode" })
+        .unwrap();
+    assert_eq!(
+        ledger.query(&first_pair, &first.id).unwrap().unwrap().st,
+        State::Injected
+    );
+    let second_pending = ledger.query(&second_pair, &first.id).unwrap().unwrap();
+    assert_eq!(second_pending.order, second_receipt.order);
+    assert_eq!(second_pending.st, State::Accepted);
+
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.device(), second_pair.device());
+    assert_eq!(job.operation(), &second.op);
+    assert!(ledger.mark_executing(&job).unwrap());
+    ledger
+        .finish(&job, InputOutcome::Injected { method: "unicode" })
+        .unwrap();
+    for (pair, request, original) in [
+        (&first_pair, &first, first_receipt),
+        (&second_pair, &second, second_receipt),
+    ] {
+        let receipt = ledger.query(pair, &request.id).unwrap().unwrap();
+        assert_eq!(receipt.st, State::Injected);
+        assert_eq!(receipt.order, original.order);
+        assert_eq!(ledger.submit(pair, request).unwrap().order, original.order);
+    }
+    assert!(ledger.prepare_next().unwrap().is_none());
+}
+
+#[test]
 fn tombstone_blocks_late_submit_and_is_device_scoped() {
     let fixture = Fixture::new();
     let (mut ledger, session) = fixture.ready();
@@ -708,12 +760,16 @@ fn session_replacement_and_revocation_fence_old_senders() {
         .authenticate(&fixture.device, &fixture.token)
         .unwrap();
     code(ledger.submit(&old, &submit), "STALE_SESSION");
+    code(ledger.query(&old, &submit.id), "STALE_SESSION");
     let mut submit = submit;
     submit.session_id = current.id().into();
     ledger.submit(&current, &submit).unwrap();
+    assert!(ledger.query(&current, &submit.id).unwrap().is_some());
+    code(ledger.query(&old, &submit.id), "STALE_SESSION");
     ledger.revoke(&fixture.device).unwrap();
     assert!(ledger.snapshot().unwrap().device_ids.is_empty());
     code(ledger.submit(&current, &submit), "STALE_SESSION");
+    code(ledger.query(&current, &submit.id), "STALE_SESSION");
     code(
         ledger.authenticate(&fixture.device, &fixture.token),
         "UNAUTHORIZED",

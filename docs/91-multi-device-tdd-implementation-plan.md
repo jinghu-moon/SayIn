@@ -655,7 +655,8 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 | 编号 | 已有证据 | 仍缺的验收 |
 | --- | --- | --- |
 | M1 | K40 三桌面身份切换及单对单 LAN。 | 真实 2×2 暂缓。 |
-| M2、M3 | `HotTargetsInstrumentedTest` 复用 UUID 发往不同身份。账本及双 WSS 测试验证旧会话和旧上传绑定失效。 | 同一桌面多手机的同 UUID 查询隔离与完整迟到时序实测。 |
+| M2 | `identical_request_ids_have_independent_receipts_in_two_pairs` 在同一桌面账本验证两个配对以同一 UUID 提交不同正文，查询、执行、持久终态及去重均保持独立。K40 三目标测试也覆盖跨桌面复用 UUID。 | 物理多手机的 LAN 复验。 |
+| M3 | `session_replacement_and_revocation_fence_old_senders` 验证旧会话无法提交或查询，当前会话仍能查询。双 WSS 测试验证旧上传绑定失效。 | 完整设备链路上的迟到时序实测。 |
 | M4–M6 | `scheduler_orders_authenticated_pair_heads_and_skips_a_held_pair`、`target_uncertainty_holds_only_the_same_execution_window_across_pairs` 及全局副作用、部分输入的账本和 worker 测试。 | 多手机、多个原生目标窗口的执行与核对。 |
 | M7、M8 | 账本配额、撤销、取消预检和部分输入闸门测试。K40 真实 LAN 撤销后旧凭据保持拒绝。 | 八台并发连接及撤销与各原生输入阶段的竞态。 |
 | M9、M10 | `newer_pause_fences_resume_queued_behind_a_blocked_accept_commit`，K40 100 次上传暂停与重连，三目标待核对回环测试。 | 三个物理桌面目标的热连接数和收尾上界。 |
@@ -666,3 +667,5 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 | M20、M21 | K40 主动重配回环测试、Rust 替换配对迁移、重启和 `held` 期限回归。 | 真实 LAN 多配对重配与未决请求并发。 |
 | M22–M24 | Rust 查询缺失向量、账本保留期、恢复及顺序。K40 等待 `hold_expired` 与手机恢复回归。 | 完整的缺失查询后显式重试、暂停期间三条和长保留期到点重配联测。 |
 | M25–M28 | K40 原地迁移、Rust 多不确定性审核和帧预算、Rust 黄金组合与 Android 回执展示矩阵。 | 完整旧 `held` 端到端展示、多设备核对，以及完整回执跨语言逐字节比较。 |
+
+补齐 M2 同一账本双配对用例和 M3 旧会话查询断言后，账本集成测试 51 项、回环网络集成测试 12 项通过，包级 rustfmt 与 Git diff 检查通过。
