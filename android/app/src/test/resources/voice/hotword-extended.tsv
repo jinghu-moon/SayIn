@@ -1,0 +1,18 @@
+id	input	expected	kind	note
+XHOT-001	CHAT GPT	ChatGPT	MUST_CHANGE	大小写
+XHOT-002	Chat Gpt 很好用	ChatGPT 很好用	MUST_CHANGE	大小写
+XHOT-003	kotlin 和 kotlinx 都用	Kotlin 和 kotlinx 都用	MUST_CHANGE	词边界
+XHOT-004	我用 kotlin 写 kotlinx 的代码	我用 Kotlin 写 kotlinx 的代码	MUST_CHANGE	词边界
+XHOT-005	访问 chatgpt.com 看看	访问 chatgpt.com 看看	MUST_KEEP	URL保护
+XHOT-006	西罗 vad 和 西罗马帝国	Silero VAD 和 西罗马帝国	MUST_CHANGE	上下文
+XHOT-007	扣特林，科特林	Kotlin，Kotlin	MUST_CHANGE	同音词
+XHOT-008	web socket 和 websocket	WebSocket 和 websocket	MUST_CHANGE	长词优先
+XHOT-009	git hub 和 github	GitHub 和 github	MUST_CHANGE	长词优先
+XHOT-010	chat gpt chat gpt	ChatGPT ChatGPT	MUST_CHANGE	多次出现
+XHOT-011	我在用ChatGPT写代码	我在用ChatGPT写代码	MUST_KEEP	幂等
+XHOT-012	sherpa onnx 和 谢尔帕 onnx	sherpa-onnx 和 sherpa-onnx	MUST_CHANGE	多词条
+XHOT-013	https://chatgpt.com/chatgpt	https://chatgpt.com/chatgpt	MUST_KEEP	URL保护
+XHOT-014	邮箱 chatgpt@example.com	邮箱 chatgpt@example.com	MUST_KEEP	邮箱保护
+XHOT-015	kotlinx.coroutines 很好用	kotlinx.coroutines 很好用	MUST_KEEP	词边界
+XHOT-016	ten VAD 和 Silero VAD	TEN VAD 和 Silero VAD	MUST_CHANGE	大小写
+XHOT-017	赛音 的新版本	SayIn 的新版本	MUST_CHANGE	产品名

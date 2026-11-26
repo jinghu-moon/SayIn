@@ -1,0 +1,29 @@
+id	input	expected	kind	note
+XFMT-001	你好。。。世界	你好……世界	MUST_CHANGE	省略号
+XFMT-002	真的吗？？？	真的吗？	MUST_CHANGE	重复问号
+XFMT-003	太好了！！！	太好了！	MUST_CHANGE	重复感叹号
+XFMT-004	好，，，我们走	好，我们走	MUST_CHANGE	重复逗号
+XFMT-005	（ 你好 ）	（你好）	MUST_CHANGE	括号空格
+XFMT-006	《 三体 》	《三体》	MUST_CHANGE	书名号空格
+XFMT-007	【 通知 】	【通知】	MUST_CHANGE	方括号空格
+XFMT-008	中文 English 混排	中文English混排	MUST_CHANGE	中英空格
+XFMT-009	ChatGPT 4 很好	ChatGPT 4很好	MUST_CHANGE	英文内空格保留
+XFMT-010	版本 v1.2.3 和 2.0	版本v1.2.3和2.0	MUST_CHANGE	版本保护
+XFMT-011	你好 \n 世界	你好\n世界	MUST_CHANGE	换行保留
+XFMT-012	你好\t世界	你好世界	MUST_CHANGE	制表符
+XFMT-013	你好　世界	你好世界	MUST_CHANGE	全角空格
+XFMT-014	他说：“ 你好。 ”	他说：“你好。”	MUST_CHANGE	引号空格
+XFMT-015	1,000元	1,000元	MUST_KEEP	千分位
+XFMT-016	Hello, world. How are you?	Hello, world. How are you?	MUST_KEEP	英文句子
+XFMT-017	路径 src/main/kotlin/App.kt	路径src/main/kotlin/App.kt	MUST_CHANGE	路径保护
+XFMT-018	邮箱 name@example.com	邮箱name@example.com	MUST_CHANGE	邮箱
+XFMT-019	网址 https://example.com/a?b=1&c=2	网址https://example.com/a?b=1&c=2	MUST_CHANGE	URL
+XFMT-020	100% 和 5.5%	100%和5.5%	MUST_CHANGE	百分号
+XFMT-021	等一下。。。	等一下……	MUST_CHANGE	省略号
+XFMT-022	真的？！	真的？！	MUST_KEEP	问叹组合
+XFMT-023	这个——很重要	这个——很重要	MUST_KEEP	破折号
+XFMT-024	等等...再说	等等...再说	MUST_KEEP	英文省略
+XFMT-025	第一行\n第二行	第一行\n第二行	MUST_KEEP	换行
+XFMT-026	你好, 世界	你好,世界	MUST_CHANGE	ASCII逗号空格
+XFMT-027	你好 ，世界	你好，世界	MUST_CHANGE	标点前空格
+XFMT-028	你好， 世界	你好，世界	MUST_CHANGE	标点后空格

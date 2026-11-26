@@ -7,15 +7,19 @@ package seeyuer.sayin.asr
  */
 internal object LocalItn {
     private const val DIGITS = "零一二三四五六七八九"
-    private const val NUMBER = "(?:[一二三四五六七八九]?十[一二三四五六七八九]?|[零一二三四五六七八九])"
+    private const val NUMBER = "(?:[一二三四五六七八九两]?十[一二三四五六七八九两]?|[零一二三四五六七八九两])"
     private const val NUMERAL = "${DIGITS}〇两十百千万亿0-9"
     private const val CN = "零〇一二三四五六七八九两"
     private const val MAGNITUDE = "十百千万亿"
     private const val CN_NUMERAL = "[$CN$MAGNITUDE]+"
-    private const val DIGIT_RUN = "[${CN}幺]{2,}"
+    private const val CN_DIGITS = "零〇一二三四五六七八九"
+    private const val DIGIT_RUN = "[${CN_DIGITS}幺]{2,}"
 
     // Brand and proper names from the voice-corpus policy (protect.terms.txt); never rewritten.
-    private val brandTerms = listOf("一加手机", "一加", "三星", "九号公司", "九号", "五粮液", "二锅头", "三只松鼠", "七匹狼", "一汽", "万科", "百度")
+    private val brandTerms = listOf(
+        "一加手机", "一加", "三星", "九号公司", "九号", "五粮液", "二锅头", "三只松鼠", "七匹狼", "一汽", "万科", "百度",
+        "三一重工", "十万火急", "五十度灰", "十字路口", "十字架", "十字绣",
+    )
     private val protected = Regex(
         brandTerms.joinToString("|") { Regex.escape(it) } + "|" + ProtectedText.URL_OR_CODE,
     )
@@ -23,7 +27,7 @@ internal object LocalItn {
     private val date = Regex("(?<![$NUMERAL])($NUMBER)月($NUMBER)([日号])")
     private val time = Regex("(?<![$NUMERAL])($NUMBER)点(半|整|钟|((?:零[一二三四五六七八九]|$NUMBER))分(?!之))")
     private val percentage = Regex(
-        "(?<![A-Za-z0-9_.:/@=+%`-])百分之($NUMBER)(?:点([$DIGITS]+))?(?![$NUMERAL.点分之几多余来到至~～—])",
+        "(?<![A-Za-z0-9_.:/@=+%`-])百分之($CN_NUMERAL)(?:点([$DIGITS]+))?(?![$NUMERAL.点分之几多余来到至~～—])",
     )
     private val decimalWithUnit = Regex("(?<![$NUMERAL])($NUMBER)点([$DIGITS]+)(公里|千米|厘米|毫米|米|倍|折)")
     private const val DURATION_NUMBER = "(?:(?:$NUMBER|两)(?:点[$DIGITS]+)?|[0-9]+(?:\\.[0-9]+)?)"
@@ -86,8 +90,9 @@ internal object LocalItn {
         }
         val withPercentage = percentage.replace(withTime) {
             val (integral, fractional) = it.destructured
+            val value = if (integral == "零") 0L else parseNumeral(integral) ?: return@replace it.value
             val fraction = if (fractional.isEmpty()) "" else ".${digits(fractional)}"
-            "${number(integral)}$fraction%"
+            "$value$fraction%"
         }
         val withDecimals = decimalWithUnit.replace(withPercentage) {
             val (integral, fractional, unit) = it.destructured
@@ -169,6 +174,7 @@ internal object LocalItn {
     private fun digits(raw: String) = raw.map { if (it == '〇') 0 else DIGITS.indexOf(it) }.joinToString("")
 
     private fun number(raw: String): Int {
+        if (raw == "两") return 2
         val tens = raw.indexOf('十')
         if (tens < 0) return DIGITS.indexOf(raw.single())
         val leading = raw.getOrNull(tens - 1)?.let(DIGITS::indexOf) ?: 1
@@ -184,6 +190,8 @@ internal object LocalItn {
     /** Parses a Chinese numeral up to 亿. Returns null for malformed or colloquial forms. */
     private fun parseNumeral(raw: String): Long? {
         if (raw.isEmpty()) return null
+        // A lone 百/千/万/亿 is normally part of an idiom or fixed phrase, not a value.
+        if (raw.length == 1 && raw[0] in "百千万亿") return null
         var total = 0L
         var section = 0L
         var digit = -1L
@@ -228,8 +236,12 @@ internal object LocalItn {
     }
 
     private const val UNIT_ALTERNATION =
-        "小时|分钟|厘米|毫米|公里|公斤|毫升|个|人|位|名|家|岁|天|元|块|毛|角|度|米|斤|克|升|秒|次|倍|折|吨|页|行|本|份|张|台|部|只|头|条|件|瓶|杯|盘|辆"
+        "小时|分钟|厘米|毫米|公里|公斤|毫升|个|人|位|名|家|岁|天|元|块|毛|角|度|米|斤|克|升|秒|次|倍|折|吨|页|行|本|份|张|台|部|只|头|条|件|瓶|杯|盘|辆|字"
     private const val UNITS = "(?:$UNIT_ALTERNATION)"
 }
+
+
+
+
 
 

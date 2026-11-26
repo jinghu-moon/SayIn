@@ -41,16 +41,25 @@
 
 ## 3. 测试
 
-语料固化在 `android/app/src/test/resources/voice/`（来自 `refer/voice/`），由 JVM 用例逐条断言，MUST_CHANGE/MUST_KEEP 精确相等、EITHER 取集合，并额外验证幂等：
+语料固化在 `android/app/src/test/resources/voice/`（canonical 来自 `refer/voice/`，extended 为本次补充），由 JVM 用例逐条断言，MUST_CHANGE/MUST_KEEP 精确相等、EITHER 取集合，并额外验证幂等：
 
 | 用例 | 语料 | 结果 |
 | --- | --- | --- |
-| `HotwordCorpusTest` | `hotword.tsv` 20 条 | 20/20，幂等通过 |
+| `HotwordCorpusTest` | `hotword.tsv` 20 条 + `hotword-extended.tsv` 17 条 | 37/37，幂等通过 |
 | `LocalItnCorpusTest` | `itn.tsv` 110 条 | 110/110，幂等通过 |
-| `FormatCorpusTest` | `format.tsv` 34 条 | 34/34 |
-| `PipelineCorpusTest` | `pipeline.tsv` 19 条 | 19/19，幂等通过 |
+| `ItnExtendedCorpusTest` | `itn-extended.tsv` 50 条 | 50/50，幂等通过 |
+| `FormatCorpusTest` | `format.tsv` 34 条 + `format-extended.tsv` 28 条 | 62/62 |
+| `PipelineCorpusTest` | `pipeline.tsv` 19 条 + `pipeline-extended.tsv` 20 条 | 39/39，幂等通过 |
 
-全量 `:app:testDebugUnitTest` **257 项通过**（0 失败）。ITN 基线为 85/110，本轮达到 110/110；热词与格式此前没有实现。
+全量 `:app:testDebugUnitTest` **262 项通过**（0 失败）。ITN 基线为 85/110，本轮达到 110/110；热词与格式此前没有实现。
+
+扩展语料（115 条）来源与取舍：
+
+- **同类变体**：围绕既有用例补年份（一九八五、两千零二十五）、日期/时间边界（二月三十日、二十四点整、两点零五分）、百分比（含百/千、零点五）、数量与金额（岁/斤/公里/字/块/毛）、万/亿级、逐位号码、技术串与坏空格；
+- **GitHub 参考集**：参考 WeTextProcessing（Apache-2.0）的中文 ITN 测试数据（`itn/chinese/test/data`），选取与产品政策一致的用例并改写成本项目的输出格式；其日期（`2008/08/08`）、时间（`2:02`）、金额（`¥1.25`）、分数/数学式/车牌的期望与 P1 冲突，未纳入；
+- **硬负例**：成语（七老八十、一五一十、万紫千红）、品牌（三一重工、五十度灰、十字路口）、品牌保护与词边界（kotlinx、chatgpt.com、邮箱）、幂等。
+
+扩展语料同时暴露并修复了规则缺口：`两` 作为 2（两点零五分、两百块）、百分比含百/千、`字` 作为数量单位（与「十字路口」冲突，改为保护词）、`两` 不再参与连续数字串、单独的「千/百」不再当数值、新增「三一重工/十万火急/五十度灰/十字路口」保护词。
 
 ## 4. 未覆盖与下一步
 
@@ -62,7 +71,7 @@
 ## 5. 复跑
 
 ```powershell
-scripts/gradle.ps1 :app:testDebugUnitTest --tests "seeyuer.sayin.asr.HotwordCorpusTest" --tests "seeyuer.sayin.asr.LocalItnCorpusTest" --tests "seeyuer.sayin.asr.FormatCorpusTest" --tests "seeyuer.sayin.asr.PipelineCorpusTest"
+scripts/gradle.ps1 :app:testDebugUnitTest --tests "seeyuer.sayin.asr.HotwordCorpusTest" --tests "seeyuer.sayin.asr.LocalItnCorpusTest" --tests "seeyuer.sayin.asr.ItnExtendedCorpusTest" --tests "seeyuer.sayin.asr.FormatCorpusTest" --tests "seeyuer.sayin.asr.PipelineCorpusTest"
 ```
 
-语料更新时，把 `refer/voice/` 下对应 TSV 覆盖到 `android/app/src/test/resources/voice/`，热词词典覆盖到 `android/app/src/main/assets/hotwords.tsv`，再复跑；不要在测试里读取仓库外的绝对路径。
+语料更新时，把 `refer/voice/` 下对应 TSV 覆盖到 `android/app/src/test/resources/voice/`，热词词典覆盖到 `android/app/src/main/assets/hotwords.tsv`，再复跑；不要在测试里读取仓库外的绝对路径。新增扩展用例时优先写进 `*-extended.tsv`（列格式同上，`\n`/`\t` 为转义，`<EMPTY>` 表示空串），并保证 MUST_KEEP 用例无需修改规则即可通过。

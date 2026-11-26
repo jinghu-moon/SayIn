@@ -9,7 +9,7 @@ import org.junit.Test
  */
 private data class CorpusRow(val id: String, val input: String, val expected: List<String>, val kind: String)
 
-private fun String.unescapeCorpus() = replace("\\n", "\n").replace("<EMPTY>", "")
+private fun String.unescapeCorpus() = replace("\\n", "\n").replace("\\t", "\t").replace("<EMPTY>", "")
 
 private fun corpus(name: String): List<CorpusRow> {
     val stream = checkNotNull(object {}.javaClass.getResourceAsStream("/voice/$name")) { "missing $name" }
@@ -41,6 +41,11 @@ class HotwordCorpusTest {
         assertCorpus(corpus("hotword.tsv")) { normalizer.apply(it) }
     }
 
+    @Test fun matchesExtendedCases() {
+        val normalizer = HotwordNormalizer(dictionary())
+        assertCorpus(corpus("hotword-extended.tsv")) { normalizer.apply(it) }
+    }
+
     @Test fun isIdempotent() {
         val normalizer = HotwordNormalizer(dictionary())
         val failures = corpus("hotword.tsv").mapNotNull { row ->
@@ -56,12 +61,36 @@ class FormatCorpusTest {
     @Test fun matchesEveryCorpusCase() {
         assertCorpus(corpus("format.tsv")) { TextFormat.clean(it) }
     }
+
+    @Test fun matchesExtendedCases() {
+        assertCorpus(corpus("format-extended.tsv")) { TextFormat.clean(it) }
+    }
+}
+
+class ItnExtendedCorpusTest {
+    @Test fun matchesExtendedCases() {
+        assertCorpus(corpus("itn-extended.tsv")) { LocalItn.normalize(it) }
+    }
+
+    @Test fun isIdempotent() {
+        val failures = corpus("itn-extended.tsv").mapNotNull { row ->
+            val once = LocalItn.normalize(row.input)
+            val twice = LocalItn.normalize(once)
+            if (twice != once) "${row.id} once='$once' twice='$twice'" else null
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
 }
 
 class PipelineCorpusTest {
     @Test fun matchesEveryCorpusCase() {
         val polish = FinalTextPolish.of(dictionary())
         assertCorpus(corpus("pipeline.tsv")) { polish.apply(it) }
+    }
+
+    @Test fun matchesExtendedCases() {
+        val polish = FinalTextPolish.of(dictionary())
+        assertCorpus(corpus("pipeline-extended.tsv")) { polish.apply(it) }
     }
 
     @Test fun isIdempotent() {

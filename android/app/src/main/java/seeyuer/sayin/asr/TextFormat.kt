@@ -13,7 +13,7 @@ package seeyuer.sayin.asr
 internal object TextFormat {
     private const val SPACE = "[ \\t\\u3000]+"
     private const val HAN = "\\p{IsHan}"
-    private const val PUNCT = "，。！？；：、…—"
+    private const val PUNCT = "，。！？；：、…—（）《》【】“”’"
     private val repeatStop = Regex("。{3,}")
     private val doubleStop = Regex("。{2}")
     private val repeatOther = Regex("([，？！])\\1+")
@@ -29,3 +29,4 @@ internal object TextFormat {
         return value.trim(' ', '\t', '\u3000')
     }
 }
+
