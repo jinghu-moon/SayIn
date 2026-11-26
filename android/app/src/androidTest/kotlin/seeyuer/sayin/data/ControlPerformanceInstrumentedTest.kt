@@ -1,9 +1,31 @@
 package seeyuer.sayin.data
 
+import android.app.Application
 import android.content.Context
+import android.content.pm.ActivityInfo
 import android.content.ContextWrapper
 import android.os.SystemClock
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.test.click
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
+import seeyuer.sayin.designsystem.VoiceLinkTheme
+import seeyuer.sayin.ui.SpeakInputSource
+import seeyuer.sayin.ui.SpeakPage
+import seeyuer.sayin.ui.SpeakSendMode
+import seeyuer.sayin.ui.SpeakSession
+import seeyuer.sayin.ui.VoiceLinkViewModel
+import seeyuer.sayin.ui.rememberTestPhraseLibrary
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -13,12 +35,16 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Rule
 import org.junit.Test
 import java.io.File
+import java.io.FileInputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 class ControlPerformanceInstrumentedTest {
+    @get:Rule val compose = createEmptyComposeRule()
+    private data class Click(val id: String, val nanos: Long)
     private data class ReceiptTiming(
         val key: OutboxKey, val status: String, val received: Long, val processing: Long, val persisted: Long,
     )
@@ -27,7 +53,9 @@ class ControlPerformanceInstrumentedTest {
     @Test fun measureWarmTextAndColdTargetSwitches() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         check(args.getString("controlPerformance") == "true")
-        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val target = instrumentation.targetContext
+        val clickThroughUi = args.getString("controlClick") == "true"
         check(target.packageName == "seeyuer.sayin.imagetest")
         val count = checkNotNull(args.getString("controlSamples")).toInt()
         require(count in 1..100)
@@ -47,6 +75,10 @@ class ControlPerformanceInstrumentedTest {
             },
             sessionObserved = { host, session -> sessions[host] = session },
             textTiming = { id, stage, nanos -> check(textStages.trySend(TextTiming(id, stage, nanos)).isSuccess) })
+        val clicks = Channel<Click>(1)
+        var activity: ActivityScenario<ComponentActivity>? = null
+        lateinit var model: VoiceLinkViewModel
+        val owner = Any()
         val warm = JSONArray()
         val cold = JSONArray()
         val evidence = File(target.getExternalFilesDir(null), "control-performance-result.json")
@@ -55,6 +87,39 @@ class ControlPerformanceInstrumentedTest {
             it.ready && (host == null || it.selectedHostId == host)
         }
         try {
+            if (clickThroughUi) {
+                // MIUI requires the isolated empty host to be in the foreground before ActivityScenario.
+                instrumentation.uiAutomation.executeShellCommand(
+                    "am start -W -n ${target.packageName}/androidx.activity.ComponentActivity",
+                ).use { descriptor -> FileInputStream(descriptor.fileDescriptor).use { it.readBytes() } }
+                activity = ActivityScenario.launch(ComponentActivity::class.java)
+                activity.onActivity { host ->
+                    host.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                    val factory = viewModelFactory {
+                        initializer {
+                            val speaking = SpeakSession(context).also {
+                                it.selectSource(SpeakInputSource.Keyboard)
+                                it.changeSendMode(SpeakSendMode.Manual)
+                            }
+                            VoiceLinkViewModel(target.applicationContext as Application, repository, speaking)
+                        }
+                    }
+                    model = ViewModelProvider(host, factory)[VoiceLinkViewModel::class.java]
+                    model.foreground(owner, true)
+                    host.setContent {
+                        val state by repository.state.collectAsState()
+                        VoiceLinkTheme {
+                            SpeakPage(state, model.speaking, rememberTestPhraseLibrary(), onSend = {
+                                val started = SystemClock.elapsedRealtimeNanos()
+                                model.send()
+                                val id = checkNotNull(model.speaking.submitted).id
+                                check(clicks.trySend(Click(id, started)).isSuccess)
+                            }, onConnect = { error("Click must use the ready receiver") })
+                        }
+                    }
+                }
+                compose.waitUntil(10_000) { !model.speaking.draftRestoring }
+            }
             withTimeout(15000) { repository.state.first { it.connection == Connection.OFFLINE } }
             repository.foreground(true)
             suspend fun pair(prefix: String): String {
@@ -77,13 +142,24 @@ class ControlPerformanceInstrumentedTest {
             repeat(count) { iteration ->
                 val state = withTimeout(15000) { ready(second) }
                 val scope = checkNotNull(state.receptionScope)
-                val id = UUID.randomUUID().toString()
                 val text = texts[iteration % texts.size]
+                val (id, start) = if (clickThroughUi) {
+                    compose.runOnIdle {
+                        check(!model.speaking.requestLocked)
+                        model.speaking.changeDraft(TextFieldValue(text))
+                    }
+                    val send = compose.onNodeWithTag("send-draft")
+                    send.performTouchInput { click() }
+                    withTimeout(5000) { clicks.receive() }
+                } else {
+                    val id = UUID.randomUUID().toString()
+                    val start = SystemClock.elapsedRealtimeNanos()
+                    repository.send(text, id, scope)
+                    Click(id, start)
+                }
                 val key = OutboxKey(checkNotNull(scope.hostId), checkNotNull(scope.pairId), id)
                 val sample = JSONObject().put("iteration", iteration + 1).put("id", id)
                 warm.put(sample)
-                val start = SystemClock.elapsedRealtimeNanos()
-                repository.send(text, id, scope)
                 val outcome = withTimeoutOrNull(5000) {
                     var terminal: ReceiptTiming
                     do {
@@ -131,6 +207,9 @@ class ControlPerformanceInstrumentedTest {
                     .put("terminal_ms", (outcome.persisted - start) / 1e6)
                 assertEquals("injected", outcome.status)
                 assertEquals(warmSession, sessions[second])
+                if (clickThroughUi) compose.waitUntil(5000) {
+                    model.speaking.submitted?.let { it.id == id && it.state == "injected" } == true
+                }
             }
             val hosts = listOf(first, second, third)
             repeat(count) { iteration ->
@@ -155,8 +234,10 @@ class ControlPerformanceInstrumentedTest {
                 check(connectedSession != previousSession) { "Switch reused a warm connection" }
             }
         } finally {
-            evidence.writeText(JSONObject().put("warm_text", warm).put("cold_switch", cold).toString(2))
-            repository.close()
+            evidence.writeText(JSONObject().put("click_through_ui", clickThroughUi)
+                .put("warm_text", warm).put("cold_switch", cold).toString(2))
+            activity?.close()
+            if (!clickThroughUi || activity == null) repository.close()
             delay(250)
             target.deleteDatabase(namespace + "outbox.db")
             target.deleteSharedPreferences(namespace + "paired_host")

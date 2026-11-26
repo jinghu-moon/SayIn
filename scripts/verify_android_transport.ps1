@@ -3,7 +3,7 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
-    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [ValidateRange(1,100)][int]$ControlSamples = 100)
+    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
@@ -15,6 +15,7 @@ if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires Imag
 if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
 if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
 if ($NativeText -and !$ControlPerformance) { throw 'NativeText requires ControlPerformance.' }
+if ($ControlClick -and !$NativeText) { throw 'ControlClick requires NativeText.' }
 if ($MissingReceipt -and ($FullSuite -or $TransportOnly -or $ImageBatch -or $ControlPerformance)) { throw 'MissingReceipt requires a separate fixture.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
@@ -71,7 +72,7 @@ try {
     if ($LASTEXITCODE -ne 0 -or $activityState -match 'mRunningInstrumentation=InstrumentationRecord|Active instrumentation:') { throw 'Cannot obtain an idle instrumentation device.' }
     $policy = (& $adb -s $DeviceSerial shell dumpsys window policy) -join "`n"
     if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the selected phone window policy.' }
-    if ($FullSuite -and $policy -match '(?m)^\s*showing=true\r?$' -and $policy -match '(?m)^\s*secure=true\r?$') { throw 'Unlock the selected phone before foreground UI verification.' }
+    if (($FullSuite -or $ControlClick) -and $policy -match '(?m)^\s*showing=true\r?$' -and $policy -match '(?m)^\s*secure=true\r?$') { throw 'Unlock the selected phone before foreground UI verification.' }
     if ($UseExistingRootInstall) {
         $rootIdentity = & $adb -s $DeviceSerial shell su -c id
         if ($LASTEXITCODE -ne 0 -or $rootIdentity -notmatch 'uid=0\(root\)') { throw 'Existing Root authorization is required; no settings are changed.' }
@@ -130,6 +131,7 @@ try {
     }
     if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
     if ($NativeText) { $arguments += @('-e','nativeText','true') }
+    if ($ControlClick) { $arguments += @('-e','controlClick','true','-e','timeout_msec','600000') }
     if ($BatchInterruption) {
         $batchPort = [int]$fixture.batch_port
         if ($batchPort -le 1024 -or $batchPort -gt 65535) { throw 'Invalid batch control port.' }
@@ -289,6 +291,18 @@ try {
         }
         $samples | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-segments.json') -Encoding utf8
         $expectedCalls = $ControlSamples
+        if ($ControlClick) {
+            if (!$samples.click_through_ui) { throw 'Missing Compose click evidence.' }
+            $firstReceipts = @($samples.warm_text | ForEach-Object { [double]$_.first_ms } | Sort-Object)
+            $p95 = $firstReceipts[[int][Math]::Ceiling($ControlSamples * 0.95) - 1]
+            $timeouts = @($firstReceipts | Where-Object { $_ -gt 500 }).Count
+            $gate = if ($ControlSamples -lt 100) { 'smoke' }
+                elseif ($p95 -le 150 -and $timeouts / $ControlSamples -le 0.01) { 'pass' }
+                else { 'fail' }
+            @{ samples = $ControlSamples; p95_ms = $p95; timeouts = $timeouts; gate = $gate } |
+                ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'click-receipt-gate.json') -Encoding utf8
+            Write-Output ("Click-to-durable-receipt gate: {0}, p95 {1:N2} ms, {2}/{3} over 500 ms." -f $gate, $p95, $timeouts, $ControlSamples)
+        }
     }
     if ($HotTargets) {
         for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
@@ -302,6 +316,7 @@ try {
     $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
     @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
+    if ($ControlClick -and $gate -eq 'fail') { throw "Click-to-durable-receipt performance gate failed. Evidence: $fixtureDirectory" }
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }

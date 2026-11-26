@@ -14,9 +14,12 @@ import seeyuer.sayin.data.VoiceLinkRepository
 import seeyuer.sayin.data.autoSendDestination
 import seeyuer.sayin.data.receptionScope
 
-internal class VoiceLinkViewModel(application: Application) : AndroidViewModel(application) {
-    val repository = VoiceLinkRepository(application)
-    val speaking = SpeakSession(application)
+internal class VoiceLinkViewModel(
+    application: Application,
+    val repository: VoiceLinkRepository,
+    val speaking: SpeakSession,
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, VoiceLinkRepository(application), SpeakSession(application))
     private val foregroundOwners = mutableSetOf<Any>()
     init {
         speaking.onSendReady = ::send
