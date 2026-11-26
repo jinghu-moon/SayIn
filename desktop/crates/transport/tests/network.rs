@@ -28,8 +28,11 @@ use tokio_tungstenite::{WebSocketStream, client_async, tungstenite::Message};
 use uuid::Uuid;
 use voicelink_pairing::Invitation;
 use voicelink_receiver::{
+    application_icon::ApplicationDisplay,
     gate::InputGate,
+    history::TargetApplication,
     ledger::{Execution, InputOutcome},
+    protocol_v3::StatusFrame,
     windows_input::{open_ledger, open_ledger_with_clock},
     worker::{InputAdapter, Receiver},
 };
@@ -759,6 +762,150 @@ async fn code_and_qr_bootstrap_reach_pinned_tls_local_approval_and_durable_submi
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
     assert!(HostIdentity::open(&directory.0, 1).is_ok());
+}
+
+struct BudgetAdapter {
+    application: ApplicationDisplay,
+    reasons: [&'static str; 3],
+    calls: usize,
+}
+
+impl InputAdapter for BudgetAdapter {
+    fn preflight(&mut self, _: &Execution) -> Result<(), &'static str> {
+        Ok(())
+    }
+
+    fn prepared_application(&self) -> Option<TargetApplication> {
+        let mut target = TargetApplication::new("test.exe".into(), "fixture".into(), 1, 1);
+        let mut application = self.application.clone();
+        if self.calls == 2 {
+            application.name.push('😀');
+        }
+        target.display = Some(application);
+        Some(target)
+    }
+
+    fn execute(&mut self, _: &Execution, _: &InputGate) -> InputOutcome {
+        let reason = self.reasons[self.calls];
+        self.calls += 1;
+        InputOutcome::Failed { reason }
+    }
+}
+
+async fn failed_frame(socket: &mut Socket, id: &str) -> Vec<u8> {
+    timeout(Duration::from_secs(5), async {
+        loop {
+            if let Message::Text(frame) = socket.next().await.unwrap().unwrap() {
+                let value: Value = serde_json::from_str(&frame).unwrap();
+                assert_ne!(value["t"], "err", "{value}");
+                if value["t"] == "status" && value["id"] == id && value["st"] == "failed" {
+                    return frame.as_bytes().to_vec();
+                }
+            }
+        }
+    })
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn authenticated_wss_preserves_exact_receipt_bytes_and_stays_open_after_budget_fallback() {
+    let directory = Directory::new();
+    let golden: Value = serde_json::from_str(include_str!(
+        "../../../../docs/research/91-golden/status-budget-with-icon.json"
+    ))
+    .unwrap();
+    let application: ApplicationDisplay =
+        serde_json::from_value(golden["application"].clone()).unwrap();
+    assert!(application.valid());
+    assert_eq!(application.name.chars().count(), 96);
+    assert_eq!(application.icon_webp.as_ref().unwrap().len(), 4096);
+    let mut expected = json!({
+        "v": 3, "t": "status", "session_id": Uuid::from_u128(0), "id": Uuid::from_u128(0),
+        "accept_order": "1", "request_rev": "2", "st": "failed",
+        "execution": {"stage": "prepared", "method": "unicode", "confirmed": false},
+        "application": golden["application"], "reason": "",
+    });
+    // Pad only the fixture adapter's reason. No production reason is expanded.
+    let padding = 8192 - serde_json::to_vec(&expected).unwrap().len();
+    let exact: &'static str = "x".repeat(padding).leak();
+    let over: &'static str = "x".repeat(padding + 1).leak();
+    let receiver = Receiver::start(
+        open_ledger(&directory.0).unwrap(),
+        BudgetAdapter {
+            application,
+            reasons: [exact, over, "fixture_failed"],
+            calls: 0,
+        },
+    )
+    .unwrap();
+    let service = NetworkService::start_loopback(
+        receiver.clone(),
+        HostIdentity::open(&directory.0, 0).unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let invitation = invitation(&service).await;
+    let paired = pair(&service, &invitation).await;
+    let target = Uuid::new_v4().to_string();
+    let state = receiver.bind_target(target.clone()).await.unwrap();
+    receiver.resume(state.state_rev, false).await.unwrap();
+    let mut socket = socket(&invitation).await;
+    send(
+        &mut socket,
+        json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
+    )
+    .await;
+    let welcome = next(&mut socket, "welcome").await;
+    let session = welcome["session_id"].as_str().unwrap();
+    query_ready(&mut socket, session).await;
+    let mut ids = Vec::new();
+    for (index, reason) in [exact, over, "fixture_failed"].into_iter().enumerate() {
+        let id = Uuid::new_v4().to_string();
+        send(
+            &mut socket,
+            json!({"v":3,"t":"submit","session_id":session,"id":id,"target":target,
+                "op":{"kind":"text","text":"fixture","src":"manual"}}),
+        )
+        .await;
+        let raw = failed_frame(&mut socket, &id).await;
+        expected["session_id"] = json!(session);
+        expected["id"] = json!(id);
+        expected["accept_order"] = json!((index + 1).to_string());
+        expected["reason"] = json!(reason);
+        expected["application"] = golden["application"].clone();
+        let object = expected.as_object_mut().unwrap();
+        match index {
+            0 => assert_eq!(raw.len(), 8192),
+            1 => {
+                assert_eq!(serde_json::to_vec(&object).unwrap().len(), 8193);
+                object["application"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("icon_webp");
+            }
+            2 => {
+                object.remove("application");
+            }
+            _ => unreachable!(),
+        }
+        expected.sort_all_objects();
+        assert_eq!(raw, serde_json::to_vec(&expected).unwrap());
+        assert_eq!(StatusFrame::decode(&raw).unwrap().encode().unwrap(), raw);
+        ids.push((id, raw));
+    }
+    for (id, raw) in ids {
+        let reference = Uuid::new_v4().to_string();
+        send(
+            &mut socket,
+            json!({"v":3,"t":"query","session_id":session,"ref":reference,"ids":[id]}),
+        )
+        .await;
+        assert_eq!(failed_frame(&mut socket, &id).await, raw);
+        assert_eq!(next(&mut socket, "queried").await["ref"], reference);
+    }
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
 }
 
 #[tokio::test]
