@@ -157,7 +157,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 host = store.load()?.let(::PairedHost) ?: allHosts.firstOrNull()
                 pairingCandidate = store.loadCandidate()?.let(::PairedHost)
                 imageInput = ImageInput(app, store, dao, scope, mutable, { host }, { currentPeer.client }, { session },
-                    { event -> events.trySend(Event.Image(event)).isSuccess }, ::submit, { enqueue(Event.StorageFailure) }, imageTiming, imageRegistration)
+                    { event -> events.trySend(Event.Image(event)).isSuccess }, ::submitStored, { enqueue(Event.StorageFailure) }, imageTiming, imageRegistration)
                 imageInput?.open()
                 mutable.update { it.copy(connection = Connection.OFFLINE, paired = host != null,
                     address = host?.address.orEmpty(), port = host?.port ?: 7788,
@@ -1011,14 +1011,18 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         val operation = JSONObject().put("text", normalized)
         if (event.destination == null) operation.put("kind", "text").put("src", "manual")
         else operation.put("kind", "auto_text").put("application", event.destination.application)
-        val payload = try { store.encrypt(saved.hostId, saved.pairId, operation.toString().toByteArray()) } catch (_: Exception) { storageFailed(); return }
-        val transcript = try { store.encrypt(saved.hostId, saved.pairId, normalized.toByteArray(Charsets.UTF_8)) } catch (_: Exception) { storageFailed(); return }
-        val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, normalized.toByteArray().size, "saved", null, null, System.currentTimeMillis(), transcript)
+        val textBytes = normalized.toByteArray(Charsets.UTF_8)
+        val payload: ByteArray
+        val transcript: ByteArray
+        try {
+            payload = store.encrypt(saved.hostId, saved.pairId, operation.toString().toByteArray())
+            transcript = store.encrypt(saved.hostId, saved.pairId, textBytes)
+        } catch (cancel: CancellationException) { throw cancel }
+        catch (_: Exception) { storageFailed(); return }
+        finally { textBytes.fill(0) }
+        val item = OutboxItem(id, saved.hostId, saved.deviceId, target, payload, textBytes.size, "saved", null, null, System.currentTimeMillis(), transcript)
         traceText(id, "encrypted")
-        if (dao.pendingCountFor(saved.hostId, saved.deviceId) >= 16 ||
-            dao.pendingBytesFor(saved.hostId, saved.deviceId) + item.byteCount > 65536 ||
-            dao.pendingCountForHost(saved.hostId) >= 32 ||
-            dao.pendingBytesForHost(saved.hostId) + item.byteCount > 131072) {
+        if (!dao.canEnqueue(saved.hostId, saved.deviceId, item.byteCount)) {
             mutable.update { it.copy(issue = ClientIssue.QUOTA, rejectedDraft = draft.id, rejectedDraftScope = event.expectedScope) }
             return
         }
@@ -1033,12 +1037,15 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         catch (_: Exception) { storageFailed(); return }
         mutable.update { it.copy(savedDraft = draft.id, rejectedDraft = null, rejectedDraftScope = null, issue = null) }
         traceText(id, "submitting")
-        submit(item)
+        submit(item, operation)
     }
-    private suspend fun submit(item: OutboxItem) {
-        check(mutable.value.ready && item.target == mutable.value.target && item.hostId == host?.hostId && item.deviceId == host?.deviceId)
+    private fun submitStored(item: OutboxItem) {
         val operation = try { strictJson(store.decrypt(item.hostId, item.deviceId, checkNotNull(item.payload)).toString(Charsets.UTF_8)) }
         catch (_: Exception) { storageFailed(); return }
+        submit(item, operation)
+    }
+    private fun submit(item: OutboxItem, operation: JSONObject) {
+        check(mutable.value.ready && item.target == mutable.value.target && item.hostId == host?.hostId && item.deviceId == host?.deviceId)
         if (operation.optString("kind") == "auto_text" && !mutable.value.autoTextSupported) return
         if (item.id in currentPeer.submitting || currentPeer.queries.values.any { item.id in it }) return
         traceText(item.id, "operation_ready")
@@ -1070,7 +1077,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         if (item.kind == "image" && action in setOf("retry", "release")) return
         when (action) {
             "retry" -> if (peer === currentPeer && item.state == "review" &&
-                mutable.value.ready && item.target == mutable.value.target) submit(item)
+                mutable.value.ready && item.target == mutable.value.target) submitStored(item)
             "discard" -> if (item.state == "review") dao.status(id, key.hostId, key.pairId, "cancelled", item.order, "local_discard", true)
             "release", "cancel" -> if (peer.session != null &&
                 (action == "cancel" || peer === currentPeer) && item.state in setOf("accepted", "held")) {

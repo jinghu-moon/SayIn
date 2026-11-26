@@ -248,10 +248,7 @@ internal class ImageInput(
         val token = binding ?: run { issue(ImageIssue.NOT_SUPPORTED); return }
         val transport = client() ?: run { issue(ImageIssue.NOT_READY); return }
         val sessionId = session() ?: run { issue(ImageIssue.NOT_READY); return }
-        if (dao.pendingCountFor(saved.hostId, saved.deviceId) >= 16 ||
-            dao.pendingBytesFor(saved.hostId, saved.deviceId) > 65536 ||
-            dao.pendingCountForHost(saved.hostId) >= 32 ||
-            dao.pendingBytesForHost(saved.hostId) > 131072 ||
+        if (!dao.canEnqueue(saved.hostId, saved.deviceId, 0) ||
             dao.pendingImagesFor(saved.hostId, saved.deviceId) >= 1 ||
             dao.pendingImagesForHost(saved.hostId) >= 2 ||
             dao.pendingImageBytesForHost(saved.hostId).toLong() + draft.image.metadata.bytes > 2L * MAX_IMAGE_BYTES) { issue(ImageIssue.QUOTA); return }

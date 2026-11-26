@@ -77,16 +77,21 @@ internal interface OutboxDao {
     @Query("SELECT COALESCE(SUM(byteCount),0) FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND payload IS NOT NULL") suspend fun pendingBytesFor(hostId: String, deviceId: String): Int
     @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND payload IS NOT NULL") suspend fun pendingCountForHost(hostId: String): Int
     @Query("SELECT COALESCE(SUM(byteCount),0) FROM outbox WHERE hostId=:hostId AND payload IS NOT NULL") suspend fun pendingBytesForHost(hostId: String): Int
+    @Query("""
+        SELECT COUNT(CASE WHEN deviceId = :pair THEN 1 END) < 16
+            AND COALESCE(SUM(CASE WHEN deviceId = :pair THEN byteCount END), 0) + :bytes <= 65536
+            AND COUNT(*) < 32
+            AND COALESCE(SUM(byteCount), 0) + :bytes <= 131072
+        FROM outbox WHERE hostId = :host AND payload IS NOT NULL
+    """)
+    suspend fun canEnqueue(host: String, pair: String, bytes: Int): Boolean
     @Query("SELECT COUNT(*) FROM outbox WHERE kind='image' AND payload IS NOT NULL") suspend fun pendingImages(): Int
     @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND deviceId=:deviceId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImagesFor(hostId: String, deviceId: String): Int
     @Query("SELECT COUNT(*) FROM outbox WHERE hostId=:hostId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImagesForHost(hostId: String): Int
     @Query("SELECT COALESCE(SUM(imageByteCount),0) FROM outbox WHERE kind='image' AND payload IS NOT NULL") suspend fun pendingImageBytes(): Int
     @Query("SELECT COALESCE(SUM(imageByteCount),0) FROM outbox WHERE hostId=:hostId AND kind='image' AND payload IS NOT NULL") suspend fun pendingImageBytesForHost(hostId: String): Int
     @Transaction suspend fun enqueue(item: OutboxItem): List<String> {
-        check(pendingCountFor(item.hostId, item.deviceId) < 16)
-        check(pendingBytesFor(item.hostId, item.deviceId) + item.byteCount <= 65536)
-        check(pendingCountForHost(item.hostId) < 32)
-        check(pendingBytesForHost(item.hostId) + item.byteCount <= 131072)
+        check(canEnqueue(item.hostId, item.deviceId, item.byteCount))
         check(item.kind in setOf("text", "image"))
         if (item.kind == "image") {
             check(item.byteCount == 0 && item.imageResource != null && item.imageReference != null && item.imageByteCount in 1..MAX_IMAGE_BYTES)
