@@ -303,6 +303,7 @@
 | `STATE_CONFLICT` | 电脑 | `release`/核对携带的 rev 与当前状态不符 |
 | `ID_CONFLICT` | 电脑 | 相同 UUID 但 payload 或 target 不同 |
 | `QUEUE_FULL` | 电脑 | 触及待执行请求或字节配额 |
+| `IMAGE_UPLOAD_LIMIT` | 电脑 | 已认证图片连接遇到单配对或全机上传槽上限。返回控制会话的 session_id 并关闭该图片连接。 |
 | `RATE_LIMITED` | 电脑 | 短码或连接频率超限 |
 | `STORAGE_UNAVAILABLE` | 电脑 | 存储健康检查失败 |
 | `GLOBAL_PAUSED` | 电脑 | 全局暂停中提交 |
