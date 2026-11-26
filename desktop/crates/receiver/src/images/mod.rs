@@ -103,7 +103,16 @@ impl ImageMetadata {
         self.decode(bytes).map(|_| ())
     }
     pub fn prepare_image(&self, bytes: &[u8]) -> Result<payload::PreparedImage> {
-        payload::prepare_decoded(self.decode(bytes)?).map_err(Error::Protocol)
+        self.prepare_image_with_timing(bytes, &mut |_| {})
+    }
+    pub(crate) fn prepare_image_with_timing(
+        &self,
+        bytes: &[u8],
+        mark: &mut impl FnMut(&'static str),
+    ) -> Result<payload::PreparedImage> {
+        let decoded = self.decode(bytes)?;
+        mark("verify_decode");
+        payload::prepare_decoded(decoded, mark).map_err(Error::Protocol)
     }
 }
 

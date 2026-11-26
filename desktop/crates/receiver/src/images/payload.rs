@@ -61,24 +61,57 @@ pub(crate) fn decode(encoded: &[u8]) -> Result<DynamicImage, &'static str> {
 }
 
 pub fn prepare(encoded: &[u8]) -> Result<PreparedImage, &'static str> {
-    prepare_decoded(decode(encoded)?)
+    prepare_decoded(decode(encoded)?, &mut |_| {})
 }
 
-pub(crate) fn prepare_decoded(decoded: DynamicImage) -> Result<PreparedImage, &'static str> {
-    let (width, height) = (decoded.width(), decoded.height());
+pub(crate) fn prepare_decoded(
+    decoded: DynamicImage,
+    mark: &mut impl FnMut(&'static str),
+) -> Result<PreparedImage, &'static str> {
+    match decoded {
+        // JPEG commonly decodes to RGB8. Keep those pixels for PNG encoding
+        // and add the opaque alpha channel only when writing the DIB.
+        DynamicImage::ImageRgb8(rgb) => {
+            let (width, height) = rgb.dimensions();
+            mark("rgba_conversion");
+            prepare_pixels::<3>(Zeroizing::new(rgb.into_raw()), width, height, mark)
+        }
+        other => {
+            let rgba = other.into_rgba8();
+            let (width, height) = rgba.dimensions();
+            mark("rgba_conversion");
+            prepare_pixels::<4>(Zeroizing::new(rgba.into_raw()), width, height, mark)
+        }
+    }
+}
+
+fn prepare_pixels<const CHANNELS: usize>(
+    pixels: Zeroizing<Vec<u8>>,
+    width: u32,
+    height: u32,
+    mark: &mut impl FnMut(&'static str),
+) -> Result<PreparedImage, &'static str> {
+    use image::{
+        ExtendedColorType, ImageEncoder,
+        codecs::png::{CompressionType, FilterType, PngEncoder},
+    };
+
     let byte_count = dimensions(width, height)?;
-    let rgba = decoded.to_rgba8();
-    drop(decoded);
-    let rgba = Zeroizing::new(rgba.into_raw());
-    if rgba.len() != byte_count {
+    let stride = width as usize * CHANNELS;
+    if pixels.len() != stride * height as usize {
         return Err("image_decode");
     }
-    // Re-encode clipboard PNG from the same oriented pixels; no source EXIF/GPS.
+    // Encode only the oriented pixels. Source EXIF/GPS never enters the clipboard.
     let mut png = Zeroizing::new(Vec::new());
-    use image::ImageEncoder;
-    image::codecs::png::PngEncoder::new(&mut *png)
-        .write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)
+    let (color, filter) = if CHANNELS == 3 {
+        (ExtendedColorType::Rgb8, FilterType::Up)
+    } else {
+        (ExtendedColorType::Rgba8, FilterType::Adaptive)
+    };
+    PngEncoder::new_with_quality(&mut *png, CompressionType::Fast, filter)
+        .write_image(&pixels, width, height, color)
         .map_err(|_| "image_encode")?;
+    mark("png_encode");
     let mut dibv5 = Zeroizing::new(vec![0; HEADER + byte_count]);
     let put = |buffer: &mut [u8], offset: usize, value: u32| {
         buffer[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
@@ -95,21 +128,23 @@ pub(crate) fn prepare_decoded(decoded: DynamicImage) -> Result<PreparedImage, &'
     }
     put(&mut dibv5, 56, 0x73524742); // LCS_sRGB
     put(&mut dibv5, 108, 4); // LCS_GM_IMAGES
-    let stride = width as usize * 4;
-    for (src_row, dst_row) in rgba
+    let dib_stride = width as usize * 4;
+    for (src_row, dst_row) in pixels
         .chunks_exact(stride)
         .rev()
-        .zip(dibv5[HEADER..].chunks_exact_mut(stride))
+        .zip(dibv5[HEADER..].chunks_exact_mut(dib_stride))
     {
         for (src, dst) in src_row
-            .as_chunks::<4>()
+            .as_chunks::<CHANNELS>()
             .0
             .iter()
             .zip(dst_row.as_chunks_mut::<4>().0.iter_mut())
         {
-            dst.copy_from_slice(&[src[2], src[1], src[0], src[3]]);
+            let alpha = src.get(3).copied().unwrap_or(255);
+            dst.copy_from_slice(&[src[2], src[1], src[0], alpha]);
         }
     }
+    mark("dib_build");
     Ok(PreparedImage {
         width,
         height,
@@ -185,7 +220,9 @@ mod tests {
 
     #[test]
     fn jpeg_is_decoded_then_published_as_png_and_dib() {
-        let source = DynamicImage::new_rgb8(3, 2);
+        let source = DynamicImage::ImageRgb8(ImageBuffer::from_fn(3, 2, |x, y| {
+            image::Rgb([(x * 64) as u8, (y * 128) as u8, 51])
+        }));
         let mut encoded = Cursor::new(Vec::new());
         source.write_to(&mut encoded, ImageFormat::Jpeg).unwrap();
         let prepared = prepare(encoded.get_ref()).unwrap();
@@ -194,7 +231,17 @@ mod tests {
             image::guess_format(&prepared.png).unwrap(),
             ImageFormat::Png
         );
-        assert_eq!(prepared.dibv5.len(), 124 + 3 * 2 * 4);
+        let expected = decode(encoded.get_ref()).unwrap().into_rgb8();
+        let png = image::load_from_memory(&prepared.png).unwrap();
+        assert_eq!(png.color(), image::ColorType::Rgb8);
+        assert_eq!(png.into_rgb8(), expected);
+        let expected_dib = expected
+            .rows()
+            .rev()
+            .flatten()
+            .flat_map(|pixel| [pixel[2], pixel[1], pixel[0], 255])
+            .collect::<Vec<_>>();
+        assert_eq!(&prepared.dibv5[HEADER..], expected_dib);
     }
 
     #[test]

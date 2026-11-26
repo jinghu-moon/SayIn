@@ -455,7 +455,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             native: NativeInput::with_images(
                 image_store.ok_or("--native-target requires --images")?,
                 image_delivery,
-            ),
+            )
+            .with_image_timing(benchmark),
             target,
             calls: calls.clone(),
             benchmark,

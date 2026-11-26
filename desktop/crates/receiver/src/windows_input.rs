@@ -13,6 +13,7 @@ use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, Instant},
 };
 use windows::{
     Win32::{
@@ -203,6 +204,48 @@ pub struct NativeInput {
     image: Option<ImageDelivery>,
     image_delivery: SharedImageDeliverySettings,
     clipboard_owner: Option<crate::windows_clipboard::ClipboardOwner>,
+    image_timing: bool,
+}
+
+struct ImageTiming<'a> {
+    resource: &'a str,
+    last: Instant,
+    samples: Vec<(&'static str, Duration)>,
+}
+
+impl<'a> ImageTiming<'a> {
+    fn start(enabled: bool, job: &'a Execution) -> Option<Self> {
+        if enabled && let Operation::Image { image } = job.operation() {
+            return Some(Self {
+                resource: &image.resource_id,
+                last: Instant::now(),
+                samples: Vec::with_capacity(8),
+            });
+        }
+        None
+    }
+
+    fn mark(timing: &mut Option<Self>, stage: &'static str) {
+        if let Some(timing) = timing {
+            let now = Instant::now();
+            timing
+                .samples
+                .push((stage, now.duration_since(timing.last)));
+            timing.last = now;
+        }
+    }
+}
+
+impl Drop for ImageTiming<'_> {
+    fn drop(&mut self) {
+        for (stage, elapsed) in &self.samples {
+            eprintln!(
+                "image_stage {} {stage} {}",
+                self.resource,
+                elapsed.as_nanos()
+            );
+        }
+    }
 }
 
 struct ImageDelivery {
@@ -223,6 +266,12 @@ impl NativeInput {
             ..Self::default()
         }
     }
+    /// Emit per-resource durations for the isolated native image fixture.
+    pub fn with_image_timing(mut self, enabled: bool) -> Self {
+        self.image_timing = enabled;
+        self
+    }
+
     fn check(&self, job: &Execution) -> Result<()> {
         if !job.image_authorized() {
             return Err(Error::Protocol("IMAGE_SESSION_ENDED"));
@@ -586,6 +635,7 @@ impl InputAdapter for NativeInput {
         ))
     }
     fn preflight(&mut self, job: &Execution) -> std::result::Result<(), &'static str> {
+        let mut timing = ImageTiming::start(self.image_timing, job);
         self.prepared = None;
         self.application = None;
         self.image = None;
@@ -594,12 +644,14 @@ impl InputAdapter for NativeInput {
             let bytes = store
                 .read(job.device(), image, &Dpapi)
                 .map_err(|_| "image_storage_failed")?;
+            ImageTiming::mark(&mut timing, "store_read");
             if self.clipboard_owner.is_none() {
                 self.clipboard_owner = Some(
                     crate::windows_clipboard::ClipboardOwner::new()
                         .map_err(|_| "clipboard_owner_failed")?,
                 );
             }
+            ImageTiming::mark(&mut timing, "clipboard_owner");
             Some((image, bytes))
         } else {
             None
@@ -620,12 +672,15 @@ impl InputAdapter for NativeInput {
                     settings.mode_for(&application.executable),
                 )
             };
+            ImageTiming::mark(&mut timing, "foreground_and_settings");
             let paste = match mode {
                 ImageDeliveryMode::CopyPath => None,
                 ImageDeliveryMode::PasteImage => Some(
                     image
                         .metadata
-                        .prepare_image(&bytes)
+                        .prepare_image_with_timing(&bytes, &mut |stage| {
+                            ImageTiming::mark(&mut timing, stage);
+                        })
                         .map_err(|_| "image_invalid")?,
                 ),
             };
@@ -633,6 +688,7 @@ impl InputAdapter for NativeInput {
             if identity != current {
                 return Err("foreground_guard_failed");
             }
+            ImageTiming::mark(&mut timing, "foreground_recheck");
             self.image = Some(ImageDelivery {
                 directory,
                 mime: image.metadata.mime,
@@ -650,6 +706,7 @@ impl InputAdapter for NativeInput {
         Ok(())
     }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
+        let mut timing = ImageTiming::start(self.image_timing, job);
         let prepared_image = self.image.take();
         let fence = gate.snapshot();
         if gate.is_paused() {
@@ -663,6 +720,7 @@ impl InputAdapter for NativeInput {
             };
         }
         let allowed = || self.check(job).is_ok() && !gate.is_paused() && gate.snapshot() == fence;
+        ImageTiming::mark(&mut timing, "execution_guard");
         let published = match prepared_image {
             Some(ImageDelivery {
                 directory,
@@ -688,6 +746,7 @@ impl InputAdapter for NativeInput {
                         };
                     }
                 };
+                ImageTiming::mark(&mut timing, "export");
                 let owner = self
                     .clipboard_owner
                     .as_ref()
@@ -719,6 +778,7 @@ impl InputAdapter for NativeInput {
             }
             None => None,
         };
+        ImageTiming::mark(&mut timing, "clipboard_publish");
         let mut events = events(job.operation());
         // Foreground/session checks can cross a thread boundary or take time.
         // Recheck a newly requested pause as close to SendInput as possible.
@@ -738,9 +798,11 @@ impl InputAdapter for NativeInput {
                 },
             };
         }
+        ImageTiming::mark(&mut timing, "send_guard");
         // SAFETY: A bounded initialized INPUT array is passed with the exact
         // native structure size. All text is KEYEVENTF_UNICODE literal content.
         let inserted = unsafe { SendInput(&events, std::mem::size_of::<INPUT>() as i32) } as usize;
+        ImageTiming::mark(&mut timing, "send_input");
         let count = events.len();
         // Clear scans containing the transient plaintext after the native call.
         for event in &mut events {
@@ -756,6 +818,7 @@ impl InputAdapter for NativeInput {
             };
         }
         let same_target = self.check(job).is_ok();
+        ImageTiming::mark(&mut timing, "post_input_guard");
         if inserted != count || !same_target {
             if published.is_some() && inserted < count {
                 let release = paste_release_events(inserted);
