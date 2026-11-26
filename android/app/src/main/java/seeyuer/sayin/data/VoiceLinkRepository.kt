@@ -163,23 +163,38 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     pairingRecoveryPending = pairingCandidate != null) }
                 scope.launch {
                     try { dao.observe().collect { history ->
-                        val text = history.mapNotNull { item -> item.transcript?.let { encrypted ->
-                            runCatching { item.key to store.decrypt(item.hostId, item.deviceId, encrypted).toString(Charsets.UTF_8) }.getOrNull()
-                        } }.toMap()
-                        val applications = history.mapNotNull { item -> item.application?.let { encrypted ->
-                            runCatching {
-                                val bytes = store.decrypt(item.hostId, item.deviceId, encrypted)
-                                try { HistoryApplication.restore(bytes, item)?.display()?.let { item.key to it } }
-                                finally { bytes.fill(0) }
-                            }.getOrNull()
-                        } }.toMap()
-                        val images = history.mapNotNull { item -> item.imageReference?.let { encrypted ->
-                            runCatching {
-                                val bytes = store.decrypt(item.hostId, item.deviceId, encrypted)
-                                try { ImageReference.parse(strictJson(bytes.toString(Charsets.UTF_8))).metadata.let { item.key to it } }
-                                finally { bytes.fill(0) }
-                            }.getOrNull()
-                        } }.toMap()
+                        val previous = mutable.value
+                        val previousRows = previous.history.associateBy(OutboxItem::key)
+                        fun <T : Any> display(
+                            oldValues: Map<OutboxKey, T>,
+                            field: (OutboxItem) -> ByteArray?,
+                            decode: (OutboxItem, ByteArray) -> T?,
+                        ): Map<OutboxKey, T> = buildMap {
+                            for (item in history) {
+                                val encrypted = field(item) ?: continue
+                                val key = item.key
+                                val old = oldValues[key]
+                                val oldEncrypted = previousRows[key]?.let(field)
+                                val value = if (old != null && encrypted.contentEquals(oldEncrypted)) old
+                                    else runCatching { decode(item, encrypted) }.getOrNull()
+                                if (value != null) put(key, value)
+                            }
+                        }
+                        val text = display(previous.historyText, OutboxItem::transcript) { item, encrypted ->
+                            val bytes = store.decrypt(item.hostId, item.deviceId, encrypted)
+                            try { bytes.toString(Charsets.UTF_8) }
+                            finally { bytes.fill(0) }
+                        }
+                        val applications = display(previous.historyApplications, OutboxItem::application) { item, encrypted ->
+                            val bytes = store.decrypt(item.hostId, item.deviceId, encrypted)
+                            try { HistoryApplication.restore(bytes, item)?.display() }
+                            finally { bytes.fill(0) }
+                        }
+                        val images = display(previous.historyImages, OutboxItem::imageReference) { item, encrypted ->
+                            val bytes = store.decrypt(item.hostId, item.deviceId, encrypted)
+                            try { ImageReference.parse(strictJson(bytes.toString(Charsets.UTF_8))).metadata }
+                            finally { bytes.fill(0) }
+                        }
                         mutable.update { it.copy(history = history, historyText = text, historyApplications = applications, historyImages = images) }
                     } }
                     catch (cancel: CancellationException) { throw cancel }

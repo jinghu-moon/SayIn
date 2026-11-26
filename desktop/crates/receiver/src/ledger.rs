@@ -233,7 +233,7 @@ impl Bucket {
     }
 }
 
-type TextCommitObserver = Box<dyn Fn(&str, State, Instant) + Send>;
+type CommitObserver = Box<dyn Fn(&Operation, &str, State, Instant) + Send>;
 
 pub struct Ledger {
     pub(crate) database: Connection,
@@ -246,7 +246,7 @@ pub struct Ledger {
     clock: Arc<dyn Clock>,
     hold_retention: Duration,
     healthy: bool,
-    text_commit_observer: Option<TextCommitObserver>,
+    commit_observer: Option<CommitObserver>,
     pub(crate) image_store: Option<crate::images::storage::ImageStore>,
     pub(crate) prepared_images: HashMap<
         String,
@@ -439,7 +439,7 @@ impl Ledger {
             clock,
             hold_retention,
             healthy: true,
-            text_commit_observer: None,
+            commit_observer: None,
             image_store: None,
             prepared_images: HashMap::new(),
             image_authorizations: HashMap::new(),
@@ -1065,19 +1065,17 @@ impl Ledger {
         self.authorize(session)
     }
 
-    /// Optional diagnostic observer for newly committed text transitions.
-    pub fn observe_text_commits(
+    /// Optional diagnostic observer for newly committed request transitions.
+    pub fn observe_commits(
         &mut self,
-        observer: impl Fn(&str, State, Instant) + Send + 'static,
+        observer: impl Fn(&Operation, &str, State, Instant) + Send + 'static,
     ) {
-        self.text_commit_observer = Some(Box::new(observer));
+        self.commit_observer = Some(Box::new(observer));
     }
 
-    fn observe_text_commit(&self, operation: &Operation, id: &str, state: State) {
-        if let Some(observer) = &self.text_commit_observer
-            && matches!(operation, Operation::Text { .. })
-        {
-            observer(id, state, Instant::now());
+    fn observe_commit(&self, operation: &Operation, id: &str, state: State) {
+        if let Some(observer) = &self.commit_observer {
+            observer(operation, id, state, Instant::now());
         }
     }
 
@@ -1205,7 +1203,7 @@ impl Ledger {
             ],
         )?;
         tx.commit()?;
-        self.observe_text_commit(&submit.op, &submit.id, state);
+        self.observe_commit(&submit.op, &submit.id, state);
         if hold_expires_at.is_some() {
             self.hold_deadlines.insert(
                 (session.device.clone(), submit.id.clone()),
@@ -1689,7 +1687,7 @@ impl Ledger {
         }
         tx.commit()?;
         if changed == 1 {
-            self.observe_text_commit(job.operation(), job.id(), State::Executing);
+            self.observe_commit(job.operation(), job.id(), State::Executing);
             self.deadlines.remove(&key);
         }
         Ok(changed == 1)
@@ -1759,7 +1757,7 @@ impl Ledger {
             }
             return Err(error);
         }
-        self.observe_text_commit(job.operation(), job.id(), state);
+        self.observe_commit(job.operation(), job.id(), state);
         self.deadlines.remove(&(job.device.clone(), job.id.clone()));
         if state == State::Uncertain {
             self.refresh_hold_deadlines()?;

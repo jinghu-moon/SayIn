@@ -64,6 +64,11 @@ $fixturePath = Join-Path $directory 'fixture.json'
 $remoteDirectory = '/sdcard/Android/data/seeyuer.sayin.imagetest/files/image-performance'
 $process = $null; $instrument = $null; $proxy = $null; $remoteApks = @()
 $corePeak = 0L; $targetPeak = 0L; $targetProcess = $null
+$lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
+if (!$lease.WaitOne(0)) {
+    $lease.Dispose()
+    throw 'Another SayIn device verification is active'
+}
 try {
     if (!$SkipInstall) {
         foreach ($item in @(@('imageTest/app-imageTest.apk','app'),@('androidTest/imageTest/app-imageTest-androidTest.apk','test'))) {
@@ -77,7 +82,7 @@ try {
     foreach ($source in $sources) { Checked { & $adb -s $DeviceSerial push $source.FullName "$remoteDirectory/$($source.Name)" } }
     New-Item -ItemType Directory -Path $directory | Out-Null
     $arguments = @("`"$directory`"",'--images','--lan','--port=0','--benchmark')
-    if ($Native) { $arguments += '--native-target' }
+    if ($Native) { $arguments += '--native-target', '--image-commit-timing' }
     if ($PauseProbe) { $arguments += '--pause-probe' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory 'release/examples/android_fixture.exe') -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardError (Join-Path $directory 'desktop-stderr.log') -RedirectStandardOutput (Join-Path $directory 'desktop-stdout.log')
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
@@ -158,13 +163,17 @@ try {
             throw "Phone/desktop clock alignment out of bounds ($lower..$upper ns)"
         }
         $registrations = @{}
+        $commits = @{}
         foreach ($line in (Get-Content (Join-Path $directory 'desktop-stderr.log'))) {
             if ($line -match '^image_registered ([0-9a-f-]{36}) ([0-9]+)$') {
                 $registrations.Add($Matches[1], [long]$Matches[2])
             }
+            if ($line -match '^image_commit ([0-9a-f-]{36}) ([0-9a-f-]{36}) (accepted|executing|injected) ([0-9]+)$') {
+                $commits.Add("$($Matches[1])/$($Matches[2])/$($Matches[3])", [long]$Matches[4])
+            }
         }
         $mobile = Get-Content (Join-Path $directory 'mobile-result.json') -Raw | ConvertFrom-Json
-        if ($registrations.Count -ne $expected -or @($mobile.measurements).Count -ne $expected) { throw 'Missing desktop registration or mobile timing samples' }
+        if ($registrations.Count -ne $expected -or $commits.Count -ne 3*$expected -or @($mobile.measurements).Count -ne $expected) { throw 'Missing desktop or mobile timing samples' }
         $segments = foreach ($sample in $mobile.measurements) {
             $ticks = $registrations[$sample.resource_id]
             if ($null -eq $ticks -or $null -eq $sample.send_at_nanos -or $null -eq $sample.terminal_at_nanos) { throw 'Unmatched image registration' }
@@ -175,12 +184,28 @@ try {
             if ($phoneLatest -lt $sample.send_at_nanos -or $phoneEarliest -gt $sample.registration_ack_at_nanos) { throw 'Desktop registration outside verified send/ack interval' }
             $phoneEarliest = [Math]::Max($phoneEarliest, $sample.send_at_nanos)
             $phoneLatest = [Math]::Min($phoneLatest, $sample.registration_ack_at_nanos)
+            $key = "$($sample.resource_id)/$($sample.request_id)"
+            $accepted = $commits["$key/accepted"]
+            $executing = $commits["$key/executing"]
+            $injected = $commits["$key/injected"]
+            $phoneInjected = $sample.phone_receipts_at_nanos.injected
+            if ($null -eq $accepted -or $null -eq $executing -or $null -eq $injected -or $null -eq $phoneInjected -or
+                $accepted -lt $ticks -or $executing -lt $accepted -or $injected -lt $executing -or
+                $phoneInjected -lt $sample.registration_ack_at_nanos -or $phoneInjected -gt $sample.terminal_at_nanos) {
+                throw 'Missing or out-of-order receipt timestamps'
+            }
             @{
-                file = $sample.file; resource_id = $sample.resource_id; prepare_ms = $sample.prepare_ms
+                file = $sample.file; resource_id = $sample.resource_id; request_id = $sample.request_id; prepare_ms = $sample.prepare_ms
                 upload_lower_ms = ($phoneEarliest - $sample.send_at_nanos) / 1e6
                 upload_upper_ms = ($phoneLatest - $sample.send_at_nanos) / 1e6
                 paste_lower_ms = ($sample.terminal_at_nanos - $phoneLatest) / 1e6
                 paste_upper_ms = ($sample.terminal_at_nanos - $phoneEarliest) / 1e6
+                registration_to_accepted_ms = ($accepted - $ticks) * (1e3 / $frequency)
+                accepted_to_executing_ms = ($executing - $accepted) * (1e3 / $frequency)
+                executing_to_injected_ms = ($injected - $executing) * (1e3 / $frequency)
+                injected_to_phone_persisted_lower_ms = [Math]::Max(0, ($phoneInjected - ($injected * (1e9 / $frequency) - $lower)) / 1e6)
+                injected_to_phone_persisted_upper_ms = ($phoneInjected - ($injected * (1e9 / $frequency) - $upper)) / 1e6
+                phone_persisted_to_observed_ms = ($sample.terminal_at_nanos - $phoneInjected) / 1e6
             }
         }
         @{ clock_width_ms = ($upper - $lower) / 1e6; measurements = @($segments) } |
@@ -204,4 +229,6 @@ try {
     foreach ($source in $sources) { & $adb -s $DeviceSerial shell rm -f "$remoteDirectory/$($source.Name)" | Out-Null }
     foreach ($remote in $remoteApks) { & $adb -s $DeviceSerial shell rm -f $remote | Out-Null }
     if (Test-Path -LiteralPath $fixturePath) { Remove-Item -LiteralPath $fixturePath }
+    $lease.ReleaseMutex()
+    $lease.Dispose()
 }

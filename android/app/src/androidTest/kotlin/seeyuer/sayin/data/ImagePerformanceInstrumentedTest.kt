@@ -44,9 +44,13 @@ class ImagePerformanceInstrumentedTest {
         }
         val measurements = ConcurrentHashMap<String, Long>()
         val registration = AtomicReference<Pair<String, Long>>()
+        val receipts = ConcurrentHashMap<String, ConcurrentHashMap<String, Long>>()
         val repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()},
             imageTiming = { stage, nanos -> measurements[stage] = nanos },
-            imageRegistration = { image, nanos -> check(registration.compareAndSet(null, image.resourceId to nanos)) })
+            imageRegistration = { image, nanos -> check(registration.compareAndSet(null, image.resourceId to nanos)) },
+            receiptTiming = { key, state, nanos ->
+                receipts.computeIfAbsent(key.id) { ConcurrentHashMap() }.putIfAbsent(state, nanos)
+            })
         val results=JSONArray();val rejections=JSONArray()
         suspend fun waitFor(predicate:(ClientState)->Boolean):ClientState=withTimeout(90000) {
             while(!predicate(repository.state.value)) {check(repository.state.value.storageHealthy);delay(10)}
@@ -90,6 +94,9 @@ class ImagePerformanceInstrumentedTest {
                     val receipt=finished.history.single{it.id !in previous&&it.kind=="image"}
                     assertEquals("${source.name}: ${receipt.reason}; pause=${finished.pauseReason}","injected",receipt.state)
                     assertNull(receipt.payload);assertEquals(image.resourceId,receipt.imageResource)
+                    val persisted = checkNotNull(receipts.remove(receipt.id))
+                    val injectedAt = checkNotNull(persisted["injected"])
+                    check(injectedAt in registeredAt..terminalAt)
                     val sendMs=(terminalAt-sendStart)/1e6
                     val saved=PairedHost(checkNotNull(ProtectedStore(context).load()))
                     assertEquals(original.hostId,saved.hostId);assertEquals(original.deviceId,saved.deviceId)
@@ -98,6 +105,7 @@ class ImagePerformanceInstrumentedTest {
                     results.put(JSONObject().put("file",source.name).put("iteration",iteration+1).put("source_bytes",source.length())
                         .put("normalized_bytes",image.metadata.bytes).put("width",image.metadata.width).put("height",image.metadata.height)
                         .put("resource_id", registeredResource).put("send_at_nanos", sendStart)
+                        .put("request_id", receipt.id).put("phone_receipts_at_nanos", JSONObject(persisted))
                         .put("registration_ack_at_nanos", registeredAt).put("terminal_at_nanos", terminalAt)
                         .put("preparation_stages_ms", JSONObject(measurements.mapValues { (_, nanos) -> nanos / 1e6 }))
                         .put("send_to_registration_ack_ms", (registeredAt - sendStart) / 1e6)
