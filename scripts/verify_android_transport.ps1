@@ -3,7 +3,7 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
-    [switch]$ControlPerformance, [switch]$NativeText, [ValidateRange(1,100)][int]$ControlSamples = 100)
+    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
@@ -15,6 +15,7 @@ if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires Imag
 if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
 if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
 if ($NativeText -and !$ControlPerformance) { throw 'NativeText requires ControlPerformance.' }
+if ($MissingReceipt -and ($FullSuite -or $TransportOnly -or $ImageBatch -or $ControlPerformance)) { throw 'MissingReceipt requires a separate fixture.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -53,14 +54,15 @@ $leaseAcquired = $false
 $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceInstrumentedTest' }
     elseif ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
     elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
-    elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' }
+    elseif ($MissingReceipt) { 'seeyuer.sayin.data.TransportInstrumentedTest#unknownReceiptRequiresExplicitRetryAfterReconnect' }
+    elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest#nativeCodePairingPinnedTlsEncryptedOutboxAndReconnect' }
     elseif ($BatchInterruption) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#interruptedBatchKeepsItsFirstReceiptAndNeverSubmitsTheSecond' }
     elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 179
+$expectedTextUiTests = 180
 $expectedImageTests = 7
-$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance) { 1 } else { $expectedImageTests }
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance -or $MissingReceipt) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
@@ -166,6 +168,7 @@ try {
     if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.ControlPerformanceInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
     if ($ImageBatch) { $arguments += @('-e', 'fixtureImageBatch', 'true') }
+    if ($MissingReceipt) { $arguments += @('-e', 'fixtureMissingReceipt', 'true') }
     if ($BatchPathReceipt) { $arguments += @('-e', 'fixtureBatchPathReceipt', 'true') }
     if ($KeepUpgradeFixture) { $arguments += @('-e', 'keepUpgradeFixture', 'true') }
     if ($QrPairing) {
@@ -260,7 +263,7 @@ try {
         }
         $expectedCalls = 1
     }
-    if (($KeepUpgradeFixture -or $ImageBatch) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
+    if (($KeepUpgradeFixture -or $ImageBatch -or $MissingReceipt) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
     @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"

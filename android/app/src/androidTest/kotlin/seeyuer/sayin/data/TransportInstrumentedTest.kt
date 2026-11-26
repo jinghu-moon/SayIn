@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.json.JSONObject
@@ -17,6 +18,84 @@ import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
 class TransportInstrumentedTest {
+    @Test fun unknownReceiptRequiresExplicitRetryAfterReconnect() = runBlocking {
+        val args = InstrumentationRegistry.getArguments()
+        assumeTrue(args.getString("fixtureMissingReceipt") == "true")
+        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName == "seeyuer.sayin.imagetest")
+        val namespace = "missing-receipt-${UUID.randomUUID()}-"
+        val context = object : ContextWrapper(target) {
+            override fun getApplicationContext(): Context = this
+            override fun getDatabasePath(name: String) = target.getDatabasePath(namespace + name)
+            override fun getSharedPreferences(name: String, mode: Int) =
+                target.getSharedPreferences(namespace + name, mode)
+        }
+        val sessions = java.util.concurrent.atomic.AtomicReference<String>()
+        fun repository() = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() },
+            sessionObserved = { _, session -> sessions.set(session) })
+        var client = repository()
+        try {
+            suspend fun await(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15_000) {
+                client.state.first { check(it.storageHealthy); predicate(it) }
+            }
+            await { it.connection == Connection.OFFLINE }
+            client.foreground(true)
+            client.pairCode(checkNotNull(args.getString("fixtureAddress")),
+                checkNotNull(args.getString("fixturePort")), checkNotNull(args.getString("fixtureCode")))
+            val scope = checkNotNull(await { it.ready }.receptionScope)
+            val host = checkNotNull(scope.hostId)
+            val pair = checkNotNull(scope.pairId)
+            val id = UUID.randomUUID().toString()
+            val key = OutboxKey(host, pair, id)
+            val body = "Saved offline fixture text"
+            val store = ProtectedStore(context)
+            val operation = JSONObject().put("kind", "text").put("src", "manual").put("text", body)
+            client.close()
+            val database = androidx.room.Room.databaseBuilder(context, OutboxDatabase::class.java, "outbox.db").build()
+            try {
+                database.outbox().insert(OutboxItem(id, host, pair, scope.target,
+                    store.encrypt(host, pair, operation.toString().toByteArray()), body.toByteArray().size,
+                    "saved", null, null, System.currentTimeMillis(), store.encrypt(host, pair, body.toByteArray())))
+            } finally {
+                database.close()
+            }
+
+            client = repository()
+            await { it.connection == Connection.OFFLINE }
+            client.foreground(true)
+            suspend fun review(): ClientState = await { state ->
+                state.ready && state.history.any { it.key == key && it.state == "review" }
+            }
+            fun checkUnknown(state: ClientState) {
+                val row = state.history.single()
+                assertEquals(key, row.key)
+                assertNull(row.order)
+                assertNull(row.requestRev)
+                assertNull(row.executionStage)
+                assertNotNull(row.payload)
+                assertEquals(body, state.historyText[key])
+            }
+            checkUnknown(review())
+            val before = checkNotNull(sessions.get())
+            client.foreground(false)
+            await { it.connection == Connection.OFFLINE }
+            client.foreground(true)
+            val reconnected = review()
+            assertNotEquals(before, sessions.get())
+            checkUnknown(reconnected)
+
+            client.action(key, "retry")
+            val delivered = await { state -> state.history.any { it.key == key && it.state == "injected" } }
+            assertEquals(key, delivered.history.single().key)
+            assertNull(delivered.history.single().payload)
+            assertEquals(body, delivered.historyText[key])
+        } finally {
+            client.close()
+            target.deleteDatabase(namespace + "outbox.db")
+            target.deleteSharedPreferences(namespace + "paired_host")
+        }
+    }
+
     @Test fun nativeCodePairingPinnedTlsEncryptedOutboxAndReconnect() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         val code = args.getString("fixtureCode")
