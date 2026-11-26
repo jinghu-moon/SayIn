@@ -419,9 +419,15 @@ fn held_retention_starts_on_paused_admission_and_release_does_not_renew_executio
     ledger.pause().unwrap();
     let first = fixture.submit(&session, "release near the limit");
     let second = fixture.submit(&session, "expire at the limit");
-    for request in [&first, &second] {
-        assert_eq!(ledger.submit(&session, request).unwrap().st, State::Held);
-    }
+    let third = fixture.submit(&session, "released second while the first is still held");
+    let requests = [&first, &third, &second];
+    let orders = requests.map(|request| {
+        let receipt = ledger.submit(&session, request).unwrap();
+        assert_eq!(receipt.st, State::Held);
+        assert_eq!(receipt.reason.as_deref(), Some("paused"));
+        receipt.order.parse::<i64>().unwrap()
+    });
+    assert!(orders[0] < orders[1] && orders[1] < orders[2]);
     clock.advance(Duration::from_secs(300));
     let paused = ledger.pause().unwrap();
     assert_eq!(
@@ -430,8 +436,23 @@ fn held_retention_starts_on_paused_admission_and_release_does_not_renew_executio
     );
     clock.advance(Duration::from_millis(299_999));
     let resumed = ledger.resume(&paused.state_rev, false).unwrap();
+    assert!(ledger.prepare_next().unwrap().is_none());
+    for request in requests {
+        assert_eq!(
+            ledger.query(&session, &request.id).unwrap().unwrap().st,
+            State::Held
+        );
+    }
     ledger
-        .release(&session, &first.id, &fixture.target, &resumed.state_rev)
+        .release(&session, &third.id, &fixture.target, &resumed.state_rev)
+        .unwrap();
+    assert!(
+        ledger.prepare_next().unwrap().is_none(),
+        "later release must not bypass the held head"
+    );
+    let rev = ledger.state().unwrap().state_rev;
+    ledger
+        .release(&session, &first.id, &fixture.target, &rev)
         .unwrap();
     let head = ledger.prepare_next().unwrap().unwrap();
     assert_eq!(head.id(), first.id);
@@ -444,6 +465,10 @@ fn held_retention_starts_on_paused_admission_and_release_does_not_renew_executio
     let expired = ledger.query(&session, &second.id).unwrap().unwrap();
     assert_eq!(expired.st, State::Expired);
     assert_eq!(expired.reason.as_deref(), Some("hold_expired"));
+    assert_eq!(
+        ledger.query(&session, &third.id).unwrap().unwrap().st,
+        State::Accepted
+    );
     clock.advance(Duration::from_secs(29));
     code(
         ledger.release(&session, &first.id, &fixture.target, &rev),
@@ -460,6 +485,17 @@ fn held_retention_starts_on_paused_admission_and_release_does_not_renew_executio
             .as_deref(),
         Some("expired_before_input")
     );
+    let next = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(next.id(), third.id);
+    assert!(ledger.mark_executing(&next).unwrap());
+    assert_eq!(
+        ledger
+            .finish(&next, InputOutcome::Injected { method: "unicode" })
+            .unwrap()
+            .st,
+        State::Injected
+    );
+    assert!(ledger.prepare_next().unwrap().is_none());
 }
 
 #[test]
