@@ -9,17 +9,27 @@ internal class LocalPcmBuffer(private val stop: () -> Unit, capacity: Int = 120)
         val segmentBoundary: Boolean,
         val speech: Boolean?,
         val retainedSampleEnd: Int?,
+        val noSpeech: Boolean,
     )
 
     // At 100 ms per read this covers the 12-second model readiness deadline.
     private val blocks = Channel<Block>(capacity)
     private var current: Block? = null
+    @Volatile private var noSpeechDetected = false
     override val segmentBoundary get() = current?.segmentBoundary == true
     override val speechInBlock get() = current?.speech
     override val retainedSampleEnd get() = current?.retainedSampleEnd
+    override val noSpeech get() = noSpeechDetected || current?.noSpeech == true
 
-    fun offer(samples: FloatArray, segmentBoundary: Boolean, speech: Boolean?, retainedSampleEnd: Int?) {
-        if (!blocks.trySend(Block(samples, segmentBoundary, speech, retainedSampleEnd)).isSuccess) {
+    fun offer(
+        samples: FloatArray,
+        segmentBoundary: Boolean,
+        speech: Boolean?,
+        retainedSampleEnd: Int?,
+        noSpeech: Boolean = false,
+    ) {
+        if (noSpeech) noSpeechDetected = true
+        if (!blocks.trySend(Block(samples, segmentBoundary, speech, retainedSampleEnd, noSpeech)).isSuccess) {
             throw AudioBacklogException()
         }
     }

@@ -1,0 +1,24 @@
+id	input	expected	kind	note
+XPIPE-001	会议定在二零二六年十二月三十一号下午两点半。	会议定在2026年12月31号下午2点半。	MUST_CHANGE	日期时间
+XPIPE-002	他的手机号是幺三八零零一三八零零零。	他的手机号是13800138000。	MUST_CHANGE	号码
+XPIPE-003	我用 chat gpt 写了三千五百字，还差八百字。。	我用ChatGPT写了3500字，还差800字。	MUST_CHANGE	热词数字标点
+XPIPE-004	百分之十二点五的人同意，三心二意的人不到百分之五。	12.5%的人同意，三心二意的人不到5%。	MUST_CHANGE	百分比成语
+XPIPE-005	西罗 vad 和 silero vad 都很稳。	Silero VAD和Silero VAD都很稳。	MUST_CHANGE	热词
+XPIPE-006	访问 https://chatgpt.com 看看。	访问https://chatgpt.com看看。	MUST_CHANGE	URL保护
+XPIPE-007	嗯，，我觉得可以。。	嗯，我觉得可以。	MUST_CHANGE	标点
+XPIPE-008	第一，我们用 web socket；第二，我们用 git hub。	第一，我们用WebSocket；第二，我们用GitHub。	MUST_CHANGE	序数热词
+XPIPE-009	版本号是 v1.2.3，圆周率是三点一四。	版本号是v1.2.3，圆周率是3.14。	MUST_CHANGE	技术串小数
+XPIPE-010	我有三个选择。	我有三个选择。	MUST_KEEP	个位数量词
+XPIPE-011	他一口气跑了三公里。	他一口气跑了三公里。|他一口气跑了3公里。	EITHER	个位数单位
+XPIPE-012	二十四小时营业。	24小时营业。	MUST_CHANGE	数量单位
+XPIPE-013	万一你迟到呢？	万一你迟到呢？	MUST_KEEP	万一
+XPIPE-014	千万别忘了。	千万别忘了。	MUST_KEEP	千万
+XPIPE-015	他十分感谢你。	他十分感谢你。	MUST_KEEP	十分
+XPIPE-016	三十而立，四十不惑。	三十而立，四十不惑。	MUST_KEEP	成语
+XPIPE-017	七上八下。	七上八下。	MUST_KEEP	成语
+XPIPE-018	1,000元的预算。	1,000元的预算。	MUST_KEEP	千分位
+XPIPE-019	我用 3 个 GPU 跑模型。	我用3个GPU跑模型。	MUST_CHANGE	中英空格
+XPIPE-020	十万火急，马上出发！	十万火急，马上出发！	MUST_KEEP	成语
+XPIPE-021	验证码是七，房间号五。	验证码是7，房间号5。	MUST_CHANGE	标识上下文
+XPIPE-022	密码是三个人。	密码是三个人。	MUST_KEEP	标识上下文不误伤
+XPIPE-023	订单号是二零二五幺零零一。	订单号是20251001。	MUST_CHANGE	订单号

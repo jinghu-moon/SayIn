@@ -1,0 +1,20 @@
+id	input	expected	kind	note
+PIPE-001	我用 chat gpt 写了二十行代码。。	我用ChatGPT写了20行代码。	MUST_CHANGE	
+PIPE-002	会议在二零二六年十一月二十四号下午三点半，别迟到！！	会议在2026年11月24号下午3点半，别迟到！	MUST_CHANGE	
+PIPE-003	他一个人去了三家店，花了三千五百元。	他一个人去了三家店，花了3500元。	MUST_CHANGE	三家=个位数+量词不转
+PIPE-004	增长了百分之二十，远超预期。	增长了20%，远超预期。	MUST_CHANGE	
+PIPE-005	我的手机号是幺二三四五六七八九零幺。	我的手机号是12345678901。	MUST_CHANGE	
+PIPE-006	一加手机的价格是三千九百九十九块。	一加手机的价格是3999块。	MUST_CHANGE	品牌词受保护,价格要转
+PIPE-007	sherpa onnx 里的 silero vad 很稳。	sherpa-onnx里的Silero VAD很稳。	MUST_CHANGE	热词+去中英空格;英文词组内部空格保留
+PIPE-008	他十分感谢你，万一有问题再联系。	他十分感谢你，万一有问题再联系。	MUST_KEEP	
+PIPE-009	圆周率是三点一四，版本号是v1.2.3。	圆周率是3.14，版本号是v1.2.3。	MUST_CHANGE	版本号不被动
+PIPE-010	我有三点意见：第一，成本低；第二，速度快。	我有三点意见：第一，成本低；第二，速度快。	MUST_KEEP	难例
+PIPE-011	访问 chatgpt.com 看看。	访问chatgpt.com看看。	MUST_CHANGE	难例:域名受保护,不被热词改成ChatGPT.com
+PIPE-012	今天 ， 天气真好。。	今天，天气真好。	MUST_CHANGE	
+PIPE-013	嗯，我觉得可以。	嗯，我觉得可以。	MUST_KEEP	语气词阶段默认关闭,必须原样保留
+PIPE-014	安卓十五的更新	安卓15的更新|安卓十五的更新	EITHER	
+PIPE-015	百分之三十五的人同意，三心二意的人不到百分之五。	35%的人同意，三心二意的人不到5%。	MUST_CHANGE	成语不动,百分比转
+PIPE-016	会议在2026年11月24号下午3点半，别迟到！	会议在2026年11月24号下午3点半，别迟到！	MUST_KEEP	幂等:PIPE-002的输出再跑一遍必须不变
+PIPE-017	他在西罗马帝国时期出生。	他在西罗马帝国时期出生。	MUST_KEEP	
+PIPE-018	<EMPTY>	<EMPTY>	MUST_KEEP	空串
+PIPE-019	第一，我们用 kotlin；第二，我们用 web socket。	第一，我们用Kotlin；第二，我们用WebSocket。	MUST_CHANGE	序数'第一/第二'不转

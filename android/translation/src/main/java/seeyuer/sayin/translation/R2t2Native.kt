@@ -10,11 +10,13 @@ class R2t2Native(
     prefillThreads: Int = 4,
     gpuDecoder: Boolean = false,
     gpuProjector: Boolean = false,
+    encodeThreads: Int = 4,
+    genThreads: Int = 2,
 ) : Closeable {
     private val bindings = R2t2Bindings()
     private val handle = bindings.load(
         model.absolutePath.encodeToByteArray(), projector.absolutePath.encodeToByteArray(),
-        prefillThreads, gpuDecoder, gpuProjector,
+        prefillThreads, encodeThreads, genThreads, gpuDecoder, gpuProjector,
     )
 
     fun reset() = bindings.reset(handle)
@@ -41,7 +43,8 @@ fun interface R2t2Preview {
 private class R2t2Bindings {
     init { System.loadLibrary("sayin_translation") }
     external fun load(
-        model: ByteArray, projector: ByteArray, prefillThreads: Int, gpuDecoder: Boolean, gpuProjector: Boolean,
+        model: ByteArray, projector: ByteArray, prefillThreads: Int, encodeThreads: Int, genThreads: Int,
+        gpuDecoder: Boolean, gpuProjector: Boolean,
     ): Long
     external fun reset(handle: Long)
     external fun cancel(handle: Long)

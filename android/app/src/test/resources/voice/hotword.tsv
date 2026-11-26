@@ -1,0 +1,21 @@
+id	input	expected	kind	note
+HOT-001	我在用chat gpt写代码	我在用ChatGPT写代码	MUST_CHANGE	
+HOT-002	我在用 chat gpt 写代码	我在用 ChatGPT 写代码	MUST_CHANGE	只替换词本身,空格交给format阶段
+HOT-003	Chat GPT很好用	ChatGPT很好用	MUST_CHANGE	大小写不敏感匹配
+HOT-004	chatgpt 4	ChatGPT 4	MUST_CHANGE	
+HOT-005	ChatGPT	ChatGPT	MUST_KEEP	幂等
+HOT-006	扣特林和科特林都是同一个	Kotlin和Kotlin都是同一个	MUST_CHANGE	中文同音误识别
+HOT-007	sherpa onnx 很快	sherpa-onnx 很快	MUST_CHANGE	
+HOT-008	谢尔帕 onnx 很快	sherpa-onnx 很快	MUST_CHANGE	
+HOT-009	silero vad 和 ten vad	Silero VAD 和 TEN VAD	MUST_CHANGE	一句多词
+HOT-010	西罗 vad 效果不错	Silero VAD 效果不错	MUST_CHANGE	带上下文的词条
+HOT-011	x asr 流式识别	X-ASR 流式识别	MUST_CHANGE	
+HOT-012	web socket 连接	WebSocket 连接	MUST_CHANGE	
+HOT-013	git hub 上有	GitHub 上有	MUST_CHANGE	
+HOT-014	赛音 的新版本	SayIn 的新版本	MUST_CHANGE	
+HOT-015	chat gpt 和 git hub 都用	ChatGPT 和 GitHub 都用	MUST_CHANGE	
+HOT-016	chat gpt chat gpt	ChatGPT ChatGPT	MUST_CHANGE	多次出现
+HOT-017	kotlin 很好用	Kotlin 很好用	MUST_CHANGE	
+HOT-020	西罗马帝国灭亡了	西罗马帝国灭亡了	MUST_KEEP	难例:'西罗'本身不在词典,只有'西罗 vad'
+HOT-021	kotlinx.coroutines 很好用	kotlinx.coroutines 很好用	MUST_KEEP	词边界:kotlinx不是kotlin
+HOT-022	我在用ChatGPT写代码	我在用ChatGPT写代码	MUST_KEEP	幂等:已是正确写法

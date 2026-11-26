@@ -15,16 +15,25 @@ import seeyuer.sayin.translation.R2t2Preview
 
 internal class R2t2Decoder(
     directory: File,
-    prefillThreads: Int = 4,
+    prefillThreads: Int = DEFAULT_PREFILL_THREADS,
     gpuDecoder: Boolean = false,
     gpuProjector: Boolean = false,
+    // Measured on K90 Pro Max: 6 encode threads keep most of the 8-thread gain (6.5 s window
+    // encode 1.34 s at 4 threads, 1.05 s at 6, 0.92 s at 8) while leaving two cores for capture
+    // and UI. Four generate threads cut the 6.5 s final round from 366 ms to 210 ms.
+    encodeThreads: Int = DEFAULT_ENCODE_THREADS,
+    genThreads: Int = DEFAULT_GEN_THREADS,
     private val firstPreviewSamples: Int = FIRST_DECODE,
+    private val decodeWindowSamples: Int = DECODE_WINDOW,
+    private val previewStepSamples: Int = DECODE_STEP,
+    private val previewsEnabled: Boolean = true,
+    private val pacedPreview: Boolean = true,
     private val onTiming: ((R2t2Timing) -> Unit)? = null,
 ) : LocalSpeechDecoder {
     private val native = R2t2Native(
         File(directory, "Confucius4-R2T2-Q4_K_M.gguf"),
         File(directory, "mmproj-Confucius4-R2T2-Q8_0.gguf"),
-        prefillThreads, gpuDecoder, gpuProjector,
+        prefillThreads, gpuDecoder, gpuProjector, encodeThreads, genThreads,
     )
 
     override fun warmUp() {
@@ -51,7 +60,9 @@ internal class R2t2Decoder(
                     ))
                 }
                 bytes
-            }, prioritizeFinal = native::prioritizeFinal, firstPreviewSamples = firstPreviewSamples, onTranscript = onTranscript)
+            }, prioritizeFinal = native::prioritizeFinal, firstPreviewSamples = firstPreviewSamples,
+                decodeWindowSamples = decodeWindowSamples, previewStepSamples = previewStepSamples,
+                previewsEnabled = previewsEnabled, pacedPreview = pacedPreview, onTranscript = onTranscript)
         } finally {
             abort.cancel()
         }
@@ -87,6 +98,13 @@ internal data class R2t2Attempt(
     val consumedEnd: Int,
 )
 
+internal const val DEFAULT_ENCODE_THREADS = 6
+internal const val DEFAULT_GEN_THREADS = 4
+// K90 Pro Max probe: llama prefill was limited to 4 threads while the device has 8 cores.
+// 8 prefill threads cut prefill from 8.8 to ~5.6-6.2 ms per audio position and 11.5 to
+// ~9.5 ms per text token (audio_prefill/decode_text batches use n_threads_batch = this value).
+internal const val DEFAULT_PREFILL_THREADS = 8
+
 private const val SAMPLE_RATE = 16_000
 private const val FIRST_DECODE = 19_200 // 1.2 seconds of audio
 private const val DECODE_STEP = 2 * SAMPLE_RATE
@@ -105,6 +123,11 @@ internal suspend fun recognizeR2t2(
     decode: (R2t2Attempt, R2t2Preview) -> ByteArray?,
     prioritizeFinal: (Int) -> Unit,
     firstPreviewSamples: Int = FIRST_DECODE,
+    decodeWindowSamples: Int = DECODE_WINDOW,
+    previewStepSamples: Int = DECODE_STEP,
+    previewsEnabled: Boolean = true,
+    pacedPreview: Boolean = true,
+    nowNanos: () -> Long = System::nanoTime,
     onTranscript: (String) -> Unit,
 ): String = coroutineScope {
     val updates = Channel<Unit>(Channel.CONFLATED)
@@ -115,7 +138,9 @@ internal suspend fun recognizeR2t2(
     val boundaries = ArrayDeque<Boundary>()
     var captured = 0
     var retainedEnd: Int? = null
+    var latestSpeech: Boolean? = null
     var stopped = false
+    var noSpeech = false
     var lastBoundary = 0
     var windowStart = 0
     var revision = 0
@@ -127,11 +152,17 @@ internal suspend fun recognizeR2t2(
                     val chunk = source.read() ?: break
                     synchronized(lock) {
                         if (chunk.size > audio.size - captured) throw OfflineRecordingLimitException()
-                        val windowEnd = windowStart + DECODE_WINDOW
+                        val windowEnd = windowStart + decodeWindowSamples
                         val hadFullWindow = captured >= windowEnd
                         chunk.copyInto(audio, captured)
                         captured += chunk.size
                         retainedEnd = source.retainedSampleEnd
+                        latestSpeech = source.speechInBlock
+                        if (source.noSpeech) {
+                            noSpeech = true
+                            prioritizeFinal(++revision)
+                            return@synchronized
+                        }
                         val newBoundary = source.segmentBoundary && captured - maxOf(lastBoundary, windowStart) >= MIN_SEGMENT
                         if (newBoundary) {
                             boundaries.addLast(Boundary(captured, retainedEnd))
@@ -144,6 +175,7 @@ internal suspend fun recognizeR2t2(
             }
             synchronized(lock) {
                 stopped = true
+                if (source.noSpeech) noSpeech = true
                 prioritizeFinal(++revision)
             }
         } finally {
@@ -154,6 +186,7 @@ internal suspend fun recognizeR2t2(
     var visible = ""
     var lastDecoded = 0
     var previewAudioEnd = 0
+    var lastPreviewSamplesCost = 0
     var header = ""
     var confirmed = ""
     val recognitionContext = coroutineContext
@@ -163,21 +196,30 @@ internal suspend fun recognizeR2t2(
             while (true) {
                 coroutineContext.ensureActive()
                 val attempt = synchronized(lock) {
+                    if (noSpeech) return@synchronized null
                     while (boundaries.firstOrNull()?.let { it.sample <= windowStart } == true) boundaries.removeFirst()
                     if (windowStart == captured) return@synchronized null
                     val boundary = boundaries.firstOrNull()
-                    val consumedEnd = minOf(windowStart + DECODE_WINDOW, captured, boundary?.sample ?: captured)
+                    val consumedEnd = minOf(windowStart + decodeWindowSamples, captured, boundary?.sample ?: captured)
                     val atBoundary = consumedEnd == boundary?.sample
-                    val final = stopped || atBoundary || consumedEnd - windowStart == DECODE_WINDOW
-                    // A preview started in the last interval is likely to be discarded at the hard boundary.
-                    if (!final && windowStart + DECODE_WINDOW - consumedEnd <= DECODE_STEP) return@synchronized null
+                    val final = stopped || atBoundary || consumedEnd - windowStart == decodeWindowSamples
+                    if (!final) {
+                        if (!previewsEnabled) return@synchronized null
+                        val guardSamples = if (pacedPreview) maxOf(previewStepSamples, lastPreviewSamplesCost) else previewStepSamples
+                        // A preview started in the last interval is likely to be discarded at the hard boundary.
+                        if (windowStart + decodeWindowSamples - consumedEnd <= guardSamples) return@synchronized null
+                        // Avoid launching a preview during trailing silence right before a VAD boundary.
+                        if (pacedPreview && confirmed.isNotEmpty() && latestSpeech == false) return@synchronized null
+                    }
                     val kept = if (atBoundary) boundary.retainedEnd else retainedEnd
                     val end = (kept ?: consumedEnd).coerceIn(windowStart, consumedEnd)
                     if (end == windowStart && !final) return@synchronized null
                     val newSamples = end - lastDecoded
                     // Capture already advances while this serial decoder is busy. Count that audio
                     // toward the next preview so completed inference adds no extra cooldown.
-                    val interval = if (confirmed.isEmpty()) firstPreviewSamples else DECODE_STEP
+                    val interval = if (confirmed.isEmpty()) firstPreviewSamples
+                    else if (pacedPreview) maxOf(previewStepSamples, lastPreviewSamplesCost)
+                    else previewStepSamples
                     if (!final && newSamples < interval) return@synchronized null
                     val budget = if (final) FINAL_TOKEN_BUDGET else {
                         (newSamples / SAMPLES_PER_TOKEN).coerceIn(MIN_PREVIEW_TOKENS, MAX_PREVIEW_TOKENS)
@@ -190,7 +232,8 @@ internal suspend fun recognizeR2t2(
                 val previousText = if (attempt.prefix.isEmpty()) "" else confirmed
                 fun publish(bytes: ByteArray, endpoint: Boolean) {
                     recognitionContext.ensureActive()
-                    if (!attempt.final && synchronized(lock) { attempt.revision != revision }) return
+                    if (!attempt.final && synchronized(lock) { attempt.revision != revision || noSpeech }) return
+                    if (attempt.final && synchronized(lock) { noSpeech }) return
                     previewAudioEnd = windowStart + attempt.samples.size
                     val text = bytes.decodeToString().trimEnd('\uFFFD')
                     if (previousHeader.isEmpty()) {
@@ -215,14 +258,18 @@ internal suspend fun recognizeR2t2(
                     synchronized(lock) { windowStart = attempt.consumedEnd }
                     lastDecoded = windowStart
                     previewAudioEnd = windowStart
+                    lastPreviewSamplesCost = 0
                     header = ""
                     confirmed = ""
                     val stable = transcript.update("", false)
                     if (stable != visible) { visible = stable; onTranscript(stable) }
                     continue
                 }
+                val decodeStartedNanos = nowNanos()
                 val bytes = decode(attempt) { publish(it, false) }
+                val decodeElapsedMs = ((nowNanos() - decodeStartedNanos) / 1_000_000L).coerceAtLeast(0L)
                 coroutineContext.ensureActive()
+                if (synchronized(lock) { noSpeech }) break
                 // A required segment became ready. Re-read capture state before decoding again.
                 if (bytes == null) {
                     check(!attempt.final)
@@ -235,9 +282,16 @@ internal suspend fun recognizeR2t2(
                     synchronized(lock) { windowStart = attempt.consumedEnd }
                     lastDecoded = windowStart
                     previewAudioEnd = windowStart
+                    lastPreviewSamplesCost = 0
                     header = ""
                     confirmed = ""
+                } else {
+                    lastPreviewSamplesCost = ((decodeElapsedMs * SAMPLE_RATE) / 1_000L).toInt()
                 }
+            }
+            if (synchronized(lock) { noSpeech }) {
+                visible = ""
+                break
             }
             if (signal.isClosed) break
         }
