@@ -99,6 +99,12 @@ try {
         if ($pauses.Count -ne 5 -or @($mobilePauses.measurements).Count -ne 5) { throw 'Expected five actual pause/reconnect cycles' }
     }
     if ($Native) {
+        # Wait for the disposable target to finish writing its final RTF observation.
+        $targetProcess.Refresh()
+        if (!$targetProcess.HasExited) {
+            Set-Content -LiteralPath (Join-Path $directory 'target/stop') -Value '' -NoNewline
+            if (!$targetProcess.WaitForExit(10000)) { throw 'Disposable RichEdit did not stop.' }
+        }
         $final = Get-Content (Join-Path $directory 'target/final.json') -Raw | ConvertFrom-Json
         if ($final.observed_images -ne $expected -or $final.pictures -ne 0 -or $final.text -ne 'existing|') { throw 'Disposable RichEdit did not verify every single paste without Enter' }
     }
