@@ -23,15 +23,18 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 
-internal enum class ImageIssue { INVALID, NOT_READY, NOT_SUPPORTED, CONNECTION, STORAGE, QUOTA, CANCELLED }
+internal enum class ImageIssue { INVALID, NOT_READY, NOT_SUPPORTED, CONNECTION, STORAGE, QUOTA, CANCELLED, PATH_COPIED }
 
 /** A committed input spends the image intention: the next open starts from the picker. Cancelled,
  * failed and uncertain inputs keep the prepared image so the user can retry or inspect it. */
 private const val IMAGE_CONSUMED_STATE = "injected"
 
+internal const val MAX_IMAGE_BATCH_SIZE = 10
+internal data class ImageBatchProgress(val total: Int, val sent: Int = 0, val active: Boolean = false, val stopped: Boolean = false)
+
 internal data class LocalImageDraft(val image: ImageReference, val preview: ByteArray)
 internal sealed interface ImageEvent {
-    data class Select(val uri: Uri) : ImageEvent
+    data class Select(val images: List<Uri>) : ImageEvent
     data class Prepared(val ticket: Long, val host: PairedHost, val image: ImageReference, val preview: ByteArray) : ImageEvent
     data class PreparationFailed(val ticket: Long) : ImageEvent
     data class Send(val resource: String, val reception: ReceptionScope?) : ImageEvent
@@ -68,12 +71,20 @@ internal class ImageInput(
     private var ticket = 0L
     private var binding: String? = null
     private var run: ImageRun? = null
+    private val remainingImages = ArrayDeque<Uri>()
+    private var batchScope: ReceptionScope? = null
 
     suspend fun open() {
         files.cleanOrphans(dao.imageResources().toSet())
         loadDraft()
     }
-    suspend fun hostChanged() { ticket++; preparation?.cancel(); preparation=null; interrupt(); loadDraft(); state.update { it.copy(imagePreparing=false) } }
+    suspend fun hostChanged() {
+        cancelPreparation()
+        stopBatch()
+        interrupt()
+        loadDraft()
+        state.update { it.copy(imageBatch = null) }
+    }
     private suspend fun loadDraft() {
         val saved = host()
         var draft = saved?.let { dao.imageDraft(it.hostId, it.deviceId) }
@@ -112,8 +123,12 @@ internal class ImageInput(
         interrupt()
         state.update { it.copy(imageSupported = false) }
     }
-    fun interrupt() { run?.let { it.stop(); emit(ImageEvent.Failed(it)) } }
+    fun interrupt() {
+        if (batchScope != null) stopBatch(ImageIssue.CONNECTION)
+        run?.let { it.stop(); emit(ImageEvent.Failed(it)) }
+    }
     fun scopeChanged() {
+        if (batchScope != null && batchScope != state.value.receptionScope) stopBatch(ImageIssue.NOT_READY)
         val current = run ?: return
         if (state.value.receptionScope != current.reception) { current.stop(); emit(ImageEvent.Failed(current)) }
     }
@@ -121,34 +136,63 @@ internal class ImageInput(
 
     suspend fun handle(event: ImageEvent) {
         when (event) {
-            is ImageEvent.Select -> select(event.uri)
+            is ImageEvent.Select -> select(event.images)
             is ImageEvent.Prepared -> prepared(event)
-            is ImageEvent.PreparationFailed -> if (event.ticket == ticket) state.update { it.copy(imagePreparing = false, imageIssue = ImageIssue.INVALID) }
-            is ImageEvent.Send -> send(event)
+            is ImageEvent.PreparationFailed -> if (event.ticket == ticket) {
+                preparation = null
+                stopBatch(ImageIssue.INVALID)
+                state.update { it.copy(imagePreparing = false, imageIssue = ImageIssue.INVALID) }
+            }
+            is ImageEvent.Send -> if (batchScope == null) send(event)
             is ImageEvent.Ready -> ready(event)
             is ImageEvent.Failed -> failed(event.run, ImageIssue.CONNECTION)
-            ImageEvent.StorageFailed -> { run?.stop(); storageFailure() }
+            ImageEvent.StorageFailed -> { stopBatch(); run?.stop(); storageFailure() }
             ImageEvent.Cancel -> {
-                ticket++; preparation?.cancel(); preparation = null
-                run?.let { failed(it, ImageIssue.CANCELLED) }
-                state.update { it.copy(imagePreparing = false) }
+                cancelPreparation()
+                stopBatch(ImageIssue.CANCELLED)
+                run?.let { current -> if (!current.submitted) failed(current, ImageIssue.CANCELLED) }
             }
             ImageEvent.Clear -> {
-                ticket++; preparation?.cancel(); preparation = null
+                cancelPreparation()
+                stopBatch()
                 run?.let { failed(it, ImageIssue.CANCELLED) }
                 host()?.let { saved ->
                     val previous = dao.imageDraft(saved.hostId, saved.deviceId)
                     dao.deleteImageDraft(saved.hostId, saved.deviceId)
                     if (previous != null && !dao.imageReferenced(previous.resourceId)) files.remove(previous.resourceId)
                 }
-                state.update { it.copy(imageDraft = null, imagePreparing = false, imageIssue = null) }
+                state.update { it.copy(imageDraft = null, imagePreparing = false, imageIssue = null, imageBatch = null) }
             }
         }
     }
-    private fun select(uri: Uri) {
+    private fun cancelPreparation() {
+        ticket++
+        preparation?.cancel()
+        preparation = null
+        state.update { it.copy(imagePreparing = false) }
+    }
+
+    private fun stopBatch(issue: ImageIssue? = null) {
+        val progress = state.value.imageBatch ?: return
+        if (progress.sent == progress.total || progress.stopped) return
+        batchScope = null
+        remainingImages.clear()
+        if (progress.active) cancelPreparation()
+        state.update { it.copy(imageBatch = progress.copy(active = false, stopped = true), imageIssue = issue ?: it.imageIssue) }
+    }
+
+    private fun select(images: List<Uri>) {
+        if (run != null || state.value.imageBatch?.active == true || images.isEmpty()) return
+        if (images.size > MAX_IMAGE_BATCH_SIZE) { issue(ImageIssue.INVALID); return }
         val saved = host() ?: return
-        if (run != null) return
-        ticket++; val owner = ticket
+        remainingImages.clear()
+        remainingImages.addAll(images.drop(1))
+        state.update { it.copy(imageBatch = images.size.takeIf { it > 1 }?.let(::ImageBatchProgress)) }
+        prepare(images.first(), saved)
+    }
+
+    private fun prepare(uri: Uri, saved: PairedHost) {
+        val owner = ++ticket
         preparation?.cancel()
         state.update { it.copy(imagePreparing = true, imageIssue = null, imageRequest = null) }
         preparation = scope.launch { preparationLimit.withPermit {
@@ -186,15 +230,17 @@ internal class ImageInput(
         }
         preparation = null
         state.update { it.copy(imageDraft = LocalImageDraft(event.image, event.preview), imagePreparing = false, imageIssue = null) }
+        val authorized = batchScope
+        if (authorized != null) send(ImageEvent.Send(event.image.resourceId, authorized))
     }
     private suspend fun send(event: ImageEvent.Send) {
         if (run != null || state.value.imagePreparing) return
-        val saved = host() ?: return
-        val draft = state.value.imageDraft ?: return
+        val saved = host() ?: run { issue(ImageIssue.NOT_READY); return }
+        val draft = state.value.imageDraft ?: run { issue(ImageIssue.NOT_READY); return }
         if (event.reception == null || state.value.receptionScope != event.reception || draft.image.resourceId != event.resource) { issue(ImageIssue.NOT_READY); return }
         val token = binding ?: run { issue(ImageIssue.NOT_SUPPORTED); return }
-        val transport = client() ?: return
-        val sessionId = session() ?: return
+        val transport = client() ?: run { issue(ImageIssue.NOT_READY); return }
+        val sessionId = session() ?: run { issue(ImageIssue.NOT_READY); return }
         if (dao.pendingCountFor(saved.hostId, saved.deviceId) >= 16 ||
             dao.pendingBytesFor(saved.hostId, saved.deviceId) > 65536 ||
             dao.pendingCountForHost(saved.hostId) >= 32 ||
@@ -207,6 +253,11 @@ internal class ImageInput(
             kind = "image", imageResource = draft.image.resourceId,
             imageReference = store.encrypt(saved.hostId, saved.pairId, draft.image.json().toString().toByteArray()), imageByteCount = draft.image.metadata.bytes)
         try { cleanup(dao.enqueue(item)) } catch (_: Exception) { storageFailure(); return }
+        val progress = state.value.imageBatch
+        if (progress != null && !progress.active && !progress.stopped && progress.sent == 0) {
+            batchScope = event.reception
+            state.update { it.copy(imageBatch = progress.copy(active = true)) }
+        }
         val active = AtomicBoolean(true)
         val transfer = ImageTransfer(transport::openImages, saved.hostId, saved.deviceId, sessionId, token, event.reception,
             { active.get() && state.value.receptionScope == event.reception })
@@ -243,17 +294,47 @@ internal class ImageInput(
             try { dao.status(current.item.id, current.item.hostId, current.item.deviceId, "cancelled", null, "image_not_submitted", true) }
             catch (_: Exception) { storageFailure(); return }
         }
-        if (run === current) { run = null; state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure) } }
+        if (run === current) {
+            run = null
+            stopBatch(failure)
+            state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = failure) }
+        }
     }
     suspend fun status(item: OutboxItem, status: String, terminal: Boolean) {
-        if (item.key == state.value.imageRequest && item.kind == "image") state.update { it.copy(imageIssue = null) }
-        val current = run
-        if (current != null && item.key == current.item.key) {
-            // The immutable reference has now been consumed by a durable receipt.
-            current.stop(); run = null
-            state.update { it.copy(imageBusy = false, imageSubmitted = false, imageIssue = null) }
+        val current = run?.takeIf { it.item.key == item.key }
+        if (current != null && (terminal || status in setOf("held", "uncertain", "review"))) {
+            current.stop()
+            run = null
+            state.update { it.copy(imageBusy = false, imageSubmitted = false) }
         }
-        if (terminal && status == IMAGE_CONSUMED_STATE) dropFinishedDraft(item)
+        if (terminal && status == IMAGE_CONSUMED_STATE) {
+            dropFinishedDraft(item)
+            if (current != null) advanceBatch(current, item.method)
+        } else if (current != null && (terminal || status in setOf("held", "uncertain", "review"))) {
+            stopBatch()
+        }
+    }
+
+    private fun advanceBatch(completed: ImageRun, method: String?) {
+        val progress = state.value.imageBatch ?: return
+        if (!progress.active || batchScope != completed.reception) return
+        val sent = progress.sent + 1
+        if (sent == progress.total) {
+            batchScope = null
+            state.update { it.copy(imageBatch = progress.copy(sent = sent, active = false)) }
+            return
+        }
+        state.update { it.copy(imageBatch = progress.copy(sent = sent)) }
+        if (method == IMAGE_PATH_COPY_METHOD) {
+            stopBatch(ImageIssue.PATH_COPIED)
+            return
+        }
+        val saved = host()
+        if (saved == null || batchScope != state.value.receptionScope) {
+            stopBatch(ImageIssue.NOT_READY)
+            return
+        }
+        prepare(remainingImages.removeFirst(), saved)
     }
 
     /** Removes the single-use input draft once its request can never be uploaded again. */
@@ -266,8 +347,8 @@ internal class ImageInput(
         if (!dao.imageReferenced(draft.resourceId)) files.remove(draft.resourceId)
         state.update {
             it.copy(
-                imageDraft = null, imagePreparing = false,
-                imageRequest = if (it.imageRequest == item.key) null else it.imageRequest,
+                imageDraft = null,
+                imageIssue = if (it.imageRequest == item.key && it.imageBatch?.stopped != true) null else it.imageIssue,
             )
         }
     }
@@ -293,7 +374,10 @@ internal class ImageInput(
     suspend fun abandon(event: ImageEvent) {
         if (event is ImageEvent.Prepared && !dao.imageReferenced(event.image.resourceId)) files.remove(event.image.resourceId)
     }
-    private fun issue(issue: ImageIssue) { state.update { it.copy(imageIssue = issue) } }
+    private fun issue(issue: ImageIssue) {
+        if (state.value.imageBatch?.active == true) stopBatch(issue)
+        state.update { it.copy(imageIssue = issue) }
+    }
     private fun decodeReference(draft: ImageDraftEntity): ImageReference {
         val decoded = store.decrypt(draft.hostId, draft.deviceId, draft.reference)
         return try { ImageReference.parse(strictJson(decoded.toString(Charsets.UTF_8))) } finally { decoded.fill(0) }

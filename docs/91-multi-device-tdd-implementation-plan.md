@@ -1,7 +1,7 @@
 # SayIn 多设备 v3 TDD 实施计划
 
 更新：2026-11-26。  
-状态：P0–P7 工程门禁通过。P8 有一对一真实局域网验证记录，真实 2×2 按用户安排暂缓。P9 的紧凑二维码和 WebP 已实现，多图原型已完成。执行记录见 §9。  
+状态：P0–P7 工程门禁通过。P8 有一对一真实局域网验证记录，真实 2×2 按用户安排暂缓。P9 已实现紧凑二维码、WebP 和逐张多图发送，物理相机对屏仍待验证。执行记录见 §9。  
 规范：[86 多设备规范](86-multi-host-multi-device-design.md)；验收：[89 验证计划](89-multi-device-verification.md)；独立增量：[90](90-multi-device-increment-design.md)。
 
 ## 1. 自检结论
@@ -383,7 +383,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P8 | T33 | 已取得一对一真实 LAN 发现、图片粘贴和暂停恢复证据。完整性能采样及 M1–M28 尚未全量验收，真实 2×2 按用户安排暂缓。 | — |
 | P9 | T34 | 71 字节邀请、V5-M 原生渲染、K40 短码和二维码数据配对通过。物理相机对屏待验证。 | — |
 | P9 | T35 | 无损 WebP、完整帧预算、本机样本和 K40 解码与加密历史恢复通过。 | `0e806b7` |
-| P9 | T36 | Windows 原生 RichEdit 原型已比较整批、逐张和局部遗漏。Android 多选与逐张发送产品化待实施。 | — |
+| P9 | T36 | 已实现 Android 多选和逐张发送。K40 与 Windows RichEdit 真实 LAN 验证图片顺序、损坏项停止和无重放。暂停、取消及路径回执也已验证。 | 本次提交 |
 
 | 门禁 | 实际结果 |
 | --- | --- |
@@ -496,7 +496,12 @@ scripts/verify_android_transport.ps1 -FullSuite
 - `powershell.exe -NoProfile -Sta -File scripts/verification/probe_image_batch.ps1` 使用 3 张生成图片和两个本地原生 RichEdit 目标。通过 `IRichEditOle::ImportDataObject` 直接交付，读取目标 RTF 中的图片数和宽度顺序。系统剪贴板、焦点和日常应用数据保持原样。
 - `RICHEDIT50W` 连续 5 组均正确收到 3 张，目标中图片宽度依次为 105、195、165 twips。整批 1 次 OLE 调用耗时 0.15～5.04 ms，逐张 3 次调用合计 0.29～0.57 ms。耗时仅覆盖本机控件调用。
 - 第一轮默认 WinForms RichEdit 无法导入整批 RTF。定向复查确认 `RichEdit20W` 整批收到 0 张，逐张位图导入收到 3 张。另一个故障注入将第二张截断，`RICHEDIT50W` 返回成功且已插入第一、三张。批量 API 的成功返回无法指明第二张被跳过。
-- 原型支持采用“一次选择、逐张发送”的单一产品模型。手机多选、逐张 UUID、进度与停止位置仍待实施，真实目标应用组合仍需补验。
+- 产品采用「一次选择、逐张发送」。一次最多 10 张，每张独立 UUID，持久化回执之后再准备下一张。进度显示正在发送的序号或停止位置。旧版每次只选一张，单图仍走原上传和原生输入路径。
+- `verify_android_transport.ps1 -ImageBatch -NativeBatch -Lan -SkipBuild -SkipInstall` 通过。隔离 RichEdit 读取的图片宽度依次为 465、510、465 twips，原文本 `existing|` 保留，无额外 Enter。第二个批次的第二张损坏，第三张从未进入输入路径。仪器化耗时 2.435 秒，3 次原生输入，0 次假输入。证据 `desktop/target/image-android-fixture-bc59d0d4-a076-440b-8bb7-7cb944be2a13/`。
+- `-ImageBatch -BatchPathReceipt -Lan` 用夹具返回路径复制回执，验证第二张不会覆盖剪贴板中的第一条路径。一次夹具调用，耗时 1.244 秒。真实剪贴板模式仍沿用此前的单图原生验证。证据 `desktop/target/image-android-fixture-4da4eb9c-1c1d-4bd1-8f72-700c58d342fc/`。
+- `verify_image_performance.ps1 -ImageDirectory refer/image-test -PauseProbe -SlowLink -SkipBuild -SkipInstall` 验证上传首块后显式取消五次、暂停五次及重连，每轮余图都停止，电脑输入为 0。仪器化耗时 51.429 秒。证据 `desktop/target/image-performance-67ca4d2b-c723-4443-a718-6e2c048473f6/`。
+- Rust 199 项和 Android JVM 247 项通过，Clippy、包级 rustfmt、i18n、依赖、Android lint 和 Debug 构建通过。最终 K40 常规回归首轮有 40 项界面失败，系统控制中心占据前台。收起后先定向复验 5 项，再复跑完整回归，文字/UI 170 项、图片 4 项通过，10 项条件跳过，0 项失败。两套回归耗时 347.377 / 1.808 秒。最终 APK 的原生批次复跑耗时 1.481 秒，图片宽度与调用次数一致，证据 `desktop/target/image-android-fixture-311d6407-9d38-4b27-b31d-e29ee8f4afe8/`。
+- 日常 Debug APK 已在 K40 用 `pm install -r` 覆盖，安装文件 SHA-256 为 `B8671C2F10E44C9BE421288392372A4C60D221EA3B051B75BD5B6B5B275C5626`。Windows 原生内容证据覆盖隔离 RichEdit。其他生产应用组合、批次中跨主机切换及远端撤销、已提交项的迟到回执没有独立真机证据。
 
 ### P8 一对一真机验证（2026-11-26）
 

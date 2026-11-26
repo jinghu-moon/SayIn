@@ -1247,6 +1247,13 @@
         <item quantity="other">引用 %1$d 个模型 · %2$s</item>
     </plurals>
     <string name="local_model_referenced_summary">%1$d 个模型固定引用原路径，不占用应用私有空间</string>
+    <string name="image_batch_selected">已选 %1$d 张图片</string>
+    <string name="image_batch_progress">正在发送第 %1$d 张，共 %2$d 张</string>
+    <string name="image_batch_stopped">停在第 %1$d 张，共 %2$d 张</string>
+    <string name="image_batch_complete">已提交 %1$d 张图片</string>
+    <string name="image_batch_stop">停止发送后续图片</string>
+    <string name="image_batch_send">按顺序发送 %1$d 张图片</string>
+    <string name="image_batch_path_stop">电脑已复制一个文件路径。粘贴该路径后，可继续发送其他图片。</string>
 </resources>
 
 

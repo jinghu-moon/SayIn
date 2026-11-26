@@ -83,7 +83,7 @@ internal fun VoiceLinkContent(
     sharedImage: android.net.Uri? = null,
     sharedText: String? = null,
     shareVersion: Int = 0,
-    onSelectImage: (android.net.Uri) -> Unit = {},
+    onSelectImage: (List<android.net.Uri>) -> Unit = {},
     onSendImage: (String) -> Unit = {},
     onCancelImage: () -> Unit = {},
     onClearImage: () -> Unit = {},
@@ -120,7 +120,7 @@ internal fun VoiceLinkContent(
         sharedImage?.let {
             session.cancelAutoSend()
             showConnection = false
-            onSelectImage(it)
+            onSelectImage(listOf(it))
             showImage = true
         }
     }

@@ -11,6 +11,7 @@ import androidx.room.Room
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
@@ -132,6 +133,79 @@ class ImageInputInstrumentedTest {
         } finally { database.close();target.deleteDatabase(name) }
     }
 
+    @Test fun batchSubmitsInOrderAndStopsAtInvalidSecondImage() = runBlocking {
+        val arguments = InstrumentationRegistry.getArguments()
+        assumeTrue(arguments.getString("fixtureImageBatch") == "true")
+        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        check(target.packageName == "seeyuer.sayin.imagetest")
+        val namespace = "image-batch-${UUID.randomUUID()}-"
+        val context = object : ContextWrapper(target) {
+            override fun getApplicationContext(): Context = this
+            override fun getDatabasePath(name: String) = target.getDatabasePath(namespace + name)
+            override fun getSharedPreferences(name: String, mode: Int) =
+                target.getSharedPreferences(namespace + name, mode)
+        }
+        val source = File(target.filesDir, "test-images/$namespace").apply { mkdirs() }
+        val repository = VoiceLinkRepository(context, HostDiscovery { _, _ -> emptyList() })
+        try {
+            suspend fun await(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15_000) {
+                repository.state.first { check(it.storageHealthy); predicate(it) }
+            }
+            fun photo(name: String, width: Int): android.net.Uri {
+                val file = File(source, "$name.png")
+                if (width == 0) file.writeBytes(byteArrayOf(0, 1, 2))
+                else {
+                    val bitmap = Bitmap.createBitmap(width, 32, Bitmap.Config.ARGB_8888)
+                    try { file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) } }
+                    finally { bitmap.recycle() }
+                }
+                return FileProvider.getUriForFile(target, target.packageName + ".fixtures", file)
+            }
+            val first = photo("first", 31)
+            val second = photo("second", 34)
+            val invalid = photo("broken", 0)
+            val third = photo("third", 38)
+            await { it.connection == Connection.OFFLINE }
+            repository.foreground(true)
+            repository.pairCode(checkNotNull(arguments.getString("fixtureAddress")), checkNotNull(arguments.getString("fixturePort")),
+                checkNotNull(arguments.getString("fixtureCode")))
+            await { it.ready && it.imageSupported }
+
+            suspend fun send(images: List<android.net.Uri>) {
+                repository.selectImages(images)
+                val ready = await { it.imageDraft != null && !it.imagePreparing && it.imageBatch?.total == images.size }
+                repository.sendImage(checkNotNull(ready.imageDraft).image.resourceId)
+            }
+            if (arguments.getString("fixtureBatchPathReceipt") == "true") {
+                send(listOf(first, second))
+                val copied = await { it.imageBatch?.stopped == true && it.history.any { row -> row.state == "injected" } }
+                assertEquals(ImageBatchProgress(total = 2, sent = 1, stopped = true), copied.imageBatch)
+                assertEquals(ImageIssue.PATH_COPIED, copied.imageIssue)
+                assertEquals(IMAGE_PATH_COPY_METHOD, copied.history.single().method)
+                return@runBlocking
+            }
+            send(listOf(first, second))
+            val complete = await { it.imageBatch?.sent == 2 && it.history.count { row -> row.state == "injected" } == 2 }
+            val delivered = complete.history.filter { it.kind == "image" }.sortedBy { it.order?.toLong() }
+            assertEquals(2, delivered.map { it.id }.distinct().size)
+            assertEquals(listOf(31, 34), delivered.map { complete.historyImages[it.key]?.width })
+
+            send(listOf(first, invalid, third))
+            val stopped = await { it.imageBatch?.stopped == true && it.imageIssue == ImageIssue.INVALID }
+            assertEquals(1, stopped.imageBatch?.sent)
+            assertEquals(3, stopped.imageBatch?.total)
+            val after = await { it.history.count { row -> row.state == "injected" } == 3 }
+            assertEquals(listOf(31, 34, 31), after.history.sortedBy { it.order?.toLong() }
+                .map { after.historyImages[it.key]?.width })
+        } finally {
+            repository.close()
+            target.deleteDatabase(namespace + "outbox.db")
+            target.deleteSharedPreferences(namespace + "paired_host")
+            File(target.noBackupFilesDir, "images/${namespace}outbox").deleteRecursively()
+            source.deleteRecursively()
+        }
+    }
+
     @Test fun pinnedDualWssImageAndCancellationAndRestartNeverReplay() = runBlocking {
         val args=InstrumentationRegistry.getArguments()
         val code=args.getString("fixtureCode");assumeTrue("Run the isolated --images fixture",code!=null)
@@ -200,3 +274,5 @@ class ImageInputInstrumentedTest {
         }
     }
 }
+
+internal fun VoiceLinkRepository.selectImage(uri: android.net.Uri) = selectImages(listOf(uri))

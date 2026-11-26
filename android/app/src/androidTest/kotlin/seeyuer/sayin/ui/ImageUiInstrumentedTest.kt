@@ -55,6 +55,13 @@ class ImageUiInstrumentedTest {
         assertEquals(1,sends)
         compose.runOnIdle { state=state.copy(paused=true) }
         compose.onNode(send).assertIsNotEnabled()
+        compose.runOnIdle { state=state.copy(paused=false, imageBatch=ImageBatchProgress(total=3, sent=1, active=true)) }
+        compose.onNodeWithText(context.getString(R.string.image_batch_progress, 2, 3)).assertExists()
+        compose.onNodeWithText(context.getString(R.string.image_batch_send, 3)).assertIsNotEnabled()
+        compose.onNodeWithText(context.getString(R.string.image_batch_stop)).performScrollTo().performClick()
+        assertEquals(1,cancels)
+        compose.runOnIdle { state=state.copy(imageBatch=ImageBatchProgress(total=3, sent=1, stopped=true)) }
+        compose.onNodeWithText(context.getString(R.string.image_batch_stopped, 2, 3)).assertExists()
         compose.onNodeWithContentDescription(context.getString(R.string.image_close)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue(cancels>=1);assertEquals(1,sends)

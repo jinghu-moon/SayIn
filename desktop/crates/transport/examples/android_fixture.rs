@@ -21,6 +21,7 @@ use voicelink_transport::{HostIdentity, server::NetworkService, storage::secure_
 struct FakeInput {
     calls: Arc<AtomicUsize>,
     pause: Option<std::sync::mpsc::SyncSender<String>>,
+    image_path_receipt: bool,
 }
 impl InputAdapter for FakeInput {
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
@@ -68,7 +69,15 @@ impl InputAdapter for FakeInput {
             };
         }
         InputOutcome::Injected {
-            method: "android_test_fake",
+            method: if self.image_path_receipt
+                && matches!(
+                    job.operation(),
+                    voicelink_receiver::protocol::Operation::Image { .. }
+                ) {
+                "clipboard_image_path"
+            } else {
+                "android_test_fake"
+            },
         }
     }
 }
@@ -322,6 +331,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         FixtureInput::Fake(FakeInput {
             calls: calls.clone(),
             pause: pause_probe.then_some(pause_sender),
+            image_path_receipt: std::env::args().any(|arg| arg == "--image-path-receipt"),
         })
     };
     let receiver = Receiver::start(ledger, adapter)?;

@@ -61,6 +61,18 @@ struct PictureCounter {
     matched: usize,
     count: usize,
     bytes: usize,
+    prefix: Vec<u8>,
+}
+
+impl PictureCounter {
+    fn first_picture_width(&self) -> Option<u32> {
+        let rtf = std::str::from_utf8(&self.prefix).ok()?;
+        let (_, picture) = rtf.split_once("\\pict")?;
+        let (_, width) = picture.split_once("\\picwgoal")?;
+        width[..width.find(|character: char| !character.is_ascii_digit())?]
+            .parse()
+            .ok()
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +126,11 @@ unsafe extern "system" fn stream_image(
             return 1;
         }
         output.bytes += length as usize;
-        for byte in std::slice::from_raw_parts(buffer, length as usize) {
+        let chunk = std::slice::from_raw_parts(buffer, length as usize);
+        output
+            .prefix
+            .extend_from_slice(&chunk[..chunk.len().min(4096 - output.prefix.len())]);
+        for byte in chunk {
             if *byte == b"\\pict"[output.matched] {
                 output.matched += 1;
                 if output.matched == 5 {
@@ -129,9 +145,9 @@ unsafe extern "system" fn stream_image(
     }
     0
 }
-fn picture_count(
+fn pictures_in(
     target: windows::Win32::Foundation::HWND,
-) -> Result<usize, Box<dyn std::error::Error>> {
+) -> Result<PictureCounter, Box<dyn std::error::Error>> {
     use windows::Win32::UI::Controls::RichEdit::{EDITSTREAM, EM_STREAMOUT, SF_RTF};
     let mut counter = PictureCounter::default();
     let mut stream = EDITSTREAM {
@@ -150,7 +166,7 @@ fn picture_count(
     if stream.dwError != 0 {
         return Err("RTF export failed".into());
     }
-    Ok(counter.count)
+    Ok(counter)
 }
 
 fn edit_target(
@@ -218,6 +234,7 @@ fn edit_target(
         let deadline = Instant::now() + Duration::from_secs(if batch { 600 } else { 120 });
         let mut recorded = false;
         let mut observed_images = 0;
+        let mut picture_widths = Vec::new();
         let mut ready = false;
         let mut reported = false;
         while Instant::now() < deadline && !directory.join("stop").exists() {
@@ -268,24 +285,25 @@ fn edit_target(
             let length = GetWindowTextW(hwnd, &mut buffer).max(0) as usize;
             let text = String::from_utf16_lossy(&buffer[..length]);
             let pictures = if is_image && !recorded && length == ORIGINAL.len() + 1 {
-                picture_count(hwnd)?
+                pictures_in(hwnd)?
             } else {
-                0
+                PictureCounter::default()
             };
             if !recorded
                 && (if is_image {
-                    pictures == 1 && length == ORIGINAL.len() + 1
+                    pictures.count == 1 && length == ORIGINAL.len() + 1
                 } else {
                     text == format!("{ORIGINAL}{TEXT}")
                 })
             {
                 if is_image {
                     observed_images += 1;
+                    picture_widths.push(pictures.first_picture_width());
                 }
                 std::fs::write(
                     directory.join("observed.json"),
                     serde_json::to_vec(
-                        &serde_json::json!({"text":text,"pictures":pictures,"observed_images":observed_images,"pid":std::process::id()}),
+                        &serde_json::json!({"text":text,"pictures":pictures.count,"observed_images":observed_images,"picture_widths_twips":picture_widths,"pid":std::process::id()}),
                     )?,
                 )?;
                 recorded = true;
@@ -309,8 +327,9 @@ fn edit_target(
             serde_json::to_vec(&serde_json::json!({
                 "text":String::from_utf16_lossy(&buffer[..length]),
                 "length":length,
-                "pictures":if is_image { picture_count(hwnd)? } else { 0 },
+                "pictures":if is_image { pictures_in(hwnd)?.count } else { 0 },
                 "observed_images":observed_images,
+                "picture_widths_twips":picture_widths,
             }))?,
         )?;
         eprintln!(

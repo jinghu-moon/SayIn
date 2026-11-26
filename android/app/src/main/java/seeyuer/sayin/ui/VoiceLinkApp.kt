@@ -122,7 +122,7 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         onCleanupHistory = repository::cleanupHistory,
         loadHistoryImage = repository::historyImage,
         loadDraftImage = repository::draftImage,
-        onSelectImage = repository::selectImage,
+        onSelectImage = repository::selectImages,
         onSendImage = { repository.sendImage(it, state.receptionScope) },
         onCancelImage = repository::cancelImage,
         onClearImage = repository::clearImage,

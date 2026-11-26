@@ -47,10 +47,16 @@ class ImagePauseInstrumentedTest {
                 waitFor { it.ready && it.imageSupported &&
                     ProtectedStore(context).load()?.let(::PairedHost)?.port == proxyPort }
             }
-            repository.selectImage(FileProvider.getUriForFile(target, "${target.packageName}.fixtures", source))
-            val image = checkNotNull(waitFor { it.imageDraft != null && !it.imagePreparing }.imageDraft).image
+            val uri = FileProvider.getUriForFile(target, "${target.packageName}.fixtures", source)
+            suspend fun selectBatch(): ImageReference {
+                repository.selectImages(listOf(uri, uri))
+                return checkNotNull(waitFor {
+                    it.imageDraft != null && !it.imagePreparing && it.imageBatch?.stopped == false
+                }.imageDraft).image
+            }
             repeat(5) { iteration ->
                 waitFor { it.ready && !it.imageBusy }
+                var image = selectBatch()
                 var cancelMs: Double? = null
                 if (proxyPort != 0) {
                     repository.sendImage(image.resourceId)
@@ -59,13 +65,15 @@ class ImagePauseInstrumentedTest {
                     val cancelledKey = checkNotNull(inFlight.imageRequest)
                     val cancelStart = SystemClock.elapsedRealtimeNanos()
                     repository.cancelImage()
-                    waitFor { !it.imageBusy && it.history.any { row -> row.key == cancelledKey && row.state == "cancelled" } }
+                    waitFor { it.imageBatch?.stopped == true && !it.imageBusy &&
+                        it.history.any { row -> row.key == cancelledKey && row.state == "cancelled" } }
                     cancelMs = (SystemClock.elapsedRealtimeNanos() - cancelStart) / 1e6
                     repository.foreground(false); waitFor { it.connection == Connection.OFFLINE }
                     repository.foreground(true)
                     waitFor { it.ready && !it.recovering }
                     assertFalse(repository.state.value.imageBusy)
                     assertEquals(image, checkNotNull(repository.state.value.imageDraft).image)
+                    image = selectBatch()
                 }
                 repository.sendImage(image.resourceId)
                 val uploading = waitFor { it.imageBusy && it.imageProgress > 0 }
@@ -79,6 +87,7 @@ class ImagePauseInstrumentedTest {
                 val roundtrip = (SystemClock.elapsedRealtimeNanos() - started) / 1e6
                 assertFalse(paused.ready)
                 val cancelled = waitFor { !it.imageBusy && it.history.any { row -> row.key == oldRequest && row.state == "cancelled" } }
+                assertEquals(ImageBatchProgress(total = 2, stopped = true), cancelled.imageBatch)
                 assertEquals(image, checkNotNull(cancelled.imageDraft).image)
                 assertTrue(cancelled.history.none { it.kind == "image" && it.state == "injected" })
                 // Reconnect queries old requests, retains the pause, and does
@@ -87,6 +96,7 @@ class ImagePauseInstrumentedTest {
                 repository.foreground(true)
                 val recovered = waitFor { it.connection == Connection.ONLINE && !it.recovering }
                 assertTrue(recovered.paused); assertFalse(recovered.imageBusy)
+                assertEquals(ImageBatchProgress(total = 2, stopped = true), recovered.imageBatch)
                 assertEquals(image, checkNotNull(recovered.imageDraft).image)
                 val saved = PairedHost(checkNotNull(ProtectedStore(context).load()))
                 assertEquals(original.hostId, saved.hostId); assertEquals(original.deviceId, saved.deviceId)
@@ -98,6 +108,7 @@ class ImagePauseInstrumentedTest {
                 waitFor { it.ready }
                 delay(250)
                 assertFalse(repository.state.value.imageBusy)
+                assertEquals(ImageBatchProgress(total = 2, stopped = true), repository.state.value.imageBatch)
                 assertEquals("cancelled", repository.state.value.history.single { it.key == oldRequest }.state)
                 measurements.put(JSONObject().put("iteration", iteration + 1)
                     .put("normalized_bytes", image.metadata.bytes).put("bytes_acked_at_trigger", uploading.imageProgress)

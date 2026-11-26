@@ -1254,6 +1254,13 @@
         <item quantity="other">Use %1$d models · %2$s</item>
     </plurals>
     <string name="local_model_referenced_summary">%1$d models use original paths and do not use app storage</string>
+    <string name="image_batch_selected">%1$d images selected</string>
+    <string name="image_batch_progress">Sending image %1$d of %2$d</string>
+    <string name="image_batch_stopped">Stopped at image %1$d of %2$d</string>
+    <string name="image_batch_complete">%1$d images submitted</string>
+    <string name="image_batch_stop">Stop batch</string>
+    <string name="image_batch_send">Send %1$d images in order</string>
+    <string name="image_batch_path_stop">The computer copied one file path. Send more images after pasting it.</string>
 </resources>
 
 

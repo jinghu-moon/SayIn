@@ -53,6 +53,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import seeyuer.sayin.R
+import seeyuer.sayin.data.MAX_IMAGE_BATCH_SIZE
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.designsystem.YuePalette
 import seeyuer.sayin.designsystem.icon.VoiceLinkIcon
@@ -68,15 +69,15 @@ import top.yukonga.miuix.kmp.theme.MiuixTheme
 @Composable
 internal fun ImageInputSheet(
     show: Boolean, state: ClientState, inputAvailable: Boolean,
-    onDismiss: () -> Unit, onSelect: (Uri) -> Unit, onSend: (String) -> Unit,
+    onDismiss: () -> Unit, onSelect: (List<Uri>) -> Unit, onSend: (String) -> Unit,
     onCancel: () -> Unit, onClear: () -> Unit, onPreview: (String) -> Unit = {},
 ) {
     val latestCancel by rememberUpdatedState(onCancel)
     val latestSelect by rememberUpdatedState(onSelect)
     val latestShow by rememberUpdatedState(show)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-        if (uri != null && latestShow) latestSelect(uri)
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(MAX_IMAGE_BATCH_SIZE)) { images ->
+        if (images.isNotEmpty() && latestShow) latestSelect(images)
     }
     DisposableEffect(show, lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
@@ -106,7 +107,7 @@ internal fun ImageInputSheet(
                 scope.launch {
                     val shot = withContext(Dispatchers.IO) { latestScreenshot(context) }
                     latestShot = shot
-                    if (select && shot != null) onSelect(shot)
+                    if (select && shot != null) onSelect(listOf(shot))
                 }
             }
             val screenshotPermission = rememberLauncherForActivityResult(
@@ -183,6 +184,21 @@ internal fun ImageInputSheet(
                     }
                 }
 
+                val batch = state.imageBatch
+                val canChangeImage = batch?.active != true && !state.imageBusy && !state.imagePreparing
+                if (batch != null) {
+                    val progress = when {
+                        batch.sent == batch.total -> stringResource(R.string.image_batch_complete, batch.total)
+                        batch.stopped -> stringResource(R.string.image_batch_stopped, batch.sent + 1, batch.total)
+                        batch.active -> stringResource(R.string.image_batch_progress, batch.sent + 1, batch.total)
+                        else -> stringResource(R.string.image_batch_selected, batch.total)
+                    }
+                    Text(progress, Modifier.testTag("image-batch-progress").semantics { liveRegion = LiveRegionMode.Polite },
+                        fontSize = 13.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary)
+                    if (batch.active) TextButton(stringResource(R.string.image_batch_stop), onClick = onCancel,
+                        minHeight = 44.dp, colors = plainTextButtonColors())
+                }
+
                 when {
                     state.imagePreparing -> Row(verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -200,7 +216,7 @@ internal fun ImageInputSheet(
                                 fontSize = 12.5.sp, color = MiuixTheme.colorScheme.onSurfaceSecondary,
                             )
                         }
-                        if (!state.imageSubmitted) TextButton(stringResource(R.string.image_cancel_upload),
+                        if (!state.imageSubmitted && batch?.active != true) TextButton(stringResource(R.string.image_cancel_upload),
                             onClick = onCancel, minHeight = 44.dp, colors = plainTextButtonColors())
                     }
                     else -> {
@@ -211,9 +227,17 @@ internal fun ImageInputSheet(
                                 VoiceLinkIcon.Check, stringResource(if (receipt.method == IMAGE_PATH_COPY_METHOD)
                                     R.string.image_path_paste_help else R.string.image_paste_submitted),
                                 successColor(), Modifier.testTag("image-receipt"),
+                                sub = if (issue == ImageIssue.PATH_COPIED)
+                                    stringResource(R.string.image_batch_path_stop) else null,
                             )
                             receipt != null && receipt.state == "uncertain" -> ImageStatus(
                                 VoiceLinkIcon.Alert, stringResource(receiptPresentation(receipt).titleRes), errorColor(),
+                            )
+                            receipt != null && receipt.state == "held" -> ImageStatus(
+                                VoiceLinkIcon.Alert, stringResource(R.string.image_held), warningColor(),
+                            )
+                            receipt != null && receipt.state in setOf("cancelled", "expired", "review") -> ImageStatus(
+                                VoiceLinkIcon.Alert, stringResource(receiptPresentation(receipt).titleRes), warningColor(),
                             )
                             receipt != null && receipt.state == "failed" -> ImageStatus(
                                 VoiceLinkIcon.Alert, stringResource(imageDeliveryFailure(receipt.reason)
@@ -227,6 +251,7 @@ internal fun ImageInputSheet(
                                 ImageIssue.STORAGE -> R.string.error_storage
                                 ImageIssue.QUOTA -> R.string.image_quota
                                 ImageIssue.CANCELLED -> R.string.image_cancelled
+                                ImageIssue.PATH_COPIED -> R.string.image_batch_path_stop
                             }), errorColor())
                             !state.storageHealthy -> ImageStatus(VoiceLinkIcon.Alert, stringResource(R.string.error_storage), errorColor())
                             !state.ready -> ImageStatus(VoiceLinkIcon.Alert, stringResource(R.string.image_not_ready), warningColor())
@@ -253,7 +278,7 @@ internal fun ImageInputSheet(
                 if (draft == null) {
                     Button(
                         onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                        modifier = Modifier.fillMaxWidth(), enabled = !state.imageBusy && !state.imagePreparing && state.storageHealthy,
+                        modifier = Modifier.fillMaxWidth(), enabled = canChangeImage && state.storageHealthy,
                         minHeight = 52.dp, cornerRadius = 16.dp, colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Icon(VoiceLinkIcon.Photo.vector, null, Modifier.size(20.dp))
@@ -263,8 +288,8 @@ internal fun ImageInputSheet(
                     val shot = latestShot
                     if (shot != null) {
                         TextButton(
-                            stringResource(R.string.image_use_screenshot), onClick = { onSelect(shot) },
-                            enabled = !state.imageBusy && !state.imagePreparing,
+                            stringResource(R.string.image_use_screenshot), onClick = { onSelect(listOf(shot)) },
+                            enabled = canChangeImage,
                             minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth(),
                         )
                     } else if (!canReadScreenshots) {
@@ -276,7 +301,7 @@ internal fun ImageInputSheet(
                                 } else android.Manifest.permission.READ_EXTERNAL_STORAGE
                                 screenshotPermission.launch(permission)
                             },
-                            enabled = !state.imageBusy && !state.imagePreparing,
+                            enabled = canChangeImage,
                             minHeight = 44.dp, colors = plainTextButtonColors(), modifier = Modifier.fillMaxWidth(),
                         )
                     }
@@ -284,12 +309,13 @@ internal fun ImageInputSheet(
                     Button(
                         onClick = { onSend(draft.image.resourceId) },
                         modifier = Modifier.fillMaxWidth().testTag("image-send"),
-                        enabled = state.ready && state.imageSupported && !state.imageBusy && !state.imagePreparing && inputAvailable,
+                        enabled = state.ready && state.imageSupported && canChangeImage && inputAvailable,
                         minHeight = 52.dp, cornerRadius = 16.dp, colors = ButtonDefaults.buttonColorsPrimary(),
                     ) {
                         Icon(VoiceLinkIcon.Send.vector, null, Modifier.size(20.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.image_send), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (batch != null && !batch.stopped) stringResource(R.string.image_batch_send, batch.total)
+                            else stringResource(R.string.image_send), fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         val shape = RoundedCornerShape(14.dp)
@@ -297,7 +323,7 @@ internal fun ImageInputSheet(
                             onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                             modifier = Modifier.weight(1f).border(1.dp,
                                 MiuixTheme.colorScheme.outline.copy(alpha = .55f), shape),
-                            enabled = !state.imageBusy && !state.imagePreparing, minHeight = 48.dp,
+                            enabled = canChangeImage, minHeight = 48.dp,
                             cornerRadius = 14.dp,
                             colors = ButtonDefaults.buttonColors(
                                 color = Color.Transparent, disabledColor = Color.Transparent,
@@ -309,7 +335,7 @@ internal fun ImageInputSheet(
                             onClick = onClear,
                             modifier = Modifier.weight(1f).border(1.dp,
                                 MiuixTheme.colorScheme.error.copy(alpha = .32f), shape),
-                            enabled = !state.imageBusy && !state.imagePreparing, minHeight = 48.dp,
+                            enabled = canChangeImage, minHeight = 48.dp,
                             cornerRadius = 14.dp,
                             colors = ButtonDefaults.buttonColors(
                                 color = Color.Transparent, disabledColor = Color.Transparent,

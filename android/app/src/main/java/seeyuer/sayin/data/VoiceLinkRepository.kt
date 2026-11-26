@@ -57,6 +57,7 @@ internal data class ClientState(
     val historyApplications: Map<OutboxKey, ForegroundApplication> = emptyMap(),
     val historyImages: Map<OutboxKey, ImageMetadata> = emptyMap(),
     val imageDraft: LocalImageDraft? = null,
+    val imageBatch: ImageBatchProgress? = null,
     val imageSupported: Boolean = false,
     val imagePreparing: Boolean = false,
     val imageBusy: Boolean = false,
@@ -250,7 +251,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     fun saveSpeakingDraft(draft: SavedSpeakingDraft) = enqueue(Event.SaveSpeakingDraft(draft))
     fun send(draft: SavedSpeakingDraft, expectedScope: ReceptionScope? = mutable.value.receptionScope, destination: AutoSendDestination? = null) =
         enqueue(Event.Send(draft, expectedScope, destination))
-    fun selectImage(uri: Uri) = enqueue(Event.Image(ImageEvent.Select(uri)))
+    fun selectImages(images: List<Uri>) = enqueue(Event.Image(ImageEvent.Select(images.toList())))
     fun sendImage(resource: String, expectedScope: ReceptionScope? = mutable.value.receptionScope) = enqueue(Event.Image(ImageEvent.Send(resource, expectedScope)))
     fun cancelImage() = enqueue(Event.Image(ImageEvent.Cancel))
     fun clearImage() = enqueue(Event.Image(ImageEvent.Clear))
@@ -919,8 +920,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     executionMethod, requestRev, executionStage, uncertainScope, confirmed)
             } catch (_: Exception) { storageFailed(); return }
         }
-        if (peer === currentPeer && status != "unknown" && item.kind == "image") {
-            imageInput?.status(item, status, terminal)
+        if (peer === currentPeer && item.kind == "image" && (status != "unknown" || item.order == null)) {
+            imageInput?.status(item.copy(method = executionMethod), if (status == "unknown") "review" else status, terminal)
         }
     }
     private fun receiptCounter(value: String): Long {

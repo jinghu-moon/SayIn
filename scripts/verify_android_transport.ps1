@@ -1,11 +1,15 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
     [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
-    [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement)
+    [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
+    [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
 if ($HotTargets -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing)) { throw 'HotTargets requires a fresh TransportOnly verification.' }
 if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets)) { throw 'PairReplacement requires a fresh TransportOnly verification.' }
+if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
+if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
+if ($BatchPathReceipt -and (!$ImageBatch -or $NativeBatch)) { throw 'BatchPathReceipt uses the isolated fake image adapter.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -20,7 +24,10 @@ if (!$DeviceSerial) {
 if (!$SkipBuild) {
     Invoke-Checked { & (Join-Path $PSScriptRoot 'gradle.ps1') '-Psayin.instrumentationBuildType=imageTest' :app:assembleImageTest :app:assembleImageTestAndroidTest }
     Push-Location (Join-Path $projectRoot 'desktop')
-    try { Invoke-Checked { cargo build -p voicelink-transport --example android_fixture --locked } } finally { Pop-Location }
+    try {
+        if ($NativeBatch) { Invoke-Checked { cargo build --release -p voicelink-receiver --example native_input_fixture -p voicelink-transport --example android_fixture --locked } }
+        else { Invoke-Checked { cargo build -p voicelink-transport --example android_fixture --locked } }
+    } finally { Pop-Location }
 }
 $metadata = Get-Content (Join-Path $projectRoot 'android/app/build/outputs/apk/imageTest/output-metadata.json') -Raw | ConvertFrom-Json
 if ($metadata.applicationId -ne 'seeyuer.sayin.imagetest') { throw 'Refusing to replace the daily application.' }
@@ -39,12 +46,13 @@ $leaseAcquired = $false
 $testClass = if ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
     elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
     elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' }
+    elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
 $expectedTextUiTests = 179
-$expectedImageTests = 4
-$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly) { 1 } else { $expectedImageTests }
-$expectedCalls = if ($HotTargets) { 0 } elseif ($PairReplacement) { 1 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+$expectedImageTests = 5
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch) { 1 } else { $expectedImageTests }
+$expectedCalls = if ($HotTargets) { 0 } elseif ($PairReplacement -or $BatchPathReceipt) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
     if (!$leaseAcquired) { throw 'Another SayIn device verification is active; run serially.' }
@@ -87,8 +95,11 @@ try {
     if ($Lan) { $fixtureArguments += '--lan' }
     if ($QrPairing) { $fixtureArguments += '--qr-pairing' }
     if ($PairReplacement) { $fixtureArguments += '--pair-replacement' }
-    $process = Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    if ($NativeBatch) { $fixtureArguments += '--native-target' }
+    if ($BatchPathReceipt) { $fixtureArguments += '--image-path-receipt' }
+    $profile = if ($NativeBatch) { 'release' } else { 'debug' }
+    $process = Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
     $fixturePath = Join-Path $fixtureDirectory 'fixture.json'
     while (!(Test-Path -LiteralPath $fixturePath)) {
         if ($process.HasExited -or [DateTime]::UtcNow -gt $deadline) { throw 'Image fixture did not start.' }
@@ -128,6 +139,8 @@ try {
     # image data suite gets its own fresh desktop identity, not a reset gate.
     if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
+    if ($ImageBatch) { $arguments += @('-e', 'fixtureImageBatch', 'true') }
+    if ($BatchPathReceipt) { $arguments += @('-e', 'fixtureBatchPathReceipt', 'true') }
     if ($KeepUpgradeFixture) { $arguments += @('-e', 'keepUpgradeFixture', 'true') }
     if ($QrPairing) {
         if ($fixture.qr -notmatch '^[A-Za-z0-9_-]{152}$') { throw 'Invalid QR fixture metadata.' }
@@ -142,7 +155,14 @@ try {
     $passedTests = $expectedTests - $skippedTests
     Start-Sleep -Milliseconds 200
     $calls = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'calls.json') -Raw | ConvertFrom-Json
-    if ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
+    if ($NativeBatch) {
+        if ($calls.native_input_calls -ne $expectedCalls -or $calls.fake_input_calls -ne 0) { throw 'Unexpected native input call count.' }
+        $observed = Get-Content (Join-Path $fixtureDirectory 'target/observed.json') -Raw | ConvertFrom-Json
+        if ($observed.observed_images -ne $expectedCalls -or $observed.pictures -ne 1 -or
+            $observed.text -ne 'existing| ' -or ($observed.picture_widths_twips -join ',') -ne '465,510,465') {
+            throw 'RichEdit did not observe the expected picture sequence.'
+        }
+    } elseif ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
     if ($HotTargets) {
         for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
             $directory = $additionalFixtures[$index].directory
@@ -151,9 +171,10 @@ try {
         }
         $expectedCalls = 1
     }
-    if ($KeepUpgradeFixture -and $skippedTests -ne 0) { throw 'The upgrade fixture was not exercised.' }
-    @{ scope = 'isolated imageTest UID/identity/data; fake input only'; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
-    Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls fake input calls, no replay. Evidence: $fixtureDirectory"
+    if (($KeepUpgradeFixture -or $ImageBatch) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
+    $inputMode = if ($NativeBatch) { 'native RichEdit' } else { 'fake' }
+    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }
