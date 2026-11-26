@@ -77,3 +77,14 @@ scripts/gradle.ps1 :app:testDebugUnitTest --tests "seeyuer.sayin.asr.HotwordCorp
 
 语料更新时，把 `refer/voice/` 下对应 TSV 覆盖到 `android/app/src/test/resources/voice/`，热词词典覆盖到 `android/app/src/main/assets/hotwords.tsv`，再复跑；不要在测试里读取仓库外的绝对路径。新增扩展用例时优先写进 `*-extended.tsv`（列格式同上，`\n`/`\t` 为转义，`<EMPTY>` 表示空串），并保证 MUST_KEEP 用例无需修改规则即可通过。
 
+## 6. K40 合并版定向回放（2026-11-27）
+
+在 Gemini 合并版 `54aad13` 的隔离包用生产目录结构装载经长度及 SHA-256 校验的 R2T2 Q4_K_M 主模型和 Q8_0 投影器，再用随包 X-ASR 独立复跑。16 kHz 单声道 PCM16 来自 `refer/voice/synthetic/manifest.tsv`。以下均为 v3 定稿结果。
+
+| 样本 | 模式与判据 | R2T2 和 X-ASR |
+| --- | --- | --- |
+| Q-A06 | 连续听写。逐字匹配清单的最终文本。 | 均为「这个季度增长了20%。」 |
+| Q-E05 | 连续听写。对照原句检查 1.5 s 句中停顿后是否保留后半句。 | 均为「我需要想一想，还是明天再决定吧。」 |
+| Q-E09 | 连续听写检查最终文本为空。另跑自动结束，要求 `end=no-speech` 且最终文本为空。 | 两种模式均符合判据。 |
+
+四次仪器运行均通过。日志位于 `desktop/target/asr-v3-merged/` 下的 `r2t2.log`、`x-asr-bundled.log` 及对应 `-noise.log`。R2T2 首轮模型载入期间隔离包一度在后台，该轮耗时不用于与 K90 性能基线对比。完整 163 条回放及真人麦克风到 Windows 落字仍待验收。
