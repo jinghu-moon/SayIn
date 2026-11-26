@@ -380,7 +380,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P6 | T27–T29 | 双配对可同时上传并登记资源，绑定拒绝与 Android 图片草稿隔离回归通过。一对一真实 LAN 原生图片已验证，真实 2×2 暂缓。 | `bfbcbc4` |
 | P7 | T30–T31 | 旧配对、草稿、文字及图片回执原地升级通过，原图片可解密，K40 隔离全套和日常包安装通过。 | `0e806b7` |
 | P8 | T32 | 已冻结八项性能门槛、单次超时、允许超时率和最少样本数。 | 本提交 |
-| P8 | T33 | 更换 RichEdit 确认方式后完成 100 次一对一真实 LAN 原生粘贴。准备与上传达标，桌面登记至原生确认和手机观察终态 p95 为 1,092.1–1,115.4 ms，超过 700 ms。短文本、冷连接、暂停门槛和 M1–M28 仍待完整验收，真实 2×2 暂缓。 | §9 |
+| P8 | T33 | 一对一真实 LAN 原生图片准备与上传达标，登记至原生确认和手机观察终态 p95 为 1,092.1–1,115.4 ms，超过 700 ms。本地持久暂停 100 轮达标。短文本、冷连接、手机可见暂停和 M1–M28 仍待完整验收，真实 2×2 暂缓。 | §9 |
 | P9 | T34 | 71 字节邀请、V5-M 原生渲染、K40 短码和二维码数据配对通过。物理相机对屏待验证。 | — |
 | P9 | T35 | 无损 WebP、完整帧预算、本机样本和 K40 解码与加密历史恢复通过。 | `0e806b7` |
 | P9 | T36 | 已实现 Android 多选和逐张发送。K40 与 Windows RichEdit 真实 LAN 验证顺序、损坏项停止、原生路径复制停止和无重放。暂停与取消有夹具证据。批次专用跨目标、撤销与迟到回执待验证。 | `a7433c8` 与 §9 |
@@ -623,5 +623,6 @@ K40 隔离 APK 保持正式 Repository、Room、Keystore 与双 WSS 路径，Win
 - 普通 `-Lan -ImageBatch -NativeBatch` 复验确认顺序 `465,510,465` twips，损坏第二项停止，3 次原生粘贴、0 次假输入。证据为 `image-android-fixture-6c30b74a-5ba4-4554-9aab-e433aefcfabb`。独立 Windows 原生 `--text` 验证中日韩文字、emoji、字面量 `{ENTER}` 和原文保留，重复请求未落字。独立 `--copy-path` 核对剪贴板路径与导出原字节。
 - K40 三目标和主动重配定向回归均为 1 项通过，证据为 `image-android-fixture-92db71f5-b9bc-415d-99ac-d905e7ad66f4` 与 `image-android-fixture-b0bde6f8-eb73-46ce-a5f4-9038c05797ab`。不同电脑身份在同一 Windows 上，通过 USB 回环和假输入，覆盖文字切换及旧配对收敛。
 - 暂停探针经真实 LAN 执行五次，零次输入。电脑本地关闭闸门用时 2.3–2.9 ms，样本数未达到 100。手机可见暂停仍需按 §6 的同画面口径验收。证据为 `image-performance-1985a433-2fca-4602-b290-d37805e33e7a`。
+- 用 `verify_image_performance.ps1 -DeviceSerial dc39c31d -PauseProbe -Repeats 100` 执行 100 轮真实 LAN 图片上传中暂停及重连。每轮核对上传中断、批次停止、配对保留和零重放；假输入和原生输入调用均为 0。Windows Release 夹具以同机单调时钟测量 `Receiver.pause()` 入口至持久化成功，p50 / p95 / p99 / 最大值为 2.73 / 3.51 / 4.50 / 5.76 ms，0 次超过 500 ms，达到本地 50 ms 门槛。手机端回显记录包含往返及夹具轮询，手机屏幕可见暂停仍需双端同画面采集。证据为 `image-performance-f8fc685f-e793-42ed-8e2d-7a5732e31a76`。前一轮使用设备上的旧测试 APK，只跑了 5 次，样本数校验正确失败，证据为 `image-performance-6d7cd81b-61c9-47a4-81bd-234743ee4fee`。
 - Android JVM 247 项通过，lint、Debug 与隔离 APK 构建通过。初次 K40 全量回归的 `connectionSheetTracksDesktopGateWithoutRemoteResumeOrSending` 缺少状态节点，定向复跑和下一次全量均通过。全量复跑文字/UI 170 项、图片 4 项通过，10 项条件跳过，0 项失败。本地证据为 `image-android-fixture-8dd27189-f8ec-460c-99bc-423c153d5459` 及 `image-android-fixture-bbcfc9b2-af49-47f3-91f4-64576006974b`。Rust 工作区 199 项通过，Clippy、包级 rustfmt、i18n、桌面依赖检查和桌面构建通过。
 - K40 日常包通过 Root `pm install -r` 覆盖安装，设备 APK 与本地的 SHA-256 均为 `9009E763795959C1C8708EB2D8849CEE70973FCC3AB527FC547FA02B57E60C10`。

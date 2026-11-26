@@ -20,6 +20,8 @@ class ImagePauseInstrumentedTest {
     @Test fun pauseInterruptsImageAndReconnectCannotReviveIntent() = runBlocking {
         val args = InstrumentationRegistry.getArguments()
         check(args.getString("imagePauseProbe") == "true")
+        val repeatCount = args.getString("imagePauseRepeats")?.toIntOrNull() ?: 5
+        require(repeatCount in 1..100)
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         check(target.packageName == "seeyuer.sayin.imagetest")
         val source = File(target.getExternalFilesDir(null), "image-performance/005_2.04MB_5.jpg")
@@ -54,7 +56,7 @@ class ImagePauseInstrumentedTest {
                     it.imageDraft != null && !it.imagePreparing && it.imageBatch?.stopped == false
                 }.imageDraft).image
             }
-            repeat(5) { iteration ->
+            repeat(repeatCount) { iteration ->
                 waitFor { it.ready && !it.imageBusy }
                 var image = selectBatch()
                 var cancelMs: Double? = null
@@ -117,6 +119,7 @@ class ImagePauseInstrumentedTest {
             }
             File(target.getExternalFilesDir(null), "image-pause-result.json").writeText(JSONObject()
                 .put("scope", "Real LAN production Repository/dual WSS; marker acceptance + fixture <=50ms polling + durable local pause + pushed state to Android. Fake adapter, no paste; not one-way latency.")
+                .put("repeat_count", repeatCount)
                 .put("controlled_slow_link", proxyPort != 0).put("measurements", measurements).put("image_inputs", 0).toString(2))
         } finally {
             repository.close(); delay(250)

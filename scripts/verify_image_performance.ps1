@@ -1,7 +1,7 @@
 param(
     [string]$DeviceSerial = 'dc39c31d',
     [string]$ImageDirectory = (Join-Path $PSScriptRoot '../refer/image-test'),
-    [ValidateRange(1,5)][int]$Repeats = 3,
+    [ValidateRange(1,100)][int]$Repeats = 3,
     [switch]$Native,
     [switch]$PauseProbe,
     [switch]$SlowLink,
@@ -12,6 +12,7 @@ param(
 $ErrorActionPreference = 'Stop'
 if ($PauseProbe -and $Native) { throw 'PauseProbe is a zero-input fake-adapter scenario; do not combine with Native' }
 if ($SlowLink -and $Native) { throw 'SlowLink is an isolated fake-adapter probe; do not combine with Native' }
+if (!$PauseProbe -and $Repeats -gt 5) { throw 'Image performance sampling supports at most five rounds per run' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 $targetDirectory = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $projectRoot 'desktop/target' }
@@ -110,6 +111,9 @@ try {
     if ($ReverseImages) {
         $arguments = $arguments[0..($arguments.Count-2)] + @('-e','reverseImages','true',$arguments[-1])
     }
+    if ($PauseProbe) {
+        $arguments = $arguments[0..($arguments.Count-2)] + @('-e','imagePauseRepeats',"$Repeats",$arguments[-1])
+    }
     if ($Native) {
         $clockStart = [Diagnostics.Stopwatch]::GetTimestamp()
         $beforeClock = Measure-PhoneClock
@@ -134,7 +138,7 @@ try {
     if ($PauseProbe) {
         $pauses = @(Get-Content (Join-Path $directory 'pause-metrics.json') -Raw | ConvertFrom-Json)
         $mobilePauses = Get-Content (Join-Path $directory 'mobile-result.json') -Raw | ConvertFrom-Json
-        if ($pauses.Count -ne 5 -or @($mobilePauses.measurements).Count -ne 5) { throw 'Expected five actual pause/reconnect cycles' }
+        if ($pauses.Count -ne $Repeats -or @($mobilePauses.measurements).Count -ne $Repeats) { throw "Expected $Repeats actual pause/reconnect cycles" }
     }
     if ($Native) {
         # Wait for the disposable target to finish writing its final RTF observation.
@@ -190,7 +194,7 @@ try {
         if ($relayResult.rejected_connections -ne 0 -or @($relayResult.streams | Where-Object bytes -gt 0).Count -lt 4) { throw 'Expected control and image traffic through the relay without rejection' }
     }
     @{ real_lan=$true; adb_reverse=$false; slow_link=[bool]$SlowLink; native_target=[bool]$Native; pause_probe=[bool]$PauseProbe; input_calls=$expected; core_peak_working_set_bytes=$corePeak; target_peak_working_set_bytes=$targetPeak; release_core=$true; mobile='imageTest Debug'; scope=$scope; sources=@($sources | ForEach-Object { @{ name=$_.Name; bytes=$_.Length; sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant() } }) } | ConvertTo-Json -Depth 5 | Set-Content (Join-Path $directory 'result.json') -Encoding utf8
-    if ($PauseProbe) { Write-Output "PASS: five real LAN pause/reconnect/no-replay cycles; zero input calls. Evidence: $directory" }
+    if ($PauseProbe) { Write-Output "PASS: $Repeats real LAN pause/reconnect/no-replay cycles; zero input calls. Evidence: $directory" }
     else { Write-Output "PASS: real LAN, $expected images, three bounded source rejections, native_target=$Native. Evidence: $directory" }
 } finally {
     if ($instrument -and !$instrument.HasExited) { Stop-Process -Id $instrument.Id }
