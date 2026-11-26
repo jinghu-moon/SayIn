@@ -297,6 +297,109 @@ fn target_uncertainty_holds_only_the_same_execution_window_across_pairs() {
 }
 
 #[test]
+fn global_review_leaves_other_pairs_window_blocked_until_its_own_review() {
+    use voicelink_receiver::{ledger::InputWindow, protocol_v3::UncertainScope};
+
+    let fixture = Fixture::new();
+    let (mut ledger, a) = fixture.ready();
+    let device_b = Uuid::new_v4().to_string();
+    ledger
+        .provision_device(&device_b, &[3; 32], "Other phone".into())
+        .unwrap();
+    let b = ledger.authenticate(&device_b, &[3; 32]).unwrap();
+    let window = InputWindow::new("C:\\Editor.exe".into(), 123, 45);
+
+    // Give the eventual global review an older accept order than the target review.
+    let unknown = fixture.submit(&b, "unknown native outcome");
+    ledger.submit(&b, &unknown).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), unknown.id);
+    ledger.hold(&job, "receiver_focused").unwrap();
+
+    let partial = fixture.submit(&a, "partially entered");
+    ledger.submit(&a, &partial).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), partial.id);
+    assert!(
+        ledger
+            .mark_executing_in(&job, None, Some(window.clone()))
+            .unwrap()
+    );
+    ledger.finish(&job, InputOutcome::PartialUnicode).unwrap();
+    let original_ticket = ledger.review_ticket().unwrap().unwrap();
+    assert_eq!(original_ticket.scope, UncertainScope::Target);
+
+    let waiting = fixture.submit(&a, "waiting for the editor");
+    ledger.submit(&a, &waiting).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), waiting.id);
+    assert!(!ledger.mark_executing_in(&job, None, Some(window)).unwrap());
+
+    let state = ledger.state().unwrap();
+    ledger
+        .release(&b, &unknown.id, &fixture.target, &state.state_rev)
+        .unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), unknown.id);
+    let other_window = InputWindow::new("C:\\Editor.exe".into(), 123, 46);
+    assert!(
+        ledger
+            .mark_executing_in(&job, None, Some(other_window))
+            .unwrap()
+    );
+    ledger
+        .finish(
+            &job,
+            InputOutcome::Uncertain {
+                reason: "input_worker_panicked",
+            },
+        )
+        .unwrap();
+
+    assert!(ledger.state().unwrap().paused);
+    let global = ledger.review_ticket().unwrap().unwrap();
+    assert_eq!(global.scope, UncertainScope::Global);
+    assert_eq!(global.request_id(), unknown.id);
+    code(
+        ledger.acknowledge_uncertain(&original_ticket),
+        "STATE_CONFLICT",
+    );
+
+    let state = ledger.acknowledge_uncertain(&global).unwrap();
+    assert!(!state.paused);
+    let global_receipt = ledger.query(&b, &unknown.id).unwrap().unwrap();
+    assert_eq!(global_receipt.st, State::UncertainAcknowledged);
+    assert_eq!(
+        ledger.query(&a, &partial.id).unwrap().unwrap().st,
+        State::Uncertain
+    );
+    let held = ledger.query(&a, &waiting.id).unwrap().unwrap();
+    assert_eq!(held.st, State::Held);
+    assert_eq!(held.reason.as_deref(), Some("uncertain_target"));
+    code(
+        ledger.release(&a, &waiting.id, &fixture.target, &state.state_rev),
+        "BLOCKED_REVIEW",
+    );
+    assert!(ledger.prepare_next().unwrap().is_none());
+    code(ledger.acknowledge_uncertain(&global), "STATE_CONFLICT");
+
+    let target = ledger.review_ticket().unwrap().unwrap();
+    assert_eq!(target.scope, UncertainScope::Target);
+    assert_eq!(target.request_id(), partial.id);
+    ledger.acknowledge_uncertain(&target).unwrap();
+    assert_eq!(
+        ledger.query(&a, &partial.id).unwrap().unwrap().st,
+        State::UncertainAcknowledged
+    );
+    let unchanged_global = ledger.query(&b, &unknown.id).unwrap().unwrap();
+    assert_eq!(unchanged_global.st, global_receipt.st);
+    assert_eq!(unchanged_global.request_rev, global_receipt.request_rev);
+    assert!(ledger.review_ticket().unwrap().is_none());
+    code(ledger.acknowledge_uncertain(&target), "STATE_CONFLICT");
+    assert_eq!(ledger.prepare_next().unwrap().unwrap().id(), waiting.id);
+}
+
+#[test]
 fn resume_cannot_clear_an_uncertain_request_without_a_bound_review() {
     let fixture = Fixture::new();
     let (mut ledger, session) = fixture.ready();
@@ -1160,7 +1263,9 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
     use voicelink_receiver::history::HistoryQuery;
     for version in [1, 2, 3, 4, 5, 6] {
         let fixture = Fixture::new();
-        let (mut ledger, session) = fixture.ready();
+        let clock = ManualClock::new();
+        let (mut ledger, session) =
+            fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "");
         let message = fixture.submit(&session, "existing pending original");
         let accepted = ledger.submit(&session, &message).unwrap();
         let cancelled_id = Uuid::new_v4().to_string();
@@ -1169,6 +1274,13 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             let message = fixture.submit(&session, "existing uncertain original");
             ledger.submit(&session, &message).unwrap();
             Some(message.id)
+        } else {
+            None
+        };
+        let held = if version == 6 {
+            let message = fixture.submit(&session, "existing held original");
+            let receipt = ledger.submit(&session, &message).unwrap();
+            Some((message.id, receipt.order))
         } else {
             None
         };
@@ -1229,6 +1341,14 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
                 )
                 .unwrap();
         }
+        if let Some((id, _)) = &held {
+            database
+                .execute(
+                    "UPDATE receipts SET state='held',reason='paused',method=NULL WHERE id=?1",
+                    [id],
+                )
+                .unwrap();
+        }
         let identity: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM devices d JOIN receipts r ON d.id=r.device WHERE r.id=?1",
@@ -1237,7 +1357,8 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             )
             .unwrap();
         drop(database);
-        let mut ledger = fixture.open();
+        clock.advance(Duration::from_secs(3600));
+        let mut ledger = fixture.open_with_clock(clock.clone());
         let restored = ledger
             .authenticate(&fixture.device, &fixture.token)
             .unwrap();
@@ -1256,6 +1377,16 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
                 Some(voicelink_receiver::protocol_v3::UncertainScope::Global)
             );
             assert!(uncertain.execution_stage.is_none());
+            assert_eq!(uncertain.request_rev.as_deref(), Some("0"));
+        }
+        if let Some((id, order)) = &held {
+            let receipt = ledger.query(&restored, id).unwrap().unwrap();
+            assert_eq!(receipt.st, State::Held);
+            assert_eq!(&receipt.order, order);
+            assert_eq!(receipt.reason.as_deref(), Some("paused"));
+            assert_eq!(receipt.request_rev.as_deref(), Some("0"));
+            assert!(receipt.execution_stage.is_none());
+            assert!(ledger.prepare_next().unwrap().is_none());
         }
         let mut replay = message.clone();
         replay.session_id = restored.id().to_owned();
@@ -1264,7 +1395,15 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
             accepted.order
         );
         let page = ledger.history(&HistoryQuery::default()).unwrap();
-        assert_eq!(page.entries.len(), 1 + usize::from(uncertain_id.is_some()));
+        assert_eq!(
+            page.entries.len(),
+            1 + usize::from(uncertain_id.is_some()) + usize::from(held.is_some())
+        );
+        if held.is_some() {
+            assert!(page.entries.iter().any(|entry| {
+                matches!(&entry.operation, Some(Operation::Text { text, .. }) if text == "existing held original")
+            }));
+        }
         let original = page.entries.iter().find(|entry| {
             matches!(&entry.operation, Some(Operation::Text { text, .. }) if text == "existing pending original")
         }).unwrap();
@@ -1295,7 +1434,14 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
                 },
             )
             .unwrap();
-        assert_eq!(counts, (2 + u32::from(uncertain_id.is_some()), 1, 0));
+        assert_eq!(
+            counts,
+            (
+                2 + u32::from(uncertain_id.is_some()) + u32::from(held.is_some()),
+                1,
+                u32::from(held.is_some())
+            )
+        );
         let unchanged: (Vec<u8>, Vec<u8>) = database
             .query_row(
                 "SELECT d.token_mac,r.payload_mac FROM pairs d JOIN receipts r ON d.id=r.pair_id WHERE r.id=?1",
@@ -1306,13 +1452,25 @@ fn schema_seven_upgrade_preserves_pair_receipt_history_and_deduplication() {
         assert_eq!(identity, unchanged);
         drop(database);
         if let Some(id) = &uncertain_id {
-            let mut reopened = fixture.open();
+            clock.advance(Duration::from_millis(599_999));
+            let mut reopened = fixture.open_with_clock(clock.clone());
             let session = reopened
                 .authenticate(&fixture.device, &fixture.token)
                 .unwrap();
             let receipt = reopened.query(&session, id).unwrap().unwrap();
             assert_eq!(receipt.st, State::Uncertain);
             assert_eq!(receipt.request_rev.as_deref(), Some("0"));
+            let (held_id, order) = held.unwrap();
+            assert!(reopened.prepare_next().unwrap().is_none());
+            let receipt = reopened.query(&session, &held_id).unwrap().unwrap();
+            assert_eq!(receipt.st, State::Held);
+            clock.advance(Duration::from_millis(1));
+            assert!(reopened.prepare_next().unwrap().is_none());
+            let receipt = reopened.query(&session, &held_id).unwrap().unwrap();
+            assert_eq!(receipt.st, State::Expired);
+            assert_eq!(receipt.reason.as_deref(), Some("hold_expired"));
+            assert_eq!(receipt.request_rev.as_deref(), Some("1"));
+            assert_eq!(receipt.order, order);
         }
     }
 }
@@ -1770,6 +1928,51 @@ fn prepared_image(
         )
         .unwrap();
     (reference, auth)
+}
+
+#[test]
+fn a_text_waiting_behind_a_slow_image_gets_its_full_execution_window() {
+    let fixture = Fixture::new();
+    let clock = ManualClock::new();
+    let (mut ledger, session) = fixture.ready_ledger(fixture.open_with_clock(clock.clone()), "");
+    let (image, _) = prepared_image(&fixture, &mut ledger, &session);
+    let image = Submit::new(
+        session.id().into(),
+        Uuid::new_v4().to_string(),
+        fixture.target.clone(),
+        Operation::Image { image },
+    );
+    assert_eq!(ledger.submit(&session, &image).unwrap().st, State::Accepted);
+    let text = fixture.submit(&session, "after the image batch");
+    ledger.submit(&session, &text).unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), image.id);
+    assert!(ledger.mark_executing(&job).unwrap());
+    clock.advance(Duration::from_secs(31));
+    assert!(ledger.prepare_next().unwrap().is_none());
+    assert_eq!(
+        ledger.query(&session, &text.id).unwrap().unwrap().st,
+        State::Accepted
+    );
+    ledger
+        .finish(
+            &job,
+            InputOutcome::Injected {
+                method: "clipboard_image",
+            },
+        )
+        .unwrap();
+    let job = ledger.prepare_next().unwrap().unwrap();
+    assert_eq!(job.id(), text.id);
+    clock.advance(Duration::from_secs(30));
+    assert!(ledger.mark_executing(&job).unwrap());
+    assert_eq!(
+        ledger
+            .finish(&job, InputOutcome::Injected { method: "unicode" })
+            .unwrap()
+            .st,
+        State::Injected
+    );
 }
 
 #[test]
