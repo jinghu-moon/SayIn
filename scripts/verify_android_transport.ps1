@@ -3,7 +3,7 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement, [switch]$PairReplacementExpiry,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
-    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [ValidateRange(1,100)][int]$ControlSamples = 100)
+    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [switch]$MeasureControlResources, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
@@ -16,6 +16,7 @@ if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires Imag
 if ($BatchInterruption -and (!$ImageBatch -or $NativeBatch -or $BatchPathReceipt)) { throw 'BatchInterruption requires an isolated fake ImageBatch.' }
 if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
 if ($NativeText -and !$ControlPerformance) { throw 'NativeText requires ControlPerformance.' }
+if ($MeasureControlResources -and !$NativeText) { throw 'MeasureControlResources requires NativeText.' }
 if ($ControlClick -and !$NativeText) { throw 'ControlClick requires NativeText.' }
 if ($MissingReceipt -and ($FullSuite -or $TransportOnly -or $ImageBatch -or $ControlPerformance)) { throw 'MissingReceipt requires a separate fixture.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -45,6 +46,7 @@ $testTag = [guid]::NewGuid().ToString()
 $fixtureDirectory = Join-Path $targetDirectory "image-android-fixture-$testTag"
 $log = Join-Path $targetDirectory "image-android-$testTag.log"
 $remoteApks = @()
+$instrument = $null
 $process = $null
 $port = $null
 $replacementPort = $null
@@ -193,8 +195,50 @@ try {
         $arguments += @('-e', 'fixtureQr', $fixture.qr)
     }
     $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
-    & $adb @arguments > $log 2>&1
-    $instrumentExit = $LASTEXITCODE
+    if ($MeasureControlResources) {
+        $timedDirectory = $additionalFixtures[0].directory
+        $core = $additionalFixtures[0].process
+        $window = Get-Content -LiteralPath (Join-Path $timedDirectory 'target/window.json') -Raw | ConvertFrom-Json
+        $edit = Get-Process -Id $window.pid
+        if ($edit.ProcessName -ne 'native_input_fixture') { throw 'Wrong disposable EDIT process.' }
+        $instrument = Start-Process -FilePath $adb -ArgumentList $arguments -PassThru -WindowStyle Hidden -RedirectStandardOutput $log -RedirectStandardError "$log.stderr"
+        $clock = [Diagnostics.Stopwatch]::StartNew()
+        $resourceSamples = [Collections.Generic.List[object]]::new()
+        while (!$instrument.WaitForExit(2000)) {
+            $core.Refresh()
+            $edit.Refresh()
+            if ($core.HasExited -or $edit.HasExited -or $clock.Elapsed.TotalMinutes -gt 11) { throw 'Resource sampling lost its target or timed out.' }
+            $socketCount = @(
+                Get-NetTCPConnection -OwningProcess $core.Id -State Established -ErrorAction SilentlyContinue |
+                    Where-Object { $null -ne $_ }
+            ).Count
+            $disk = Get-ChildItem -LiteralPath $timedDirectory -File -Filter 'receiver.sqlite3*' |
+                Measure-Object -Property Length -Sum
+            $io = Get-CimInstance Win32_PerfRawData_PerfProc_Process -Filter "IDProcess=$($core.Id)"
+            $meminfo = & $adb -s $DeviceSerial shell dumpsys meminfo seeyuer.sayin.imagetest
+            $pss = $meminfo | Select-String '^\s*TOTAL PSS:\s*(\d+)' | Select-Object -First 1
+            $resourceSamples.Add(@{
+                seconds = $clock.Elapsed.TotalSeconds
+                core_cpu_seconds = $core.TotalProcessorTime.TotalSeconds
+                edit_cpu_seconds = $edit.TotalProcessorTime.TotalSeconds
+                core_private_bytes = $core.PrivateMemorySize64
+                edit_private_bytes = $edit.PrivateMemorySize64
+                core_working_set_bytes = $core.WorkingSet64
+                edit_working_set_bytes = $edit.WorkingSet64
+                core_io_read_bytes = if ($io) { $io.IOReadBytesPersec } else { $null }
+                core_io_write_bytes = if ($io) { $io.IOWriteBytesPersec } else { $null }
+                core_established_tcp = $socketCount
+                sqlite_file_bytes = $disk.Sum
+                android_pss_kib = if ($pss -and [long]$pss.Matches[0].Groups[1].Value -gt 0) { [long]$pss.Matches[0].Groups[1].Value } else { $null }
+            })
+        }
+        $instrumentExit = $instrument.ExitCode
+        @{ windows_logical_processors = [Environment]::ProcessorCount; core_pid = $core.Id; edit_pid = $edit.Id; samples = @($resourceSamples.ToArray()) } |
+            ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-resources.json') -Encoding utf8
+    } else {
+        & $adb @arguments > $log 2>&1
+        $instrumentExit = $LASTEXITCODE
+    }
     if ($ControlPerformance) {
         Invoke-Checked { & $adb -s $DeviceSerial pull '/sdcard/Android/data/seeyuer.sayin.imagetest/files/control-performance-result.json' (Join-Path $fixtureDirectory 'control-performance.json') }
     }
@@ -255,7 +299,7 @@ try {
             if ($final.observed_texts -ne $ControlSamples -or $final.text -cne 'existing|') { throw 'Disposable EDIT did not observe every exact text sample.' }
         }
         $commits = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'text-commits.json') -Raw | ConvertFrom-Json -NoEnumerate
-        if ($commits.Count -ne (3 * $ControlSamples)) { throw 'Missing desktop commit timestamps.' }
+        if ($commits.Count -ne (9 * $ControlSamples)) { throw 'Missing desktop commit timestamps.' }
         $desktop = @{}
         foreach ($commit in $commits) {
             if (!$desktop.ContainsKey($commit[0])) { $desktop[$commit[0]] = @{} }
@@ -279,12 +323,19 @@ try {
             }
             if ($preflights.Count -ne $ControlSamples -or $nativeTimings.Count -ne $ControlSamples) { throw 'Missing native text timings.' }
         }
+        $stagesInOrder = @('accepted', 'deadline_begin', 'deadline_ready', 'preflight_returned', 'execution_check_complete', 'executing_write_begin', 'executing', 'outcome_returned', 'injected')
         foreach ($sample in $samples.warm_text) {
             $times = $desktop[$sample.id]
-            if (!$times -or $times.Count -ne 3 -or !$times.ContainsKey('accepted') -or !$times.ContainsKey('executing') -or !$times.ContainsKey('injected') -or
+            if (!$times -or $times.Count -ne 9 -or !$times.ContainsKey('accepted') -or !$times.ContainsKey('executing') -or !$times.ContainsKey('injected') -or
                 $times.accepted -gt $times.executing -or $times.executing -gt $times.injected) { throw 'Unmatched or invalid text commit timestamps.' }
             $sample | Add-Member -NotePropertyName accepted_to_executing_ms -NotePropertyValue (($times.executing - $times.accepted) / 1e6)
             $sample | Add-Member -NotePropertyName executing_to_terminal_ms -NotePropertyValue (($times.injected - $times.executing) / 1e6)
+            for ($stageIndex = 1; $stageIndex -lt $stagesInOrder.Count; $stageIndex++) {
+                $from = $stagesInOrder[$stageIndex - 1]
+                $to = $stagesInOrder[$stageIndex]
+                if (!$times.ContainsKey($to) -or $times[$from] -gt $times[$to]) { throw "Invalid desktop timing at $to." }
+                $sample | Add-Member -NotePropertyName ("${from}_to_${to}_ms") -NotePropertyValue (($times[$to] - $times[$from]) / 1e6)
+            }
             if ($NativeText) {
                 $nativeTiming = $nativeTimings[$sample.id]
                 if ($null -eq $nativeTiming -or !$preflights.ContainsKey($sample.id)) { throw 'Unmatched native text timings.' }
@@ -303,15 +354,28 @@ try {
         $expectedCalls = $ControlSamples
         if ($ControlClick) {
             if (!$samples.click_through_ui) { throw 'Missing Compose click evidence.' }
-            $firstReceipts = @($samples.warm_text | ForEach-Object { [double]$_.first_ms } | Sort-Object)
-            $p95 = $firstReceipts[[int][Math]::Ceiling($ControlSamples * 0.95) - 1]
-            $timeouts = @($firstReceipts | Where-Object { $_ -gt 500 }).Count
-            $gate = if ($ControlSamples -lt 100) { 'smoke' }
-                elseif ($p95 -le 150 -and $timeouts / $ControlSamples -le 0.01) { 'pass' }
-                else { 'fail' }
-            @{ samples = $ControlSamples; p95_ms = $p95; timeouts = $timeouts; gate = $gate } |
-                ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'click-receipt-gate.json') -Encoding utf8
-            Write-Output ("Click-to-durable-receipt gate: {0}, p95 {1:N2} ms, {2}/{3} over 500 ms." -f $gate, $p95, $timeouts, $ControlSamples)
+            $controlGates = foreach ($metric in @(
+                @{ key = 'first_ms'; limit = 150; timeout = 500; rows = $samples.warm_text }
+                @{ key = 'ready_ms'; limit = 1000; timeout = 3000; rows = $samples.cold_switch }
+                @{ key = 'accepted_to_executing_ms'; limit = 20; timeout = 500; rows = $samples.warm_text }
+                @{ key = 'executing_to_terminal_ms'; limit = 30; timeout = 500; rows = $samples.warm_text }
+            )) {
+                $values = @($metric.rows | ForEach-Object {
+                    $value = $_.($metric.key)
+                    if ($null -eq $value -or $value -lt 0) { throw "Invalid sample for $($metric.key)." }
+                    [double]$value
+                } | Sort-Object)
+                $p95 = $values[[int][Math]::Ceiling($ControlSamples * 0.95) - 1]
+                $timeouts = @($values | Where-Object { $_ -gt $metric.timeout }).Count
+                $gate = if ($ControlSamples -lt 100) { 'smoke' }
+                    elseif ($p95 -le $metric.limit -and $timeouts / $ControlSamples -le 0.01) { 'pass' }
+                    else { 'fail' }
+                Write-Host ("{0}: {1}, p95 {2:N2} ms (limit {3} ms), {4}/{5} over {6} ms." -f
+                    $metric.key, $gate, $p95, $metric.limit, $timeouts, $ControlSamples, $metric.timeout)
+                @{ metric = $metric.key; samples = $ControlSamples; p95_ms = $p95; limit_ms = $metric.limit; timeouts = $timeouts; timeout_ms = $metric.timeout; gate = $gate }
+            }
+            $controlGates[0] | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'click-receipt-gate.json') -Encoding utf8
+            $controlGates | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-gates.json') -Encoding utf8
         }
     }
     if ($HotTargets) {
@@ -325,8 +389,11 @@ try {
     if (($KeepUpgradeFixture -or $ImageBatch -or $MissingReceipt -or $PairReplacementExpiry) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
     @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; pair_replacement_expiry = [bool]$PairReplacementExpiry; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    if ($ControlClick) {
+        $failedGates = @($controlGates | Where-Object { $_.gate -eq 'fail' } | ForEach-Object { $_.metric })
+        if ($failedGates.Count) { throw "Control performance gates failed: $($failedGates -join ', '). Evidence: $fixtureDirectory" }
+    }
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
-    if ($ControlClick -and $gate -eq 'fail') { throw "Click-to-durable-receipt performance gate failed. Evidence: $fixtureDirectory" }
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
         if (!$?) { throw 'Image data suite failed in its separate identity.' }
@@ -335,6 +402,7 @@ try {
 } finally {
     try {
         if ($leaseAcquired) {
+            if ($instrument -and !$instrument.HasExited) { Stop-Process -Id $instrument.Id }
             if ($process -and !$process.HasExited) {
                 Set-Content -LiteralPath (Join-Path $fixtureDirectory 'stop') -Value '' -NoNewline
                 if (!$process.WaitForExit(5000)) { Stop-Process -Id $process.Id }

@@ -249,6 +249,7 @@ impl Receiver {
                 match command {
                     Command::Request(request, _) => request(&mut owner),
                     Command::Prepared(job,result,target,window) => {
+                        owner.ledger.observe_request(job.operation(), job.id(), "preflight_returned");
                         if owner.paused.is_paused() || owner.shutting_down || result.is_err() {
                             let reason=if owner.paused.is_paused() { "paused" } else { result.err().unwrap_or("shutdown") };
                             let _=owner.ledger.hold(&job,reason); owner.in_flight=false;
@@ -271,6 +272,7 @@ impl Receiver {
                         }
                     }
                     Command::Finished(job,outcome) => {
+                        owner.ledger.observe_request(job.operation(), job.id(), "outcome_returned");
                         if let Err(error) = owner.ledger.finish(&job,outcome) {
                             owner.paused.pause();
                             eprintln!("Input outcome could not be committed; manual review required: {error}");

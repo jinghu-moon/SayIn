@@ -953,6 +953,135 @@ async fn wrong_code_never_delivers_identity_and_closed_window_rejects_pending_gr
 }
 
 #[tokio::test]
+async fn paused_submissions_preserve_order_and_expire_without_replay_over_wss() {
+    struct RecordingAdapter(Arc<std::sync::Mutex<Vec<String>>>);
+    impl InputAdapter for RecordingAdapter {
+        fn preflight(&mut self, _: &Execution) -> std::result::Result<(), &'static str> {
+            Ok(())
+        }
+        fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
+            assert!(!gate.is_paused());
+            self.0.lock().unwrap().push(job.id().to_owned());
+            InputOutcome::Injected { method: "test" }
+        }
+    }
+
+    let directory = Directory::new();
+    let executed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let clock = ManualClock::new();
+    let receiver = Receiver::start(
+        open_ledger_with_clock(&directory.0, clock.clone()).unwrap(),
+        RecordingAdapter(executed.clone()),
+    )
+    .unwrap();
+    let service = NetworkService::start_loopback(
+        receiver.clone(),
+        HostIdentity::open(&directory.0, 0).unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+    )
+    .unwrap();
+    let invitation = invitation(&service).await;
+    let paired = pair(&service, &invitation).await;
+    let target = Uuid::new_v4().to_string();
+    receiver.bind_target(target.clone()).await.unwrap();
+    let paused = receiver.pause().await.unwrap();
+    let mut socket = socket(&invitation).await;
+    send(
+        &mut socket,
+        json!({"v":3,"t":"hello","name":"Test Android","pair_id":paired["pair_id"],"token":paired["token"]}),
+    )
+    .await;
+    let welcome = next(&mut socket, "welcome").await;
+    let session = welcome["session_id"].as_str().unwrap();
+    query_ready(&mut socket, session).await;
+    let ids = std::array::from_fn::<_, 3, _>(|_| Uuid::new_v4().to_string());
+    let mut held = Vec::new();
+    for id in &ids {
+        send(
+            &mut socket,
+            json!({"v":3,"t":"submit","session_id":session,"id":id,"target":target,
+            "op":{"kind":"text","text":"paused request","src":"manual"}}),
+        )
+        .await;
+        let status = next(&mut socket, "status").await;
+        assert_eq!(status["id"], *id);
+        assert_eq!(status["st"], "held");
+        assert_eq!(status["reason"], "paused");
+        held.push(status);
+    }
+    let order = |status: &Value| {
+        status["accept_order"]
+            .as_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    };
+    assert!(
+        held.windows(2)
+            .all(|pair| order(&pair[0]) < order(&pair[1]))
+    );
+
+    clock.advance(Duration::from_secs(599));
+    let mut revision = receiver
+        .resume(paused.state_rev, false)
+        .await
+        .unwrap()
+        .state_rev;
+    for index in [1, 0] {
+        let reference = Uuid::new_v4().to_string();
+        send(
+            &mut socket,
+            json!({"v":3,"t":"control","session_id":session,"name":"release",
+            "refs":[ids[index]],"ref":reference,"target":target,"expected_rev":revision,
+            "expected_request_rev":held[index]["request_rev"]}),
+        )
+        .await;
+        let accepted = loop {
+            let status = next(&mut socket, "status").await;
+            if status["id"] == ids[index] {
+                break status;
+            }
+            assert_eq!(index, 0);
+            assert_eq!(status["id"], ids[1]);
+            assert_eq!(status["st"], "accepted");
+        };
+        assert_eq!(accepted["st"], "accepted");
+        assert_eq!(order(&accepted), order(&held[index]));
+        let controlled = next(&mut socket, "controlled").await;
+        assert_eq!(controlled["ref"], reference);
+        assert_eq!(controlled["ok"], true);
+        revision = controlled["state_rev"].as_str().unwrap().to_owned();
+        if index == 1 {
+            assert!(executed.lock().unwrap().is_empty());
+        }
+    }
+    let mut terminal = [false; 2];
+    while !terminal.iter().all(|delivered| *delivered) {
+        let status = next(&mut socket, "status").await;
+        let index = ids[..2].iter().position(|id| status["id"] == *id).unwrap();
+        assert_eq!(order(&status), order(&held[index]));
+        if status["st"] == "injected" {
+            assert!(!terminal[index]);
+            terminal[index] = true;
+        } else {
+            assert!(matches!(
+                status["st"].as_str(),
+                Some("accepted" | "executing")
+            ));
+        }
+    }
+    clock.advance(Duration::from_secs(1));
+    let expired = next(&mut socket, "status").await;
+    assert_eq!(expired["id"], ids[2]);
+    assert_eq!(order(&expired), order(&held[2]));
+    assert_eq!(expired["st"], "expired");
+    assert_eq!(expired["reason"], "hold_expired");
+    assert_eq!(executed.lock().unwrap().as_slice(), &ids[..2]);
+    service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
 async fn revocation_preserves_other_pair_session_across_local_resume() {
     let directory = Directory::new();
     let calls = Arc::new(AtomicUsize::new(0));

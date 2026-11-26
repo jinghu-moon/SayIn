@@ -9,7 +9,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, params};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use std::{
-    collections::{HashMap, HashSet, hash_map::Entry},
+    collections::{HashMap, HashSet},
     path::Path,
     sync::Arc,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -233,7 +233,12 @@ impl Bucket {
     }
 }
 
-type CommitObserver = Box<dyn Fn(&Operation, &str, State, Instant) + Send>;
+type RequestObserver = Box<dyn Fn(&Operation, &str, &'static str, Instant) + Send>;
+
+struct ExecutionDeadline {
+    executable_at: i64,
+    expires: Instant,
+}
 
 pub struct Ledger {
     pub(crate) database: Connection,
@@ -241,12 +246,12 @@ pub struct Ledger {
     pub(crate) protector: Box<dyn Protector>,
     sessions: HashMap<String, String>,
     rates: HashMap<String, Bucket>,
-    deadlines: HashMap<(String, String), Instant>,
+    deadlines: HashMap<(String, String), ExecutionDeadline>,
     hold_deadlines: HashMap<(String, String), Instant>,
     clock: Arc<dyn Clock>,
     hold_retention: Duration,
     healthy: bool,
-    commit_observer: Option<CommitObserver>,
+    request_observer: Option<RequestObserver>,
     pub(crate) image_store: Option<crate::images::storage::ImageStore>,
     pub(crate) prepared_images: HashMap<
         String,
@@ -439,7 +444,7 @@ impl Ledger {
             clock,
             hold_retention,
             healthy: true,
-            commit_observer: None,
+            request_observer: None,
             image_store: None,
             prepared_images: HashMap::new(),
             image_authorizations: HashMap::new(),
@@ -1065,18 +1070,22 @@ impl Ledger {
         self.authorize(session)
     }
 
-    /// Optional diagnostic observer for newly committed request transitions.
-    pub fn observe_commits(
+    /// Optional diagnostic observer for scheduling and durable transitions.
+    pub fn observe_requests(
         &mut self,
-        observer: impl Fn(&Operation, &str, State, Instant) + Send + 'static,
+        observer: impl Fn(&Operation, &str, &'static str, Instant) + Send + 'static,
     ) {
-        self.commit_observer = Some(Box::new(observer));
+        self.request_observer = Some(Box::new(observer));
+    }
+
+    pub(crate) fn observe_request(&self, operation: &Operation, id: &str, stage: &'static str) {
+        if let Some(observer) = &self.request_observer {
+            observer(operation, id, stage, Instant::now());
+        }
     }
 
     fn observe_commit(&self, operation: &Operation, id: &str, state: State) {
-        if let Some(observer) = &self.commit_observer {
-            observer(operation, id, state, Instant::now());
-        }
+        self.observe_request(operation, id, state.key());
     }
 
     pub fn submit(&mut self, session: &Session, submit: &Submit) -> Result<Receipt> {
@@ -1471,7 +1480,7 @@ impl Ledger {
         let mut due = self
             .deadlines
             .iter()
-            .filter(|(_, deadline)| now > **deadline)
+            .filter(|(_, deadline)| now > deadline.expires)
             .map(|(key, _)| (key.clone(), false))
             .collect::<Vec<_>>();
         due.extend(
@@ -1563,16 +1572,17 @@ impl Ledger {
             } else {
                 None
             };
+            self.observe_request(&operation, id, "deadline_begin");
             let key = (device.clone(), id.clone());
             let executable_at = self.unix_millis();
             let deadline = self.now() + EXECUTION_WINDOW;
-            if let Entry::Vacant(entry) = self.deadlines.entry(key) {
-                self.database.execute(
-                    "UPDATE receipts SET executable_at=?1 WHERE pair_id=?2 AND id=?3 AND state='accepted'",
-                    params![executable_at, device, id],
-                )?;
-                entry.insert(deadline);
-            }
+            // Accepted requests expire on restart. Keep the live deadline in
+            // memory, then record its original start with the execution marker.
+            self.deadlines.entry(key).or_insert(ExecutionDeadline {
+                executable_at,
+                expires: deadline,
+            });
+            self.observe_request(&operation, id, "deadline_ready");
             return Ok(Some(Execution {
                 device: device.clone(),
                 id: id.clone(),
@@ -1642,6 +1652,7 @@ impl Ledger {
             self.hold(job, "paused_or_target_changed")?;
             return Ok(false);
         }
+        self.observe_request(job.operation(), job.id(), "execution_check_complete");
         let protected = target
             .map(|t| self.target_payload(&job.device, &job.id, t))
             .transpose()?;
@@ -1651,9 +1662,10 @@ impl Ledger {
         });
         let key = (job.device.clone(), job.id.clone());
         self.expire_pending(self.now())?;
-        if !self.deadlines.contains_key(&key) {
+        let Some(deadline) = self.deadlines.get(&key) else {
             return Ok(false);
-        }
+        };
+        let executable_at = deadline.executable_at;
         let blocked = if let Some(mac) = &window_mac {
             self.database.query_row(
                 "SELECT EXISTS(SELECT 1 FROM receipts WHERE state='uncertain' AND uncertain_scope='target' AND input_window_mac=?1)",
@@ -1680,8 +1692,9 @@ impl Ledger {
             Operation::Image { .. } => ("clipboard_image_path", "prepared"),
             Operation::Text { .. } | Operation::AutoText { .. } => ("unicode", "prepared"),
         };
+        self.observe_request(job.operation(), job.id(), "executing_write_begin");
         let tx = self.database.transaction()?;
-        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4,method=?5,execution_stage=?6,confirmed=0 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac,method,stage])?;
+        let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4,method=?5,execution_stage=?6,confirmed=0,executable_at=?7 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac,method,stage,executable_at])?;
         if changed == 1 {
             tx.execute("UPDATE message_history SET target=?1,executed_at=?2 WHERE accept_order=(SELECT accept_order FROM receipts WHERE pair_id=?3 AND id=?4)",params![protected,crate::history::now_millis(),job.device,job.id])?;
         }
@@ -2097,7 +2110,10 @@ mod tests {
         let job = ledger.prepare_next().unwrap().unwrap();
         ledger.deadlines.insert(
             (session.device.clone(), first.id.clone()),
-            Instant::now() - Duration::from_secs(1),
+            ExecutionDeadline {
+                executable_at: 0,
+                expires: Instant::now() - Duration::from_secs(1),
+            },
         );
         assert!(!ledger.mark_executing(&job).unwrap());
         assert!(
@@ -2163,7 +2179,7 @@ mod tests {
         assert!(!ledger.deadlines.contains_key(&key));
         assert!(!ledger.hold_deadlines.contains_key(&key));
         let released = ledger.prepare_next().unwrap().unwrap();
-        let executable_deadline = ledger.deadlines[&key];
+        let executable_deadline = ledger.deadlines[&key].expires;
         assert!(executable_deadline <= ledger.now() + EXECUTION_WINDOW);
         ledger.hold(&released, "receiver_focused").unwrap();
         let second = submit(&session, &target, "queued".into());
@@ -2211,7 +2227,7 @@ mod tests {
         let message = submit(&session, &target, "input".into());
         ledger.submit(&session, &message).unwrap();
         let job = ledger.prepare_next().unwrap().unwrap();
-        let deadline = ledger.deadlines[&(session.device.clone(), message.id.clone())];
+        let deadline = ledger.deadlines[&(session.device.clone(), message.id.clone())].expires;
         ledger.mark_executing(&job).unwrap();
         assert!(!ledger.expire_pending(deadline).unwrap());
         assert_eq!(

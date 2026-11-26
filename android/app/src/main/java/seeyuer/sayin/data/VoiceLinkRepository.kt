@@ -672,15 +672,18 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         peer.socket?.cancel(); peer.socket = null
         peer.client?.close(); peer.client = null
     }
-    private fun fail(issue: ClientIssue, peer: ControlPeer = currentPeer) {
+    private fun fail(issue: ClientIssue, peer: ControlPeer = currentPeer, candidateCleared: Boolean = false) {
         val selected = peer === currentPeer
         val candidateFailed = peer.discoveredRound && peer.connectingHost != null && peer.session == null
         disconnect(peer)
-        if (selected) mutable.update { it.copy(issue = issue) }
-        if (!localPermission()) {
-            if (selected) mutable.update { it.copy(issue = ClientIssue.LOCAL_NETWORK_PERMISSION) }
-            return
+        val permission = localPermission()
+        if (selected) {
+            mutable.update {
+                it.copy(issue = if (permission) issue else ClientIssue.LOCAL_NETWORK_PERMISSION,
+                    pairingRecoveryPending = it.pairingRecoveryPending && !candidateCleared)
+            }
         }
+        if (!permission) return
         if (foreground && peer.host != null && mutable.value.storageHealthy &&
             (issue == ClientIssue.CONNECTION || candidateFailed && issue == ClientIssue.PROTOCOL)) {
             if (!peer.discoveredRound) discoverHost(peer)
@@ -794,11 +797,12 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     require(!value.has("session_id"))
                     val code = value.getString("code")
                     val saved = pairingCandidate.takeIf { selected }
+                    var candidateCleared = false
                     if (code in setOf("UNAUTHORIZED", "PAIR_REPLACE_BLOCKED", "TOO_LATE") &&
                         saved != null && (checkingPairingCandidate || invitation != null)) {
                         try { store.removeCandidate(saved.hostId, saved.pairId) } catch (_: Exception) { storageFailed(); return }
                         pairingCandidate = null
-                        mutable.update { it.copy(pairingRecoveryPending = false) }
+                        candidateCleared = true
                     }
                     fail(when {
                         code == "PAIRING_BUSY" -> ClientIssue.PAIRING_BUSY
@@ -806,7 +810,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         code == "VERSION_MISMATCH" -> ClientIssue.VERSION_MISMATCH
                         selected && (invitation != null || checkingPairingCandidate || saved != null) -> ClientIssue.INVALID_PAIRING
                         else -> ClientIssue.CONNECTION
-                    }, peer)
+                    }, peer, candidateCleared)
                     return
                 }
                 require(value.getString("session_id") == peer.session && peer.session != null)

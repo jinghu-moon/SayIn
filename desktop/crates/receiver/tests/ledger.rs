@@ -491,10 +491,12 @@ fn execution_deadline_starts_on_dispatch_and_includes_exactly_thirty_seconds() {
             )
             .unwrap()
     };
-    assert_eq!(executable_at(&first.id), Some(clock.unix_millis()));
+    let first_started = clock.unix_millis();
+    assert_eq!(executable_at(&first.id), None);
     assert_eq!(executable_at(&second.id), None);
     clock.advance(Duration::from_secs(30));
     assert!(ledger.mark_executing(&head).unwrap());
+    assert_eq!(executable_at(&first.id), Some(first_started));
     clock.advance(Duration::from_secs(60));
     assert!(ledger.prepare_next().unwrap().is_none());
     assert_eq!(executable_at(&second.id), None);
@@ -503,10 +505,9 @@ fn execution_deadline_starts_on_dispatch_and_includes_exactly_thirty_seconds() {
         .unwrap();
     let head = ledger.prepare_next().unwrap().unwrap();
     assert_eq!(head.id(), second.id);
-    let started = clock.unix_millis();
     clock.advance(Duration::from_millis(29_999));
     assert_eq!(ledger.prepare_next().unwrap().unwrap().id(), second.id);
-    assert_eq!(executable_at(&second.id), Some(started));
+    assert_eq!(executable_at(&second.id), None);
     clock.advance(Duration::from_millis(2));
     assert!(!ledger.mark_executing(&head).unwrap());
     let expired = ledger.query(&session, &second.id).unwrap().unwrap();

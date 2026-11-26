@@ -381,15 +381,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         open_ledger_with_retention(&output, hold_retention)?
     };
     let text_commits = if std::env::args().any(|arg| arg == "--text-commit-timing") {
-        let (sender, events) = std::sync::mpsc::sync_channel(300);
+        let (sender, events) = std::sync::mpsc::sync_channel(900);
         let origin = std::time::Instant::now();
-        ledger.observe_commits(move |op, id, state, at| {
+        ledger.observe_requests(move |op, id, stage, at| {
             if matches!(op, Operation::Text { .. }) {
-                let _ = sender.try_send((
-                    id.to_owned(),
-                    state.key(),
-                    at.duration_since(origin).as_nanos(),
-                ));
+                let _ =
+                    sender.try_send((id.to_owned(), stage, at.duration_since(origin).as_nanos()));
             }
         });
         Some(events)
@@ -399,19 +396,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     if std::env::args().any(|arg| arg == "--image-commit-timing") {
         assert!(text_commits.is_none(), "one commit timing mode per fixture");
-        ledger.observe_commits(|op, id, state, _| {
-            if let Operation::Image { image } = op {
+        ledger.observe_requests(|op, id, stage, _| {
+            if let Operation::Image { image } = op
+                && matches!(stage, "accepted" | "executing" | "injected")
+            {
                 let mut ticks = 0;
                 if unsafe {
                     windows::Win32::System::Performance::QueryPerformanceCounter(&mut ticks)
                 }
                 .is_ok()
                 {
-                    eprintln!(
-                        "image_commit {} {id} {} {ticks}",
-                        image.resource_id,
-                        state.key()
-                    );
+                    eprintln!("image_commit {} {id} {stage} {ticks}", image.resource_id);
                 }
             }
         });
