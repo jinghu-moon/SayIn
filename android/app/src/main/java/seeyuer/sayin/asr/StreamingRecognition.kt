@@ -27,6 +27,8 @@ internal interface PcmSource : Closeable {
     val speechInBlock: Boolean? get() = null
     /** Conservative absolute end of the latest voiced audio plus tail context. */
     val retainedSampleEnd: Int? get() = null
+    /** True once VAD confirms the entire session held no speech and should produce no transcript. */
+    val noSpeech: Boolean get() = false
     fun requestStop()
 }
 

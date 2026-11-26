@@ -271,6 +271,78 @@ class StreamingRecognitionTest {
         assertEquals("Hello world.", final)
     }
 
+    @Test fun r2t2SkipsDecodeWhenVadConfirmsNoSpeech() = runBlocking {
+        var reads = 0
+        val source = object : PcmSource {
+            override var noSpeech = false
+            override suspend fun read(): FloatArray? = when (++reads) {
+                1 -> FloatArray(16_000) { 0.001f }
+                2 -> {
+                    noSpeech = true
+                    FloatArray(16_000) { 0.001f }
+                }
+                else -> null
+            }
+            override fun requestStop() = Unit
+            override fun close() = Unit
+        }
+        var decodeCalls = 0
+        val result = recognizeR2t2(source, decode = { _, _ ->
+            decodeCalls += 1
+            "language Chinese<asr_text>误识别".encodeToByteArray()
+        }, prioritizeFinal = {}, onTranscript = {})
+        assertEquals("", result)
+        assertEquals(0, decodeCalls)
+    }
+
+    @Test fun r2t2PacesPreviewsByPreviousInferenceDurationAndBoundaryGuard() = runBlocking {
+        val audio = Channel<FloatArray>(Channel.UNLIMITED)
+        val previewStarted = CountDownLatch(1)
+        val lateRead = CountDownLatch(1)
+        var reads = 0
+        val source = object : PcmSource {
+            override suspend fun read(): FloatArray? {
+                if (++reads == 3) lateRead.countDown()
+                return audio.receiveCatching().getOrNull()
+            }
+            override fun requestStop() { audio.cancel() }
+            override fun close() = Unit
+        }
+        var clockMs = 0L
+        val attempts = mutableListOf<Pair<Boolean, Int>>()
+        val capture = launch(Dispatchers.IO) {
+            audio.send(FloatArray(32_000) { 1f }) // 2.0s triggers initial preview
+            check(previewStarted.await(5, TimeUnit.SECONDS))
+            audio.send(FloatArray(64_000) { 2f }) // +4.0s -> 6.0s total (within 4.5s guard of 8s window? 8-6=2s <= 4.5s)
+        }
+        val final = recognizeR2t2(
+            source,
+            decode = { attempt, _ ->
+                attempts += attempt.final to attempt.samples.size
+                if (!attempt.final) {
+                    previewStarted.countDown()
+                    check(lateRead.await(5, TimeUnit.SECONDS))
+                    clockMs += 4_500L // Simulate 4.5s preview duration (> 2s step)
+                    "language English<asr_text>Hello".encodeToByteArray()
+                } else {
+                    " world.".encodeToByteArray()
+                }
+            },
+            prioritizeFinal = {},
+            decodeWindowSamples = 8 * 16_000,
+            nowNanos = { clockMs * 1_000_000L },
+            onTranscript = {
+                if (it == "Hello") launch {
+                    audio.send(FloatArray(32_000) { 3f }) // reaches 8.0s hard window
+                    audio.close()
+                }
+            },
+        )
+        capture.join()
+        assertEquals(listOf(false to 32_000, true to 128_000), attempts)
+        assertEquals("Hello world.", final)
+    }
+
     @Test fun partialRevisionsReplaceOnlyCurrentSegment() {
         val transcript = StreamingTranscript()
         assertEquals("你", transcript.update("你", false))

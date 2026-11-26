@@ -42,6 +42,7 @@ struct Timings {
 struct PromptChunk {
     std::vector<llama_token> tokens;
     std::vector<float> mel;
+    std::vector<std::vector<float>> conv_chunks; // per-100-frame conv_out output [tokens_c][conv_dim]
     std::vector<float> embedding;
     int frames = 0;
     llama_pos width = 0;
@@ -52,6 +53,21 @@ struct PromptChunk {
             mel.size() == other.mel.size() &&
             std::memcmp(mel.data(), other.mel.data(), mel.size() * sizeof(float)) == 0;
     }
+
+    bool same_conv_subchunk(const PromptChunk & other, int subchunk, int bins) const {
+        constexpr int chunk_frames = 100;
+        const int off = subchunk * chunk_frames;
+        const int len = std::clamp(frames - off, 0, chunk_frames);
+        const int other_len = std::clamp(other.frames - off, 0, chunk_frames);
+        if (len <= 0 || len != other_len) return false;
+        if (static_cast<size_t>(subchunk) >= conv_chunks.size() || conv_chunks[subchunk].empty()) return false;
+        for (int b = 0; b < bins; ++b) {
+            const float * row_a = mel.data() + static_cast<size_t>(b) * frames + off;
+            const float * row_b = other.mel.data() + static_cast<size_t>(b) * other.frames + off;
+            if (std::memcmp(row_a, row_b, static_cast<size_t>(len) * sizeof(float)) != 0) return false;
+        }
+        return true;
+    }
 };
 
 struct Recognizer {
@@ -61,6 +77,8 @@ struct Recognizer {
     std::unique_ptr<llama_batch_ext, decltype(&llama_batch_ext_free)> batch{nullptr, llama_batch_ext_free};
     std::vector<llama_token> head;
     std::vector<PromptChunk> prompt;
+    std::vector<llama_token> evaluated_tail;
+    llama_pos evaluated_tail_start = 0;
     size_t evaluated = 0;
     std::atomic<bool> cancelled{false};
     std::atomic<int> final_revision{0};
@@ -69,6 +87,8 @@ struct Recognizer {
 
     void reset_prompt() {
         prompt.clear();
+        evaluated_tail.clear();
+        evaluated_tail_start = 0;
         evaluated = 0;
     }
 };
@@ -182,14 +202,15 @@ int32_t decode_audio(Recognizer & recognizer, const PromptChunk & chunk, llama_p
     return 0;
 }
 
-int32_t decode_text(Recognizer & recognizer, const PromptChunk & chunk, llama_pos & position, bool logits) {
+int32_t decode_text(Recognizer & recognizer, const std::vector<llama_token> & tokens, size_t start_index,
+                    llama_pos & position, bool logits) {
     auto * batch = recognizer.batch.get();
-    const auto count = static_cast<llama_pos>(chunk.tokens.size());
-    for (llama_pos offset = 0; offset < count; offset += batch_size) {
+    const auto count = static_cast<llama_pos>(tokens.size());
+    for (llama_pos offset = static_cast<llama_pos>(start_index); offset < count; offset += batch_size) {
         llama_batch_ext_clear(batch);
         int32_t index = -1;
         for (llama_pos i = offset; i < std::min<llama_pos>(count, offset + batch_size); ++i) {
-            index = llama_batch_ext_add_token(batch, 0, chunk.tokens[i]);
+            index = llama_batch_ext_add_token(batch, 0, tokens[i]);
             if (index < 0 || !llama_batch_ext_set_pos(batch, index, &position)) return -1;
             ++position;
         }
@@ -197,6 +218,69 @@ int32_t decode_text(Recognizer & recognizer, const PromptChunk & chunk, llama_po
         if (const auto result = llama_process(recognizer.context.get(), LLAMA_PROCESS_TYPE_DECODE, batch)) return result;
     }
     return 0;
+}
+
+bool encode_audio_chunk(mtmd_context * audio, const PromptChunk & prev_opt, bool has_prev, PromptChunk & chunk,
+                        std::vector<float> & embedding_out, const std::atomic<bool> & is_cancelled_flag,
+                        bool (*abort_fn)(void *), void * abort_data) {
+    constexpr int subchunk_frames = 100;
+    const int bins = r2t2_mel_bins(audio);
+    const int conv_dim = r2t2_conv_dim(audio);
+    const int n_sub = (chunk.frames + subchunk_frames - 1) / subchunk_frames;
+    chunk.conv_chunks.assign(static_cast<size_t>(n_sub), {});
+
+    int first_dirty = n_sub;
+    for (int c = 0; c < n_sub; ++c) {
+        if (has_prev && prev_opt.same_conv_subchunk(chunk, c, bins)) {
+            chunk.conv_chunks[c] = prev_opt.conv_chunks[c];
+        } else {
+            first_dirty = c;
+            break;
+        }
+    }
+    // Check if any chunks after first_dirty match too; run conv once on the contiguous dirty span [first_dirty .. last_dirty].
+    int last_dirty = -1;
+    if (first_dirty < n_sub) {
+        last_dirty = first_dirty;
+        for (int c = n_sub - 1; c > first_dirty; --c) {
+            if (has_prev && prev_opt.same_conv_subchunk(chunk, c, bins)) {
+                chunk.conv_chunks[c] = prev_opt.conv_chunks[c];
+            } else {
+                last_dirty = c;
+                break;
+            }
+        }
+        const int off = first_dirty * subchunk_frames;
+        const int end_frame = std::min((last_dirty + 1) * subchunk_frames, chunk.frames);
+        const int dirty_frames = end_frame - off;
+        const int dirty_tokens = r2t2_window_tokens(dirty_frames);
+        std::vector<float> dirty_mel(static_cast<size_t>(bins) * dirty_frames);
+        for (int b = 0; b < bins; ++b) {
+            const float * src = chunk.mel.data() + static_cast<size_t>(b) * chunk.frames + off;
+            std::copy(src, src + dirty_frames, dirty_mel.begin() + static_cast<size_t>(b) * dirty_frames);
+        }
+        std::vector<float> dirty_conv(static_cast<size_t>(dirty_tokens) * conv_dim);
+        if (!r2t2_conv_chunks(audio, dirty_mel.data(), dirty_frames, dirty_conv.data())) {
+            return false;
+        }
+        int tok_off = 0;
+        for (int c = first_dirty; c <= last_dirty; ++c) {
+            const int c_frames = std::min(subchunk_frames, chunk.frames - c * subchunk_frames);
+            const int c_tokens = r2t2_window_tokens(c_frames);
+            const size_t floats = static_cast<size_t>(c_tokens) * conv_dim;
+            chunk.conv_chunks[c].assign(dirty_conv.begin() + static_cast<size_t>(tok_off) * conv_dim,
+                                        dirty_conv.begin() + static_cast<size_t>(tok_off) * conv_dim + floats);
+            tok_off += c_tokens;
+        }
+    }
+    if (is_cancelled_flag.load(std::memory_order_relaxed) || abort_fn(abort_data)) return false;
+
+    std::vector<float> conv_all;
+    conv_all.reserve(static_cast<size_t>(chunk.width) * conv_dim);
+    for (int c = 0; c < n_sub; ++c) {
+        conv_all.insert(conv_all.end(), chunk.conv_chunks[c].begin(), chunk.conv_chunks[c].end());
+    }
+    return r2t2_encode_conv(audio, conv_all.data(), static_cast<int32_t>(chunk.width), embedding_out.data());
 }
 
 std::string generate(Recognizer & recognizer, const std::vector<float> & samples,
@@ -221,17 +305,34 @@ std::string generate(Recognizer & recognizer, const std::vector<float> & samples
         position = previous[keep].end_position;
     }
     auto * memory = llama_get_memory(ctx);
+    size_t tail_keep = 0;
+    if (keep == chunk_count - 1 && !recognizer.evaluated_tail.empty() && !chunks.back().tokens.empty()) {
+        const auto & prev_tail = recognizer.evaluated_tail;
+        const auto & cur_tail = chunks.back().tokens;
+        const size_t max_common = std::min(prev_tail.size(), cur_tail.size() - 1);
+        while (tail_keep < max_common && prev_tail[tail_keep] == cur_tail[tail_keep]) ++tail_keep;
+        if (tail_keep > 0) position = recognizer.evaluated_tail_start + static_cast<llama_pos>(tail_keep);
+    }
     if (keep == 0 || !llama_memory_seq_rm(memory, 0, position, -1)) {
         llama_memory_clear(memory, true);
         keep = 0;
         position = 0;
+        tail_keep = 0;
     }
+    if (tail_keep == 0) recognizer.evaluated_tail.clear();
     timings.values[static_cast<size_t>(Stage::reused_positions)] = position;
-    // A window's encoder output depends on its own mel only.
-    for (size_t i = 0; i < std::min(chunk_count, previous.size()); ++i) {
-        if (chunks[i].mel.empty() || previous[i].embedding.empty() || !previous[i].same_input(chunks[i])) continue;
-        chunks[i].embedding = std::move(previous[i].embedding);
-        ++timings.values[static_cast<size_t>(Stage::reused_audio)];
+    // A window's encoder output depends on its own mel only; unchanged 100-frame conv chunks also carry over.
+    const size_t shared_chunks = std::min(chunk_count, previous.size());
+    std::vector<PromptChunk> prev_conv(shared_chunks);
+    for (size_t i = 0; i < shared_chunks; ++i) {
+        if (chunks[i].mel.empty()) continue;
+        if (!previous[i].embedding.empty() && previous[i].same_input(chunks[i])) {
+            chunks[i].embedding = std::move(previous[i].embedding);
+            chunks[i].conv_chunks = std::move(previous[i].conv_chunks);
+            ++timings.values[static_cast<size_t>(Stage::reused_audio)];
+        } else if (!previous[i].conv_chunks.empty()) {
+            prev_conv[i] = std::move(previous[i]);
+        }
     }
     for (size_t i = 0; i < keep; ++i) chunks[i].end_position = previous[i].end_position;
     previous = std::move(chunks);
@@ -245,7 +346,10 @@ std::string generate(Recognizer & recognizer, const std::vector<float> & samples
         if (audio_chunk && chunk.embedding.empty()) {
             std::vector<float> embedding(static_cast<size_t>(chunk.width) * n_embd);
             const auto encode_started = timings.start();
-            const bool encoded = r2t2_encode_window(audio, chunk.mel.data(), chunk.frames, embedding.data());
+            const bool has_prev = i < prev_conv.size() && !prev_conv[i].conv_chunks.empty();
+            const bool encoded = encode_audio_chunk(
+                audio, has_prev ? prev_conv[i] : PromptChunk{}, has_prev, chunk, embedding,
+                recognizer.cancelled, cancelled, &recognizer);
             timings.record(Stage::encode, encode_started);
             if (!encoded) {
                 if (cancelled(&recognizer)) return {};
@@ -255,12 +359,22 @@ std::string generate(Recognizer & recognizer, const std::vector<float> & samples
         }
         if (cancelled(&recognizer)) return {};
         const auto prefill_started = timings.start();
-        const auto decoded = audio_chunk ? decode_audio(recognizer, chunk, position)
-                                         : decode_text(recognizer, chunk, position, i + 1 == chunk_count);
+        const bool is_tail = i + 1 == chunk_count;
+        int32_t decoded = 0;
+        if (audio_chunk) {
+            decoded = decode_audio(recognizer, chunk, position);
+        } else {
+            const size_t start_tok = is_tail ? tail_keep : 0;
+            if (is_tail && tail_keep == 0) recognizer.evaluated_tail_start = position;
+            decoded = decode_text(recognizer, chunk.tokens, start_tok, position, is_tail);
+        }
         timings.record(audio_chunk ? Stage::audio_prefill : Stage::text_prefill, prefill_started);
         if (decoded != 0) {
             if (cancelled(&recognizer)) return {};
             throw std::runtime_error("R2T2 could not evaluate the prompt");
+        }
+        if (is_tail && !audio_chunk) {
+            recognizer.evaluated_tail = chunk.tokens;
         }
         chunk.end_position = position;
         recognizer.evaluated = i + 1;
@@ -304,9 +418,13 @@ std::string generate(Recognizer & recognizer, const std::vector<float> & samples
 
 extern "C" JNIEXPORT jlong JNICALL
 Java_seeyuer_sayin_translation_R2t2Bindings_load(JNIEnv * env, jobject, jbyteArray model, jbyteArray projector,
-                                                jint prefill_threads, jboolean gpu_decoder, jboolean gpu_projector) {
+                                                jint prefill_threads, jint encode_threads, jint gen_threads,
+                                                jboolean gpu_decoder, jboolean gpu_projector) {
     try {
-        if (prefill_threads < 1 || prefill_threads > 8 || (gpu_projector && !gpu_decoder)) {
+        if (prefill_threads < 1 || prefill_threads > 8 ||
+            encode_threads < 1 || encode_threads > 8 ||
+            gen_threads < 1 || gen_threads > 8 ||
+            (gpu_projector && !gpu_decoder)) {
             throw std::runtime_error("Invalid R2T2 backend configuration");
         }
         initialize_llama();
@@ -324,7 +442,7 @@ Java_seeyuer_sayin_translation_R2t2Bindings_load(JNIEnv * env, jobject, jbyteArr
         if (!recognizer->model) throw std::runtime_error("R2T2 model could not be loaded");
         auto audio = mtmd_context_params_default();
         audio.use_gpu = gpu_projector;
-        audio.n_threads = 4;
+        audio.n_threads = encode_threads;
         audio.print_timings = false;
         audio.warmup = false;
         recognizer->audio.reset(mtmd_init_from_file(bytes(env, projector).c_str(), recognizer->model.get(), audio));
@@ -332,12 +450,13 @@ Java_seeyuer_sayin_translation_R2t2Bindings_load(JNIEnv * env, jobject, jbyteArr
             mtmd_get_audio_sample_rate(recognizer->audio.get()) != sample_rate) {
             throw std::runtime_error("R2T2 audio projector could not be loaded");
         }
+        r2t2_set_encoder_threads(recognizer->audio.get(), encode_threads);
         r2t2_set_encoder_abort(recognizer->audio.get(), cancelled, recognizer.get());
         auto config = llama_context_default_params();
         config.n_ctx = 2048;
         config.n_batch = batch_size;
         config.n_ubatch = batch_size;
-        config.n_threads = 2;
+        config.n_threads = gen_threads;
         config.n_threads_batch = prefill_threads;
 #ifdef SAYIN_R2T2_VULKAN_BENCHMARK
         if (gpu_decoder && std::getenv("SAYIN_R2T2_DISABLE_FLASH_ATTENTION")) {

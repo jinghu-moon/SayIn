@@ -25,6 +25,7 @@ internal suspend fun recognizeOfflineSegments(
     var captured = 0
     var retainedEnd: Int? = null
     var eof = false
+    var noSpeech = false
     var pendingCanContainSpeech = true
     var pausedPreviewSize = 0
 
@@ -49,6 +50,14 @@ internal suspend fun recognizeOfflineSegments(
                     ensureActive()
                     val chunk = source.read() ?: break
                     synchronized(lock) {
+                        if (source.noSpeech) {
+                            noSpeech = true
+                            ready.clear()
+                            size = 0
+                            pausedPreviewSize = 0
+                            pendingCanContainSpeech = false
+                            return@synchronized
+                        }
                         val speechInBlock = source.speechInBlock
                         retainedEnd = source.retainedSampleEnd
                         if (speechInBlock != false) pendingCanContainSpeech = true
@@ -76,8 +85,16 @@ internal suspend fun recognizeOfflineSegments(
                     updates.trySend(Unit)
                 }
                 synchronized(lock) {
-                    // Exact digital silence carries no remaining speech.
-                    if ((0 until size).any { pending[it] != 0f }) enqueueSegment()
+                    if (source.noSpeech) {
+                        noSpeech = true
+                        ready.clear()
+                        size = 0
+                        pausedPreviewSize = 0
+                        pendingCanContainSpeech = false
+                    } else if ((0 until size).any { pending[it] != 0f }) {
+                        // Exact digital silence carries no remaining speech.
+                        enqueueSegment()
+                    }
                     eof = true
                 }
             }
@@ -103,18 +120,18 @@ internal suspend fun recognizeOfflineSegments(
         while (true) {
             ensureActive()
             // Let required work preempt any preview that has not started.
-            val segment = synchronized(lock) { ready.removeFirstOrNull() }
+            val segment = synchronized(lock) { if (noSpeech) null else ready.removeFirstOrNull() }
             if (segment != null) {
                 lastPreviewSize = 0
                 val text = decode(segment)
                 ensureActive()
-                publish(text, endpoint = true)
+                if (!synchronized(lock) { noSpeech }) publish(text, endpoint = true)
                 continue
             }
             val policy = preview
             val snapshot = synchronized(lock) {
                 val length = retainedSize()
-                if (eof || ready.isNotEmpty() || !pendingCanContainSpeech) return@synchronized null
+                if (eof || noSpeech || ready.isNotEmpty() || !pendingCanContainSpeech) return@synchronized null
                 when {
                     pausedPreviewSize > lastPreviewSize -> pending.copyOf(pausedPreviewSize)
                     policy != null && length >= policy.minSamples &&

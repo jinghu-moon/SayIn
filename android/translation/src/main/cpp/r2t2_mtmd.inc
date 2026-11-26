@@ -19,6 +19,72 @@ void * r2t2_cpu_proc(ggml_backend_t backend, const char * name) {
     return reg ? ggml_backend_reg_get_proc_address(reg, name) : nullptr;
 }
 
+// qwen3a conv frontend + conv_out only, restricted to the valid columns of the tail chunk.
+struct r2t2_conv_graph : mtmd_graph {
+    const int64_t n_valid;
+
+    r2t2_conv_graph(mtmd_subcontext * ctx, const mtmd_image_f32 & img, int64_t n_valid)
+        : mtmd_graph(ctx, img), n_valid(n_valid) {}
+
+    ggml_cgraph * build() override {
+        ggml_tensor * inp = build_inp_raw(1);
+        const int64_t n_frames = inp->ne[0];
+        const int64_t n_mel = inp->ne[1];
+        const int64_t n_chunks = n_frames / r2t2_chunk_frames;
+        GGML_ASSERT(n_frames % r2t2_chunk_frames == 0);
+        inp = ggml_view_4d(ctx0, inp, r2t2_chunk_frames, n_mel, 1, n_chunks,
+            n_frames * (int64_t) sizeof(float), r2t2_chunk_frames * (int64_t) sizeof(float),
+            r2t2_chunk_frames * (int64_t) sizeof(float), 0);
+        inp = ggml_cont(ctx0, inp);
+        auto conv_block = [&](ggml_tensor * x, ggml_tensor * w, ggml_tensor * b) {
+            x = ggml_conv_2d(ctx0, w, x, 2, 2, 1, 1, 1, 1);
+            if (b) x = ggml_add(ctx0, x, ggml_reshape_4d(ctx0, b, 1, 1, x->ne[2], 1));
+            return ggml_gelu_erf(ctx0, x);
+        };
+        inp = conv_block(inp, model.conv2d_1_w, model.conv2d_1_b);
+        inp = conv_block(inp, model.conv2d_2_w, model.conv2d_2_b);
+        inp = conv_block(inp, model.conv2d_3_w, model.conv2d_3_b);
+        GGML_ASSERT(inp->ne[0] == r2t2_chunk_tokens);
+        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 2, 0, 1, 3));
+        inp = ggml_reshape_2d(ctx0, inp, inp->ne[0] * inp->ne[1], inp->ne[2] * inp->ne[3]);
+        inp = ggml_mul_mat(ctx0, model.conv_out_w, inp);
+        if (model.conv_out_b) inp = ggml_add(ctx0, inp, model.conv_out_b);
+        const int64_t n_pos = inp->ne[1];
+        GGML_ASSERT(n_valid > 0 && n_valid <= n_pos);
+        inp = ggml_view_2d(ctx0, inp, inp->ne[0], n_valid, inp->nb[1], 0);
+        inp = ggml_cont(ctx0, inp);
+        ggml_build_forward_expand(gf, inp);
+        return gf;
+    }
+};
+
+// qwen3a ViT + MLP projector starting from cached conv_out features [d_model, n_valid].
+struct r2t2_vit_graph : mtmd_graph {
+    const int64_t n_valid;
+
+    r2t2_vit_graph(mtmd_subcontext * ctx, const mtmd_image_f32 & dummy_img, int64_t n_valid)
+        : mtmd_graph(ctx, dummy_img), n_valid(n_valid) {}
+
+    ggml_cgraph * build() override {
+        const int64_t d_model = model.position_embeddings->ne[0];
+        ggml_tensor * inp = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, d_model, n_valid);
+        ggml_set_name(inp, "inp_conv");
+        ggml_set_input(inp);
+        const int64_t padded_pos = (n_valid + r2t2_chunk_tokens - 1) / r2t2_chunk_tokens * r2t2_chunk_tokens;
+        ggml_tensor * positions = ggml_view_2d(ctx0, model.position_embeddings,
+            d_model, r2t2_chunk_tokens, model.position_embeddings->nb[1], 0);
+        ggml_tensor * repeated = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, d_model, padded_pos);
+        ggml_tensor * pos_full = ggml_repeat(ctx0, positions, repeated);
+        ggml_tensor * pos_valid = ggml_view_2d(ctx0, pos_full, d_model, n_valid, pos_full->nb[1], 0);
+        inp = ggml_add(ctx0, inp, pos_valid);
+        ggml_tensor * cur = build_vit(inp, n_valid, NORM_TYPE_NORMAL, hparams.ffn_op, nullptr, nullptr);
+        cur = build_ffn(cur, model.mm_1_w, model.mm_1_b, nullptr, nullptr, model.mm_2_w, model.mm_2_b,
+            FFN_GELU_ERF, -1);
+        ggml_build_forward_expand(gf, cur);
+        return gf;
+    }
+};
+
 // qwen3a graph restricted to the encoder outputs of real frames, the tail chunk is zero padded
 // for the convolutions only, as in Qwen3ASRAudioEncoder.forward.
 struct r2t2_encoder_graph : mtmd_graph {
@@ -65,6 +131,34 @@ struct r2t2_encoder_graph : mtmd_graph {
         return gf;
     }
 };
+
+template <typename GraphBuilder>
+bool r2t2_run_graph(mtmd_context * ctx, const mtmd_image_f32_batch & warmup_batch,
+                    const char * input_name, const float * input_data, size_t input_count,
+                    int32_t expected_tokens, float * out, GraphBuilder && make_graph) {
+    std::lock_guard<std::mutex> lock(ctx->compute_mutex);
+    auto & encoder = *ctx->ctx_a;
+    if (!encoder.is_allocated) encoder.warmup(warmup_batch);
+    auto * sched = encoder.backends.sched.get();
+    ggml_backend_sched_reset(sched);
+    auto graph = make_graph(&encoder);
+    ggml_cgraph * gf = graph.build();
+    ggml_tensor * output = ggml_graph_node(gf, -1);
+    if (output->ne[1] != expected_tokens || output->type != GGML_TYPE_F32 ||
+        !ggml_backend_sched_alloc_graph(sched, gf)) {
+        return false;
+    }
+    ggml_tensor * inp = ggml_graph_get_tensor(gf, input_name);
+    GGML_ASSERT(inp && ggml_nelements(inp) == static_cast<int64_t>(input_count));
+    ggml_backend_tensor_set(inp, input_data, 0, ggml_nbytes(inp));
+    if (const auto set_threads = reinterpret_cast<ggml_backend_set_n_threads_t>(
+            r2t2_cpu_proc(encoder.backends.backend_cpu, "ggml_backend_set_n_threads"))) {
+        set_threads(encoder.backends.backend_cpu, ctx->n_threads);
+    }
+    if (ggml_backend_sched_graph_compute(sched, gf) != GGML_STATUS_SUCCESS) return false;
+    ggml_backend_tensor_get(output, out, 0, ggml_nbytes(output));
+    return true;
+}
 }
 
 int32_t r2t2_mel_frames(size_t n_samples) {
@@ -83,6 +177,10 @@ int32_t r2t2_window_tokens(int32_t frames) {
     if (frames <= 0 || frames > r2t2_attention_frames) return 0;
     const int32_t tail = frames % r2t2_chunk_frames;
     return frames / r2t2_chunk_frames * r2t2_chunk_tokens + (tail ? r2t2_conv_length(tail) : 0);
+}
+
+int32_t r2t2_conv_dim(mtmd_context * ctx) {
+    return r2t2_supported(ctx) ? static_cast<int32_t>(ctx->ctx_a->model.position_embeddings->ne[0]) : 0;
 }
 
 bool r2t2_log_mel(mtmd_context * ctx, const float * samples, size_t n_samples, float * out) {
@@ -118,6 +216,39 @@ bool r2t2_log_mel(mtmd_context * ctx, const float * samples, size_t n_samples, f
     return true;
 }
 
+bool r2t2_conv_chunks(mtmd_context * ctx, const float * mel, int32_t frames, float * out) {
+    const int32_t tokens = r2t2_window_tokens(frames);
+    if (!r2t2_supported(ctx) || tokens == 0) return false;
+    const auto bins = static_cast<int>(ctx->audio_preproc->mel_config.n_mel);
+    const int padded = (frames + r2t2_chunk_frames - 1) / r2t2_chunk_frames * r2t2_chunk_frames;
+    std::vector<float> input(static_cast<size_t>(padded) * bins, 0.0f);
+    for (int bin = 0; bin < bins; ++bin) {
+        std::copy(mel + static_cast<size_t>(bin) * frames, mel + static_cast<size_t>(bin + 1) * frames,
+                  input.begin() + static_cast<size_t>(bin) * padded);
+    }
+    mtmd_image_f32_batch batch;
+    batch.is_audio = true;
+    batch.entries.emplace_back();
+    auto & image = batch.entries.back();
+    image.set_size({padded, bins}, false, true);
+    image.cpy_buf(input);
+    return r2t2_run_graph(ctx, batch, "inp_raw", input.data(), input.size(), tokens, out,
+        [&](mtmd_subcontext * encoder) { return r2t2_conv_graph(encoder, image, tokens); });
+}
+
+bool r2t2_encode_conv(mtmd_context * ctx, const float * conv_features, int32_t tokens, float * out) {
+    const int32_t d_model = r2t2_conv_dim(ctx);
+    if (d_model <= 0 || tokens <= 0 || tokens > r2t2_window_tokens(r2t2_attention_frames)) return false;
+    const auto bins = static_cast<int>(ctx->audio_preproc->mel_config.n_mel);
+    mtmd_image_f32_batch batch;
+    batch.is_audio = true;
+    batch.entries.emplace_back();
+    auto & image = batch.entries.back();
+    image.set_size({r2t2_chunk_frames, bins}, false, true);
+    return r2t2_run_graph(ctx, batch, "inp_conv", conv_features, static_cast<size_t>(tokens) * d_model, tokens, out,
+        [&](mtmd_subcontext * encoder) { return r2t2_vit_graph(encoder, image, tokens); });
+}
+
 bool r2t2_encode_window(mtmd_context * ctx, const float * mel, int32_t frames, float * out) {
     const int32_t tokens = r2t2_window_tokens(frames);
     if (!r2t2_supported(ctx) || tokens == 0) return false;
@@ -134,30 +265,8 @@ bool r2t2_encode_window(mtmd_context * ctx, const float * mel, int32_t frames, f
     auto & image = batch.entries.back();
     image.set_size({padded, bins}, false, true);
     image.cpy_buf(input);
-
-    std::lock_guard<std::mutex> lock(ctx->compute_mutex);
-    auto & encoder = *ctx->ctx_a;
-    // Selects flash attention and reserves the compute buffers once.
-    if (!encoder.is_allocated) encoder.warmup(batch);
-    auto * sched = encoder.backends.sched.get();
-    ggml_backend_sched_reset(sched);
-    r2t2_encoder_graph graph(&encoder, image, tokens);
-    ggml_cgraph * gf = graph.build();
-    ggml_tensor * embeddings = ggml_graph_node(gf, -1);
-    if (embeddings->ne[1] != tokens || embeddings->type != GGML_TYPE_F32 ||
-        !ggml_backend_sched_alloc_graph(sched, gf)) {
-        return false;
-    }
-    ggml_tensor * raw = ggml_graph_get_tensor(gf, "inp_raw");
-    GGML_ASSERT(raw && ggml_nelements(raw) == static_cast<int64_t>(input.size()));
-    ggml_backend_tensor_set(raw, input.data(), 0, ggml_nbytes(raw));
-    if (const auto set_threads = reinterpret_cast<ggml_backend_set_n_threads_t>(
-            r2t2_cpu_proc(encoder.backends.backend_cpu, "ggml_backend_set_n_threads"))) {
-        set_threads(encoder.backends.backend_cpu, ctx->n_threads);
-    }
-    if (ggml_backend_sched_graph_compute(sched, gf) != GGML_STATUS_SUCCESS) return false;
-    ggml_backend_tensor_get(embeddings, out, 0, ggml_nbytes(embeddings));
-    return true;
+    return r2t2_run_graph(ctx, batch, "inp_raw", input.data(), input.size(), tokens, out,
+        [&](mtmd_subcontext * encoder) { return r2t2_encoder_graph(encoder, image, tokens); });
 }
 
 void r2t2_set_encoder_abort(mtmd_context * ctx, bool (*abort)(void *), void * data) {
@@ -165,4 +274,8 @@ void r2t2_set_encoder_abort(mtmd_context * ctx, bool (*abort)(void *), void * da
     const auto set_abort = reinterpret_cast<ggml_backend_set_abort_callback_t>(
         r2t2_cpu_proc(backend, "ggml_backend_set_abort_callback"));
     if (set_abort) set_abort(backend, abort, data);
+}
+
+void r2t2_set_encoder_threads(mtmd_context * ctx, int32_t n_threads) {
+    if (ctx && n_threads >= 1 && n_threads <= 8) ctx->n_threads = n_threads;
 }

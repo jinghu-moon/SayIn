@@ -36,7 +36,7 @@ R2T2 基于 Qwen3-ASR-1.7B，用稳定前缀训练确定哪些词可以提交。
 | 按 `audio.cpp` #696 思路复用完整音频窗口与解码器 KV | Windows AVX2 上用社区 GGUF 对照，33.39 秒 `Q-E08` 结束到定稿 46.13 → 10.03 秒。K40 接入精确复用及更早的抢占后，10 秒混说同组 8.17 → 4.97 秒，正文一致。33 秒连续听写同组却为 11.46 → 13.62 秒。 | 已接入。收益取决于特征一致和首窗是否实际计算完成。PR 的 Apple Silicon Metal 结果是另一模型运行环境，SayIn 已固定预分配 2048 个上下文位置。 |
 | 用同一 R2T2 音频权重导出 ONNX FP32／动态 INT8 | K40 固定 16 秒独立编码为 GGUF 9.50、FP32 3.96、INT8 2.30 秒。两个 ONNX 版本在弱起声或尾词出现漏识。10 秒真实节奏回放中，定稿更早但 1.2 秒预览无正文，首字推迟。活动窗口卷积块缓存的端到端收益未稳定重现。 | 编码性能原型。产品继续使用 GGUF。 |
 | 调更短的预览步长，或把编码窗口从 8 秒改为 4／2 秒 | 1／1.5 秒步长在个别混说让第二批文字提前，长句没有稳定收益。4 秒分窗的单轮命中曾缩短编码，交错复测未复现整场加速。2 秒新增错词。 | 保留 2 秒步长和 8 秒编码窗口。 |
-| 增加前填线程、复用文本 KV、合并前填批次 | K40 固定 8 秒输入，4 线程两次约 2.23–2.24 秒，6／8 线程无稳定改善。只有音频完全不变时，复用文本 KV 才在原型中把前填 1.00–1.23 秒降至 0.09–0.14 秒，实时回放缺少此类命中。合并批次的收益不稳定。 | 保留 4 前填线程，其余实验未接入。 |
+| 增加前填线程、复用文本 KV、合并前填批次 | K40 固定 8 秒输入，4 线程两次约 2.23–2.24 秒，6／8 线程无稳定改善。只有音频完全不变时，复用文本 KV 才在原型中把前填 1.00–1.23 秒降至 0.09–0.14 秒，实时回放缺少此类命中。合并批次的收益不稳定。 | K40 保留 4 前填线程；K90 实测前填 8 线程把音频前填从 8.8 降到 5.6–6.2 毫秒/位置，已作为默认，见 [93](93-r2t2-k90-scheduling-thread-baseline.md) 第 8 节。 |
 | 推迟接近 8 秒的预览，等首窗拿到足量真实音频 | K40 两次 `Q-E08` 试验均只保留 9 个模板位置，首窗 KV 未赶上 16 秒定稿。最长无更新 14.70–19.10 秒，原策略 9.89–11.83 秒。 | 实验已撤回。 |
 
 [K90 对照](84-android-vad-design.md#k90-pro-max-后端与首轮预览对照) · [Windows 与 audio.cpp](84-android-vad-design.md#windows-r2t2-增量推理对照2026-11-25) · [ONNX 真机编码](84-android-vad-design.md#k40-真机复测-r2t2-编码器2026-11-25) · [会话回放取舍](84-android-vad-design.md#k40-会话回放与方案取舍2026-11-25) · [PR #696](https://github.com/0xShug0/audio.cpp/pull/696)
@@ -64,6 +64,7 @@ R2T2 基于 Qwen3-ASR-1.7B，用稳定前缀训练确定哪些词可以提交。
 | 资料 | 路径 |
 | --- | --- |
 | 主测试记录，包含各轮数据、采用或撤回原因 | [84 Android VAD 方案](84-android-vad-design.md)，从「R2T2 性能复测」读到「K40 首窗预览时机对照」。下半部部分参数属于早期设计，当前行为对照 85 和代码。 |
+| K90 Pro Max 的 8 秒窗、节奏门控、纯分段与线程数对照（2026-11-26） | [93 K90 调度与线程基线](93-r2t2-k90-scheduling-thread-baseline.md)：4 线程基线、6/8 编码线程、4 生成线程，含 10/20 秒混说、`Q-E08` 连续听写、`Q-A06`/`Q-E05`/`Q-E09` 语料与单轮分项。 |
 | 实施范围、录音所有权、停麦、尾音、ITN／CT、整条链路验收 | [85 Android ASR V3](85-android-asr-v3-refactor.md) |
 | Android 核心入口 | [R2t2Decoder.kt](../android/app/src/main/java/seeyuer/sayin/asr/R2t2Decoder.kt) · [R2t2Native.kt](../android/translation/src/main/java/seeyuer/sayin/translation/R2t2Native.kt) · [r2t2_jni.cpp](../android/translation/src/main/cpp/r2t2_jni.cpp) · [r2t2_mtmd.inc](../android/translation/src/main/cpp/r2t2_mtmd.inc) |
 | 测试入口 | [ImportedAsrInstrumentedTest.kt](../android/app/src/androidTest/kotlin/seeyuer/sayin/asr/ImportedAsrInstrumentedTest.kt) · [StreamingRecognitionTest.kt](../android/app/src/test/kotlin/seeyuer/sayin/asr/StreamingRecognitionTest.kt) |

@@ -82,7 +82,7 @@ class ImportedAsrInstrumentedTest {
         withContext(Dispatchers.Default) {
             val setupStarted = SystemClock.elapsedRealtime()
             val rounds = mutableListOf<Pair<Long, R2t2Timing>>()
-            val prefillThreads = arguments.getString("r2t2PrefillThreads")?.toInt() ?: 4
+            val prefillThreads = arguments.getString("r2t2PrefillThreads")?.toInt() ?: DEFAULT_PREFILL_THREADS
             val gpuDecoder = arguments.getString("r2t2GpuDecoder") == "true"
             val gpuProjector = arguments.getString("r2t2GpuProjector") == "true"
             if (gpuDecoder) {
@@ -100,10 +100,22 @@ class ImportedAsrInstrumentedTest {
             val decoder = when (id) {
                 "r2t2" -> {
                     val firstPreviewMs = arguments.getString("r2t2FirstPreviewMs")?.toInt() ?: 1_200
+                    val windowMs = arguments.getString("r2t2WindowMs")?.toInt() ?: 16_000
+                    val stepMs = arguments.getString("r2t2PreviewStepMs")?.toInt() ?: 2_000
+                    val previewMode = arguments.getString("r2t2PreviewMode") ?: "paced"
+                    val encodeThreads = arguments.getString("r2t2EncodeThreads")?.toInt() ?: DEFAULT_ENCODE_THREADS
+                    val genThreads = arguments.getString("r2t2GenThreads")?.toInt() ?: DEFAULT_GEN_THREADS
                     require(firstPreviewMs in 100..2_000 && firstPreviewMs % 100 == 0)
+                    require(windowMs in 4_000..16_000 && windowMs % 1_000 == 0)
+                    require(stepMs in 500..8_000)
                     R2t2Decoder(
                         checkNotNull(directory), prefillThreads, gpuDecoder, gpuProjector,
+                        encodeThreads = encodeThreads, genThreads = genThreads,
                         firstPreviewSamples = firstPreviewMs * 16,
+                        decodeWindowSamples = windowMs * 16,
+                        previewStepSamples = stepMs * 16,
+                        previewsEnabled = previewMode != "off",
+                        pacedPreview = previewMode == "paced",
                     ) { rounds += SystemClock.elapsedRealtime() to it }
                 }
                 "x-asr-bundled" -> XAsrDecoder(context.assets)
@@ -161,10 +173,12 @@ class ImportedAsrInstrumentedTest {
                     putString("asr_transcript", transcript)
                 })
                 if (id == "r2t2") {
-                    val whileListening = updates.count { it.first < source.endMs - source.startMs }
-                    assertTrue("R2T2 never emitted text while recording", whileListening > 0)
-                    if (arguments.getString("r2t2CheckCadence") == "true") {
-                        assertTrue("Expected repeated text updates while recording, got $whileListening", whileListening >= 2)
+                    if (arguments.getString("r2t2PreviewMode") != "off") {
+                        val whileListening = updates.count { it.first < source.endMs - source.startMs }
+                        assertTrue("R2T2 never emitted text while recording", whileListening > 0)
+                        if (arguments.getString("r2t2CheckCadence") == "true") {
+                            assertTrue("Expected repeated text updates while recording, got $whileListening", whileListening >= 2)
+                        }
                     }
                     assertTrue("Confirmed text changed", (updates.map { it.second } + transcript)
                         .zipWithNext().all { (before, after) -> after.startsWith(before) })
@@ -193,6 +207,7 @@ class ImportedAsrInstrumentedTest {
         continuous: Boolean,
     ) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val polish = FinalTextPolish.load(context.assets)
         PunctuationRestorer(context).use { ct ->
             ct.prepare()
             for (id in fixtures) {
@@ -218,7 +233,7 @@ class ImportedAsrInstrumentedTest {
                         }
                     }
                     val firstTextMs = updates.firstOrNull()?.first ?: -1L
-                    val itn = if (v3) LocalItn.normalize(raw) else raw
+                    val itn = if (v3) polish.apply(raw) else raw
                     val final = when {
                         v3 && source.noSpeech -> ""
                         v3 || decoder is XAsrDecoder -> ct.restore(itn)
@@ -256,7 +271,7 @@ class ImportedAsrInstrumentedTest {
             private set
         private var offset = 0
         val capturedMs get() = offset / 16
-        var noSpeech = false
+        override var noSpeech = false
             private set
         var autoEnded = false
             private set
@@ -288,3 +303,4 @@ class ImportedAsrInstrumentedTest {
         override fun close() { vad?.close() }
     }
 }
+

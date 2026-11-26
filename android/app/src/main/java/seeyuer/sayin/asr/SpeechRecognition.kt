@@ -63,6 +63,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
     private var decoder: LocalSpeechDecoder? = null
     private val punctuationLock = Mutex()
     private val punctuation = PunctuationRestorer(application)
+    private val polish by lazy { FinalTextPolish.load(application.assets) }
     var localArtifact: () -> LocalVoiceArtifact? = { null }
     var beforeLocalPrepare: suspend () -> Unit = {}
     private var preparation: Job? = null
@@ -160,6 +161,8 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                                 private set
                             override var retainedSampleEnd: Int? = null
                                 private set
+                            override var noSpeech = false
+                                private set
 
                             override suspend fun read(): FloatArray? {
                                 val block = input.read() ?: return null
@@ -180,6 +183,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                                 segmentBoundary = progress?.segmentBoundary == true
                                 speechInBlock = progress?.speech
                                 retainedSampleEnd = detector?.retainedSampleEnd
+                                if (progress?.noSpeech == true) noSpeech = true
                                 val rms = kotlin.math.sqrt(pcm.sumOf { (it * it).toDouble() } / pcm.size).toFloat()
                                 mutableState.update {
                                     if (it.session == session && it.phase == RecognitionPhase.Listening) {
@@ -237,7 +241,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                                     while (true) {
                                         ensureActive()
                                         val pcm = source.read() ?: break
-                                        buffer.offer(pcm, source.segmentBoundary, source.speechInBlock, source.retainedSampleEnd)
+                                        buffer.offer(pcm, source.segmentBoundary, source.speechInBlock, source.retainedSampleEnd, source.noSpeech)
                                     }
                                 }
                             } catch (failure: Throwable) {
@@ -255,7 +259,7 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
                             check(ready == LocalModelPhase.Ready) { "Local model did not become ready" }
                             issue = RecognitionIssue.Recognition
                             val raw = modelLock.withLock { checkNotNull(decoder).recognize(buffer, ::publish) }
-                            if (mutableState.value.end == RecordingEnd.NoSpeech) "" else punctuate(LocalItn.normalize(raw))
+                            if (mutableState.value.end == RecordingEnd.NoSpeech) "" else punctuate(polish.apply(raw))
                         } finally {
                             source.requestStop()
                             capture.cancel()
@@ -365,3 +369,4 @@ internal class SpeechRecognition(context: Context) : RecognitionEngine {
         const val LOCAL_READY_MILLIS = 12_000L
     }
 }
+

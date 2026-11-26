@@ -1,0 +1,35 @@
+id	input	expected	kind	note
+FMT-001	今天天气真好。。	今天天气真好。	MUST_CHANGE	重复句号
+FMT-002	真的吗？？	真的吗？	MUST_CHANGE	
+FMT-003	太好了！！！	太好了！	MUST_CHANGE	
+FMT-004	好，，我们走吧	好，我们走吧	MUST_CHANGE	重复逗号
+FMT-005	今天 ， 天气真好	今天，天气真好	MUST_CHANGE	中文标点两侧空格
+FMT-006	你好 。	你好。	MUST_CHANGE	
+FMT-007	你好  世界	你好世界	MUST_CHANGE	汉字之间的空格
+FMT-008	今天用 ChatGPT 写代码	今天用ChatGPT写代码	MUST_CHANGE	政策P7:中文与英文/数字之间不留空格
+FMT-009	我有 3 个苹果	我有3个苹果	MUST_CHANGE	同上
+FMT-010	  你好  	你好	MUST_CHANGE	首尾空白
+FMT-011	邮箱是 name@example.com	邮箱是name@example.com	MUST_CHANGE	同P7
+FMT-020	我想想……	我想想……	MUST_KEEP	省略号保留
+FMT-021	等等...再说	等等...再说	MUST_KEEP	英文三点保留
+FMT-022	这个——很重要	这个——很重要	MUST_KEEP	破折号保留
+FMT-023	真的？！	真的？！	MUST_KEEP	问叹号组合保留
+FMT-024	圆周率是3.14	圆周率是3.14	MUST_KEEP	数字小数点不能动
+FMT-025	会议在10:30开始	会议在10:30开始	MUST_KEEP	时间冒号不能动
+FMT-026	版本号是v1.2.3	版本号是v1.2.3	MUST_KEEP	版本号不能动
+FMT-027	访问ChatGPT.com看看	访问ChatGPT.com看看	MUST_KEEP	域名点不能动
+FMT-028	邮箱是name@example.com	邮箱是name@example.com	MUST_KEEP	
+FMT-029	网址是https://example.com/a?b=1&c=2	网址是https://example.com/a?b=1&c=2	MUST_KEEP	URL整体保护
+FMT-030	路径是src/main/kotlin/App.kt	路径是src/main/kotlin/App.kt	MUST_KEEP	路径保护
+FMT-031	金额是1,000元	金额是1,000元	MUST_KEEP	千分位逗号不能动
+FMT-032	Hello, world. How are you?	Hello, world. How are you?	MUST_KEEP	纯英文句子不能动
+FMT-033	他说：“你好。”	他说：“你好。”	MUST_KEEP	引号保留
+FMT-034	I love you	I love you	MUST_KEEP	英文单词间空格保留
+FMT-035	好的。	好的。	MUST_KEEP	幂等
+FMT-036	你好，世界。你好！	你好，世界。你好！	MUST_KEEP	幂等
+FMT-037	100%和5.5%	100%和5.5%	MUST_KEEP	百分号保留
+FMT-038	第一行\n第二行	第一行\n第二行	MUST_KEEP	换行保留(\n为转义)
+FMT-039	<EMPTY>	<EMPTY>	MUST_KEEP	空串保持为空
+FMT-050	你好,世界	你好,世界|你好，世界	EITHER	ASCII逗号夹在中文间:保守起见两种都接受
+FMT-051	等一下。。。	等一下。。。|等一下……	EITHER	三个句号可能是省略号:不得压成单个句号
+FMT-052	真的吗？？？	真的吗？？？|真的吗？	EITHER	连续三个问号:表达语气,两种都接受
