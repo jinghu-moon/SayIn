@@ -1,7 +1,8 @@
 param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild,
     [switch]$SkipInstall, [switch]$Lan, [switch]$TransportOnly, [switch]$FullSuite,
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement,
-    [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt)
+    [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
+    [switch]$ControlPerformance, [ValidateRange(1,100)][int]$ControlSamples = 100)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
@@ -10,6 +11,7 @@ if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairin
 if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
 if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
 if ($BatchPathReceipt -and !$ImageBatch) { throw 'BatchPathReceipt requires ImageBatch.' }
+if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $ImageBatch)) { throw 'ControlPerformance requires a separate LAN run.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
 function Invoke-Checked([scriptblock]$Action) {
@@ -26,6 +28,7 @@ if (!$SkipBuild) {
     Push-Location (Join-Path $projectRoot 'desktop')
     try {
         if ($NativeBatch) { Invoke-Checked { cargo build --release -p voicelink-receiver --example native_input_fixture -p voicelink-transport --example android_fixture --locked } }
+        elseif ($ControlPerformance) { Invoke-Checked { cargo build --release -p voicelink-transport --example android_fixture --locked } }
         else { Invoke-Checked { cargo build -p voicelink-transport --example android_fixture --locked } }
     } finally { Pop-Location }
 }
@@ -43,7 +46,8 @@ $additionalFixtures = @()
 if (($Lan -and ($TransportOnly -or $FullSuite)) -or ($TransportOnly -and $FullSuite)) { throw 'FullSuite/TransportOnly are mutually exclusive loopback regressions; use the image suite for LAN.' }
 $lease = [System.Threading.Mutex]::new($false, "Local\SayIn-Android-$DeviceSerial")
 $leaseAcquired = $false
-$testClass = if ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
+$testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceInstrumentedTest' }
+    elseif ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' }
     elseif ($PairReplacement) { 'seeyuer.sayin.data.PairReplacementInstrumentedTest' }
     elseif ($TransportOnly) { 'seeyuer.sayin.data.TransportInstrumentedTest' }
     elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
@@ -51,8 +55,8 @@ $testClass = if ($HotTargets) { 'seeyuer.sayin.data.HotTargetsInstrumentedTest' 
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
 $expectedTextUiTests = 179
 $expectedImageTests = 5
-$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch) { 1 } else { $expectedImageTests }
-$expectedCalls = if ($HotTargets) { 0 } elseif ($PairReplacement -or $BatchPathReceipt) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance) { 1 } else { $expectedImageTests }
+$expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
     if (!$leaseAcquired) { throw 'Another SayIn device verification is active; run serially.' }
@@ -97,7 +101,7 @@ try {
     if ($PairReplacement) { $fixtureArguments += '--pair-replacement' }
     if ($NativeBatch) { $fixtureArguments += '--native-target' }
     if ($BatchPathReceipt) { $fixtureArguments += '--image-path-receipt' }
-    $profile = if ($NativeBatch) { 'release' } else { 'debug' }
+    $profile = if ($NativeBatch -or $ControlPerformance) { 'release' } else { 'debug' }
     $process = Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $fixtureArguments -PassThru -WindowStyle Hidden
     $deadline = [DateTime]::UtcNow.AddSeconds(20)
     $fixturePath = Join-Path $fixtureDirectory 'fixture.json'
@@ -116,10 +120,14 @@ try {
         Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$replacementPort" "tcp:$replacementPort" }
         $arguments += @('-e', 'replacementControlPort', $replacementPort)
     }
-    if ($HotTargets) {
+    if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
+    if ($HotTargets -or $ControlPerformance) {
         foreach ($position in @('second', 'third')) {
             $directory = Join-Path $fixtureDirectory $position
-            $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory 'debug/examples/android_fixture.exe') -ArgumentList @("`"$directory`"", '--port=0', '--lifetime=7200', '--hold-retention-seconds=120') -PassThru -WindowStyle Hidden); port = $null }
+            $extraArguments = @("`"$directory`"", '--port=0', '--lifetime=7200', '--hold-retention-seconds=120')
+            if ($Lan) { $extraArguments += '--lan' }
+            if ($ControlPerformance -and $position -eq 'second') { $extraArguments += '--text-commit-timing' }
+            $extra = @{ directory = $directory; process = (Start-Process -FilePath (Join-Path $targetDirectory "$profile/examples/android_fixture.exe") -ArgumentList $extraArguments -PassThru -WindowStyle Hidden); port = $null }
             $additionalFixtures += $extra
             $extraPath = Join-Path $directory 'fixture.json'
             $deadline = [DateTime]::UtcNow.AddSeconds(10)
@@ -130,14 +138,14 @@ try {
             $endpoint = Get-Content -LiteralPath $extraPath -Raw | ConvertFrom-Json
             $extra.port = [int]$endpoint.port
             if ($extra.port -le 1024 -or $extra.port -gt 65535 -or $endpoint.code -notmatch '^\d{8}$') { throw 'Invalid additional fixture metadata.' }
-            Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$($extra.port)" "tcp:$($extra.port)" }
-            $arguments += @('-e', "${position}FixturePort", $extra.port, '-e', "${position}FixtureCode", $endpoint.code)
+            if (!$Lan) { Invoke-Checked { & $adb -s $DeviceSerial reverse "tcp:$($extra.port)" "tcp:$($extra.port)" } }
+            $arguments += @('-e', "${position}FixturePort", $extra.port, '-e', "${position}FixtureCode", $endpoint.code, '-e', "${position}FixtureAddress", $endpoint.address)
         }
     }
     if ($FullSuite) { $arguments += @('-e', 'notAnnotation', 'seeyuer.sayin.ui.RootHelperDeviceTest') }
     # Pairing invitations and active-device gates are single-use state. The
     # image data suite gets its own fresh desktop identity, not a reset gate.
-    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.ControlPerformanceInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
     if ($ImageBatch) { $arguments += @('-e', 'fixtureImageBatch', 'true') }
     if ($BatchPathReceipt) { $arguments += @('-e', 'fixtureBatchPathReceipt', 'true') }
@@ -149,6 +157,9 @@ try {
     $arguments += 'seeyuer.sayin.imagetest.test/androidx.test.runner.AndroidJUnitRunner'
     & $adb @arguments > $log 2>&1
     $instrumentExit = $LASTEXITCODE
+    if ($ControlPerformance) {
+        Invoke-Checked { & $adb -s $DeviceSerial pull '/sdcard/Android/data/seeyuer.sayin.imagetest/files/control-performance-result.json' (Join-Path $fixtureDirectory 'control-performance.json') }
+    }
     $output = Get-Content -LiteralPath $log -Raw
     if ($instrumentExit -ne 0 -or $output -notmatch "OK \($expectedTests tests?\)" -or $output -match 'FAILURES!!!|INSTRUMENTATION_FAILED|Process crashed') { throw "Instrumentation failed; see $log" }
     $skippedTests = [regex]::Matches($output, '(?m)^INSTRUMENTATION_STATUS_CODE: -[34]\r?$').Count
@@ -181,6 +192,34 @@ try {
             }
         }
     } elseif ($calls.fake_input_calls -ne $expectedCalls) { throw "Expected exactly $expectedCalls fake input calls; cancellation/recovery must not replay." }
+    if ($ControlPerformance) {
+        $samples = Get-Content -LiteralPath (Join-Path $fixtureDirectory 'control-performance.json') -Raw | ConvertFrom-Json
+        if (@($samples.warm_text).Count -ne $ControlSamples -or @($samples.cold_switch).Count -ne $ControlSamples -or $skippedTests -ne 0) { throw 'Missing control performance samples.' }
+        for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
+            $extraCalls = Get-Content -LiteralPath (Join-Path $additionalFixtures[$index].directory 'calls.json') -Raw | ConvertFrom-Json
+            if ($extraCalls.native_input_calls -ne 0 -or $extraCalls.fake_input_calls -ne ($ControlSamples * [int]($index -eq 0))) { throw 'Unexpected control fixture input count.' }
+        }
+        $timedFixture = $additionalFixtures[0]
+        Set-Content -LiteralPath (Join-Path $timedFixture.directory 'stop') -Value '' -NoNewline
+        if (!$timedFixture.process.WaitForExit(15000) -or $timedFixture.process.ExitCode -ne 0) { throw 'Timed fixture did not stop cleanly.' }
+        $commits = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'text-commits.json') -Raw | ConvertFrom-Json -NoEnumerate
+        if ($commits.Count -ne (3 * $ControlSamples)) { throw 'Missing desktop commit timestamps.' }
+        $desktop = @{}
+        foreach ($commit in $commits) {
+            if (!$desktop.ContainsKey($commit[0])) { $desktop[$commit[0]] = @{} }
+            $desktop[$commit[0]].Add($commit[1], [long]$commit[2])
+        }
+        foreach ($sample in $samples.warm_text) {
+            $times = $desktop[$sample.id]
+            if (!$times -or $times.Count -ne 3 -or !$times.ContainsKey('accepted') -or !$times.ContainsKey('executing') -or !$times.ContainsKey('injected') -or
+                $times.accepted -gt $times.executing -or $times.executing -gt $times.injected) { throw 'Unmatched or invalid text commit timestamps.' }
+            $sample | Add-Member -NotePropertyName accepted_to_executing_ms -NotePropertyValue (($times.executing - $times.accepted) / 1e6)
+            $sample | Add-Member -NotePropertyName executing_to_terminal_ms -NotePropertyValue (($times.injected - $times.executing) / 1e6)
+            $desktop.Remove($sample.id)
+        }
+        $samples | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-segments.json') -Encoding utf8
+        $expectedCalls = $ControlSamples
+    }
     if ($HotTargets) {
         for ($index = 0; $index -lt $additionalFixtures.Count; $index++) {
             $directory = $additionalFixtures[$index].directory
@@ -191,7 +230,7 @@ try {
     }
     if (($KeepUpgradeFixture -or $ImageBatch) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } else { 'fake' }
-    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = $calls.fake_input_calls; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
+    @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = $calls.native_input_calls; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
     Write-Output "PASS: $passedTests passed, $skippedTests skipped; $expectedCalls $inputMode input calls, no replay. Evidence: $fixtureDirectory"
     if ($FullSuite) {
         & $PSCommandPath -DeviceSerial $DeviceSerial -SkipBuild -SkipInstall
@@ -212,7 +251,7 @@ try {
                     Set-Content -LiteralPath (Join-Path $extra.directory 'stop') -Value '' -NoNewline
                     if (!$extra.process.WaitForExit(5000)) { Stop-Process -Id $extra.process.Id }
                 }
-                if ($extra.port) { & $adb -s $DeviceSerial reverse --remove "tcp:$($extra.port)" 2>$null | Out-Null }
+                if ($extra.port -and !$Lan) { & $adb -s $DeviceSerial reverse --remove "tcp:$($extra.port)" 2>$null | Out-Null }
                 $extraPath = Join-Path $extra.directory 'fixture.json'
                 if (Test-Path -LiteralPath $extraPath) { Remove-Item -LiteralPath $extraPath }
             }

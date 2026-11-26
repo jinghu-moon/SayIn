@@ -380,7 +380,7 @@ scripts/verify_android_transport.ps1 -FullSuite
 | P6 | T27–T29 | 双配对可同时上传并登记资源，绑定拒绝与 Android 图片草稿隔离回归通过。一对一真实 LAN 原生图片已验证，真实 2×2 暂缓。 | `bfbcbc4` |
 | P7 | T30–T31 | 旧配对、草稿、文字及图片回执原地升级通过，原图片可解密，K40 隔离全套和日常包安装通过。 | `0e806b7` |
 | P8 | T32 | 已冻结八项性能门槛、单次超时、允许超时率和最少样本数。 | 本提交 |
-| P8 | T33 | 一对一真实 LAN 原生图片准备与上传达标，登记至原生确认和手机观察终态 p95 为 1,092.1–1,115.4 ms，超过 700 ms。本地持久暂停 100 轮达标。短文本、冷连接、手机可见暂停和 M1–M28 仍待完整验收，真实 2×2 暂缓。 | §9 |
+| P8 | T33 | 一对一真实 LAN 原生图片准备与上传达标，登记至原生确认和手机观察终态 p95 为 1,092.1–1,115.4 ms，超过 700 ms。本地持久暂停和已配对冷切换各 100 轮达标。短文本假输入基线的首条回执和桌面入队至执行超标，原生短文本、手机可见暂停和 M1–M28 仍待完整验收，真实 2×2 暂缓。 | §9 |
 | P9 | T34 | 71 字节邀请、V5-M 原生渲染、K40 短码和二维码数据配对通过。物理相机对屏待验证。 | — |
 | P9 | T35 | 无损 WebP、完整帧预算、本机样本和 K40 解码与加密历史恢复通过。 | `0e806b7` |
 | P9 | T36 | 已实现 Android 多选和逐张发送。K40 与 Windows RichEdit 真实 LAN 验证顺序、损坏项停止、原生路径复制停止和无重放。暂停与取消有夹具证据。批次专用跨目标、撤销与迟到回执待验证。 | `a7433c8` 与 §9 |
@@ -626,3 +626,23 @@ K40 隔离 APK 保持正式 Repository、Room、Keystore 与双 WSS 路径，Win
 - 用 `verify_image_performance.ps1 -DeviceSerial dc39c31d -PauseProbe -Repeats 100` 执行 100 轮真实 LAN 图片上传中暂停及重连。每轮核对上传中断、批次停止、配对保留和零重放；假输入和原生输入调用均为 0。Windows Release 夹具以同机单调时钟测量 `Receiver.pause()` 入口至持久化成功，p50 / p95 / p99 / 最大值为 2.73 / 3.51 / 4.50 / 5.76 ms，0 次超过 500 ms，达到本地 50 ms 门槛。手机端回显记录包含往返及夹具轮询，手机屏幕可见暂停仍需双端同画面采集。证据为 `image-performance-f8fc685f-e793-42ed-8e2d-7a5732e31a76`。前一轮使用设备上的旧测试 APK，只跑了 5 次，样本数校验正确失败，证据为 `image-performance-6d7cd81b-61c9-47a4-81bd-234743ee4fee`。
 - Android JVM 247 项通过，lint、Debug 与隔离 APK 构建通过。初次 K40 全量回归的 `connectionSheetTracksDesktopGateWithoutRemoteResumeOrSending` 缺少状态节点，定向复跑和下一次全量均通过。全量复跑文字/UI 170 项、图片 4 项通过，10 项条件跳过，0 项失败。本地证据为 `image-android-fixture-8dd27189-f8ec-460c-99bc-423c153d5459` 及 `image-android-fixture-bbcfc9b2-af49-47f3-91f4-64576006974b`。Rust 工作区 199 项通过，Clippy、包级 rustfmt、i18n、桌面依赖检查和桌面构建通过。
 - K40 日常包通过 Root `pm install -r` 覆盖安装，设备 APK 与本地的 SHA-256 均为 `9009E763795959C1C8708EB2D8849CEE70973FCC3AB527FC547FA02B57E60C10`。
+
+#### 短文本与已配对冷切换
+
+运行 `verify_android_transport.ps1 -DeviceSerial dc39c31d -Lan -ControlPerformance -SkipBuild -SkipInstall`。K40 使用隔离应用和正式 Repository、Room 与固定证书 WSS。Windows 同一台电脑启动三个独立 Release 身份。依次发送 100 条短文本到同一个热会话，收到持久终态后才发送下一条。另做 100 次已知地址的切换，每次用新认证会话 ID 验证连接确实重建，再等到手机可发送。USB 只用于驱动仪器和提取记录，桌面使用假输入，共 100 次，全部在第二个身份，零重放。
+
+首条回执全部为 `accepted`，手机计时截止于该条回执完成 Room 状态更新。桌面在 SQLite 提交成功后记录 `accepted`、`executing` 和 `injected` 的单调时间，停机后导出，并按 UUID 逐一匹配手机样本。下表采用 nearest-rank，单位为毫秒，超时样本保留在排序中。
+
+| 路径 | p50 | p95 | p99 | 最大值 | 超时 | 相对 89 §6 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| 发送入口至手机首条持久回执 | 91.24 | 181.30 | 501.69 | 795.99 | 2/100 超过 500 ms | 超过 30 ms 和 1% |
+| 发送入口至手机持久终态 | 130.06 | 255.96 | 542.00 | 845.99 | — | 超过 v2 的 80 ms / 150 ms |
+| 桌面持久 accepted 至 executing | 10.41 | 22.94 | 108.97 | 138.95 | 0/100 | 超过 20 ms |
+| 桌面持久 executing 至终态 | 2.93 | 4.01 | 4.74 | 5.25 | 0/100 | 假输入基线低于 30 ms |
+| 冷切换至可发送 | 173.94 | 229.66 | 516.25 | 616.30 | 0/100 | 通过 1,000 ms |
+
+证据位于 `desktop/target/image-android-fixture-b63a34ac-de43-4d69-a96b-baf772bdeab2/control-segments.json`。五样本试跑目录后缀为 `3ace47ea-0d33-477d-8496-456e94328db5`。短文本在设备侧从 Repository 入口计时，桌面假输入夹具还会生成应用显示元数据，数据作为真 LAN 软件路径基线。原生目标和点击至回执的完整门槛留待原生短文本测量。
+
+- Rust 199 项和 Android JVM 247 项通过，Clippy、包级 rustfmt、i18n、桌面依赖检查、Android lint 与 Debug 构建通过。K40 隔离全套通过文字/UI 170 项、图片 4 项，另有 10 项条件跳过。文字与图片的证据目录后缀分别为 `4754279a-a70b-40ca-945c-7f0ef1115dfb` 和 `0778f04f-6d7d-4fc5-91cb-2ef3db5e850c`。
+- K40 以当前 v3 发现夹具分别复验真实 LAN 路由恢复与撤销。两组各有一次初始假输入，路由迁移保留暂停，撤销后的旧配对保持拒绝，零重放。证据目录为 `discovery-fixture-0944ba63-1ecf-49a1-9d5b-6f76d39826bd` 和 `discovery-fixture-3b281900-f321-44a2-83f7-1e04e7698088`。重建前旧夹具在协议阶段失败，日志位于 `discovery-fixture-ad674710-7777-4dea-9155-49f6ffbea757`。
+- API 29 独立 x86_64 模拟器使用 `sayin.emulatorTests=true` 的隔离 APK，最低系统的 TLS 1.3 能力门禁通过，证据为 `android-platform-api29-08fbf481-8700-443d-ab06-a35739db8178`。

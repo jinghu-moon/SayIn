@@ -80,6 +80,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private val draftStore: SpeakingDraftStore = SpeakingDraftStore(context.applicationContext),
     private val imageTiming: ((String, Long) -> Unit)? = null,
     private val imageRegistration: ((ImageReference, Long) -> Unit)? = null,
+    private val receiptTiming: ((OutboxKey, String, Long) -> Unit)? = null,
+    private val sessionObserved: ((String, String) -> Unit)? = null,
 ) {
     private val app = context.applicationContext
     private val networkMonitor = LanNetwork(app) { enqueue(Event.NetworkChanged) }
@@ -738,6 +740,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 val recoveringPairing = selected && checkingPairingCandidate
                 require(recoveringPairing || authenticated.identity() == peer.host?.identity())
                 peer.session = sessionId
+                sessionObserved?.invoke(authenticated.hostId, sessionId)
                 val autoTextSupported = supportsAutoText(value)
                 applyState(value, peer)
                 if (selected) imageInput?.welcome(value)
@@ -911,6 +914,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
                     value.optString("reason").takeIf { it.isNotEmpty() }, terminal, executionMethod, requestRev,
                     executionStage, uncertainScope, confirmed)
+                receiptTiming?.invoke(item.key, status, SystemClock.elapsedRealtimeNanos())
                 imageInput?.cleanup(dao.trimTerminal())
             }
             catch (_: Exception) { storageFailed(); return }

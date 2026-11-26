@@ -326,6 +326,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Duration::from_secs)
         .unwrap_or(voicelink_receiver::ledger::DEFAULT_HOLD_RETENTION);
     let mut ledger = open_ledger_with_retention(&output, hold_retention)?;
+    let text_commits = if std::env::args().any(|arg| arg == "--text-commit-timing") {
+        let (sender, events) = std::sync::mpsc::sync_channel(300);
+        let origin = std::time::Instant::now();
+        ledger.observe_text_commits(move |id, state, at| {
+            let _ = sender.try_send((
+                id.to_owned(),
+                state.key(),
+                at.duration_since(origin).as_nanos(),
+            ));
+        });
+        Some(events)
+    } else {
+        None
+    };
     let identity = HostIdentity::open(&output, 0)?;
     let image_store = if std::env::args().any(|arg| arg == "--images") {
         let images = output.join("images");
@@ -543,5 +557,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     service.shutdown().await?;
     receiver.shutdown().await?;
+    if let Some(events) = text_commits {
+        let events: Vec<_> = events.try_iter().collect();
+        std::fs::write(
+            output.join("text-commits.json"),
+            serde_json::to_vec(&events)?,
+        )?;
+    }
     Ok(())
 }
