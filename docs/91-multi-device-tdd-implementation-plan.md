@@ -665,7 +665,7 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 | M16、M17 | TLS 撤销回归、短码拒绝和账本请求限速。K40 移动路由后旧凭据未恢复连接。 | 撤销期间其他配对继续工作，以及共享 NAT 来源洪泛下的桶独立性。 |
 | M18、M19 | Rust 完整帧 8,192/8,193 字节、超长应用名、修订字符串、状态单调与并发写入回归。 | 在真实连接上重放旧修订并完成端到端边界检查。 |
 | M20、M21 | K40 主动重配回环测试、Rust 替换配对迁移、重启和 `held` 期限回归。 | 真实 LAN 多配对重配与未决请求并发。 |
-| M22–M24 | Rust 查询缺失向量、账本保留期、恢复及顺序。K40 等待 `hold_expired` 与手机恢复回归。 | 完整的缺失查询后显式重试、暂停期间三条和长保留期到点重配联测。 |
+| M22–M24 | Rust 查询缺失向量、账本保留期、恢复及顺序。K40 等待 `hold_expired` 与手机恢复回归。M24 通过注入时钟的 TLS 回环联测。 | 完整的缺失查询后显式重试、暂停期间三条，以及物理设备复验。 |
 | M25–M28 | K40 原地迁移、Rust 多不确定性审核和帧预算、Rust 黄金组合与 Android 回执展示矩阵。 | 完整旧 `held` 端到端展示、多设备核对，以及完整回执跨语言逐字节比较。 |
 
 补齐 M2 同一账本双配对用例和 M3 旧会话查询断言后，账本集成测试 51 项、回环网络集成测试 12 项通过，包级 rustfmt 与 Git diff 检查通过。
@@ -701,3 +701,6 @@ Rust 工程证据来自本次工作区回归日志 `desktop/target/v3-control-ca
 K40 日常 APK 通过 Root pm install -r 覆盖安装，设备与本地的最终 APK SHA-256 均为 F5FBF2508E373D595F8969098F7C2C71C0D870E3493BEC2EDCAA2A00EC467F7E。新隔离包的 LAN 图片套件 5 项通过、2 项按场景跳过，1 次假输入、零重放，证据目录为 image-android-fixture-8efb3100-4eb1-441a-9a85-cab42d31a47d。
 
 最终 Rust 201 项、Android JVM 247 项通过，Clippy、四包 rustfmt、i18n、依赖、Android lint 和 Debug 构建通过。K40 完整回归通过文字/UI 170 项、图片 5 项，11 项条件跳过，零失败，目录后缀分别为 594a6962-e8e7-4fa7-984c-07b7abdc7742 和 235ebb9f-02ee-48d3-8712-bdf4fd453422。手机 WebSocket 回执用例从 JVM 移到仪器套件，使用系统 JsonReader。协议穷举红测发现文档与 Rust 错误码表、固定数量未同步，更新 18 项契约并通过全量复验。
+#### M24 保留期到点解除重配限制
+
+TLS 回环测试 held_expiry_pushes_without_queries_and_unblocks_execution_and_replacement 使用 ManualClock 推进 600 秒。先用合法旧凭据申请并批准重配，持久事务返回 PAIR_REPLACE_BLOCKED。到期时桌面主动推送 expired / hold_expired，旧请求零输入，后续新文字输入一次。再次重配成功，新凭据查询保留原到期原因、接受序号与请求修订，旧凭据当场失效。回环网络 13 项、Clippy、包级 rustfmt 通过。

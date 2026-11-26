@@ -82,7 +82,7 @@ impl InputAdapter for RecoveringAdapter {
 }
 
 #[tokio::test]
-async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_executes() {
+async fn held_expiry_pushes_without_queries_and_unblocks_execution_and_replacement() {
     let directory = Directory::new();
     let ready = Arc::new(AtomicBool::new(false));
     let calls = Arc::new(AtomicUsize::new(0));
@@ -136,6 +136,23 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
         assert_eq!(status["st"], "accepted");
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+    let old_pair = paired["pair_id"].as_str().unwrap();
+    service
+        .open_pairing_replacing(old_pair.to_owned())
+        .await
+        .unwrap();
+    let blocked_invite = current_invitation(&service).await;
+    let replace = |invite: &Invitation| {
+        json!({"v":3,"t":"pair","name":"Test Android","secret":invite.secret,
+        "replace_pair_id":old_pair,"replace_token":paired["token"]})
+    };
+    let (mut blocked, _) =
+        approve_pairing_request(&service, &blocked_invite, replace(&blocked_invite)).await;
+    assert_eq!(
+        next(&mut blocked, "err").await["code"],
+        "PAIR_REPLACE_BLOCKED"
+    );
+
     clock.advance(Duration::from_secs(600));
     // Only consume server pushes. No query, UI refresh or control may drive TTL.
     let expired = next(&mut socket, "status").await;
@@ -162,6 +179,46 @@ async fn held_and_expiry_are_pushed_without_phone_queries_then_fresh_text_execut
         }
         assert_eq!(status["st"], "executing");
     }
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    service
+        .open_pairing_replacing(old_pair.to_owned())
+        .await
+        .unwrap();
+    let replacement_invite = current_invitation(&service).await;
+    let replacement =
+        pair_with_request(&service, &replacement_invite, replace(&replacement_invite)).await;
+    assert_ne!(replacement["pair_id"], paired["pair_id"]);
+    let mut replaced = socket_path(&replacement_invite, "/sayin/v3").await;
+    send(
+        &mut replaced,
+        json!({"v":3,"t":"hello","name":"Test Android",
+        "pair_id":replacement["pair_id"],"token":replacement["token"]}),
+    )
+    .await;
+    let current = next(&mut replaced, "welcome").await;
+    let reference = Uuid::new_v4().to_string();
+    send(
+        &mut replaced,
+        json!({"v":3,"t":"query","session_id":current["session_id"],"ref":reference,"ids":[first]}),
+    )
+    .await;
+    let transferred = next(&mut replaced, "status").await;
+    assert_eq!(transferred["id"], expired["id"]);
+    assert_eq!(transferred["st"], "expired");
+    assert_eq!(transferred["reason"], "hold_expired");
+    assert_eq!(transferred["accept_order"], expired["accept_order"]);
+    assert_eq!(transferred["request_rev"], expired["request_rev"]);
+    assert_eq!(next(&mut replaced, "queried").await["ref"], reference);
+
+    let mut revoked = socket_path(&replacement_invite, "/sayin/v3").await;
+    send(
+        &mut revoked,
+        json!({"v":3,"t":"hello","name":"Test Android",
+        "pair_id":paired["pair_id"],"token":paired["token"]}),
+    )
+    .await;
+    assert_eq!(next(&mut revoked, "err").await["code"], "UNAUTHORIZED");
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     service.shutdown().await.unwrap();
     receiver.shutdown().await.unwrap();
@@ -328,6 +385,19 @@ async fn pair_with_request(
     invitation: &Invitation,
     request: Value,
 ) -> Value {
+    let (mut socket, candidate) = approve_pairing_request(service, invitation, request).await;
+    let paired = next(&mut socket, "paired").await;
+    assert_eq!(paired["pair_id"], candidate["pair_id"]);
+    assert_eq!(paired["host_id"], candidate["host_id"]);
+    assert!(paired.get("token").is_none());
+    candidate
+}
+
+async fn approve_pairing_request(
+    service: &NetworkService,
+    invitation: &Invitation,
+    request: Value,
+) -> (Socket, Value) {
     let mut socket = socket(invitation).await;
     send(&mut socket, request).await;
     let candidate = next(&mut socket, "pair_candidate").await;
@@ -350,11 +420,7 @@ async fn pair_with_request(
     assert_eq!(approval.name, "Test Android");
     assert_eq!(approval.source.to_string(), "127.0.0.1");
     service.decide(&approval.id, true).await.unwrap();
-    let paired = next(&mut socket, "paired").await;
-    assert_eq!(paired["pair_id"], candidate["pair_id"]);
-    assert_eq!(paired["host_id"], candidate["host_id"]);
-    assert!(paired.get("token").is_none());
-    candidate
+    (socket, candidate)
 }
 
 #[tokio::test]
