@@ -121,6 +121,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     sourceSets.maybeCreate("imageTest").assets.srcDir(rootProject.file("local-asr/assets"))
+    sourceSets.getByName("androidTest").assets.srcDir(repositoryRoot.resolve("docs/research/91-golden"))
     testBuildType = providers.gradleProperty("sayin.instrumentationBuildType").getOrElse("debug")
     buildTypes {
         debug {

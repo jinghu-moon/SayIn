@@ -417,6 +417,8 @@ fn decode_frame(bytes: &[u8], kind: &str) -> Result<Value> {
 fn encode_frame(mut fields: Value, kind: &str) -> Result<Vec<u8>> {
     fields["v"] = Value::from(3);
     fields["t"] = Value::from(kind);
+    // Keep wire bytes stable when another workspace crate enables preserve_order.
+    fields.sort_all_objects();
     serde_json::to_vec(&fields).map_err(|_| INVALID_REQUEST)
 }
 
@@ -733,14 +735,36 @@ mod golden_tests {
         let frame: Value = serde_json::from_slice(WITH_ICON).unwrap();
         round_trip(&frame);
         let mut decoded = StatusFrame::decode(WITH_ICON).unwrap();
+        assert_eq!(decoded.encode().unwrap(), WITH_ICON);
+        assert_eq!(
+            StatusFrame::decode(OMITTED_ICON).unwrap().encode().unwrap(),
+            OMITTED_ICON
+        );
         let StatusFrame::Receipt(ref mut receipt) = decoded else {
             panic!("expected a receipt");
         };
+        let application = receipt.application.as_ref().unwrap();
+        assert_eq!(application.name.chars().count(), 96);
+        let icon = STANDARD
+            .decode(application.icon_webp.as_ref().unwrap())
+            .unwrap();
+        assert_eq!(icon.len(), 4096);
+        let webp = image::load_from_memory_with_format(&icon, image::ImageFormat::WebP).unwrap();
+        assert_eq!((webp.width(), webp.height()), (48, 48));
         receipt.reason.as_mut().unwrap().push('x');
         let mut expected: Value = serde_json::from_slice(OMITTED_ICON).unwrap();
         expected["reason"] = json!(receipt.reason);
         let encoded = decoded.encode().unwrap();
-        assert_eq!(serde_json::from_slice::<Value>(&encoded).unwrap(), expected);
+        assert_eq!(encoded, serde_json::to_vec(&expected).unwrap());
+
+        let StatusFrame::Receipt(ref mut receipt) = decoded else {
+            unreachable!();
+        };
+        receipt.application.as_mut().unwrap().name.push('😀');
+        expected.as_object_mut().unwrap().remove("application");
+        expected.sort_all_objects();
+        let encoded = decoded.encode().unwrap();
+        assert_eq!(encoded, serde_json::to_vec(&expected).unwrap());
 
         let oversized = [WITH_ICON, b" "].concat();
         assert!(StatusFrame::decode(&oversized).is_err());

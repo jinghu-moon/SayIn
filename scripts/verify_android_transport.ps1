@@ -60,7 +60,7 @@ $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceIn
     elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 180
+$expectedTextUiTests = 181
 $expectedImageTests = 7
 $expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance -or $MissingReceipt) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
