@@ -400,10 +400,15 @@ class MobileShellInstrumentedTest {
     }
 
     @Test fun sendRequiresExplicitClickAndReadyReceiver() {
+        val target = seeyuer.sayin.data.PairedTarget("host", "device", "192.168.1.23", 7788)
+        var state by mutableStateOf(ready().copy(pairedTargets = listOf(target), selectedHostId = target.hostId))
         var sends = 0
         setTestContent {
             VoiceLinkTheme {
-                TestVoiceLinkContent(ready(), TextFieldValue("confirm me"), {}, { sends++ }, { _, _ -> }, {})
+                TestVoiceLinkContent(state, TextFieldValue("confirm me"), {}, {
+                    assertTrue(currentTestSession.markSubmitted())
+                    sends++
+                }, { _, _ -> }, {})
             }
         }
         compose.onNodeWithTag("nav-History").performClick()
@@ -411,6 +416,21 @@ class MobileShellInstrumentedTest {
         assertEquals(0, sends)
         compose.onNodeWithTag("send-draft").assertIsDisplayed().performClick()
         assertEquals(1, sends)
+        val receipt = compose.onNodeWithTag("current-receipt")
+        receipt.assertTextEquals(context.getString(R.string.speak_sending))
+        compose.runOnIdle {
+            val request = checkNotNull(currentTestSession.submitted)
+            state = state.copy(history = listOf(item("accepted", request.id)))
+        }
+        receipt.assertTextEquals(context.getString(R.string.receipt_accepted))
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.runOnIdle { state = state.copy(history = state.history.map { it.copy(state = "injected") }) }
+            compose.mainClock.advanceTimeBy(160)
+            receipt.assertTextEquals(context.getString(R.string.receipt_injected))
+            compose.mainClock.advanceTimeBy(1_000)
+            receipt.assertDoesNotExist()
+        } finally { compose.mainClock.autoAdvance = true }
     }
 
     @Test fun uncertainReceiptHasNoRetryAndReviewQueriesOriginalIdentity() {

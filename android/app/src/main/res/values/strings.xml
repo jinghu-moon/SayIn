@@ -281,6 +281,7 @@
     <string name="speak_clear_draft">Clear draft</string>
     <string name="speak_source_title">Recognition source</string>
     <string name="speak_continue">Continue speaking</string>
+    <string name="speak_sending">Sending…</string>
     <string name="speak_send_to_computer">Send to computer</string>
     <string name="speak_cancel_send">Cancel send</string>
     <string name="speak_query">Check status</string>

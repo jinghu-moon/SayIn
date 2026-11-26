@@ -292,6 +292,10 @@ internal fun SpeakPage(
         injectedFeedback = session.submitted?.state == "injected"
         if (injectedFeedback) { kotlinx.coroutines.delay(900); injectedFeedback = false }
     }
+    val currentReceiptTitle = session.submitted?.let { request ->
+        if (request.state == "saved" && state.ready) R.string.speak_sending
+        else receiptTitle(request.state)
+    }
     var clearNotice by remember { mutableStateOf(false) }
     LaunchedEffect(session.undoDraft) {
         clearNotice = session.undoDraft != null
@@ -513,9 +517,11 @@ internal fun SpeakPage(
                 if (session.microphoneDenied && !compact) TextButton(stringResource(R.string.asr_open_settings), {
                     context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")))
                 }, minHeight = 48.dp, colors = plainTextButtonColors())
-                session.submitted?.takeIf { it.state != "injected" }?.let { request ->
+                session.submitted?.takeIf { it.state != "injected" || injectedFeedback }?.let { request ->
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(receiptTitle(request.state)), Modifier.weight(1f).testTag("current-receipt"), fontSize = 12.sp)
+                        Text(stringResource(checkNotNull(currentReceiptTitle)),
+                            Modifier.weight(1f).testTag("current-receipt").semantics { liveRegion = LiveRegionMode.Polite },
+                            fontSize = 12.sp)
                         if (request.state in setOf("saved", "accepted", "held", "executing", "review")) TextButton(
                             stringResource(R.string.speak_query), { request.key?.let { onRequestAction(it, "query") } }, minHeight = 48.dp,
                             enabled = state.connection == Connection.ONLINE, colors = plainTextButtonColors())
@@ -703,7 +709,7 @@ internal fun SpeakPage(
                             else -> stringResource(R.string.speak_send_to_computer)
                         }
                         val sendDescription = when {
-                            pending -> stringResource(receiptTitle(checkNotNull(session.submitted).state))
+                            pending -> stringResource(checkNotNull(currentReceiptTitle))
                             slowFinal -> stringResource(R.string.asr_finishing)
                             injectedFeedback -> stringResource(R.string.receipt_injected)
                             else -> sendLabel
