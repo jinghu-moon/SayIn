@@ -78,6 +78,7 @@ internal data class ClientState(
 internal class VoiceLinkRepository(context: Context, private val discovery: HostDiscovery = NsdHostDiscovery(context.applicationContext),
     private val localPermission: () -> Boolean = { context.applicationContext.localNetworkPermitted() },
     private val draftStore: SpeakingDraftStore = SpeakingDraftStore(context.applicationContext),
+    private val imageTiming: ((String, Long) -> Unit)? = null,
 ) {
     private val app = context.applicationContext
     private val networkMonitor = LanNetwork(app) { enqueue(Event.NetworkChanged) }
@@ -151,7 +152,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 host = store.load()?.let(::PairedHost) ?: allHosts.firstOrNull()
                 pairingCandidate = store.loadCandidate()?.let(::PairedHost)
                 imageInput = ImageInput(app, store, dao, scope, mutable, { host }, { currentPeer.client }, { session },
-                    { event -> events.trySend(Event.Image(event)).isSuccess }, ::submit, { enqueue(Event.StorageFailure) })
+                    { event -> events.trySend(Event.Image(event)).isSuccess }, ::submit, { enqueue(Event.StorageFailure) }, imageTiming)
                 imageInput?.open()
                 mutable.update { it.copy(connection = Connection.OFFLINE, paired = host != null,
                     address = host?.address.orEmpty(), port = host?.port ?: 7788,

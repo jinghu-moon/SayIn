@@ -3,6 +3,7 @@ package seeyuer.sayin.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.os.SystemClock
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -64,6 +65,7 @@ internal class ImageInput(
     private val emit: (ImageEvent) -> Boolean,
     private val submit: suspend (OutboxItem) -> Unit,
     private val storageFailure: () -> Unit,
+    private val timing: ((String, Long) -> Unit)?,
 ) {
     private val files = ImageFiles(File(app.noBackupFilesDir, "images/${app.getDatabasePath("outbox.db").nameWithoutExtension}"), store)
     private val preparationLimit = Semaphore(1)
@@ -200,12 +202,16 @@ internal class ImageInput(
             var transferred = false
             try {
                 require(uri.scheme == "content")
-                val source = requireNotNull(app.contentResolver.openInputStream(uri)).use { boundedImageRead(it) }
+                val source = measureImageStage(timing, "source_read") {
+                    requireNotNull(app.contentResolver.openInputStream(uri)).use { boundedImageRead(it) }
+                }
                 try {
-                    prepareMobileImage(source).use { prepared ->
+                    prepareMobileImage(source, timing).use { prepared ->
                         currentCoroutineContext().ensureActive()
-                        val thumbnail = preview(prepared.bytes)
-                        image = files.write(saved.hostId, saved.deviceId, prepared.metadata, prepared.bytes)
+                        val thumbnail = measureImageStage(timing, "thumbnail") { preview(prepared.bytes) }
+                        image = measureImageStage(timing, "encrypt_and_sync") {
+                            files.write(saved.hostId, saved.deviceId, prepared.metadata, prepared.bytes, timing)
+                        }
                         currentCoroutineContext().ensureActive()
                         transferred = emit(ImageEvent.Prepared(owner, saved, checkNotNull(image), thumbnail))
                     }
@@ -271,6 +277,7 @@ internal class ImageInput(
                 val image = try { transfer.upload(draft.image.metadata, bytes) { received ->
                     state.update { if (it.imageRequest == item.key && it.imageBusy) it.copy(imageProgress = received) else it }
                 } } finally { bytes.fill(0) }
+                timing?.invoke("registration_received_at", SystemClock.elapsedRealtimeNanos())
                 if (!emit(ImageEvent.Ready(current, image))) current.stop()
             } catch (cancel: CancellationException) { active.set(false); current.stop(); throw cancel }
             catch (_: Exception) { active.set(false); current.stop(); emit(ImageEvent.Failed(current)) }

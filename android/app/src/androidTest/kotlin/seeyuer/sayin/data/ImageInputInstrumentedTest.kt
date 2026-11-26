@@ -20,6 +20,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.nio.ByteBuffer
+import javax.crypto.AEADBadTagException
 import java.util.UUID
 
 @RunWith(AndroidJUnit4::class)
@@ -91,15 +93,29 @@ class ImageInputInstrumentedTest {
                 val bitmap=BitmapFactory.decodeByteArray(prepared.bytes,0,prepared.bytes.size)
                 assertEquals(0x804060ff.toInt(),bitmap.getPixel(0,0));bitmap.recycle()
                 val reference=files.write(host,device,prepared.metadata,prepared.bytes)
-                val ciphertext=directory.resolve("${reference.resourceId}.image").readBytes()
+                val file = directory.resolve("${reference.resourceId}.image")
+                val ciphertext = file.readBytes()
                 assertFalse(ciphertext.contentEquals(prepared.bytes))
+                assertTrue(ciphertext.copyOfRange(0, 16).contentEquals("SAYIN-IMAGE-AE02".toByteArray()))
                 val restored=ImageFiles(directory,store).read(host,device,reference)
                 assertArrayEquals(prepared.bytes,restored);restored.fill(0)
                 assertThrows(IllegalStateException::class.java) { files.read(UUID.randomUUID().toString(),device,reference) }
                 assertThrows(IllegalStateException::class.java) { files.read(host,UUID.randomUUID().toString(),reference) }
-                ciphertext[ciphertext.lastIndex]=(ciphertext.last().toInt() xor 1).toByte()
-                directory.resolve("${reference.resourceId}.image").writeBytes(ciphertext)
-                assertThrows(Exception::class.java) { files.read(host,device,reference) }
+                for (offset in listOf(16, 76, ciphertext.lastIndex)) {
+                    val corrupt = ciphertext.copyOf()
+                    corrupt[offset] = (corrupt[offset].toInt() xor 1).toByte()
+                    file.writeBytes(corrupt)
+                    assertThrows(AEADBadTagException::class.java) { files.read(host, device, reference) }
+                }
+                val envelope = JSONObject().put("host_id", host).put("pair_id", device)
+                    .put("resource", reference.json()).toString().toByteArray()
+                val legacy = ByteBuffer.allocate(12 + envelope.size + prepared.bytes.size)
+                    .put("SIIMAGE1".toByteArray()).putInt(envelope.size).put(envelope).put(prepared.bytes).array()
+                try {
+                    file.writeBytes(store.encryptImage(host, device, legacy))
+                    val reopened = files.read(host, device, reference)
+                    try { assertArrayEquals(prepared.bytes, reopened) } finally { reopened.fill(0) }
+                } finally { legacy.fill(0) }
             }
             assertThrows(IllegalArgumentException::class.java) { prepareMobileImage("not an image".toByteArray()) }
         } finally { store.forget(host, device); source.fill(0);directory.deleteRecursively() }
@@ -247,7 +263,10 @@ class ImageInputInstrumentedTest {
             assertEquals(2,repository.state.value.history.size)
             // An uncommitted draft still survives a process restart.
             repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
-            val pendingDraft=waitFor{it.imageDraft!=null&&!it.imagePreparing}.imageDraft!!.image
+            val pendingDraft=waitFor {
+                val draft = it.imageDraft
+                draft != null && draft.image.resourceId != second.resourceId && !it.imagePreparing
+            }.imageDraft!!.image
             val paired=PairedHost(checkNotNull(ProtectedStore(context).load()))
             repository.foreground(false);waitFor{it.connection==Connection.OFFLINE};repository.close();delay(200)
             val database=Room.databaseBuilder(context,OutboxDatabase::class.java,"outbox.db").addMigrations(OutboxDatabase.KEEP_LEDGER, OutboxDatabase.ADD_IMAGES, OutboxDatabase.ADD_HISTORY_DISPLAY, OutboxDatabase.ADD_V3_RECEIPT_FIELDS, OutboxDatabase.SCOPE_REQUEST_KEYS).build()

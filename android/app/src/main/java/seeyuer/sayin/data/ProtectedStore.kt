@@ -224,6 +224,12 @@ internal class ProtectedStore(context: Context) {
     fun encryptImage(hostId: String, pairId: String, value: ByteArray): ByteArray =
         encrypt(value, "VoiceLink/private/v3/${key(hostId, pairId)}/image", keyFor(hostId, pairId, false))
 
+    fun wrapImageKey(hostId: String, pairId: String, value: ByteArray): ByteArray =
+        encrypt(value, "VoiceLink/private/v3/${key(hostId, pairId)}/image-key", keyFor(hostId, pairId, false))
+
+    fun unwrapImageKey(hostId: String, pairId: String, value: ByteArray): ByteArray =
+        decrypt(value, "VoiceLink/private/v3/${key(hostId, pairId)}/image-key", keyFor(hostId, pairId, false))
+
     fun decryptImage(hostId: String, pairId: String, value: ByteArray): ByteArray =
         decryptRecord(hostId, pairId, value, "/image", "SayIn/image/v1")
 

@@ -14,6 +14,7 @@ import org.junit.Test
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 /** Explicit, isolated production-path benchmark. Never part of regular suites,
  * never opens the daily app's identity, and never invokes a paid service. */
@@ -40,7 +41,9 @@ class ImagePerformanceInstrumentedTest {
                 delay(200)
             }
         }
-        val repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()})
+        val measurements = ConcurrentHashMap<String, Long>()
+        val repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()},
+            imageTiming = { stage, nanos -> measurements[stage] = nanos })
         val results=JSONArray();val rejections=JSONArray()
         suspend fun waitFor(predicate:(ClientState)->Boolean):ClientState=withTimeout(90000) {
             while(!predicate(repository.state.value)) {check(repository.state.value.storageHealthy);delay(10)}
@@ -66,6 +69,7 @@ class ImagePerformanceInstrumentedTest {
                 }
                 repeat(repeats) {iteration->
                     assertTrue(repository.state.value.ready)
+                    measurements.clear()
                     val oldResource=repository.state.value.imageDraft?.image?.resourceId
                     val prepareStart=SystemClock.elapsedRealtimeNanos()
                     repository.selectImage(FileProvider.getUriForFile(target,"${target.packageName}.fixtures",source))
@@ -76,16 +80,22 @@ class ImagePerformanceInstrumentedTest {
                     val sendStart=SystemClock.elapsedRealtimeNanos()
                     repository.sendImage(image.resourceId)
                     val finished=waitFor{state->state.history.any{it.id !in previous&&it.kind=="image"&&it.state in setOf("injected","failed","uncertain","held","expired","cancelled")}}
+                    val terminalAt = SystemClock.elapsedRealtimeNanos()
+                    val registeredAt = checkNotNull(measurements.remove("registration_received_at"))
+                    check(registeredAt in sendStart..terminalAt)
                     val receipt=finished.history.single{it.id !in previous&&it.kind=="image"}
                     assertEquals("${source.name}: ${receipt.reason}; pause=${finished.pauseReason}","injected",receipt.state)
                     assertNull(receipt.payload);assertEquals(image.resourceId,receipt.imageResource)
-                    val sendMs=(SystemClock.elapsedRealtimeNanos()-sendStart)/1e6
+                    val sendMs=(terminalAt-sendStart)/1e6
                     val saved=PairedHost(checkNotNull(ProtectedStore(context).load()))
                     assertEquals(original.hostId,saved.hostId);assertEquals(original.deviceId,saved.deviceId)
                     assertTrue("TLS name and device credential must remain unchanged", original.tlsName == saved.tlsName && original.token == saved.token)
                     assertArrayEquals(original.certificate.encoded,saved.certificate.encoded)
                     results.put(JSONObject().put("file",source.name).put("iteration",iteration+1).put("source_bytes",source.length())
                         .put("normalized_bytes",image.metadata.bytes).put("width",image.metadata.width).put("height",image.metadata.height)
+                        .put("preparation_stages_ms", JSONObject(measurements.mapValues { (_, nanos) -> nanos / 1e6 }))
+                        .put("send_to_registration_ack_ms", (registeredAt - sendStart) / 1e6)
+                        .put("registration_ack_to_terminal_ms", (terminalAt - registeredAt) / 1e6)
                         .put("prepare_ms",preparationMs).put("send_to_receipt_ms",sendMs).put("total_ms",preparationMs+sendMs))
                 }
             }

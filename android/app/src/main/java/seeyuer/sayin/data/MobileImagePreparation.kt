@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.graphics.ColorSpace
+import android.os.SystemClock
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.nio.ByteBuffer
@@ -39,21 +40,30 @@ internal fun inspectImageContainer(bytes: ByteArray): ImageMime {
     return ImageMime.PNG
 }
 
-internal fun prepareMobileImage(source: ByteArray): PreparedMobileImage {
-    val mime = inspectImageContainer(source)
+internal inline fun <T> measureImageStage(noinline observer: ((String, Long) -> Unit)?, name: String, block: () -> T): T {
+    if (observer == null) return block()
+    val started = SystemClock.elapsedRealtimeNanos()
+    return try { block() } finally { observer(name, SystemClock.elapsedRealtimeNanos() - started) }
+}
+
+internal fun prepareMobileImage(
+    source: ByteArray,
+    onStage: ((String, Long) -> Unit)? = null,
+): PreparedMobileImage {
+    val mime = measureImageStage(onStage, "container_validation") { inspectImageContainer(source) }
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(source, 0, source.size, bounds)
+    measureImageStage(onStage, "bounds_decode") { BitmapFactory.decodeByteArray(source, 0, source.size, bounds) }
     fun validDimensions(width: Int, height: Int) {
         require(width in 1..MAX_IMAGE_SIDE && height in 1..MAX_IMAGE_SIDE && width.toLong() * height <= MAX_IMAGE_PIXELS)
     }
     validDimensions(bounds.outWidth, bounds.outHeight)
     require(bounds.outMimeType == mime.wire)
-    val decoded = ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(source))) { decoder, info, _ ->
+    val decoded = measureImageStage(onStage, "pixel_decode") { ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(source))) { decoder, info, _ ->
         validDimensions(info.size.width, info.size.height)
         decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
         decoder.setTargetColorSpace(ColorSpace.get(ColorSpace.Named.SRGB))
         decoder.setOnPartialImageListener { false }
-    }
+    } }
     try {
         // ImageDecoder applies EXIF exactly once on every supported OS.
         validDimensions(decoded.width, decoded.height)
@@ -68,10 +78,13 @@ internal fun prepareMobileImage(source: ByteArray): PreparedMobileImage {
             fun wipe() { buf.fill(0) }
         }
         val bytes = try {
-            require(decoded.compress(if (mime == ImageMime.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, output))
-            output.toByteArray()
+            measureImageStage(onStage, "pixel_encode") {
+                require(decoded.compress(if (mime == ImageMime.PNG) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 92, output))
+                output.toByteArray()
+            }
         } finally { output.wipe() }
-        val metadata = ImageMetadata(bytes.size, mime, decoded.width, decoded.height, imageDigest(bytes))
+        val digest = measureImageStage(onStage, "sha256") { imageDigest(bytes) }
+        val metadata = ImageMetadata(bytes.size, mime, decoded.width, decoded.height, digest)
         return PreparedMobileImage(metadata, bytes)
     } finally {
         decoded.recycle()
