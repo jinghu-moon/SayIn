@@ -115,12 +115,11 @@ class TransportInstrumentedTest {
         var verified = false
         try {
             suspend fun waitFor(predicate: (ClientState) -> Boolean): ClientState = withTimeout(15000) {
-                while (!predicate(repository.state.value)) {
-                    val state = repository.state.value
-                    check(state.issue == null) { "Client failed: ${state.issue}" }
-                    delay(20)
+                repository.state.first { state ->
+                    predicate(state).also { matched ->
+                        if (!matched) check(state.issue == null) { "Client failed: ${state.issue}" }
+                    }
                 }
-                repository.state.value
             }
             waitFor { it.connection == Connection.OFFLINE }
             repository.foreground(true)
@@ -254,20 +253,24 @@ class TransportInstrumentedTest {
             assertArrayEquals(original.certificate.encoded, updated.certificate.encoded)
             assertEquals(2, repository.state.value.history.size)
             // The real desktop protocol must keep uncertainty across phone reconnects.
-            repository.send("fixture: uncertain", UUID.randomUUID().toString())
+            val uncertainId = UUID.randomUUID().toString()
+            repository.send("fixture: uncertain", uncertainId)
             waitFor { it.paused && it.pauseReason == "outcome_review_required" }
             assertFalse(repository.state.value.ready)
             repository.foreground(false)
             withTimeout(5000) { while (repository.state.value.connection != Connection.OFFLINE) delay(20) }
             repository.foreground(true)
-            waitFor { it.connection == Connection.ONLINE && !it.recovering }
-            assertEquals("outcome_review_required", repository.state.value.pauseReason)
-            assertFalse(repository.state.value.ready)
-            assertEquals(3, repository.state.value.history.size)
-            val uncertainId = repository.state.value.history.single { it.state == "uncertain" }.id
-            val uncertainKey = repository.state.value.history.single { it.id == uncertainId }.key
+            // The durable query completes before Room's history observer may publish the receipt.
+            val recovered = waitFor { state ->
+                state.connection == Connection.ONLINE && !state.recovering &&
+                    state.history.any { it.id == uncertainId && it.state == "uncertain" }
+            }
+            assertEquals("outcome_review_required", recovered.pauseReason)
+            assertFalse(recovered.ready)
+            assertEquals(3, recovered.history.size)
+            val uncertainKey = recovered.history.single { it.id == uncertainId }.key
             repository.action(uncertainKey, "delete")
-            waitFor { it.history.single { row -> row.id == uncertainId }.historyHidden }
+            waitFor { it.history.any { row -> row.id == uncertainId && row.historyHidden } }
             repository.action(uncertainKey, "query")
             delay(250)
             assertTrue(repository.state.value.history.single { it.id == uncertainId }.historyHidden)
