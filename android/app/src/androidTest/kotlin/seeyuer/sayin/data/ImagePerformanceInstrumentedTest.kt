@@ -20,6 +20,8 @@ import java.util.concurrent.ConcurrentHashMap
 /** Explicit, isolated production-path benchmark. Never part of regular suites,
  * never opens the daily app's identity, and never invokes a paid service. */
 class ImagePerformanceInstrumentedTest {
+    private data class TerminalTiming(val received: Long, val processing: Long, val persisted: Long)
+
     @Test fun productionLanImagesWithFrozenPreparationAndProtectedReceipts() = runBlocking {
         val args=InstrumentationRegistry.getArguments()
         check(args.getString("imageBenchmark")=="true") { "Use verify_image_performance.ps1 explicitly" }
@@ -44,12 +46,18 @@ class ImagePerformanceInstrumentedTest {
         }
         val measurements = ConcurrentHashMap<String, Long>()
         val registration = AtomicReference<Pair<String, Long>>()
-        val receipts = ConcurrentHashMap<String, ConcurrentHashMap<String, Long>>()
+        val receipts = ConcurrentHashMap<OutboxKey, ConcurrentHashMap<String, Long>>()
+        val terminalTimings = ConcurrentHashMap<OutboxKey, TerminalTiming>()
         val repository=VoiceLinkRepository(context,HostDiscovery{_,_->emptyList()},
             imageTiming = { stage, nanos -> measurements[stage] = nanos },
             imageRegistration = { image, nanos -> check(registration.compareAndSet(null, image.resourceId to nanos)) },
             receiptTiming = { key, state, nanos ->
-                receipts.computeIfAbsent(key.id) { ConcurrentHashMap() }.putIfAbsent(state, nanos)
+                receipts.computeIfAbsent(key) { ConcurrentHashMap() }.putIfAbsent(state, nanos)
+            },
+            receiptTrace = { key, state, received, processing, persisted ->
+                if (state == "injected") {
+                    terminalTimings.putIfAbsent(key, TerminalTiming(received, processing, persisted))
+                }
             })
         val results=JSONArray();val rejections=JSONArray()
         suspend fun waitFor(predicate:(ClientState)->Boolean):ClientState=withTimeout(90000) {
@@ -87,16 +95,27 @@ class ImagePerformanceInstrumentedTest {
                     val previous=prepared.history.map{it.id}.toSet()
                     val sendStart=SystemClock.elapsedRealtimeNanos()
                     repository.sendImage(image.resourceId)
-                    val finished=waitFor{state->state.history.any{it.id !in previous&&it.kind=="image"&&it.state in setOf("injected","failed","uncertain","held","expired","cancelled")}}
+                    val finished = waitFor { state ->
+                        state.history.any {
+                            it.id !in previous && it.kind == "image" && it.imageResource == image.resourceId &&
+                                it.state in setOf("injected", "failed", "uncertain", "held", "expired", "cancelled")
+                        }
+                    }
                     val terminalAt = SystemClock.elapsedRealtimeNanos()
-                    val (registeredResource, registeredAt) = checkNotNull(registration.getAndSet(null))
+                    val receipt = finished.history.single { it.id !in previous && it.imageResource == image.resourceId }
+                    val (registeredResource, registeredAt) = checkNotNull(registration.getAndSet(null)) {
+                        "${source.name} #${iteration + 1} receipt=${receipt.state}/${receipt.reason} imageIssue=${finished.imageIssue}"
+                    }
                     check(registeredAt in sendStart..terminalAt)
-                    val receipt=finished.history.single{it.id !in previous&&it.kind=="image"}
                     assertEquals("${source.name}: ${receipt.reason}; pause=${finished.pauseReason}","injected",receipt.state)
                     assertNull(receipt.payload);assertEquals(image.resourceId,receipt.imageResource)
-                    val persisted = checkNotNull(receipts.remove(receipt.id))
+                    val persisted = checkNotNull(receipts.remove(receipt.key))
+                    val timing = checkNotNull(terminalTimings.remove(receipt.key))
                     val injectedAt = checkNotNull(persisted["injected"])
                     check(injectedAt in registeredAt..terminalAt)
+                    check(timing.received in registeredAt..timing.processing &&
+                        timing.processing in timing.received..timing.persisted &&
+                        timing.persisted == injectedAt)
                     val sendMs=(terminalAt-sendStart)/1e6
                     val saved=PairedHost(checkNotNull(ProtectedStore(context).load()))
                     assertEquals(original.hostId,saved.hostId);assertEquals(original.deviceId,saved.deviceId)
@@ -106,6 +125,8 @@ class ImagePerformanceInstrumentedTest {
                         .put("normalized_bytes",image.metadata.bytes).put("width",image.metadata.width).put("height",image.metadata.height)
                         .put("resource_id", registeredResource).put("send_at_nanos", sendStart)
                         .put("request_id", receipt.id).put("phone_receipts_at_nanos", JSONObject(persisted))
+                        .put("phone_terminal_received_at_nanos", timing.received)
+                        .put("phone_terminal_processing_at_nanos", timing.processing)
                         .put("registration_ack_at_nanos", registeredAt).put("terminal_at_nanos", terminalAt)
                         .put("preparation_stages_ms", JSONObject(measurements.mapValues { (_, nanos) -> nanos / 1e6 }))
                         .put("send_to_registration_ack_ms", (registeredAt - sendStart) / 1e6)

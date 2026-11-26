@@ -81,6 +81,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private val imageTiming: ((String, Long) -> Unit)? = null,
     private val imageRegistration: ((ImageReference, Long) -> Unit)? = null,
     private val receiptTiming: ((OutboxKey, String, Long) -> Unit)? = null,
+    private val receiptTrace: ((OutboxKey, String, Long, Long, Long) -> Unit)? = null,
     private val sessionObserved: ((String, String) -> Unit)? = null,
 ) {
     private val app = context.applicationContext
@@ -230,7 +231,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class SelectHost(val hostId: String) : Event
         data object PrepareReplacement : Event
         data class Open(val generation: Long, val socket: WebSocket, val response: Response) : Event
-        data class Message(val generation: Long, val value: String) : Event
+        data class Message(val generation: Long, val value: String, val receivedAt: Long) : Event
         data class Closed(val generation: Long) : Event
         data class ForegroundExpired(val generation: Long, val observed: Long) : Event
         data class Tick(val generation: Long) : Event
@@ -450,7 +451,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                     sendFrame(JSONObject().put("v", 3).put("t", "hello").put("pair_id", saved.pairId).put("token", saved.token).put("name", name), peer)
                 }
             }
-            is Event.Message -> peerFor(event.generation)?.let { receive(strictJson(event.value), it) }
+            is Event.Message -> peerFor(event.generation)?.let { receive(strictJson(event.value), it, event.receivedAt) }
             is Event.Closed -> peerFor(event.generation)?.let(::pairingOrConnectionLost)
             is Event.Timeout -> peerFor(event.generation)?.let(::pairingOrConnectionLost)
             is Event.ForegroundExpired -> if (event.generation == currentPeer.generation && event.observed == foregroundObservation) {
@@ -626,7 +627,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             peer.socket = client.open(object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) { enqueue(Event.Open(owner, webSocket, response)) }
                 override fun onMessage(webSocket: WebSocket, text: String) {
-                    if (text.length > 65536) webSocket.cancel() else enqueue(Event.Message(owner, text))
+                    val receivedAt = if (receiptTrace != null) SystemClock.elapsedRealtimeNanos() else 0L
+                    if (text.length > 65536) webSocket.cancel() else enqueue(Event.Message(owner, text, receivedAt))
                 }
                 override fun onMessage(webSocket: WebSocket, bytes: ByteString) { webSocket.cancel() }
                 override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null); enqueue(Event.Closed(owner)) }
@@ -721,7 +723,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             pairedTargets = targets, pairingRecoveryPending = false, replacingPair = false) }
         return true
     }
-    private suspend fun receive(value: JSONObject, peer: ControlPeer) {
+    private suspend fun receive(value: JSONObject, peer: ControlPeer, receivedAt: Long) {
         val selected = peer === currentPeer
         val kind = value.getString("t")
         require(value.getInt("v") == 3)
@@ -810,7 +812,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 when (kind) {
                     "state", "controlled" -> applyState(value, peer)
                     "status" -> {
-                        saveStatus(value, peer)
+                        saveStatus(value, peer, receivedAt)
                         retireIdlePrevious(peer)
                     }
                     "queried" -> {
@@ -893,7 +895,8 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         foregroundExpiry?.cancel()
         foregroundExpiry = scope.launch { delay(20_000); enqueue(Event.ForegroundExpired(owner, observed)) }
     }
-    private suspend fun saveStatus(value: JSONObject, peer: ControlPeer) {
+    private suspend fun saveStatus(value: JSONObject, peer: ControlPeer, receivedAt: Long) {
+        val processingAt = if (receiptTrace != null) SystemClock.elapsedRealtimeNanos() else 0L
         val id = validId(value.getString("id"))
         val status = value.getString("st")
         val wasQueried = peer.queries.values.any { id in it }
@@ -929,7 +932,11 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 dao.status(id, saved.hostId, saved.deviceId, if (status == "unknown") "review" else status, order,
                     value.optString("reason").takeIf { it.isNotEmpty() }, terminal, executionMethod, requestRev,
                     executionStage, uncertainScope, confirmed)
-                receiptTiming?.invoke(item.key, status, SystemClock.elapsedRealtimeNanos())
+                if (receiptTiming != null || receiptTrace != null) {
+                    val persistedAt = SystemClock.elapsedRealtimeNanos()
+                    receiptTiming?.invoke(item.key, status, persistedAt)
+                    receiptTrace?.invoke(item.key, status, receivedAt, processingAt, persistedAt)
+                }
                 imageInput?.cleanup(dao.trimTerminal())
             }
             catch (_: Exception) { storageFailed(); return }

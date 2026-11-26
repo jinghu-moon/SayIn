@@ -1126,7 +1126,19 @@ async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt)
         uncertain_scope: receipt.uncertain_scope,
     };
     let encoded = StatusFrame::Receipt(status).encode()?;
-    send(socket, &strict_json(&encoded)?).await
+    send(socket, &strict_json(&encoded)?).await?;
+    #[cfg(windows)]
+    if receipt.st.is_terminal()
+        && log::log_enabled!(target: "sayin_receipt_sent", log::Level::Trace)
+    {
+        let mut ticks = 0;
+        if unsafe { windows::Win32::System::Performance::QueryPerformanceCounter(&mut ticks) }
+            .is_ok()
+        {
+            log::trace!(target: "sayin_receipt_sent", "{} {} {ticks}", receipt.id, receipt.st.key());
+        }
+    }
+    Ok(())
 }
 async fn send_unknown(socket: &mut Socket, session: &Session, id: &str) -> Result<()> {
     let session_id = Uuid::parse_str(session.id()).map_err(|_| Error::Protocol("INVALID_ID"))?;

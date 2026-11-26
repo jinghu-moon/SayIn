@@ -164,12 +164,16 @@ try {
         }
         $registrations = @{}
         $commits = @{}
+        $terminalSent = @{}
         foreach ($line in (Get-Content (Join-Path $directory 'desktop-stderr.log'))) {
             if ($line -match '^image_registered ([0-9a-f-]{36}) ([0-9]+)$') {
                 $registrations.Add($Matches[1], [long]$Matches[2])
             }
             if ($line -match '^image_commit ([0-9a-f-]{36}) ([0-9a-f-]{36}) (accepted|executing|injected) ([0-9]+)$') {
                 $commits.Add("$($Matches[1])/$($Matches[2])/$($Matches[3])", [long]$Matches[4])
+            }
+            if ($line -match '^receipt_sent ([0-9a-f-]{36}) injected ([0-9]+)$' -and !$terminalSent.ContainsKey($Matches[1])) {
+                $terminalSent.Add($Matches[1], [long]$Matches[2])
             }
         }
         $mobile = Get-Content (Join-Path $directory 'mobile-result.json') -Raw | ConvertFrom-Json
@@ -194,6 +198,14 @@ try {
                 $phoneInjected -lt $sample.registration_ack_at_nanos -or $phoneInjected -gt $sample.terminal_at_nanos) {
                 throw 'Missing or out-of-order receipt timestamps'
             }
+            $sent = $terminalSent[$sample.request_id]
+            $received = $sample.phone_terminal_received_at_nanos
+            $processing = $sample.phone_terminal_processing_at_nanos
+            if ($null -eq $sent -or $null -eq $received -or $null -eq $processing -or
+                $sent -lt $injected -or $received -lt $sample.registration_ack_at_nanos -or
+                $processing -lt $received -or $phoneInjected -lt $processing) {
+                throw 'Missing or out-of-order terminal delivery timestamps'
+            }
             @{
                 file = $sample.file; resource_id = $sample.resource_id; request_id = $sample.request_id; prepare_ms = $sample.prepare_ms
                 upload_lower_ms = ($phoneEarliest - $sample.send_at_nanos) / 1e6
@@ -205,6 +217,11 @@ try {
                 executing_to_injected_ms = ($injected - $executing) * (1e3 / $frequency)
                 injected_to_phone_persisted_lower_ms = [Math]::Max(0, ($phoneInjected - ($injected * (1e9 / $frequency) - $lower)) / 1e6)
                 injected_to_phone_persisted_upper_ms = ($phoneInjected - ($injected * (1e9 / $frequency) - $upper)) / 1e6
+                desktop_commit_to_ws_send_ms = ($sent - $injected) * (1e3 / $frequency)
+                ws_send_to_phone_callback_lower_ms = [Math]::Max(0, ($received - ($sent * (1e9 / $frequency) - $lower)) / 1e6)
+                ws_send_to_phone_callback_upper_ms = [Math]::Max(0, ($received - ($sent * (1e9 / $frequency) - $upper)) / 1e6)
+                phone_callback_to_processing_ms = ($processing - $received) / 1e6
+                phone_processing_to_persisted_ms = ($phoneInjected - $processing) / 1e6
                 phone_persisted_to_observed_ms = ($sample.terminal_at_nanos - $phoneInjected) / 1e6
             }
         }

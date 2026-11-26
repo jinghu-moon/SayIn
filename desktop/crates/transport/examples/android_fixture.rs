@@ -303,12 +303,20 @@ struct RegistrationLog;
 
 impl log::Log for RegistrationLog {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        metadata.target() == "sayin_image_registration" && metadata.level() == log::Level::Trace
+        matches!(
+            metadata.target(),
+            "sayin_image_registration" | "sayin_receipt_sent"
+        ) && metadata.level() == log::Level::Trace
     }
 
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            eprintln!("image_registered {}", record.args());
+            let label = if record.target() == "sayin_receipt_sent" {
+                "receipt_sent"
+            } else {
+                "image_registered"
+            };
+            eprintln!("{label} {}", record.args());
         }
     }
 
