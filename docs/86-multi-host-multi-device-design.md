@@ -260,11 +260,12 @@
 | `uncertain_acknowledged` | 与 `uncertain` 相同，核对时不得改写 | 同左 |
 
 `stage` 枚举：`not_started`、`prepared`、`input_submitted`、`file_saved`、`paste_submitted`、`paste_confirmed`。  
-`method` 枚举：`unicode`、`key`、`clipboard_image`、`clipboard_image_path`、`none`。
+`method` 枚举包含 `unicode`、`key`、`clipboard_text`、`clipboard_image`、`clipboard_image_path` 和 `none`。
 
 语义：
 
 - `stage=paste_confirmed` 与 `confirmed=true` 必须同时成立或同时不成立。`paste_confirmed` 只在确实观察到目标插入时使用；无法观察时保持 `paste_submitted` 且 `confirmed=false`。
+- `clipboard_text` 在 `executing` 和 `failed` 时使用 `prepared`，在 `injected` 时使用 `paste_submitted`。不确定回执使用 `paste_submitted`，重启恢复时可保留 `prepared`。这些组合的 `confirmed` 均为 `false`。
 - 已提交任何输入事件之后不得记 `failed`，只能是 `injected` 或 `uncertain`。
 - 文件已保存但粘贴失败：`st=failed`、`stage=file_saved`、`method=clipboard_image_path/clipboard_image`、`reason=paste_not_started`。手机据此显示"已保存到电脑，未粘贴"。
 - 重启恢复采用最后持久化的执行阶段与方式。若阶段仍为 `prepared` 或 `file_saved`，保留该阶段并写 `reason=restart_during_input`、`uncertain_scope=global`，不得补记未观察到的提交。接受前的取消记录使用 `not_started/none/false`，并带独立 `request_rev`。

@@ -1,0 +1,603 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>SayIn · 手机连接页 Demo</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="../../refer/sayin-demo-tokens.css" onerror="this.onerror = null; this.href = 'sayin-demo-tokens.css'">
+<style>
+  :root {
+    color-scheme: light;
+    --page: var(--neutral-100);
+    --card: var(--neutral-0);
+    --text: var(--neutral-900);
+    --muted: var(--neutral-600);
+    --line: var(--neutral-300);
+    --chip: var(--neutral-200);
+    --field: var(--neutral-50);
+    --accent: color-mix(in srgb, var(--brand) 88%, var(--neutral-1000));
+    --accent-bg: color-mix(in srgb, var(--brand) 10%, var(--card));
+    --selected-line: var(--brand);
+    --primary: var(--brand);
+    --on-primary: var(--neutral-0);
+    --primary-hover: color-mix(in srgb, var(--brand) 88%, var(--neutral-1000));
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --page: var(--neutral-950);
+    --card: var(--neutral-900);
+    --text: var(--neutral-100);
+    --muted: var(--neutral-400);
+    --line: var(--neutral-800);
+    --chip: var(--neutral-850);
+    --field: var(--neutral-925);
+    --accent: color-mix(in srgb, var(--brand) 65%, var(--neutral-0));
+    --accent-bg: color-mix(in srgb, var(--brand) 22%, var(--card));
+  }
+  * { box-sizing: border-box }
+  body {
+    margin: 0; padding: 28px 20px; background: var(--page); color: var(--text);
+    font: 14px/1.5 "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  button, input { font: inherit }
+  button { cursor: pointer }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+  button:disabled { cursor: default; opacity: .55 }
+  svg { width: 22px; height: 22px; flex: none }
+  svg use { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round }
+  [hidden] { display: none !important }
+  .layout { max-width: 746px; margin: auto; display: grid; grid-template-columns: minmax(0, 390px) minmax(0, 320px); gap: 32px; align-items: start }
+  .phone { height: clamp(450px, calc(100dvh - 56px), 780px); padding: 8px; border-radius: 40px; background: var(--neutral-900); box-shadow: 0 24px 60px #0003 }
+  .screen { position: relative; height: 100%; border-radius: 33px; overflow: hidden; background: var(--page); display: flex; flex-direction: column }
+  .statusbar { height: 42px; padding: 0 23px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; font-weight: 650; flex: none }
+  .statusbar span { display: flex; gap: 6px }
+  .statusbar svg { width: 15px; height: 15px }
+  .content { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding: 9px 20px 92px }
+  h1, h2, h3, p { margin: 0 }
+  h1 { font-size: 25px; line-height: 1.25; margin-bottom: 22px }
+  .list-heading { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 9px; padding: 0 2px }
+  .list-heading h2, .notes h2 { font-size: 15px }
+  .count { color: var(--muted); font-size: 12px }
+  #choose-target { margin: 10px 2px 0 }
+  .devices { display: grid; gap: 10px }
+  .device {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch; min-height: 100px; padding: 5px 8px 5px 5px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+  }
+  .device.is-target { border-color: var(--selected-line) }
+  .device-main {
+    appearance: none; display: flex; align-items: center; gap: 10px; min-width: 0;
+    padding: 8px; border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left;
+  }
+  .device-main:hover { background: var(--field) }
+  .tile { width: 40px; height: 40px; border-radius: 12px; flex: none; display: grid; place-items: center; background: var(--field); color: var(--muted) }
+  .is-target .tile { background: var(--accent-bg); color: var(--accent) }
+  .device-text { min-width: 0 }
+  .device-name { display: block; font-size: 15px; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere }
+  .device-identity { display: flex; flex-wrap: wrap; gap: 0 8px; margin-top: 3px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere }
+  .device-id, .full-id { font-family: ui-monospace, Consolas, monospace; font-size: 11px }
+  .device-id { white-space: nowrap }
+  .device-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 9px; margin-top: 4px; font-size: 12px }
+  .status { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); white-space: nowrap }
+  .status::before { content: ""; height: 7px; width: 7px; border-radius: 50%; background: currentColor }
+  .status[data-state="connected"] { color: var(--success) }
+  .target-badge { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent-bg); color: var(--accent) }
+  .target-badge svg { width: 14px; height: 14px }
+  .icon-button { width: 44px; height: 44px; display: grid; place-items: center; background: transparent; border: 0; border-radius: 50%; color: var(--muted) }
+  .icon-button:hover, .icon-button[aria-expanded="true"] { background: var(--chip); color: var(--text) }
+  .device-controls { display: grid; grid-template-rows: 44px 44px; justify-items: end }
+  .device-connect { min-width: 44px; min-height: 44px; padding: 0 4px; border: 0; background: transparent; color: var(--accent); font-size: 12px; font-weight: 650; white-space: nowrap }
+  .device-connect span { display: inline-flex; align-items: center; min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 8px }
+  .device-connect:hover span { background: var(--accent-bg) }
+  .device-actions { position: absolute; z-index: 2; inset: 53px 9px auto auto; width: 168px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 10px 25px #0002 }
+  .device-actions button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 44px; padding: 0 9px; border: 0; border-radius: 9px; background: transparent; color: var(--text); text-align: left }
+  .device-actions button:hover { background: var(--chip) }
+  .device-actions .danger { color: var(--error) }
+  .device-actions svg { width: 18px; height: 18px }
+  .empty, .notes { padding: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 18px }
+  .empty { padding: 30px 16px; text-align: center }
+  .empty .tile { margin: 0 auto 10px }
+  .empty p, .notes p { margin-top: 5px; color: var(--muted); font-size: 13px }
+  .nav { display: flex; height: 66px; flex: none; align-items: center; background: var(--card); border-top: 1px solid var(--line); padding: 0 8px 6px }
+  .nav span { flex: 1; display: grid; justify-items: center; gap: 3px; color: var(--muted); font-size: 11px }
+  .nav [aria-current="page"] { color: var(--accent); font-weight: 650 }
+  .add {
+    position: absolute; z-index: 3; right: 20px; bottom: 86px; width: 64px; height: 64px;
+    border: 0; border-radius: 22px; background: var(--primary); color: var(--on-primary);
+    display: grid; place-items: center; box-shadow: 0 6px 16px color-mix(in srgb, var(--brand) 24%, transparent);
+  }
+  .add:hover, .primary:hover { background: var(--primary-hover) }
+  .add svg { width: 32px; height: 32px }
+  dialog {
+    position: fixed; top: auto; bottom: 0;
+    left: var(--sheet-left); right: auto; width: var(--sheet-width); max-width: none;
+    max-height: min(75dvh, 570px); margin: 0; padding: 17px 20px 24px;
+    border: 1px solid var(--line); border-radius: 24px 24px 32px 32px; background: var(--card); color: var(--text);
+  }
+  dialog::backdrop { background: #0006 }
+  .sheet-heading { display: flex; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 8px }
+  .sheet-heading h2 { font-size: 19px; overflow-wrap: anywhere }
+  .sheet-copy { color: var(--muted); margin-bottom: 14px; overflow-wrap: anywhere }
+  .sheet-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px }
+  .sheet-buttons > button { flex: 1 }
+  .primary, .secondary, .danger-button {
+    min-height: 44px; border: 0; border-radius: 24px; padding: 0 14px;
+    font-weight: 650; display: inline-flex; justify-content: center; align-items: center; gap: 7px;
+  }
+  .primary { background: var(--primary); color: var(--on-primary) }
+  .secondary { background: var(--chip); color: var(--text) }
+  .danger-button { background: var(--error-bg); color: var(--error) }
+  .pair-methods { display: grid; gap: 8px }
+  .pair-methods button { width: 100%; min-height: 48px }
+  .field { display: grid; gap: 6px; font-size: 13px; font-weight: 600 }
+  .field input { min-width: 0; width: 100%; min-height: 48px; border: 1px solid var(--line); border-radius: 12px; background: var(--field); color: var(--text); padding: 0 12px; letter-spacing: .16em }
+  .field #computer-alias { letter-spacing: normal }
+  .editor { display: grid; gap: 14px }
+  .editor p { font-size: 13px; color: var(--muted); overflow-wrap: anywhere }
+  .editor-identity { padding: 12px; border-radius: 12px; background: var(--field) }
+  .editor-identity .detail-list div { display: grid; gap: 2px }
+  .target-option { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 600; cursor: pointer }
+  .target-option input { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); flex: none }
+  .editor .sheet-buttons { margin-top: 0 }
+  .paired-status { color: var(--success); font-weight: 650 }
+  .detail-list { margin: 0; display: grid; gap: 8px }
+  .detail-list div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px }
+  .detail-list dt { color: var(--muted) }
+  .detail-list dd { margin: 0; overflow-wrap: anywhere }
+  .toast { position: absolute; z-index: 4; left: 20px; right: 96px; bottom: 96px; border-radius: 14px; padding: 10px 12px; background: var(--text); color: var(--card); font-size: 12px; overflow-wrap: anywhere }
+  .toast:empty { display: none }
+  .notes { margin-top: 8px }
+  .demo-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px }
+  .demo-controls button { min-height: 36px; font-size: 12px }
+  @media (max-width: 680px) {
+    .layout { grid-template-columns: minmax(0, 390px); justify-content: center; gap: 22px }
+    .notes { margin-top: 0 }
+  }
+  @media (max-width: 440px) {
+    body { padding: 0 }
+    .layout { display: block }
+    .phone { height: 100dvh; min-height: 320px; padding: 0; border-radius: 0; box-shadow: none }
+    .screen { border-radius: 0 }
+    .notes { margin: 12px }
+    dialog { bottom: 0; border-radius: 24px 24px 0 0 }
+  }
+  @media (max-width: 340px) {
+    .content { padding-inline: 14px }
+    .device { min-height: 108px }
+    .device-main { gap: 9px }
+    .add { right: 14px }
+  }
+</style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="position:absolute;width:0;height:0">
+  <symbol id="monitor" viewBox="0 0 24 24"><path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM7 21h10m-5-4v4"/></symbol>
+  <symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="send" viewBox="0 0 24 24"><path d="m10 14 11-11M21 3l-6.5 18a.55.55 0 0 1-1 0L10 14l-7-3.5a.55.55 0 0 1 0-1L21 3"/></symbol>
+  <symbol id="dots" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+  <symbol id="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0m-7 7v4M9 22h6"/></symbol>
+  <symbol id="history" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7M3 4v5h5m4-1v5l3 2"/></symbol>
+  <symbol id="settings" viewBox="0 0 24 24"><path d="M10 4.5a2 2 0 0 1 4 0 2 2 0 0 0 2.8 1.6 2 2 0 0 1 2 3.5 2 2 0 0 0 0 3.3 2 2 0 0 1-2 3.5 2 2 0 0 0-2.8 1.7 2 2 0 0 1-4 0 2 2 0 0 0-2.8-1.7 2 2 0 0 1-2-3.5 2 2 0 0 0 0-3.3 2 2 0 0 1 2-3.5A2 2 0 0 0 10 4.5z"/><circle cx="12" cy="11.3" r="3"/></symbol>
+  <symbol id="wifi" viewBox="0 0 24 24"><path d="M3 8a15 15 0 0 1 18 0M6 12a10 10 0 0 1 12 0m-9 4a5 5 0 0 1 6 0m-3 4h.01"/></symbol>
+  <symbol id="battery" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 10v4M6 12h9"/></symbol>
+  <symbol id="close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+  <symbol id="info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11h.01v5m0-8h.01"/></symbol>
+  <symbol id="edit" viewBox="0 0 24 24"><path d="m4 15 11-11a2.8 2.8 0 0 1 4 4L8 19H4zM13.5 5.5l5 5"/></symbol>
+  <symbol id="unlink" viewBox="0 0 24 24"><path d="m9 15 6-6m-4 6-3 3a3 3 0 1 1-4-4l3-3m6-2 3-3a3 3 0 1 1 4 4l-3 3M3 3l18 18"/></symbol>
+  <symbol id="scan" viewBox="0 0 24 24"><path d="M4 7V4h3m10 0h3v3M4 17v3h3m10 0h3v-3M7 12h10"/></symbol>
+  <symbol id="keypad" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 9h.01M12 9h.01M17 9h.01M7 13h.01M12 13h.01M17 13h.01M9 16h6"/></symbol>
+</svg>
+<div class="layout">
+  <div class="phone">
+    <div class="screen" id="screen">
+      <div class="statusbar" aria-hidden="true">
+        <time>9:41</time>
+        <span><svg><use href="#wifi"></use></svg><svg><use href="#battery"></use></svg></span>
+      </div>
+      <main class="content" id="content">
+        <h1>连接</h1>
+        <section aria-labelledby="device-list-title">
+          <div class="list-heading">
+            <h2 id="device-list-title">已配对电脑</h2>
+            <span class="count" id="count"></span>
+          </div>
+          <div class="devices" id="devices"></div>
+          <p class="sheet-copy" id="choose-target" hidden>点选一台电脑作为发送目标。</p>
+          <div class="empty" id="empty" hidden>
+            <div class="tile"><svg aria-hidden="true"><use href="#monitor"></use></svg></div>
+            <h3>还没有配对电脑</h3>
+            <p>点右下角的「＋」添加电脑。</p>
+          </div>
+        </section>
+      </main>
+      <div class="toast" role="status" id="toast"></div>
+      <button class="add" id="add" type="button" aria-label="添加电脑" aria-haspopup="dialog"><svg aria-hidden="true"><use href="#plus"></use></svg></button>
+      <div class="nav" aria-label="手机导航预览">
+        <span><svg aria-hidden="true"><use href="#mic"></use></svg>说话</span>
+        <span><svg aria-hidden="true"><use href="#history"></use></svg>记录</span>
+        <span aria-current="page"><svg aria-hidden="true"><use href="#monitor"></use></svg>连接</span>
+        <span><svg aria-hidden="true"><use href="#settings"></use></svg>设置</span>
+      </div>
+    </div>
+  </div>
+  <aside class="notes">
+    <h2>演示控制</h2>
+    <p>第一台电脑自动成为发送目标。配对多台后，记住上次主动选择的电脑。点卡片可切换，目标离线时仍保留选择。</p>
+    <div class="demo-controls">
+      <button class="secondary" type="button" id="toggle-online"></button>
+      <button class="secondary" type="button" id="theme" aria-pressed="false">深色</button>
+      <button class="secondary" type="button" id="reset">重置</button>
+    </div>
+  </aside>
+</div>
+<dialog id="sheet" aria-labelledby="sheet-title">
+  <div class="sheet-heading">
+    <h2 id="sheet-title"></h2>
+    <button class="icon-button" type="button" id="close-sheet" aria-label="关闭"><svg aria-hidden="true"><use href="#close"></use></svg></button>
+  </div>
+  <div id="sheet-body"></div>
+</dialog>
+<template id="device-template">
+  <article class="device">
+    <button class="device-main" type="button" aria-pressed="false">
+      <span class="tile"><svg aria-hidden="true"><use href="#monitor"></use></svg></span>
+      <span class="device-text">
+        <span class="device-name"></span>
+        <span class="device-identity"><span class="system-name"></span><span class="device-id"></span></span>
+        <span class="device-meta"><span class="status"></span><span class="target-badge" role="img" aria-label="当前发送目标" title="当前发送目标" hidden><svg aria-hidden="true"><use href="#send"></use></svg></span></span>
+      </span>
+    </button>
+    <div class="device-controls">
+      <button class="icon-button more" type="button" aria-expanded="false"><svg aria-hidden="true"><use href="#dots"></use></svg></button>
+      <button class="device-connect" type="button" hidden><span></span></button>
+    </div>
+    <div class="device-actions" hidden>
+      <button type="button" data-action="edit"><svg aria-hidden="true"><use href="#edit"></use></svg>编辑电脑</button>
+      <button type="button" data-action="details"><svg aria-hidden="true"><use href="#info"></use></svg>连接详情</button>
+      <button type="button" data-action="unpair" class="danger"><svg aria-hidden="true"><use href="#unlink"></use></svg>解除配对</button>
+    </div>
+  </article>
+</template>
+<template id="editor-template">
+  <form class="editor" id="edit-computer">
+    <span class="paired-status" id="paired-status" hidden>✓ 配对成功</span>
+    <div class="editor-identity">
+      <dl class="detail-list">
+        <div><dt>电脑系统名称</dt><dd id="editor-system-name"></dd></div>
+        <div><dt>电脑 ID</dt><dd class="full-id" id="editor-host-id"></dd></div>
+      </dl>
+    </div>
+    <label class="field">手机备注名（可选）
+      <input id="computer-alias" type="text" autocomplete="off" maxlength="40" aria-describedby="alias-hint">
+    </label>
+    <p id="alias-hint">备注只显示在这部手机上。留空则使用电脑系统名称。</p>
+    <div>
+      <label class="target-option" id="target-option"><input type="checkbox" id="make-target">设为发送目标</label>
+      <p id="editor-target"></p>
+    </div>
+    <div class="sheet-buttons">
+      <button class="secondary" id="leave-editor" type="button">取消</button>
+      <button class="primary" type="submit">保存</button>
+    </div>
+  </form>
+</template>
+<script>
+  const initialDevices = [
+    { id: "9e8ac193-4501-44ed-94c2-3c191372e201", systemName: "DESKTOP-7F3K9A", alias: "书房台式机", address: "192.168.71.6:61885", state: "connected" },
+    { id: "38c105be-4a12-439b-b9bd-665d118e1245", systemName: "LAPTOP-M4X2Z8", alias: "工作笔记本", address: "192.168.71.83:7788", state: "connected" },
+  ];
+  const storageKey = "sayin-mobile-connections-demo-v2";
+  const stateLabels = { connected: "已连接", offline: "离线", idle: "待连接" };
+  const byId = (id) => document.getElementById(id);
+  const devicesList = byId("devices");
+  const addButton = byId("add");
+  const sheet = byId("sheet");
+  const sheetBody = byId("sheet-body");
+  const toggleOnline = byId("toggle-online");
+  let devices = [];
+  let selectedId;
+  let nextId;
+  let openActions;
+  let toastTimer;
+  let restoreFocus;
+
+  function displayName(device) {
+    return device.alias || device.systemName;
+  }
+
+  function saveDemo() {
+    try { localStorage.setItem(storageKey, JSON.stringify({ devices, selectedId, nextId })); }
+    catch { /* The demo also works in memory when browser storage is unavailable. */ }
+  }
+
+  function loadDemo() {
+    try {
+      const state = JSON.parse(localStorage.getItem(storageKey));
+      if (!Array.isArray(state?.devices) || !Number.isInteger(state.nextId)) return false;
+      devices = state.devices;
+      selectedId = devices.find((device) => device.id === state.selectedId)?.id ?? null;
+      nextId = state.nextId;
+      return true;
+    } catch { return false; }
+  }
+
+  function notify(message) {
+    clearTimeout(toastTimer);
+    byId("toast").textContent = message;
+    if (message) toastTimer = setTimeout(() => { byId("toast").textContent = ""; }, 3000);
+  }
+
+  function closeActions() {
+    if (!openActions) return;
+    openActions.querySelector(".device-actions").hidden = true;
+    openActions.querySelector(".more").setAttribute("aria-expanded", "false");
+    openActions = null;
+  }
+
+  function connect(device, keepId) {
+    const connected = devices.filter((item) => item.state === "connected");
+    if (connected.length === 2) {
+      const standby = connected.find((item) => item.id !== keepId);
+      standby.state = "idle";
+    }
+    device.state = "connected";
+  }
+
+  function selectTarget(device) {
+    const previousTarget = selectedId;
+    selectedId = device.id;
+    if (device.state === "idle") connect(device, previousTarget);
+  }
+
+  function renderDevices() {
+    closeActions();
+    devicesList.replaceChildren();
+    byId("count").textContent = devices.length + " 台";
+    byId("empty").hidden = devices.length > 0;
+    addButton.disabled = devices.length >= 8;
+    addButton.title = addButton.disabled ? "已配对 8 台电脑" : "添加电脑";
+    const target = devices.find((device) => device.id === selectedId);
+    byId("choose-target").hidden = Boolean(target) || devices.length === 0;
+    toggleOnline.disabled = !target;
+    toggleOnline.textContent = target?.state === "offline" ? "恢复目标连接" : "模拟目标离线";
+
+    for (const device of devices) {
+      const card = byId("device-template").content.firstElementChild.cloneNode(true);
+      const isTarget = device.id === selectedId;
+      const name = displayName(device);
+      card.classList.toggle("is-target", isTarget);
+      card.querySelector(".device-name").textContent = name;
+      const systemName = card.querySelector(".system-name");
+      systemName.textContent = device.systemName;
+      systemName.hidden = name === device.systemName;
+      card.querySelector(".device-id").textContent = "ID " + device.id.slice(0, 8);
+      const status = card.querySelector(".status");
+      status.dataset.state = device.state;
+      status.textContent = stateLabels[device.state];
+      card.querySelector(".target-badge").hidden = !isTarget;
+
+      const select = card.querySelector(".device-main");
+      select.id = "select-" + device.id;
+      select.setAttribute("aria-pressed", String(isTarget));
+      select.addEventListener("click", () => {
+        if (isTarget) return;
+        selectTarget(device);
+        saveDemo();
+        renderDevices();
+        byId(select.id).focus({ preventScroll: true });
+        notify(device.state === "offline" ? name + "离线，已保留为发送目标" : "发送目标已切换至" + name);
+      });
+
+      const reconnect = card.querySelector(".device-connect");
+      if (device.state !== "connected") {
+        const label = device.state === "offline" ? "重试连接" : "连接";
+        reconnect.hidden = false;
+        reconnect.querySelector("span").textContent = label;
+        reconnect.setAttribute("aria-label", label + "「" + name + "」");
+        reconnect.addEventListener("click", () => {
+          connect(device, selectedId);
+          saveDemo();
+          renderDevices();
+          byId(select.id).focus({ preventScroll: true });
+          notify("已连接「" + name + "」");
+        });
+      }
+
+      const actions = card.querySelector(".device-actions");
+      actions.id = "actions-" + device.id;
+      const more = card.querySelector(".more");
+      more.id = "more-" + device.id;
+      more.setAttribute("aria-label", name + "的更多操作");
+      more.setAttribute("aria-controls", actions.id);
+      more.addEventListener("click", () => {
+        const wasOpen = openActions === card;
+        closeActions();
+        if (wasOpen) return;
+        openActions = card;
+        actions.hidden = false;
+        more.setAttribute("aria-expanded", "true");
+      });
+      actions.querySelector('[data-action="edit"]').addEventListener("click", () => showEditor(device, more));
+      actions.querySelector('[data-action="details"]').addEventListener("click", () => showDetails(device, more));
+      actions.querySelector('[data-action="unpair"]').addEventListener("click", () => confirmUnpair(device, more));
+      devicesList.append(card);
+    }
+  }
+
+  function positionSheet() {
+    const rect = byId("screen").getBoundingClientRect();
+    sheet.style.setProperty("--sheet-left", rect.left + "px");
+    sheet.style.setProperty("--sheet-width", rect.width + "px");
+    sheet.style.bottom = Math.max(0, window.innerHeight - rect.bottom) + "px";
+  }
+
+  function openSheet(title, markup, opener) {
+    closeActions();
+    byId("sheet-title").textContent = title;
+    if (typeof markup === "string") sheetBody.innerHTML = markup;
+    else sheetBody.replaceChildren(markup);
+    if (!sheet.open) {
+      restoreFocus = opener;
+      positionSheet();
+      sheet.showModal();
+    }
+    (sheetBody.querySelector("[data-focus]") || byId("close-sheet")).focus();
+  }
+
+  function showEditor(device, opener, newlyPaired = false) {
+    openSheet("编辑电脑", byId("editor-template").content.cloneNode(true), opener);
+    const alias = byId("computer-alias");
+    const targetOption = byId("make-target");
+    const target = devices.find((item) => item.id === selectedId);
+    const isTarget = target?.id === device.id;
+    alias.value = device.alias;
+    alias.placeholder = device.systemName;
+    byId("editor-system-name").textContent = device.systemName;
+    byId("editor-host-id").textContent = device.id;
+    byId("paired-status").hidden = !newlyPaired;
+    byId("target-option").hidden = isTarget;
+    byId("editor-target").textContent = isTarget
+      ? (newlyPaired ? "这是第一台配对的电脑，已自动设为发送目标。" : "这台电脑是当前发送目标。")
+      : (target ? "当前发送目标为「" + displayName(target) + "」。" : "当前尚未选择发送目标。");
+    const leave = byId("leave-editor");
+    if (newlyPaired) leave.textContent = "暂不设置";
+    leave.addEventListener("click", () => sheet.close());
+    byId("edit-computer").addEventListener("submit", (event) => {
+      event.preventDefault();
+      device.alias = alias.value.trim();
+      if (targetOption.checked) selectTarget(device);
+      saveDemo();
+      renderDevices();
+      restoreFocus = byId((newlyPaired ? "select-" : "more-") + device.id);
+      sheet.close();
+      if (targetOption.checked) {
+        notify("发送目标已切换至「" + displayName(device) + "」");
+      } else {
+        notify("已保存「" + displayName(device) + "」");
+      }
+    });
+  }
+
+  function showDetails(device, opener) {
+    openSheet("连接详情", '<dl class="detail-list"><div><dt>手机备注名</dt><dd data-detail="alias"></dd></div><div><dt>电脑系统名称</dt><dd data-detail="system-name"></dd></div><div><dt>电脑 ID</dt><dd class="full-id" data-detail="id"></dd></div><div><dt>连接状态</dt><dd data-detail="status"></dd></div><div><dt>发送目标</dt><dd data-detail="target"></dd></div><div><dt>地址和端口</dt><dd data-detail="address"></dd></div></dl>', opener);
+    sheetBody.querySelector('[data-detail="alias"]').textContent = device.alias || "未设置";
+    sheetBody.querySelector('[data-detail="system-name"]').textContent = device.systemName;
+    sheetBody.querySelector('[data-detail="id"]').textContent = device.id;
+    sheetBody.querySelector('[data-detail="status"]').textContent = stateLabels[device.state];
+    sheetBody.querySelector('[data-detail="target"]').textContent = device.id === selectedId ? "当前目标" : "未选中";
+    sheetBody.querySelector('[data-detail="address"]').textContent = device.address;
+  }
+
+  function confirmUnpair(device, opener) {
+    openSheet("解除配对？", '<p class="sheet-copy" id="unpair-copy"></p><div class="sheet-buttons"><button type="button" class="secondary" id="unpair-cancel" data-focus>取消</button><button type="button" class="danger-button" id="unpair-confirm">解除配对</button></div>', opener);
+    const name = displayName(device);
+    const isTarget = selectedId === device.id;
+    byId("unpair-copy").textContent = "解除与「" + name + "」（ID " + device.id.slice(0, 8) + "）的配对后，再次连接需要在电脑上重新批准。" + (isTarget && devices.length > 1 ? " 解除后，请重新选择发送目标。" : "");
+    byId("unpair-cancel").addEventListener("click", () => sheet.close());
+    byId("unpair-confirm").addEventListener("click", () => {
+      devices = devices.filter((item) => item.id !== device.id);
+      if (selectedId === device.id) selectedId = null;
+      saveDemo();
+      restoreFocus = addButton;
+      sheet.close();
+      renderDevices();
+      notify("已解除与「" + name + "」的配对");
+    });
+  }
+
+  function showPairMethods() {
+    openSheet("添加电脑", '<p class="sheet-copy">在电脑端 SayIn 打开配对页面。</p><div class="pair-methods"><button type="button" class="primary" id="pair-scan" data-focus><svg aria-hidden="true"><use href="#scan"></use></svg>扫描二维码</button><button type="button" class="secondary" id="pair-code"><svg aria-hidden="true"><use href="#keypad"></use></svg>输入配对码</button></div>', addButton);
+    byId("pair-scan").addEventListener("click", () => {
+      openSheet("扫描二维码", '<p class="sheet-copy">扫描电脑端的配对二维码。这是模拟流程，点击下方按钮继续。</p><div class="sheet-buttons"><button class="secondary" type="button" id="pair-back">返回</button><button class="primary" type="button" id="simulate-scan" data-focus>模拟扫码</button></div>');
+      byId("pair-back").addEventListener("click", showPairMethods);
+      byId("simulate-scan").addEventListener("click", showApproval);
+    });
+    byId("pair-code").addEventListener("click", () => {
+      openSheet("输入配对码", '<p class="sheet-copy">演示配对码为 246810。</p><form id="code-form"><label class="field">六位配对码<input id="code" inputmode="numeric" autocomplete="off" maxlength="6" pattern="[0-9]{6}" required data-focus></label><div class="sheet-buttons"><button class="secondary" type="button" id="pair-back">返回</button><button class="primary" type="submit">发起配对</button></div></form>');
+      const code = byId("code");
+      code.addEventListener("input", () => code.setCustomValidity(""));
+      byId("pair-back").addEventListener("click", showPairMethods);
+      byId("code-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        if (code.value === "246810") {
+          showApproval();
+        } else {
+          code.setCustomValidity("请检查配对码并重试。");
+          code.reportValidity();
+        }
+      });
+    });
+  }
+
+  function showApproval() {
+    openSheet("等待电脑批准", '<p class="sheet-copy">在电脑端确认这次配对请求。批准后，可以设置手机备注名和发送目标。</p><div class="sheet-buttons"><button class="secondary" type="button" id="pair-cancel">取消</button><button class="primary" type="button" id="pair-approve" data-focus>模拟批准</button></div>');
+    byId("pair-cancel").addEventListener("click", () => sheet.close());
+    byId("pair-approve").addEventListener("click", () => {
+      const sequence = nextId++;
+      const isFirst = devices.length === 0;
+      const device = {
+        id: crypto.randomUUID(),
+        systemName: "DESKTOP-" + String(sequence).padStart(4, "0"),
+        alias: "",
+        address: "192.168.71." + (100 + sequence % 100) + ":7788",
+        state: isFirst ? "connected" : "idle",
+      };
+      devices.push(device);
+      if (isFirst) selectedId = device.id;
+      saveDemo();
+      renderDevices();
+      restoreFocus = byId("select-" + device.id);
+      showEditor(device, null, true);
+    });
+  }
+
+  function resetDemo() {
+    devices = initialDevices.map((device) => ({ ...device }));
+    selectedId = initialDevices[0].id;
+    nextId = 3;
+    byId("content").scrollTop = 0;
+    saveDemo();
+    renderDevices();
+    notify("");
+  }
+
+  addButton.addEventListener("click", showPairMethods);
+  byId("close-sheet").addEventListener("click", () => sheet.close());
+  sheet.addEventListener("click", (event) => {
+    const bounds = sheet.getBoundingClientRect();
+    if (event.target === sheet && (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom)) sheet.close();
+  });
+  sheet.addEventListener("close", () => restoreFocus?.focus());
+  window.addEventListener("resize", () => { if (sheet.open) positionSheet(); });
+  window.addEventListener("scroll", () => { if (sheet.open) positionSheet(); }, { passive: true });
+  document.addEventListener("click", (event) => {
+    if (openActions && !event.target.closest(".more, .device-actions")) closeActions();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !openActions) return;
+    const opener = openActions.querySelector(".more");
+    closeActions();
+    opener.focus();
+  });
+  toggleOnline.addEventListener("click", () => {
+    const target = devices.find((device) => device.id === selectedId);
+    if (!target) return;
+    if (target.state === "offline") connect(target);
+    else target.state = "offline";
+    saveDemo();
+    renderDevices();
+  });
+  byId("theme").addEventListener("click", (event) => {
+    const dark = document.documentElement.dataset.theme !== "dark";
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    event.currentTarget.setAttribute("aria-pressed", String(dark));
+    event.currentTarget.textContent = dark ? "浅色" : "深色";
+  });
+  byId("reset").addEventListener("click", resetDemo);
+  if (loadDemo()) renderDevices();
+  else resetDemo();
+</script>
+</body>
+</html>
