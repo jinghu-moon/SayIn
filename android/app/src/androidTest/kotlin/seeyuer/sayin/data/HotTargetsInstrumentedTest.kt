@@ -37,15 +37,28 @@ class HotTargetsInstrumentedTest {
             }
             await { it.connection == Connection.OFFLINE }
             repository.foreground(true)
-            suspend fun pair(portKey: String, codeKey: String): String {
-                val port = checkNotNull(arguments.getString(portKey))
-                repository.pairCode("127.0.0.1", port, checkNotNull(arguments.getString(codeKey)))
-                return checkNotNull(await { it.ready && it.port.toString() == port }.selectedHostId)
+            suspend fun pair(prefix: String): String {
+                val address = checkNotNull(arguments.getString("${prefix}Address"))
+                val port = checkNotNull(arguments.getString("${prefix}Port"))
+                repository.pairCode(address, port, checkNotNull(arguments.getString("${prefix}Code")))
+                return await { state -> state.pairedTargets.any { it.address == address && it.port.toString() == port } }
+                    .pairedTargets.single { it.address == address && it.port.toString() == port }.hostId
             }
-            val a = pair("fixturePort", "fixtureCode")
-            val b = pair("secondFixturePort", "secondFixtureCode")
-            val c = pair("thirdFixturePort", "thirdFixtureCode")
+            val a = pair("fixture")
+            val b = pair("secondFixture")
+            val c = pair("thirdFixture")
             assertEquals(3, setOf(a, b, c).size)
+            await { it.ready && it.selectedHostId == a }
+            repository.connectHost(b)
+            val both = await { it.secondaryHostId == b && it.secondaryConnection == Connection.ONLINE }
+            assertEquals(a, both.selectedHostId)
+            val systemName = checkNotNull(both.pairedTargets.single { it.hostId == b }.systemName)
+            assertTrue(systemName.isNotBlank())
+            repository.renameHost(b, "Work laptop")
+            await { it.pairedTargets.any { target -> target.hostId == b && target.alias == "Work laptop" } }
+            val renamed = PairedHost(checkNotNull(ProtectedStore(context).loadHost(b)))
+            assertEquals("Work laptop", renamed.alias)
+            assertEquals(systemName, renamed.systemName)
 
             suspend fun select(host: String) {
                 repository.selectHost(host)
@@ -91,6 +104,11 @@ class HotTargetsInstrumentedTest {
             select(a)
             repository.action(cold, "cancel")
             assertEquals(a, cancelled(cold).selectedHostId)
+            repository.forget(b)
+            await { it.ready && it.selectedHostId == a && it.pairedTargets.none { target -> target.hostId == b } }
+            repository.forget(a)
+            val remaining = await { it.selectedHostId == null && it.pairedTargets.singleOrNull()?.hostId == c }
+            assertEquals(c, remaining.pairedTargets.single().hostId)
         } finally {
             repository.close()
             delay(200)

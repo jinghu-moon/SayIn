@@ -238,10 +238,9 @@ fn initialize(
     cx.set_quit_mode(gpui_kit::QuitMode::Explicit);
     yue_component::init(cx, theme::yue(ThemeMode::Light)).expect("initialize Yue");
     theme::install(ThemeMode::Light, cx);
-    let image_delivery = state.shared_image_delivery();
+    let delivery = state.shared_delivery();
     let preferences = cx.new(|_| state);
-    let reception =
-        cx.new(|cx| ReceptionState::new(directory.join("receiver"), image_delivery, cx));
+    let reception = cx.new(|cx| ReceptionState::new(directory.join("receiver"), delivery, cx));
     reception.update(cx, |s, cx| s.set_background_available(tray.is_some(), cx));
     cx.set_global(AppServices {
         preferences: preferences.clone(),

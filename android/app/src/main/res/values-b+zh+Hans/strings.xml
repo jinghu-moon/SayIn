@@ -1256,6 +1256,31 @@
     <string name="image_batch_stop">停止发送后续图片</string>
     <string name="image_batch_send">按顺序发送 %1$d 张图片</string>
     <string name="image_batch_path_stop">电脑已复制一个文件路径。粘贴该路径后，可继续发送其他图片。</string>
+    <string name="connection_paired_computers">已配对电脑</string>
+    <string name="connection_computer_count">%1$d 台</string>
+    <string name="connection_empty">还没有配对电脑</string>
+    <string name="connection_empty_hint">点右下角的加号添加电脑。</string>
+    <string name="connection_choose_target">点选一台电脑作为发送目标。</string>
+    <string name="connection_add_computer">添加电脑</string>
+    <string name="connection_edit_computer">编辑电脑</string>
+    <string name="connection_device_details">连接详情</string>
+    <string name="connection_device_alias">手机备注名：%1$s</string>
+    <string name="connection_device_short_id">ID %1$s</string>
+    <string name="connection_waiting_to_connect">待连接</string>
+    <string name="connection_current_target">当前发送目标</string>
+    <string name="connection_device_more">%1$s的更多操作</string>
+    <string name="connection_connect_computer">连接</string>
+    <string name="connection_device_system_name">电脑系统名称</string>
+    <string name="connection_device_unknown_name">暂未获取</string>
+    <string name="connection_device_id">电脑 ID</string>
+    <string name="connection_pairing_completed">配对成功</string>
+    <string name="connection_device_alias_label">手机备注名（可选）</string>
+    <string name="connection_device_alias_hint">备注只在这部手机上显示。留空时使用电脑系统名称。</string>
+    <string name="connection_make_target">设为发送目标</string>
+    <string name="connection_target_name">当前发送目标为「%1$s」</string>
+    <string name="connection_setup_later">暂不设置</string>
+    <string name="connection_save_computer">保存</string>
+    <string name="connection_slot_busy">另一台电脑正在同步回执，请等它完成后再连接。</string>
 </resources>
 
 

@@ -196,6 +196,20 @@ pub(crate) fn publish_path(
     publish_formats(owner, &[(CF_UNICODETEXT.0 as u32, &bytes)], allowed)
 }
 
+pub(crate) fn publish_text(
+    owner: HWND,
+    text: &str,
+    allowed: impl Fn() -> bool,
+) -> Result<Published, Failure> {
+    let bytes = zeroize::Zeroizing::new(
+        text.encode_utf16()
+            .chain([0])
+            .flat_map(u16::to_le_bytes)
+            .collect::<Vec<_>>(),
+    );
+    publish_formats(owner, &[(CF_UNICODETEXT.0 as u32, &bytes)], allowed)
+}
+
 fn publish_formats(
     owner: HWND,
     formats: &[(u32, &[u8])],

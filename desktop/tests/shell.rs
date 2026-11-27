@@ -257,7 +257,10 @@ fn local_device_revocation_requires_confirmation_and_persists(cx: &mut TestAppCo
         vec![device]
     );
     click(cx, "Devices", Role::Tab);
-    click(cx, "Revoke authorization…", Role::Button);
+    node(cx, "Offline", Role::Caption);
+    click(cx, "Phone · Device actions", Role::Button);
+    node(cx, "Replace pairing…", Role::MenuItem);
+    click(cx, "Revoke authorization…", Role::MenuItem);
     assert_eq!(
         receiver.read_with(cx, |s, _| s.revoking().map(str::to_owned)),
         Some(device.into())

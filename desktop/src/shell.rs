@@ -5,14 +5,14 @@ use crate::{
     reception::{ReceptionPhase, ReceptionState, ReviewScope},
     theme,
 };
-use voicelink_receiver::windows_image_delivery::ImageDeliveryMode;
+use voicelink_receiver::windows_delivery::ImageDeliveryMode;
 use yue_component::gpui_kit::base::{
     Tab, TabDescriptor, TabPanel, Tabs, TabsController, TabsSnapshot, TestSupportExt as _,
 };
 use yue_component::{
-    ButtonVariant, CheckboxState, Icon, IconDefinition, SelectEvent, SelectMode, SelectOption,
-    SelectValue, YueButton, YueCard, YueCardHeader, YueCheckbox, YueDropdownMenu, YueEmpty,
-    YueMenuItem, YueSelect, YueSelectState, current_theme,
+    BadgeTone, ButtonVariant, CheckboxState, Icon, IconDefinition, SelectEvent, SelectMode,
+    SelectOption, SelectValue, YueBadge, YueButton, YueCard, YueCardHeader, YueCheckbox,
+    YueDropdownMenu, YueEmpty, YueMenuItem, YueSelect, YueSelectState, current_theme,
     gpui_kit::{
         self, App, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
         ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Subscription,
@@ -212,16 +212,14 @@ fn muted(text: String, cx: &App) -> impl IntoElement {
         .child(text)
 }
 
-fn connection_status(service: &ReceptionState) -> M {
-    if service
-        .network_snapshot()
-        .is_some_and(|s| s.running && s.connections > 0)
-    {
-        M::PhoneConnected
+fn connection_status(service: &ReceptionState, settings: &PreferencesState) -> String {
+    let online = service.connected_device_ids().count();
+    if online > 0 {
+        settings.connected_phone_count(online)
     } else if service.snapshot().is_some_and(|s| s.paired_devices > 0) {
-        M::PhoneOffline
+        settings.text(M::PhoneOffline)
     } else {
-        M::NotConnected
+        settings.text(M::NotConnected)
     }
 }
 
@@ -242,114 +240,152 @@ fn devices(
     let service = reception.read(cx);
     let snapshot = service.snapshot();
     let pair = reception.clone();
+    let theme = current_theme(cx);
     let mut devices = div().flex().flex_col().gap_3();
     if let Some(snapshot) = snapshot.filter(|s| !s.device_ids.is_empty()) {
         for device in &snapshot.device_ids {
-            let owner = reception.clone();
-            let replace = reception.clone();
-            let id = device.clone();
-            let replace_id = device.clone();
             let name = snapshot
                 .device_names
                 .get(device)
-                .filter(|s| !s.is_empty())
+                .filter(|name| !name.is_empty())
                 .cloned()
                 .unwrap_or_else(|| settings.text(M::PhoneDevice));
-            let title = format!("{} · {}", name, &device[..8]);
-            devices = devices.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Icon::new(outline::DeviceMobile)
-                            .size(gpui_kit::rems(1.5))
-                            .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .flex()
-                            .flex_col()
-                            .gap_1()
-                            .child(div().font_weight(gpui_kit::FontWeight::MEDIUM).child(title))
-                            .child(muted(
-                                settings.text(
-                                    if snapshot.control.active_device_id.as_ref() == Some(device) {
-                                        M::ActiveDevice
-                                    } else {
-                                        M::DeviceAuthorized
-                                    },
-                                ),
-                                cx,
-                            )),
-                    )
-                    .child(
-                        YueButton::new(
-                            gpui_kit::SharedString::from(format!("replace-pairing-{device}")),
-                            settings.text(M::ReplacePairing),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .disabled(!service.is_ready() || service.is_busy())
-                        .on_click(move |_, _, cx| {
-                            replace
-                                .update(cx, |s, cx| s.prepare_replacement(replace_id.clone(), cx))
-                        }),
-                    )
-                    .child(
-                        YueButton::icon(
-                            gpui_kit::SharedString::from(format!("revoke-{device}")),
-                            current_theme(cx),
-                            outline::Unlink,
-                            settings.text(M::RevokeDevice),
-                        )
-                        .variant(ButtonVariant::Ghost)
-                        .tooltip(settings.text(M::RevokeDevice))
-                        .disabled(service.is_busy())
-                        .on_click(move |_, _, cx| {
-                            owner.update(cx, |s, cx| s.request_revoke(id.clone(), cx))
-                        }),
-                    ),
-            );
-        }
-        if service.revoking().is_some() {
-            let confirm = reception.clone();
-            let cancel = reception.clone();
-            devices = devices
-                .child(muted(settings.text(M::RevokeHelp), cx))
-                .child(
+            let online = service.is_device_connected(device);
+            let busy = service.is_busy();
+            let replacing = reception.clone();
+            let replace_id = device.clone();
+            let revoking = reception.clone();
+            let revoke_id = device.clone();
+            let actions_label = settings.text(M::DeviceActions);
+            let actions = YueDropdownMenu::new(
+                gpui_kit::SharedString::from(format!("phone-actions-{device}")),
+                theme,
+                YueButton::icon(
+                    gpui_kit::SharedString::from(format!("phone-actions-trigger-{device}")),
+                    theme,
+                    outline::DotsVertical,
+                    format!("{name} · {actions_label}"),
+                )
+                .variant(ButtonVariant::Ghost)
+                .tooltip(actions_label)
+                .disabled(busy || !service.is_ready()),
+            )
+            .items([
+                YueMenuItem::new(settings.text(M::ReplacePairing)).on_click(move |_, _, cx| {
+                    replacing.update(cx, |s, cx| s.prepare_replacement(replace_id.clone(), cx));
+                }),
+                YueMenuItem::new(settings.text(M::RevokeDevice))
+                    .danger(true)
+                    .on_click(move |_, _, cx| {
+                        revoking.update(cx, |s, cx| s.request_revoke(revoke_id.clone(), cx));
+                    }),
+            ]);
+            let mut card =
+                YueCard::new(gpui_kit::SharedString::from(format!("phone-card-{device}"))).child(
                     div()
                         .flex()
-                        .flex_wrap()
-                        .gap_2()
+                        .items_center()
+                        .gap_3()
                         .child(
-                            action(
-                                "confirm-revoke",
-                                settings.text(M::ConfirmRevoke),
-                                outline::Unlink,
-                                cx,
-                            )
-                            .disabled(service.is_busy())
-                            .on_click(move |_, _, cx| {
-                                confirm.update(cx, |s, cx| s.confirm_revoke(cx))
-                            }),
+                            div()
+                                .flex_none()
+                                .p_3()
+                                .rounded_md()
+                                .bg(gpui_kit::rgb(theme.surface_component()))
+                                .child(
+                                    Icon::new(outline::DeviceMobile)
+                                        .size(gpui_kit::rems(1.5))
+                                        .color_value(gpui_kit::rgb(theme.text_secondary())),
+                                ),
                         )
                         .child(
-                            YueButton::new("cancel-revoke", settings.text(M::Cancel))
-                                .variant(ButtonVariant::Ghost)
-                                .on_click(move |_, _, cx| {
-                                    cancel.update(cx, |s, cx| s.cancel_revoke(cx))
-                                }),
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .flex()
+                                .flex_col()
+                                .gap_1()
+                                .child(
+                                    div()
+                                        .flex()
+                                        .flex_wrap()
+                                        .items_center()
+                                        .gap_2()
+                                        .child(
+                                            div()
+                                                .min_w_0()
+                                                .font_weight(gpui_kit::FontWeight::SEMIBOLD)
+                                                .child(name),
+                                        )
+                                        .child(
+                                            YueBadge::new(gpui_kit::SharedString::from(format!(
+                                                "phone-status-{device}"
+                                            )))
+                                            .text(settings.text(if online {
+                                                M::DeviceOnline
+                                            } else {
+                                                M::DeviceOffline
+                                            }))
+                                            .tone(
+                                                if online {
+                                                    BadgeTone::Success
+                                                } else {
+                                                    BadgeTone::Default
+                                                },
+                                            ),
+                                        ),
+                                )
+                                .child(muted(settings.pairing_id(&device[..8]), cx)),
+                        )
+                        .child(div().flex_none().child(actions)),
+                );
+            if service.revoking() == Some(device.as_str()) {
+                let confirm = reception.clone();
+                let cancel = reception.clone();
+                card = card.child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_3()
+                        .child(muted(settings.text(M::RevokeHelp), cx))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_wrap()
+                                .gap_2()
+                                .child(
+                                    YueButton::new(
+                                        "confirm-revoke",
+                                        settings.text(M::ConfirmRevoke),
+                                    )
+                                    .variant(ButtonVariant::Danger)
+                                    .disabled(busy)
+                                    .on_click(
+                                        move |_, _, cx| {
+                                            confirm.update(cx, |s, cx| s.confirm_revoke(cx))
+                                        },
+                                    ),
+                                )
+                                .child(
+                                    YueButton::new("cancel-revoke", settings.text(M::Cancel))
+                                        .variant(ButtonVariant::Ghost)
+                                        .on_click(move |_, _, cx| {
+                                            cancel.update(cx, |s, cx| s.cancel_revoke(cx))
+                                        }),
+                                ),
                         ),
                 );
+            }
+            devices = devices.child(card);
         }
     } else {
         devices = devices.child(
-            YueEmpty::new("phone-empty")
-                .icon(outline::DeviceMobile)
-                .title(settings.text(M::ConnectionEmpty))
-                .description(settings.text(M::ConnectionEmptyDescription)),
+            YueCard::new("devices-empty").child(
+                YueEmpty::new("phone-empty")
+                    .icon(outline::DeviceMobile)
+                    .title(settings.text(M::ConnectionEmpty))
+                    .description(settings.text(M::ConnectionEmptyDescription)),
+            ),
         );
     }
 
@@ -357,6 +393,8 @@ fn devices(
         "devices-scroll",
         div()
             .w_full()
+            .max_w(gpui_kit::rems(65.))
+            .mx_auto()
             .flex()
             .flex_col()
             .gap_5()
@@ -380,15 +418,7 @@ fn devices(
                             }),
                     ),
             )
-            .child(
-                section(
-                    "devices-card",
-                    settings.text(M::AuthorizedDevices),
-                    outline::DeviceMobile,
-                    cx,
-                )
-                .child(devices),
-            ),
+            .child(devices),
     )
 }
 /// A QR is image content, not a monochrome icon. Share this presentation with
@@ -659,6 +689,12 @@ fn settings(
             &controls.close_behavior,
             cx,
         ))
+        .children(
+            state
+                .delivery_picker_issue()
+                .map(|issue| muted(state.text(issue), cx)),
+        )
+        .child(fast_paste_card(preferences, cx))
         .child({
             let owner = preferences.clone();
             let mut card = section(
@@ -676,16 +712,13 @@ fn settings(
             if let Some(path) = state.image_directory() {
                 card = card.child(div().min_w_0().text_sm().child(path.display().to_string()));
             }
-            if let Some(issue) = state.image_picker_issue() {
-                card = card.child(div().text_sm().child(state.text(issue)));
-            }
             card.child(
                 div().child(
                     YueButton::new(
                         "choose-image-directory",
                         state.text(M::ChooseImageDirectory),
                     )
-                    .disabled(!state.is_editable() || state.image_picker_busy())
+                    .disabled(!state.is_editable() || state.delivery_picker_busy())
                     .on_click(move |_, _, cx| {
                         owner.update(cx, |state, cx| state.pick_image_path(None, cx))
                     }),
@@ -712,6 +745,61 @@ fn settings(
         .into_any_element()
 }
 
+fn fast_paste_card(preferences: &Entity<PreferencesState>, cx: &App) -> impl IntoElement {
+    let state = preferences.read(cx);
+    let owner = preferences.clone();
+    section(
+        "fast-paste-card",
+        state.text(M::FastPaste),
+        outline::AppWindow,
+        cx,
+    )
+    .child(muted(state.text(M::FastPasteHelp), cx))
+    .children(state.fast_paste_applications().iter().map(|path| {
+        let executable = std::path::Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or(path);
+        let id = gpui_kit::SharedString::from(format!("remove-fast-paste-{path}"));
+        let label = state.text(M::FastPasteRemove);
+        let owner = preferences.clone();
+        let path = path.clone();
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap_2()
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .child(div().text_sm().child(executable.to_owned()))
+                    .child(muted(path.clone(), cx)),
+            )
+            .child(
+                YueButton::new(id, label.clone())
+                    .variant(ButtonVariant::Ghost)
+                    .accessibility_label(format!("{executable} · {label}"))
+                    .disabled(!state.is_editable())
+                    .on_click(move |_, _, cx| {
+                        owner.update(cx, |state, cx| {
+                            state.set_fast_paste_application(&path, false, cx)
+                        })
+                    }),
+            )
+    }))
+    .child(
+        div().child(
+            YueButton::new("add-fast-paste-application", state.text(M::FastPasteAdd))
+                .disabled(!state.is_editable() || state.delivery_picker_busy())
+                .on_click(move |_, _, cx| {
+                    owner.update(cx, |state, cx| state.pick_fast_paste_application(cx))
+                }),
+        ),
+    )
+}
+
 fn image_application_rules(preferences: &Entity<PreferencesState>, cx: &App) -> impl IntoElement {
     use ImageDeliveryMode::{CopyPath, PasteImage};
 
@@ -725,7 +813,7 @@ fn image_application_rules(preferences: &Entity<PreferencesState>, cx: &App) -> 
         "add-image-application-menu",
         theme,
         YueButton::new("add-image-application", state.text(M::ImageAddApplication))
-            .disabled(!state.is_editable() || state.image_picker_busy()),
+            .disabled(!state.is_editable() || state.delivery_picker_busy()),
     )
     .items(modes.map(|(mode, label)| {
         let owner = preferences.clone();
@@ -997,7 +1085,7 @@ impl Render for Shell {
                                     .size(gpui_kit::rems(1.))
                                     .color_value(gpui_kit::rgb(theme.text_secondary())),
                             )
-                            .child(state.text(connection_status(self.reception.read(cx)))),
+                            .child(connection_status(self.reception.read(cx), state)),
                     ),
             )
             .child(navigation)

@@ -65,6 +65,20 @@ impl InputAdapter for Adapter {
 }
 type Socket = WebSocketStream<TlsStream<TcpStream>>;
 
+fn start_verification_service(receiver: Receiver, identity: HostIdentity) -> NetworkService {
+    if std::env::var_os("SAYIN_VERIFY_PHYSICAL_LAN").is_some() {
+        let binding = voicelink_transport::interfaces::available_interfaces()
+            .unwrap()
+            .into_iter()
+            .filter(|interface| interface.is_physical())
+            .find_map(|interface| interface.binding().ok())
+            .expect("a validated physical LAN interface");
+        NetworkService::start_on_network(receiver, identity, binding, 0).unwrap()
+    } else {
+        NetworkService::start_loopback(receiver, identity, "127.0.0.1:0".parse().unwrap()).unwrap()
+    }
+}
+
 struct RecoveringAdapter {
     ready: Arc<AtomicBool>,
     calls: Arc<AtomicUsize>,
@@ -422,7 +436,17 @@ async fn approve_pairing_request(
     .await
     .unwrap();
     assert_eq!(approval.name, "Test Android");
-    assert_eq!(approval.source.to_string(), "127.0.0.1");
+    assert_eq!(
+        approval.source.to_string(),
+        socket
+            .get_ref()
+            .get_ref()
+            .0
+            .local_addr()
+            .unwrap()
+            .ip()
+            .to_string()
+    );
     service.decide(&approval.id, true).await.unwrap();
     (socket, candidate)
 }
@@ -840,12 +864,10 @@ async fn authenticated_wss_preserves_exact_receipt_bytes_and_stays_open_after_bu
         },
     )
     .unwrap();
-    let service = NetworkService::start_loopback(
+    let service = start_verification_service(
         receiver.clone(),
         HostIdentity::open(&directory.0, 0).unwrap(),
-        "127.0.0.1:0".parse().unwrap(),
-    )
-    .unwrap();
+    );
     let invitation = invitation(&service).await;
     let paired = pair(&service, &invitation).await;
     let target = Uuid::new_v4().to_string();
@@ -974,12 +996,10 @@ async fn paused_submissions_preserve_order_and_expire_without_replay_over_wss() 
         RecordingAdapter(executed.clone()),
     )
     .unwrap();
-    let service = NetworkService::start_loopback(
+    let service = start_verification_service(
         receiver.clone(),
         HostIdentity::open(&directory.0, 0).unwrap(),
-        "127.0.0.1:0".parse().unwrap(),
-    )
-    .unwrap();
+    );
     let invitation = invitation(&service).await;
     let paired = pair(&service, &invitation).await;
     let target = Uuid::new_v4().to_string();
@@ -1078,6 +1098,62 @@ async fn paused_submissions_preserve_order_and_expire_without_replay_over_wss() 
     assert_eq!(expired["reason"], "hold_expired");
     assert_eq!(executed.lock().unwrap().as_slice(), &ids[..2]);
     service.shutdown().await.unwrap();
+    receiver.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn online_phones_are_counted_by_pair_through_reconnection() {
+    let directory = Directory::new();
+    let (receiver, service) = image_service(&directory, Arc::new(AtomicUsize::new(0))).await;
+    let first_invite = invitation(&service).await;
+    let first = pair(&service, &first_invite).await;
+    let second_invite = invitation(&service).await;
+    let second = pair(&service, &second_invite).await;
+    let state = receiver.state().await.unwrap();
+    receiver
+        .enable_foreground_input(state.state_rev, false)
+        .await
+        .unwrap();
+    let first_id = first["pair_id"].as_str().unwrap();
+    let second_id = second["pair_id"].as_str().unwrap();
+    async fn connect(invite: &Invitation, pair: &Value) -> (Socket, Value) {
+        let mut client = socket(invite).await;
+        send(&mut client, json!({"v":3,"t":"hello","name":"Online phone","pair_id":pair["pair_id"],"token":pair["token"]})).await;
+        let welcome = next(&mut client, "welcome").await;
+        next(&mut client, "foreground").await;
+        (client, welcome)
+    }
+    assert_eq!(service.snapshot().unwrap().connected_devices(), 0);
+    let (old, _) = connect(&first_invite, &first).await;
+    let (other, _) = connect(&second_invite, &second).await;
+    let (mut current, welcome) = connect(&first_invite, &first).await;
+    query_ready(&mut current, welcome["session_id"].as_str().unwrap()).await;
+    let mut images = socket_path(&first_invite, "/sayin/v3/images").await;
+    image_hello(&mut images, &welcome, &first).await;
+    next(&mut images, "image_welcome").await;
+    let snapshot = service.snapshot().unwrap();
+    assert_eq!(snapshot.connected_devices(), 2);
+    assert!(snapshot.is_device_connected(first_id));
+    assert!(snapshot.is_device_connected(second_id));
+
+    drop(old);
+    drop(other);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let snapshot = service.snapshot().unwrap();
+            assert!(snapshot.is_device_connected(first_id));
+            if !snapshot.is_device_connected(second_id) {
+                assert_eq!(snapshot.connected_devices(), 1);
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap();
+    query_ready(&mut current, welcome["session_id"].as_str().unwrap()).await;
+    service.shutdown().await.unwrap();
+    assert_eq!(service.snapshot().unwrap().connected_devices(), 0);
     receiver.shutdown().await.unwrap();
 }
 
@@ -1273,9 +1349,52 @@ async fn connection_closed(socket: &mut Socket) {
 #[tokio::test]
 async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_control() {
     use voicelink_receiver::images::wire::encode_chunk;
+    struct OrderedInput {
+        calls: Arc<AtomicUsize>,
+        release_image: std::sync::mpsc::Receiver<()>,
+    }
+    impl InputAdapter for OrderedInput {
+        fn preflight(&mut self, _: &Execution) -> std::result::Result<(), &'static str> {
+            Ok(())
+        }
+        fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
+            assert!(!gate.is_paused());
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let method = if matches!(
+                job.operation(),
+                voicelink_receiver::protocol::Operation::Image { .. }
+            ) {
+                self.release_image
+                    .recv_timeout(Duration::from_secs(10))
+                    .unwrap();
+                "clipboard_image"
+            } else {
+                "unicode"
+            };
+            InputOutcome::Injected { method }
+        }
+    }
+
     let directory = Directory::new();
     let calls = Arc::new(AtomicUsize::new(0));
-    let (receiver, service) = image_service(&directory, calls.clone()).await;
+    let (release_image, wait_for_release) = std::sync::mpsc::channel();
+    let clock = ManualClock::new();
+    let mut ledger = open_ledger_with_clock(&directory.0, clock.clone()).unwrap();
+    let identity = HostIdentity::open(&directory.0, 0).unwrap();
+    let images = directory.0.join("images");
+    secure_directory(&images).unwrap();
+    let store =
+        voicelink_receiver::images::storage::ImageStore::open(&images, identity.host_id()).unwrap();
+    ledger.attach_images(store).unwrap();
+    let receiver = Receiver::start(
+        ledger,
+        OrderedInput {
+            calls: calls.clone(),
+            release_image: wait_for_release,
+        },
+    )
+    .unwrap();
+    let service = start_verification_service(receiver.clone(), identity);
     let invitation = invitation(&service).await;
     let paired = pair(&service, &invitation).await;
     let state = receiver.state().await.unwrap();
@@ -1327,16 +1446,48 @@ async fn dual_wss_authenticates_uploads_and_deduplicates_without_blocking_contro
     send(&mut control, submit.clone()).await;
     loop {
         let status = next(&mut control, "status").await;
+        assert_eq!(status["id"], id);
+        if status["st"] == "executing" {
+            break;
+        }
+        assert_eq!(status["st"], "accepted");
+    }
+    let text_id = Uuid::new_v4().to_string();
+    send(&mut control, json!({"v":3,"t":"submit","session_id":welcome["session_id"],"id":text_id,
+        "target":welcome["target"],"op":{"kind":"text","text":"queued after image","src":"manual"}})).await;
+    let text_status = next(&mut control, "status").await;
+    assert_eq!(text_status["id"], text_id);
+    assert_eq!(text_status["st"], "accepted");
+    clock.advance(Duration::from_secs(31));
+    send(
+        &mut control,
+        json!({"v":3,"t":"query","session_id":welcome["session_id"],
+        "ref":Uuid::new_v4().to_string(),"ids":[text_id]}),
+    )
+    .await;
+    let queued = next(&mut control, "status").await;
+    assert_eq!(queued["id"], text_id);
+    assert_eq!(queued["st"], "accepted");
+    let _ = next(&mut control, "queried").await;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    release_image.send(()).unwrap();
+    let image_terminal = next(&mut control, "status").await;
+    assert_eq!(image_terminal["id"], id);
+    assert_eq!(image_terminal["st"], "injected");
+    assert_eq!(image_terminal["execution"]["method"], "clipboard_image");
+    loop {
+        let status = next(&mut control, "status").await;
+        assert_eq!(status["id"], text_id);
         if status["st"] == "injected" {
             assert_eq!(status["execution"]["method"], "unicode");
             break;
         }
         assert!(status["st"] == "accepted" || status["st"] == "executing");
     }
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     send(&mut control, submit).await;
     assert_eq!(next(&mut control, "status").await["st"], "injected");
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
     images.close(None).await.unwrap();
     connection_closed(&mut images).await;
     // Successful image authentication must not accumulate failed-attempt debt.

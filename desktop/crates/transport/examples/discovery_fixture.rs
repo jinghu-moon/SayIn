@@ -135,7 +135,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             serde_json::to_vec(&serde_json::json!({
                 "migrated":migrated,"fake_input_calls":calls.load(Ordering::SeqCst),
                 "port":service.snapshot()?.address.port(), "paired_devices":snapshot.paired_devices,
-                "paused":snapshot.control.paused,"connections":service.snapshot()?.connections, "discovery":format!("{:?}",service.snapshot()?.discovery)
+                "paused":snapshot.control.paused,"connections":service.snapshot()?.connected_devices(), "discovery":format!("{:?}",service.snapshot()?.discovery)
             }))?,
         )?;
         tokio::time::sleep(Duration::from_millis(50)).await;

@@ -31,7 +31,7 @@ import seeyuer.sayin.pairing.NativePairing
 import java.util.UUID
 
 internal enum class Connection { LOADING, OFFLINE, CONNECTING, PAIRING, APPROVAL, ONLINE }
-internal enum class ClientIssue { INVALID_PAIRING, PAIRING_BUSY, PAIR_ALREADY_EXISTS, PAIR_REPLACE_BLOCKED, CONNECTION, STORAGE, INVALID_TEXT, QUOTA, NOT_READY, PROTOCOL, VERSION_MISMATCH, TLS_REQUIRED, LOCAL_NETWORK_PERMISSION, DISCOVERY, CANDIDATE_CONNECTION }
+internal enum class ClientIssue { INVALID_PAIRING, PAIRING_BUSY, PAIR_ALREADY_EXISTS, PAIR_REPLACE_BLOCKED, CONNECTION, CONNECTION_SLOT_BUSY, STORAGE, INVALID_TEXT, QUOTA, NOT_READY, PROTOCOL, VERSION_MISMATCH, TLS_REQUIRED, LOCAL_NETWORK_PERMISSION, DISCOVERY, CANDIDATE_CONNECTION }
 internal data class ClientState(
     val connection: Connection = Connection.LOADING,
     val paired: Boolean = false,
@@ -69,6 +69,9 @@ internal data class ClientState(
     val selectedHostId: String? = null,
     val pairingRecoveryPending: Boolean = false,
     val replacingPair: Boolean = false,
+    val secondaryHostId: String? = null,
+    val secondaryConnection: Connection? = null,
+    val pairingCompletedHostId: String? = null,
 ) {
     val ready: Boolean get() = storageHealthy && !recovering && !replacingPair && connection == Connection.ONLINE && active && !paused && target != null
     val busy: Boolean get() = connection in setOf(Connection.LOADING, Connection.CONNECTING, Connection.PAIRING, Connection.APPROVAL)
@@ -84,6 +87,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     private val receiptTrace: ((OutboxKey, String, Long, Long, Long) -> Unit)? = null,
     private val sessionObserved: ((String, String) -> Unit)? = null,
     private val textTiming: ((String, String, Long) -> Unit)? = null,
+    private val queryCompleted: ((String) -> Unit)? = null,
 ) {
     private val app = context.applicationContext
     private val networkMonitor = LanNetwork(app) { enqueue(Event.NetworkChanged) }
@@ -118,6 +122,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         var lastInbound = 0L
         var welcome: JSONObject? = null
         var receivedState: ReceivedState? = null
+        var manuallyConnected = false
         val queries = mutableMapOf<String, Set<String>>()
         val submitting = mutableSetOf<String>()
     }
@@ -154,7 +159,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 dao.pendingCount()
                 store = ProtectedStore(context.applicationContext)
                 val allHosts = store.loadAll().map(::PairedHost)
-                host = store.load()?.let(::PairedHost) ?: allHosts.firstOrNull()
+                host = store.load()?.let(::PairedHost)
                 pairingCandidate = store.loadCandidate()?.let(::PairedHost)
                 imageInput = ImageInput(app, store, dao, scope, mutable, { host }, { currentPeer.client }, { session },
                     { event -> events.trySend(Event.Image(event)).isSuccess }, ::submitStored, { enqueue(Event.StorageFailure) }, imageTiming, imageRegistration)
@@ -214,6 +219,19 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         is Event.Tick -> peerFor(event.generation)?.let { fail(ClientIssue.PROTOCOL, it) }
                         else -> fail(ClientIssue.PROTOCOL)
                     }
+                } finally {
+                    val peer = previousPeer
+                    val connection = when {
+                        peer?.session != null -> Connection.ONLINE
+                        peer?.client != null || peer?.discoveryJob != null -> Connection.CONNECTING
+                        peer != null -> Connection.OFFLINE
+                        else -> null
+                    }
+                    val secondaryId = peer?.host?.hostId
+                    val state = mutable.value
+                    if (state.secondaryHostId != secondaryId || state.secondaryConnection != connection) {
+                        mutable.update { it.copy(secondaryHostId = secondaryId, secondaryConnection = connection) }
+                    }
                 }
             }
         }
@@ -226,11 +244,14 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class Retry(val generation: Long) : Event
         data object NetworkChanged : Event
         data class Discovered(val generation: Long, val candidates: List<HostCandidate>, val denied: Boolean) : Event
-        data class UpdateAddress(val address: String, val port: String) : Event
+        data class UpdateAddress(val address: String, val port: String, val hostId: String?) : Event
         data class PairQr(val value: String) : Event
         data class PairCode(val address: String, val port: String, val code: String) : Event
         data class SelectHost(val hostId: String) : Event
-        data object PrepareReplacement : Event
+        data class ConnectHost(val hostId: String) : Event
+        data class RenameHost(val hostId: String, val alias: String) : Event
+        data class AcknowledgePairing(val hostId: String) : Event
+        data class PrepareReplacement(val hostId: String?) : Event
         data class Open(val generation: Long, val socket: WebSocket, val response: Response) : Event
         data class Message(val generation: Long, val value: String, val receivedAt: Long) : Event
         data class Closed(val generation: Long) : Event
@@ -245,7 +266,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         data class HideHistory(val keys: List<OutboxKey>) : Event
         data class CleanupHistory(val before: Long) : Event
         data object CancelPairing : Event
-        data object Forget : Event
+        data class Forget(val hostId: String?) : Event
         data class Image(val value: ImageEvent) : Event
         data object StorageFailure : Event
     }
@@ -263,7 +284,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     fun pairQr(value: String) = enqueue(Event.PairQr(value))
     fun pairCode(address: String, port: String, code: String) = enqueue(Event.PairCode(address, port, code))
     fun selectHost(hostId: String) = enqueue(Event.SelectHost(hostId))
-    fun prepareReplacement() = enqueue(Event.PrepareReplacement)
+    fun connectHost(hostId: String) = enqueue(Event.ConnectHost(hostId))
+    fun renameHost(hostId: String, alias: String) = enqueue(Event.RenameHost(hostId, alias))
+    fun acknowledgePairing(hostId: String) = enqueue(Event.AcknowledgePairing(hostId))
+    fun prepareReplacement(hostId: String? = null) = enqueue(Event.PrepareReplacement(hostId))
     suspend fun loadSpeakingDraft(): SavedSpeakingDraft? {
         val reply = CompletableDeferred<SavedSpeakingDraft?>(job)
         events.send(Event.LoadSpeakingDraft(reply))
@@ -283,9 +307,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     fun cleanupHistory(before: Long) = enqueue(Event.CleanupHistory(before))
     fun pauseReception() = enqueue(Event.Control("pause"))
     fun resumeReception() = enqueue(Event.Control("resume"))
-    fun updateAddress(address: String, port: String) = enqueue(Event.UpdateAddress(address, port))
+    fun updateAddress(address: String, port: String, hostId: String? = null) =
+        enqueue(Event.UpdateAddress(address, port, hostId))
     fun cancelPairing() = enqueue(Event.CancelPairing)
-    fun forget() = enqueue(Event.Forget)
+    fun forget(hostId: String? = null) = enqueue(Event.Forget(hostId))
     fun close() {
         imageInput?.close()
         networkMonitor.stop()
@@ -363,17 +388,25 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 }
             }
             is Event.UpdateAddress -> {
-                val saved = host ?: return
+                if (invitation != null || pairingCandidate != null || replacementPredecessor != null) return
+                val saved = (if (event.hostId == null) host else loadPairedHost(event.hostId)) ?: return
                 val updated = try { saved.withAddress(event.address, event.port) }
                     catch (_: Exception) { mutable.update { it.copy(issue = ClientIssue.INVALID_PAIRING) }; return }
                 // Change routing only. Never replace host/device identity, token or pinned certificate.
-                try { store.save(updated.json) } catch (_: Exception) { storageFailed(); return }
-                disconnect()
-                host = updated
+                try { store.save(updated.json, select = false) } catch (_: Exception) { storageFailed(); return }
+                val peer = listOfNotNull(currentPeer, previousPeer).firstOrNull { it.host?.identity() == updated.identity() }
+                if (peer != null) {
+                    disconnect(peer)
+                    peer.host = updated
+                }
                 reconnectPolicy.reset(updated.hostId, updated.pairId)
-                mutable.update { it.copy(address = updated.address, port = updated.port, issue = null,
-                    pairedTargets = it.pairedTargets.map { target -> if (target.hostId == updated.hostId) updated.target() else target }) }
-                if (foreground) connectHost()
+                mutable.update {
+                    val state = it.copy(issue = null, pairedTargets = it.pairedTargets.map { target ->
+                        if (target.hostId == updated.hostId) updated.target() else target
+                    })
+                    if (peer === currentPeer) state.copy(address = updated.address, port = updated.port) else state
+                }
+                if (foreground && peer != null) connectHost(peer)
             }
             is Event.PairQr -> {
                 if (pairingCandidate != null) { recoverPairing(); return }
@@ -396,9 +429,10 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 beginPairing(received)
             }
             is Event.SelectHost -> {
-                val selected = try { store.loadHost(event.hostId)?.let(::PairedHost) } catch (_: Exception) { storageFailed(); return }
+                if (invitation != null || pairingCandidate != null || replacementPredecessor != null) return
+                val selected = loadPairedHost(event.hostId)
                 if (selected == null) {
-                    mutable.update { it.copy(issue = ClientIssue.INVALID_PAIRING) }
+                    mutable.update { if (it.storageHealthy) it.copy(issue = ClientIssue.INVALID_PAIRING) else it }
                     return
                 }
                 if (host?.hostId == selected.hostId && host?.pairId == selected.pairId) return
@@ -420,8 +454,52 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         discovering = currentPeer.discoveryJob != null) }
                 }
             }
-            Event.PrepareReplacement -> {
+            is Event.ConnectHost -> {
+                if (!foreground || invitation != null || pairingCandidate != null || replacementPredecessor != null) return
+                val saved = loadPairedHost(event.hostId) ?: return
+                if (saved.hostId == host?.hostId) {
+                    if (currentPeer.client == null && currentPeer.discoveryJob == null) {
+                        reconnectPolicy.reset(saved.hostId, saved.pairId)
+                        connectHost()
+                    }
+                    return
+                }
+                val existing = previousPeer
+                val peer = if (existing?.host?.identity() == saved.identity()) existing else {
+                    val other = existing?.host
+                    if (other != null && (existing.queries.isNotEmpty() || dao.hasUnresolvedReceipts(other.hostId, other.pairId))) {
+                        mutable.update { it.copy(issue = ClientIssue.CONNECTION_SLOT_BUSY) }
+                        return
+                    }
+                    closePreviousPeer()
+                    ControlPeer(++generation, saved).also { previousPeer = it }
+                }
+                if (peer.client == null && peer.discoveryJob == null) {
+                    peer.manuallyConnected = true
+                    mutable.update { if (it.issue == ClientIssue.CONNECTION_SLOT_BUSY) it.copy(issue = null) else it }
+                    reconnectPolicy.reset(saved.hostId, saved.pairId)
+                    connectHost(peer)
+                }
+            }
+            is Event.RenameHost -> {
+                val saved = loadPairedHost(event.hostId) ?: return
+                val alias = event.alias.trim().take(40)
+                if (alias.any(Char::isISOControl)) return
+                val updated = PairedHost(JSONObject(saved.json.toString()).put("phone_alias", alias))
+                try { store.save(updated.json, select = false) } catch (_: Exception) { storageFailed(); return }
+                listOfNotNull(currentPeer, previousPeer).filter { it.host?.identity() == updated.identity() }.forEach { peer ->
+                    peer.host = updated
+                }
+                mutable.update { it.copy(pairedTargets = it.pairedTargets.map { entry ->
+                    if (entry.hostId == updated.hostId) updated.target() else entry
+                }) }
+            }
+            is Event.AcknowledgePairing -> mutable.update {
+                if (it.pairingCompletedHostId == event.hostId) it.copy(pairingCompletedHostId = null) else it
+            }
+            is Event.PrepareReplacement -> {
                 val saved = host ?: return
+                if (event.hostId != null && event.hostId != saved.hostId) return
                 if (!foreground || pairingCandidate != null || mutable.value.busy) return
                 if (dao.pendingCount() != 0 || dao.hasUnresolvedReceipts(saved.hostId, saved.pairId)) {
                     mutable.update { it.copy(issue = ClientIssue.PAIR_REPLACE_BLOCKED) }
@@ -493,19 +571,23 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 disconnect()
                 if (foreground && host != null) connectHost()
             }
-            Event.Forget -> {
+            is Event.Forget -> {
+                if (invitation != null || pairingCandidate != null || replacementPredecessor != null) return
+                val id = event.hostId ?: host?.hostId ?: return
+                val saved = loadPairedHost(id) ?: return
                 // Outstanding rows remain host-scoped. Forgetting cannot reassign them.
-                disconnect()
-                clearReplacement()
-                try { store.forget() } catch (_: Exception) { storageFailed(); return }
-                host?.let { reconnectPolicy.reset(it.hostId, it.pairId) }
-                host = store.load()?.let(::PairedHost)
-                if (previousPeer?.host?.identity() == host?.identity()) closePreviousPeer()
-                imageInput?.hostChanged()
+                try { store.forget(saved.hostId, saved.pairId) } catch (_: Exception) { storageFailed(); return }
+                reconnectPolicy.reset(saved.hostId, saved.pairId)
+                if (previousPeer?.host?.identity() == saved.identity()) closePreviousPeer()
+                if (host?.identity() == saved.identity()) {
+                    disconnect()
+                    host = null
+                    imageInput?.hostChanged()
+                }
                 mutable.update { it.copy(paired = host != null, address = host?.address.orEmpty(),
                     port = host?.port ?: 7788, selectedHostId = host?.hostId,
-                    pairedTargets = store.loadAll().map { PairedHost(it).target() }, issue = null) }
-                if (foreground && host != null) connectHost()
+                    pairedTargets = it.pairedTargets.filterNot { target -> target.hostId == id },
+                    pairingCompletedHostId = it.pairingCompletedHostId?.takeUnless { completed -> completed == id }, issue = null) }
             }
             is Event.Image -> imageInput?.handle(event.value)
             Event.StorageFailure -> storageFailed()
@@ -537,6 +619,11 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
             mutable.update { it.copy(issue = ClientIssue.PAIR_ALREADY_EXISTS) }
             return
         }
+        if (predecessor == null && mutable.value.pairedTargets.size >= 8) {
+            if (foreground && host != null && currentPeer.client == null) connectHost()
+            mutable.update { it.copy(issue = ClientIssue.QUOTA) }
+            return
+        }
         disconnect()
         invitation = value
         open(value, pairing = true)
@@ -546,6 +633,13 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         mutable.update { it.copy(replacingPair = false) }
     }
     private fun PairedHost.identity() = hostId to pairId
+
+    private fun loadPairedHost(hostId: String): PairedHost? = try {
+        store.loadHost(hostId)?.let(::PairedHost)
+    } catch (_: Exception) {
+        storageFailed()
+        null
+    }
 
     private suspend fun selectPeer(selected: PairedHost) {
         val former = currentPeer
@@ -559,6 +653,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         if (previous !== chosen) previous?.let(::disconnect)
         if (keepFormer) clearSelectedPeerState() else disconnect(former)
         currentPeer = chosen
+        chosen.manuallyConnected = false
         previousPeer = former.takeIf { keepFormer }
         if (foreground && keepFormer && former.client == null && former.discoveryJob == null &&
             former.reconnectJob == null) connectHost(former)
@@ -712,18 +807,20 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
         check(current.send(text))
     }
     private suspend fun activatePairingCandidate(saved: PairedHost): Boolean {
-        val (activated, targets) = try {
-            val identity = PairedHost(store.activateCandidate(saved.hostId, saved.pairId))
-            identity to store.loadAll().map { PairedHost(it).target() }
+        val (selectedHost, targets) = try {
+            store.activateCandidate(saved.hostId, saved.pairId)
+            store.load()?.let(::PairedHost) to store.loadAll().map { PairedHost(it).target() }
         } catch (_: Exception) {
             storageFailed()
             return false
         }
         pairingCandidate = null
         replacementPredecessor = null
-        host = activated
+        host = selectedHost
         imageInput?.hostChanged()
-        mutable.update { it.copy(paired = true, selectedHostId = saved.hostId,
+        mutable.update { it.copy(paired = selectedHost != null, selectedHostId = selectedHost?.hostId,
+            address = selectedHost?.address.orEmpty(), port = selectedHost?.port ?: 7788,
+            pairingCompletedHostId = saved.hostId,
             pairedTargets = targets, pairingRecoveryPending = false, replacingPair = false) }
         return true
     }
@@ -751,7 +848,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 val saved = checkNotNull(pairingCandidate)
                 require(value.getString("host_id") == saved.hostId && value.getString("pair_id") == saved.pairId)
                 if (!activatePairingCandidate(saved)) return
-                if (foreground) connectHost() else disconnect()
+                if (foreground && host != null) connectHost() else disconnect()
             }
             "welcome" -> {
                 require(peer.session == null && (!selected || invitation == null))
@@ -765,12 +862,24 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                 val autoTextSupported = supportsAutoText(value)
                 applyState(value, peer)
                 if (selected) imageInput?.welcome(value)
-                if (recoveringPairing && !activatePairingCandidate(authenticated)) return
+                if (recoveringPairing) {
+                    if (!activatePairingCandidate(authenticated)) return
+                    if (host?.identity() != authenticated.identity()) {
+                        if (foreground && host != null) connectHost() else disconnect()
+                        return
+                    }
+                }
                 // Full pinned TLS + authenticated host/device welcome precede route commit.
                 val previous = checkNotNull(peer.host)
-                if (authenticated.address != previous.address || authenticated.port != previous.port) {
-                    try { store.save(authenticated.json, select = false) } catch (_: Exception) { storageFailed(); return }
-                    peer.host = authenticated
+                val savedName = (value.opt("host_name") as? String)?.takeIf { it.isNotBlank() && it.length <= 128 && it.none(Char::isISOControl) }
+                if (authenticated.address != previous.address || authenticated.port != previous.port || savedName != null && savedName != previous.systemName) {
+                    val updated = PairedHost(JSONObject(previous.json.toString()).apply {
+                        put("address", authenticated.address)
+                        put("port", authenticated.port)
+                        if (savedName != null) put("host_name", savedName)
+                    })
+                    try { store.save(updated.json, select = false) } catch (_: Exception) { storageFailed(); return }
+                    peer.host = updated
                 }
                 peer.candidates.clear()
                 peer.welcome = value
@@ -821,11 +930,13 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
                         retireIdlePrevious(peer)
                     }
                     "queried" -> {
-                        val refs = peer.queries.remove(value.getString("ref")) ?: error("Unexpected query")
+                        val reference = value.getString("ref")
+                        val refs = peer.queries.remove(reference) ?: error("Unexpected query")
                         // Each referenced status must have been durably processed first.
                         require(refs.isEmpty())
                         if (selected) mutable.update { it.copy(recovering = peer.queries.isNotEmpty()) }
                         retireIdlePrevious(peer)
+                        queryCompleted?.invoke(reference)
                     }
                     "foreground" -> if (selected) applyForeground(value)
                     "pong" -> if (selected) confirmForeground(value)
@@ -852,7 +963,7 @@ internal class VoiceLinkRepository(context: Context, private val discovery: Host
     }
 
     private suspend fun retireIdlePrevious(peer: ControlPeer) {
-        if (peer !== previousPeer || peer.queries.isNotEmpty()) return
+        if (peer !== previousPeer || peer.manuallyConnected || peer.queries.isNotEmpty()) return
         val saved = checkNotNull(peer.host)
         if (!dao.hasUnresolvedReceipts(saved.hostId, saved.pairId)) closePreviousPeer()
     }

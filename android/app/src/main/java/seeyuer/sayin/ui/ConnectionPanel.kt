@@ -63,7 +63,8 @@ internal fun ConnectionDetails(state: ClientState, onReconnect: () -> Unit, acti
                         Icon(VoiceLinkIcon.Computer.vector, null, Modifier.size(25.dp), tint = MiuixTheme.colorScheme.onSurfaceSecondary)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(stringResource(R.string.connection_computer),
+                        Text(state.pairedTargets.firstOrNull { it.hostId == state.selectedHostId }?.displayName
+                            ?: stringResource(R.string.connection_computer),
                             Modifier.testTag("connection-computer-name"), fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         Text(stringResource(connectionStatusText(state)), Modifier.testTag("connection-receive-status")

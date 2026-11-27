@@ -16,6 +16,23 @@ use windows::{
 };
 
 const DNS_REQUEST_PENDING: u32 = 9506;
+
+pub(crate) fn computer_name() -> Option<String> {
+    use windows::Win32::System::SystemInformation::{ComputerNameDnsHostname, GetComputerNameExW};
+    let mut buffer = [0u16; 256];
+    let mut length = buffer.len() as u32;
+    unsafe {
+        GetComputerNameExW(
+            ComputerNameDnsHostname,
+            Some(PWSTR(buffer.as_mut_ptr())),
+            &mut length,
+        )
+    }
+    .ok()?;
+    String::from_utf16(buffer.get(..length as usize)?)
+        .ok()
+        .filter(|name| !name.is_empty() && name.len() <= 128 && !name.chars().any(char::is_control))
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PublicationStatus {
     Disabled,
@@ -148,21 +165,7 @@ impl Publisher {
         let name = wide(&format!("SayIn-{host_id}._voicelink._tcp.local"));
         // Windows advertises PTR/SRV/TXT but does not create custom A records.
         // SRV discovery DNS is intentionally separate from the pinned TLS name.
-        use windows::Win32::System::SystemInformation::{
-            ComputerNameDnsHostname, GetComputerNameExW,
-        };
-        let mut buffer = [0u16; 256];
-        let mut length = buffer.len() as u32;
-        unsafe {
-            GetComputerNameExW(
-                ComputerNameDnsHostname,
-                Some(PWSTR(buffer.as_mut_ptr())),
-                &mut length,
-            )
-        }
-        .map_err(|_| Error::Protocol("DISCOVERY_UNAVAILABLE"))?;
-        let computer = String::from_utf16(&buffer[..length as usize])
-            .map_err(|_| Error::Protocol("DISCOVERY_UNAVAILABLE"))?;
+        let computer = computer_name().ok_or(Error::Protocol("DISCOVERY_UNAVAILABLE"))?;
         if computer.is_empty()
             || computer.len() > 63
             || !computer

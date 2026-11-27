@@ -123,6 +123,9 @@ internal open class HostEndpoint(val json: JSONObject) {
 }
 
 internal class PairedHost(json: JSONObject) : HostEndpoint(json) {
+    val systemName: String? = (json.opt("host_name") as? String)?.trim()
+        ?.takeIf { it.isNotEmpty() && it.length <= 128 && it.none(Char::isISOControl) }
+    val alias: String = json.optString("phone_alias", "")
     val certificate: X509Certificate
     init {
         require(json.getInt("v") in 2..3)
@@ -150,9 +153,14 @@ internal data class PairedTarget(
     val pairId: String,
     val address: String,
     val port: Int,
-)
+    val systemName: String? = null,
+    val alias: String = "",
+) {
+    val shortId: String get() = hostId.take(8)
+    val displayName: String get() = alias.ifEmpty { systemName ?: shortId }
+}
 
-internal fun PairedHost.target(): PairedTarget = PairedTarget(hostId, pairId, address, port)
+internal fun PairedHost.target(): PairedTarget = PairedTarget(hostId, pairId, address, port, systemName, alias)
 
 internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
     init { require(json.getInt("v") == 3) }
@@ -166,6 +174,7 @@ internal class PairingInvitation(json: JSONObject) : HostEndpoint(json) {
             put("cert", encode(certificate.encoded))
             put("pair_id", response.getString("pair_id"))
             put("token", response.getString("token"))
+            (response.opt("host_name") as? String)?.let { put("host_name", it) }
         }
         return PairedHost(saved)
     }

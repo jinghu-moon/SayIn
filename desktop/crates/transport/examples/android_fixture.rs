@@ -15,7 +15,7 @@ use std::{
 use uuid::Uuid;
 use voicelink_receiver::{
     gate::InputGate,
-    ledger::{Execution, InputOutcome},
+    ledger::{Execution, InputOutcome, InputWindow},
     protocol::Operation,
     windows_input::{
         NativeInput, open_ledger_with_clock_and_retention, open_ledger_with_retention,
@@ -24,13 +24,77 @@ use voicelink_receiver::{
 };
 use voicelink_transport::{HostIdentity, server::NetworkService, storage::secure_directory};
 
+const SHORT_TEXT: &str = "中文 😀 literal {ENTER}";
+const LONG_TEXT: &str = "中文 😀 literal {ENTER} 一段用于验证快速粘贴的文本。";
+
+fn fixture_clipboard(clear: bool) -> windows::core::Result<bool> {
+    use windows::Win32::{
+        System::DataExchange::{
+            CloseClipboard, CountClipboardFormats, EmptyClipboard, GetClipboardOwner, OpenClipboard,
+        },
+        UI::WindowsAndMessaging::GetWindowThreadProcessId,
+    };
+    // SAFETY: Keep the clipboard open across its owner check and optional clear.
+    unsafe {
+        OpenClipboard(None)?;
+        let result = (|| {
+            let mut pid = 0;
+            if let Ok(owner) = GetClipboardOwner() {
+                GetWindowThreadProcessId(owner, Some(&mut pid));
+            }
+            if pid == std::process::id() {
+                if clear {
+                    EmptyClipboard()?;
+                }
+                Ok(true)
+            } else {
+                Ok(CountClipboardFormats() == 0)
+            }
+        })();
+        CloseClipboard()?;
+        result
+    }
+}
+
 struct FakeInput {
     calls: Arc<AtomicUsize>,
     pause: Option<std::sync::mpsc::SyncSender<String>>,
     image_path_receipt: bool,
     batch_release: Option<std::sync::mpsc::Receiver<()>>,
+    paused_queue: Option<PathBuf>,
+    receipt_budget: Option<ReceiptBudget>,
+}
+struct ReceiptBudget {
+    application: voicelink_receiver::application_icon::ApplicationDisplay,
+    reasons: [&'static str; 2],
+}
+
+impl ReceiptBudget {
+    fn new() -> Self {
+        let sample: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../docs/research/91-golden/status-budget-with-icon.json"
+        ))
+        .expect("golden receipt");
+        let application =
+            serde_json::from_value(sample["application"].clone()).expect("golden application");
+        let base = serde_json::json!({
+            "v":3,"t":"status","session_id":Uuid::nil(),"id":Uuid::nil(),
+            "accept_order":"1","request_rev":"2","st":"failed",
+            "execution":{"stage":"prepared","method":"unicode","confirmed":false},
+            "application":sample["application"],"reason":""
+        });
+        let padding = 8192 - serde_json::to_vec(&base).expect("fixture receipt").len();
+        Self {
+            application,
+            reasons: ["x".repeat(padding).leak(), "x".repeat(padding + 1).leak()],
+        }
+    }
 }
 impl InputAdapter for FakeInput {
+    fn prepared_method(&self) -> Option<&'static str> {
+        self.receipt_budget.as_ref().map(|_| "unicode")
+    }
+
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
         let mut target = voicelink_receiver::history::TargetApplication::new(
             "C:\\fixture\\Editor.exe".into(),
@@ -38,6 +102,10 @@ impl InputAdapter for FakeInput {
             1,
             1,
         );
+        if let Some(budget) = &self.receipt_budget {
+            target.display = Some(budget.application.clone());
+            return Some(target);
+        }
         target.display = Some(voicelink_receiver::application_icon::ApplicationDisplay {
             name: "Fixture Editor".into(),
             icon_webp: voicelink_receiver::application_icon::webp(
@@ -47,6 +115,15 @@ impl InputAdapter for FakeInput {
         Some(target)
     }
     fn preflight(&mut self, job: &Execution) -> Result<(), &'static str> {
+        if let Some(directory) = &self.paused_queue {
+            let deadline = std::time::Instant::now() + Duration::from_secs(20);
+            while !directory.join("paused-queue-ready").exists() {
+                if std::time::Instant::now() >= deadline || directory.join("stop").exists() {
+                    return Err("fixture_pause_timeout");
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         if let Some(pause) = &self.pause
             && matches!(job.operation(), voicelink_receiver::protocol::Operation::Text { text, .. } if text == "fixture: pause upload")
         {
@@ -66,7 +143,19 @@ impl InputAdapter for FakeInput {
     }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         assert!(!gate.is_paused());
-        self.calls.fetch_add(1, Ordering::SeqCst);
+        let index = self.calls.fetch_add(1, Ordering::SeqCst);
+        if self.paused_queue.is_some() {
+            eprintln!("paused_queue_input {}", job.id());
+        }
+        if let Some(budget) = &self.receipt_budget {
+            return InputOutcome::Failed {
+                reason: budget
+                    .reasons
+                    .get(index)
+                    .copied()
+                    .unwrap_or("fixture_unexpected_input"),
+            };
+        }
         if let Some(release) = self.batch_release.take()
             && release.recv_timeout(Duration::from_secs(25)).is_err()
         {
@@ -103,7 +192,10 @@ struct NativeFixture {
     target: std::sync::Arc<DisposableTarget>,
     calls: Arc<AtomicUsize>,
     benchmark: bool,
-    native_text: bool,
+    expected_text: Option<&'static str>,
+    fast_paste: bool,
+    image_then_text: bool,
+    two_phones: bool,
 }
 impl NativeFixture {
     fn is_target(&self) -> bool {
@@ -120,18 +212,24 @@ impl NativeFixture {
 }
 impl InputAdapter for NativeFixture {
     fn preflight(&mut self, job: &Execution) -> Result<(), &'static str> {
+        if self.two_phones
+            && matches!(job.operation(), Operation::Text { text, .. } if text == "fixture: hold without input")
+        {
+            return Err("receiver_focused");
+        }
         if !self.is_target() {
             return Err("fixture_not_foreground");
         }
-        if self.native_text
+        if let Some(expected) = self.expected_text
+            && !(self.image_then_text && matches!(job.operation(), Operation::Image { .. }))
             && !matches!(job.operation(),
-            voicelink_receiver::protocol::Operation::Text { text, .. } if text == "中文 😀 literal {ENTER}")
+            Operation::Text { text, .. } if text == expected)
         {
             return Err("fixture_unexpected_text");
         }
         let start = std::time::Instant::now();
         let result = self.native.preflight(job);
-        if self.native_text {
+        if self.expected_text.is_some() {
             eprintln!("text_preflight {} {}", job.id(), start.elapsed().as_nanos());
         }
         if self.benchmark
@@ -148,10 +246,21 @@ impl InputAdapter for NativeFixture {
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
         self.native.prepared_application()
     }
+    fn prepared_window(&self) -> Option<InputWindow> {
+        self.native.prepared_window()
+    }
+    fn prepared_method(&self) -> Option<&'static str> {
+        self.native.prepared_method()
+    }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         if !self.is_target() {
             return InputOutcome::Failed {
                 reason: "fixture_not_foreground",
+            };
+        }
+        if (self.fast_paste || self.image_then_text) && !fixture_clipboard(false).unwrap_or(false) {
+            return InputOutcome::Failed {
+                reason: "fixture_clipboard_in_use",
             };
         }
         let start = std::time::Instant::now();
@@ -164,8 +273,8 @@ impl InputAdapter for NativeFixture {
                 method: "clipboard_image"
             }
         );
-        let text =
-            self.native_text && matches!(outcome, InputOutcome::Injected { method: "unicode" });
+        let text = self.expected_text.is_some()
+            && matches!(outcome, InputOutcome::Injected { method } if method == if self.fast_paste { "clipboard_text" } else { "unicode" });
         if image || text {
             // Additional test-only assertion, not a new production receipt
             // promise. The conservative latency includes the target RTF check.
@@ -175,7 +284,11 @@ impl InputAdapter for NativeFixture {
                     .ok()
                     .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
                     .is_some_and(|value| {
-                        if text {
+                        if self.image_then_text {
+                            value["observed_images"] == 1
+                                && value["pictures"] == 1
+                                && value["observed_texts"] == if text { 1 } else { 0 }
+                        } else if text {
                             value["observed_texts"].as_u64() == Some(expected as u64)
                         } else {
                             value["observed_images"].as_u64() == Some(expected as u64)
@@ -211,6 +324,19 @@ impl InputAdapter for NativeFixture {
                 );
             }
         }
+        if image && self.image_then_text {
+            // Extend the image's executing state after the real paste, so a
+            // following LAN request can wait past the normal execution window.
+            let deadline = std::time::Instant::now() + Duration::from_secs(75);
+            while !self.target.directory.join("finish-image").exists() {
+                if std::time::Instant::now() >= deadline {
+                    return InputOutcome::Uncertain {
+                        reason: "fixture_release_timeout",
+                    };
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
         outcome
     }
 }
@@ -224,7 +350,8 @@ impl DisposableTarget {
     fn start(
         directory: PathBuf,
         count_objects: bool,
-        native_text: bool,
+        expected_text: Option<&str>,
+        image_then_text: bool,
     ) -> Result<Arc<Self>, Box<dyn std::error::Error>> {
         std::fs::create_dir(&directory)?;
         let mut command = std::process::Command::new(
@@ -233,10 +360,23 @@ impl DisposableTarget {
         command
             .arg("--edit-target")
             .arg(&directory)
-            .args([if native_text { "--text" } else { "--image" }, "--batch"])
+            .args([
+                if expected_text.is_some() && !image_then_text {
+                    "--text"
+                } else {
+                    "--image"
+                },
+                "--batch",
+            ])
             .stderr(std::fs::File::create(directory.join("stderr.log"))?);
+        if expected_text == Some(LONG_TEXT) {
+            command.arg("--long-unicode");
+        }
         if count_objects {
             command.arg("--count-objects");
+        }
+        if image_then_text {
+            command.arg("--image-then-text");
         }
         let child = command.spawn()?;
         let pid = child.id();
@@ -303,6 +443,20 @@ impl InputAdapter for FixtureInput {
             Self::Manual(v, _) => v.prepared_application(),
         }
     }
+    fn prepared_window(&self) -> Option<InputWindow> {
+        match self {
+            Self::Fake(v) => v.prepared_window(),
+            Self::Native(v) => v.prepared_window(),
+            Self::Manual(v, _) => v.prepared_window(),
+        }
+    }
+    fn prepared_method(&self) -> Option<&'static str> {
+        match self {
+            Self::Fake(v) => v.prepared_method(),
+            Self::Native(v) => v.prepared_method(),
+            Self::Manual(v, _) => v.prepared_method(),
+        }
+    }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         match self {
             Self::Fake(v) => v.execute(job, gate),
@@ -321,16 +475,16 @@ impl log::Log for RegistrationLog {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
         matches!(
             metadata.target(),
-            "sayin_image_registration" | "sayin_receipt_sent"
+            "sayin_image_registration" | "sayin_receipt_sent" | "sayin_receipt_budget"
         ) && metadata.level() == log::Level::Trace
     }
 
     fn log(&self, record: &log::Record<'_>) {
         if self.enabled(record.metadata()) {
-            let label = if record.target() == "sayin_receipt_sent" {
-                "receipt_sent"
-            } else {
-                "image_registered"
+            let label = match record.target() {
+                "sayin_receipt_sent" => "receipt_sent",
+                "sayin_receipt_budget" => "receipt_budget",
+                _ => "image_registered",
             };
             eprintln!("{label} {}", record.args());
         }
@@ -374,7 +528,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(Duration::from_secs)
         .unwrap_or(voicelink_receiver::ledger::DEFAULT_HOLD_RETENTION);
     let expiry_probe = std::env::args().any(|arg| arg == "--pair-replacement-expiry");
-    let clock = expiry_probe.then(manual_clock::ManualClock::new);
+    let paused_queue = std::env::args().any(|arg| arg == "--paused-queue");
+    let two_phones = std::env::args().any(|arg| arg == "--two-phones");
+    let receipt_budget = std::env::args().any(|arg| arg == "--receipt-budget");
+    let clock = (expiry_probe || paused_queue).then(manual_clock::ManualClock::new);
     let mut ledger = if let Some(clock) = &clock {
         open_ledger_with_clock_and_retention(&output, clock.clone(), hold_retention)?
     } else {
@@ -423,10 +580,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None
     };
     let native_text = std::env::args().any(|arg| arg == "--native-text-target");
-    let disposable = native_text || std::env::args().any(|arg| arg == "--native-target");
+    let long_text = std::env::args().any(|arg| arg == "--long-text");
+    let fast_paste = std::env::args().any(|arg| arg == "--fast-paste");
+    if (long_text && !native_text) || (fast_paste && !long_text) {
+        return Err("Fast paste requires a disposable native long-text target".into());
+    }
+    if fast_paste && !fixture_clipboard(false)? {
+        return Err("Fast-paste verification needs an empty system clipboard".into());
+    }
+    let image_then_text = std::env::args().any(|arg| arg == "--image-then-text");
     let path_receipt = std::env::args().any(|arg| arg == "--image-path-receipt");
+    if image_then_text && (native_text || path_receipt || !fixture_clipboard(false)?) {
+        return Err("Mixed native verification needs RichEdit and an empty clipboard".into());
+    }
+    let expected_text =
+        (native_text || image_then_text).then_some(if long_text { LONG_TEXT } else { SHORT_TEXT });
+    let disposable =
+        native_text || image_then_text || std::env::args().any(|arg| arg == "--native-target");
     let benchmark = std::env::args().any(|arg| arg == "--benchmark");
-    if disposable && benchmark {
+    if (disposable && benchmark) || receipt_budget {
         log::set_logger(&RegistrationLog).map_err(|_| "registration logger already set")?;
         log::set_max_level(log::LevelFilter::Trace);
     }
@@ -437,6 +609,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Err("Choose exactly one native target mode".into());
     }
     let native = disposable || manual;
+    if (paused_queue || receipt_budget)
+        && (native || pause_probe || expiry_probe || paused_queue && receipt_budget)
+    {
+        return Err("Choose one isolated fake LAN scenario".into());
+    }
     if pause_probe && (native || image_store.is_none()) {
         return Err("--pause-probe requires --images and forbids real input".into());
     }
@@ -452,8 +629,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target = if disposable {
         Some(DisposableTarget::start(
             output.join("target"),
-            benchmark,
-            native_text,
+            benchmark || image_then_text,
+            expected_text,
+            image_then_text,
         )?)
     } else {
         None
@@ -466,15 +644,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .to_str()
                 .ok_or("non-Unicode fixture path")?
                 .to_owned(),
-            voicelink_receiver::windows_image_delivery::ImageDeliveryMode::CopyPath,
+            voicelink_receiver::windows_delivery::ImageDeliveryMode::CopyPath,
         );
     }
-    let image_delivery = Arc::new(std::sync::RwLock::new(
-        voicelink_receiver::windows_image_delivery::ImageDeliverySettings::new(
-            Some(output.join("exports")),
-            application_modes,
-        ),
-    ));
+    let mut delivery = voicelink_receiver::windows_delivery::DeliverySettings::new(
+        Some(output.join("exports")),
+        application_modes,
+    );
+    if fast_paste {
+        let executable = std::env::current_exe()?.with_file_name("native_input_fixture.exe");
+        delivery = delivery.with_fast_paste_applications(
+            [executable
+                .to_str()
+                .ok_or("non-Unicode fixture path")?
+                .to_owned()]
+            .into(),
+        );
+    }
+    let image_delivery = Arc::new(std::sync::RwLock::new(delivery));
     let adapter = if let Some(target) = target.clone() {
         FixtureInput::Native(Box::new(NativeFixture {
             native: NativeInput::with_images(
@@ -486,7 +673,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             target,
             calls: calls.clone(),
             benchmark,
-            native_text,
+            expected_text,
+            fast_paste,
+            image_then_text,
+            two_phones,
         }))
     } else if manual {
         eprintln!(
@@ -505,6 +695,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pause: pause_probe.then_some(pause_sender),
             image_path_receipt: path_receipt,
             batch_release: (batch_switch || batch_revoke).then_some(batch_release),
+            paused_queue: paused_queue.then(|| output.clone()),
+            receipt_budget: receipt_budget.then(ReceiptBudget::new),
         })
     };
     let receiver = Receiver::start(ledger, adapter)?;
@@ -527,6 +719,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::net::SocketAddr::from(([127, 0, 0, 1], port)),
         )?
     };
+    #[cfg(feature = "receipt-replay-fixture")]
+    if std::env::args().any(|arg| arg == "--replay-old-receipt") {
+        service.enable_receipt_replay_fixture();
+    }
     let lifetime = std::env::args()
         .find_map(|arg| {
             arg.strip_prefix("--lifetime=")
@@ -608,8 +804,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // An upgrade only authenticates and queries retained requests. Preserve the
     // original target and unresolved gate instead of simulating local approval.
     let mut ready = upgrade_probe;
+    let mut second_invitation = false;
     let mut paused_request: Option<String> = None;
     let mut pause_measurements = Vec::new();
+    let mut queue_paused = false;
+    let mut queue_resumed = false;
+    let mut queue_expired = false;
     while std::time::Instant::now() < until {
         if let Some(approval) = service.snapshot()?.approval {
             service.decide(&approval.id, true).await?;
@@ -633,7 +833,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     use tokio::io::AsyncWriteExt as _;
                     client.write_all(window.code.as_bytes()).await?;
                 }
-                if let Some(clock) = &clock {
+                if expiry_probe && let Some(clock) = &clock {
                     use tokio::io::AsyncReadExt as _;
                     let (mut client, _) =
                         tokio::time::timeout(Duration::from_secs(30), listener.accept()).await??;
@@ -644,6 +844,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     clock.advance(hold_retention);
                 }
+            }
+        }
+        if two_phones && ready && !second_invitation {
+            service
+                .open_pairing_with_lifetime(Duration::from_secs(lifetime))
+                .await?;
+            let invitation = service
+                .snapshot()?
+                .window
+                .ok_or("second invitation missing")?;
+            std::fs::write(output.join("second-code"), invitation.code.as_bytes())?;
+            second_invitation = true;
+        }
+        if paused_queue {
+            if !queue_paused && output.join("pause-queue").exists() {
+                let state = receiver.pause().await?;
+                assert!(state.paused);
+                std::fs::write(output.join("paused-queue-ready"), b"")?;
+                queue_paused = true;
+            }
+            if queue_paused && !queue_resumed && output.join("resume-queue").exists() {
+                receiver
+                    .resume(receiver.state().await?.state_rev, false)
+                    .await?;
+                queue_resumed = true;
+            }
+            if queue_resumed && !queue_expired && output.join("expire-queue").exists() {
+                clock
+                    .as_ref()
+                    .expect("paused queue clock")
+                    .advance(hold_retention);
+                queue_expired = true;
             }
         }
         if pause_probe {
@@ -702,7 +934,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     service.shutdown().await?;
+    let clipboard_cleanup = if fast_paste || image_then_text {
+        fixture_clipboard(true).map(|_| ())
+    } else {
+        Ok(())
+    };
     receiver.shutdown().await?;
+    clipboard_cleanup?;
     if let Some(events) = text_commits {
         let events: Vec<_> = events.try_iter().collect();
         std::fs::write(

@@ -139,12 +139,17 @@ internal class ProtectedStore(context: Context) {
         check(preferences.getString("candidate", null) == item)
         val value = checkNotNull(loadCandidate())
         val predecessor = candidatePredecessor(value, ids)
+        predecessor?.let {
+            val previous = readIdentity(it)
+            value.put("phone_alias", previous.optString("phone_alias", ""))
+            if (!value.has("host_name") && previous.has("host_name")) value.put("host_name", previous.getString("host_name"))
+        }
         value.remove("replaces_pair_id")
         val encrypted = encrypt(value.toString().toByteArray(), "VoiceLink/private/v3/$item",
             keyFor(hostId, pairId, false))
         check(preferences.edit().putString("identity:$item", encode(encrypted))
             .putStringSet("identities", ids.apply { if (predecessor != null) remove(predecessor); add(item) })
-            .putString("selected", item).putString("selected_host_id", hostId)
+            .apply { if (ids.size == 1 || selectedHostId() == hostId) putString("selected", item).putString("selected_host_id", hostId) }
             .putBoolean("key_created:$item", true)
             .apply { if (predecessor != null) remove("identity:$predecessor") }
             .remove("candidate").remove("candidate_credential").commit())
@@ -204,7 +209,7 @@ internal class ProtectedStore(context: Context) {
     fun forget(hostId: String? = null, pairId: String? = null) {
         val item = if (hostId != null && pairId != null) key(hostId, pairId) else selectedKey() ?: return
         val ids = identities().apply { remove(item) }
-        val next = selectedKey()?.takeIf { it in ids } ?: ids.minOrNull()
+        val next = selectedKey()?.takeIf { it in ids }
         check(preferences.edit().remove("identity:$item").putStringSet("identities", ids)
             .apply {
                 if (next == null) {

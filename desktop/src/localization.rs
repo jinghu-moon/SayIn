@@ -90,7 +90,7 @@ messages! {
     ReceiveApproveStep => "receive-approve-step",
     ReceiveApproveHelp => "receive-approve-help",
     ReceiveSameNetwork => "receive-same-network",
-    ReceiveLocalConnection => "receive-local-connection",
+    OnlinePhones => "online-phones",
     ReceivePaired => "receive-paired",
     ReceiveReviewTitle => "receive-review-title",
     ReceiveHeldTitle => "receive-held-title",
@@ -182,6 +182,10 @@ messages! {
     ImageExportFailed => "image-export-failed",
     ImageSavedPathUnavailable => "image-saved-path-unavailable",
     ImageSavedPasteUnavailable => "image-saved-paste-unavailable",
+    FastPaste => "fast-paste",
+    FastPasteHelp => "fast-paste-help",
+    FastPasteAdd => "fast-paste-add",
+    FastPasteRemove => "fast-paste-remove",
     ImageApplicationRules => "image-application-rules",
     ImageApplicationDefaults => "image-application-defaults",
     ImageAddApplication => "image-add-application",
@@ -244,8 +248,8 @@ messages! {
     ReceiverPaused => "receiver-paused", ReceiverRunning => "receiver-running",
     ReceiverCommandFailed => "receiver-command-failed", ReceiverStorageFailed => "receiver-storage-failed",
     CursorReady => "cursor-ready",
-    ReadyToEnable => "ready-to-enable", PhoneConnected => "phone-connected", PhoneOffline => "phone-offline",
-    DeviceAuthorized => "device-authorized", PhoneDevice => "phone-device",
+    ReadyToEnable => "ready-to-enable", ConnectedPhoneCount => "connected-phone-count", PhoneOffline => "phone-offline",
+    DeviceOnline => "device-online", DeviceOffline => "device-offline", PhoneDevice => "phone-device",
 
     Cancel => "cancel", PauseInput => "pause-input",
     ResumeInput => "resume-input", ReviewedResume => "reviewed-resume", ReviewHelp => "review-help",
@@ -269,9 +273,9 @@ messages! {
     PairingQr => "pairing-qr",
     Approve => "approve", Reject => "reject",
 
-    AuthorizedDevices => "authorized-devices", RevokeDevice => "revoke-device", RevokeHelp => "revoke-help",
+    DeviceActions => "device-actions", PairingId => "pairing-id", RevokeDevice => "revoke-device", RevokeHelp => "revoke-help",
     ReplacePairing => "replace-pairing", ReplacingPairing => "replacing-pairing",
-    ConfirmRevoke => "confirm-revoke", ActiveDevice => "active-device",
+    ConfirmRevoke => "confirm-revoke",
 }
 
 pub struct Catalogs {
@@ -302,6 +306,16 @@ impl Catalogs {
         self.format(locale, message, None)
     }
 
+    pub(crate) fn connected_phone_count(&self, locale: Locale, count: usize) -> String {
+        let mut args = FluentArgs::new();
+        args.set("count", count as i64);
+        self.format(locale, Message::ConnectedPhoneCount, Some(&args))
+    }
+    pub(crate) fn pairing_id(&self, locale: Locale, id: &str) -> String {
+        let mut args = FluentArgs::new();
+        args.set("id", id);
+        self.format(locale, Message::PairingId, Some(&args))
+    }
     pub fn history_count(&self, locale: Locale, count: usize) -> String {
         let mut args = FluentArgs::new();
         args.set("count", count as i64);
@@ -574,6 +588,8 @@ mod tests {
                     message,
                     Message::Version
                         | Message::HistoryRecordCount
+                        | Message::ConnectedPhoneCount
+                        | Message::PairingId
                         | Message::ReceiptHeldCauseHelp
                         | Message::ReceiptExpiredCauseHelp
                         | Message::ReceiptSummary
@@ -590,6 +606,14 @@ mod tests {
                 assert!(label.contains(&count.to_string()));
                 assert!(!label.contains('{'));
             }
+            for count in [1, 2, 8] {
+                let label = catalogs.connected_phone_count(locale, count);
+                assert!(label.contains(&count.to_string()));
+                assert!(!label.contains('{'));
+            }
+            let id = catalogs.pairing_id(locale, "01234567");
+            assert!(id.contains("01234567"));
+            assert!(!id.contains('{'));
             for executed in [false, true] {
                 let label = catalogs.history_time(locale, executed, "2026-11-13 10:00:00");
                 assert!(label.contains("2026-11-13 10:00:00"));

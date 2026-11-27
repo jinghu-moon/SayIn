@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.99"
 publish = false
 
+[features]
+receipt-replay-fixture = []
+
 [dependencies]
 base64 = "0.23.1"
 voicelink-receiver = { path = "../receiver" }

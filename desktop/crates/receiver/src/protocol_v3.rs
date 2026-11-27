@@ -26,6 +26,7 @@ pub enum ExecutionStage {
 pub enum ExecutionMethod {
     Unicode,
     Key,
+    ClipboardText,
     ClipboardImage,
     ClipboardImagePath,
     None,
@@ -260,6 +261,16 @@ impl Status {
             confirmed,
         } = *execution;
         if confirmed != (stage == PasteConfirmed) {
+            return Err(INVALID_REQUEST);
+        }
+        if method == ExecutionMethod::ClipboardText
+            && !matches!(
+                (self.state, stage),
+                (Executing | Failed, Prepared)
+                    | (Injected, PasteSubmitted)
+                    | (Uncertain | UncertainAcknowledged, Prepared | PasteSubmitted)
+            )
+        {
             return Err(INVALID_REQUEST);
         }
         let allowed = match self.state {
@@ -670,6 +681,7 @@ mod golden_tests {
         let methods = [
             "unicode",
             "key",
+            "clipboard_text",
             "clipboard_image",
             "clipboard_image_path",
             "none",

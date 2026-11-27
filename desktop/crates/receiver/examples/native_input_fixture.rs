@@ -1,5 +1,5 @@
 //! Opt-in verification with disposable EDIT, RichEdit or Windows Terminal windows.
-//! Image modes replace the system clipboard. No production data or network is used.
+//! Image and fast-paste modes use the system clipboard. No production data or network is used.
 use std::{
     future::Future,
     path::Path,
@@ -11,9 +11,9 @@ use std::{
 use uuid::Uuid;
 use voicelink_receiver::{
     gate::InputGate,
-    ledger::{Execution, InputOutcome},
+    ledger::{Execution, InputOutcome, InputWindow},
     protocol::{Operation, State, Submit, TextSource},
-    windows_image_delivery::{ImageDeliveryMode, ImageDeliverySettings},
+    windows_delivery::{DeliverySettings, ImageDeliveryMode},
     windows_input::{NativeInput, open_ledger},
     worker::{InputAdapter, Receiver},
 };
@@ -21,7 +21,10 @@ use windows::{
     Win32::{
         Foundation::{HGLOBAL, LPARAM, WPARAM},
         System::{
-            DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard},
+            DataExchange::{
+                CloseClipboard, CountClipboardFormats, EmptyClipboard, GetClipboardData,
+                GetClipboardOwner, OpenClipboard,
+            },
             Memory::{GlobalLock, GlobalSize, GlobalUnlock},
             Ole::CF_UNICODETEXT,
         },
@@ -40,6 +43,44 @@ use zeroize::Zeroizing;
 
 const ORIGINAL: &str = "existing|";
 const TEXT: &str = "中文 😀 literal {ENTER}";
+const LONG_TEXT: &str = "中文 😀 literal {ENTER} 一段用于验证快速粘贴的文本。";
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TextMode {
+    Default,
+    LongUnicode,
+    FastPaste,
+    FastPasteShort,
+}
+
+impl TextMode {
+    fn from_args(args: &[String]) -> Self {
+        if args.iter().any(|arg| arg == "--fast-paste") {
+            Self::FastPaste
+        } else if args.iter().any(|arg| arg == "--fast-paste-short") {
+            Self::FastPasteShort
+        } else if args.iter().any(|arg| arg == "--long-unicode") {
+            Self::LongUnicode
+        } else {
+            Self::Default
+        }
+    }
+
+    fn text(self) -> &'static str {
+        match self {
+            Self::Default | Self::FastPasteShort => TEXT,
+            Self::FastPaste | Self::LongUnicode => LONG_TEXT,
+        }
+    }
+
+    fn selected_end(self) -> isize {
+        if self == Self::Default {
+            ORIGINAL.len() as isize
+        } else {
+            -1
+        }
+    }
+}
 
 fn wait<T>(future: impl Future<Output = T>) -> T {
     struct ThreadWake(std::thread::Thread);
@@ -177,6 +218,8 @@ fn edit_target(
     is_image: bool,
     batch: bool,
     count_objects: bool,
+    text_mode: TextMode,
+    image_then_text: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // SAFETY: This process creates, focuses, pumps and destroys only its own
     // disposable EDIT. The parent validates its HWND and PID before injection.
@@ -210,7 +253,11 @@ fn edit_target(
             } else {
                 w!("EDIT")
             },
-            w!("existing|"),
+            if text_mode == TextMode::Default {
+                w!("existing|")
+            } else {
+                w!("existing|replace me")
+            },
             (if is_image {
                 WS_CHILD
             } else {
@@ -233,7 +280,7 @@ fn edit_target(
             hwnd,
             EM_SETSEL,
             Some(WPARAM(ORIGINAL.len())),
-            Some(LPARAM(ORIGINAL.len() as isize)),
+            Some(LPARAM(text_mode.selected_end())),
         );
         let deadline = Instant::now() + Duration::from_secs(if batch { 600 } else { 120 });
         let mut recorded = false;
@@ -275,7 +322,7 @@ fn edit_target(
                         hwnd,
                         EM_SETSEL,
                         Some(WPARAM(ORIGINAL.len())),
-                        Some(LPARAM(ORIGINAL.len() as isize)),
+                        Some(LPARAM(text_mode.selected_end())),
                     );
                     std::fs::write(
                         directory.join("window.json"),
@@ -295,7 +342,10 @@ fn edit_target(
                 } else {
                     PictureCounter::default()
                 };
-            let picture_count = if count_objects && length == ORIGINAL.len() + 1 {
+            let picture_count = if count_objects
+                && (length == ORIGINAL.len() + 1
+                    || image_then_text && text == format!("{ORIGINAL} {TEXT}"))
+            {
                 let mut raw = [0u16; 256];
                 let request = GETTEXTEX {
                     cb: size_of_val(&raw) as u32,
@@ -309,24 +359,38 @@ fn edit_target(
                     Some(WPARAM((&raw const request) as usize)),
                     Some(LPARAM(raw.as_mut_ptr() as isize)),
                 );
-                usize::from(copied.0 == length as isize && raw[length - 1] == 0xfffc)
+                usize::from(copied.0 == length as isize && raw[ORIGINAL.len()] == 0xfffc)
             } else {
                 pictures.count
             };
-            if !recorded
-                && (if is_image {
-                    picture_count == 1 && text == format!("{ORIGINAL} ")
-                } else {
-                    text == format!("{ORIGINAL}{TEXT}")
-                })
-            {
-                if is_image {
+            let new_image =
+                !recorded && is_image && picture_count == 1 && text == format!("{ORIGINAL} ");
+            let new_text = if image_then_text {
+                observed_images == 1
+                    && observed_texts == 0
+                    && picture_count == 1
+                    && text == format!("{ORIGINAL} {TEXT}")
+            } else {
+                !recorded && !is_image && text == format!("{ORIGINAL}{}", text_mode.text())
+            };
+            if new_image || new_text {
+                if new_image {
                     observed_images += 1;
                     if !count_objects {
                         picture_widths.push(pictures.first_picture_width());
                     }
+                    if image_then_text {
+                        // RichEdit can keep the insertion point before the pasted
+                        // object. Prepare the append position for the next request.
+                        SendMessageW(
+                            hwnd,
+                            EM_SETSEL,
+                            Some(WPARAM(length)),
+                            Some(LPARAM(length as isize)),
+                        );
+                    }
                 }
-                if !is_image {
+                if new_text {
                     observed_texts += 1;
                 }
                 std::fs::write(
@@ -336,13 +400,20 @@ fn edit_target(
                     )?,
                 )?;
                 recorded = true;
-                if batch {
-                    SetWindowTextW(hwnd, w!("existing|"))?;
+                if batch && !image_then_text {
+                    SetWindowTextW(
+                        hwnd,
+                        if text_mode == TextMode::Default {
+                            w!("existing|")
+                        } else {
+                            w!("existing|replace me")
+                        },
+                    )?;
                     SendMessageW(
                         hwnd,
                         EM_SETSEL,
                         Some(WPARAM(ORIGINAL.len())),
-                        Some(LPARAM(ORIGINAL.len() as isize)),
+                        Some(LPARAM(text_mode.selected_end())),
                     );
                     recorded = false;
                 }
@@ -413,6 +484,12 @@ impl InputAdapter for FixtureInput {
     fn prepared_application(&self) -> Option<voicelink_receiver::history::TargetApplication> {
         self.native.prepared_application()
     }
+    fn prepared_window(&self) -> Option<InputWindow> {
+        self.native.prepared_window()
+    }
+    fn prepared_method(&self) -> Option<&'static str> {
+        self.native.prepared_method()
+    }
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome {
         if !self.is_fixture() {
             return InputOutcome::Failed {
@@ -430,6 +507,7 @@ fn verify(
     image_path: Option<&Path>,
     terminal: bool,
     copy_path_override: bool,
+    text_mode: TextMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let copy_path = terminal || copy_path_override;
     let deadline = Instant::now() + Duration::from_secs(5);
@@ -458,15 +536,18 @@ fn verify(
             ImageDeliveryMode::CopyPath,
         );
     }
+    let mut settings = DeliverySettings::new(Some(directory.join("exports")), rules);
+    if matches!(text_mode, TextMode::FastPaste | TextMode::FastPasteShort) {
+        let exe = std::env::current_exe()?;
+        let exe = exe.to_str().ok_or("invalid fixture executable path")?;
+        settings = settings.with_fast_paste_applications([exe.to_owned()].into());
+    }
     let receiver = Receiver::start(
         ledger,
         FixtureInput {
             native: NativeInput::with_images(
                 store.clone(),
-                Arc::new(std::sync::RwLock::new(ImageDeliverySettings::new(
-                    Some(directory.join("exports")),
-                    rules,
-                ))),
+                Arc::new(std::sync::RwLock::new(settings)),
             ),
             hwnd: window["hwnd"].as_u64().unwrap() as usize,
             pid: child_pid,
@@ -540,11 +621,12 @@ fn verify(
             Operation::Image { image }
         } else {
             Operation::Text {
-                text: TEXT.into(),
+                text: text_mode.text().into(),
                 src: TextSource::Manual,
             }
         };
         let operation = Submit::new(session.id().into(), Uuid::new_v4().to_string(), target, op);
+        let started = Instant::now();
         wait(receiver.submit(session.clone(), operation.clone()))?;
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
@@ -556,10 +638,16 @@ fn verify(
                         "clipboard_image_path"
                     } else if is_image {
                         "clipboard_image"
+                    } else if text_mode == TextMode::FastPaste {
+                        "clipboard_text"
                     } else {
                         "unicode"
                     })
                 );
+                if text_mode == TextMode::FastPaste {
+                    assert_eq!(receipt.execution_stage.as_deref(), Some("paste_submitted"));
+                    assert_eq!(receipt.confirmed, Some(false));
+                }
                 break;
             }
             if receipt.st == State::Held || receipt.st.is_terminal() || Instant::now() >= deadline {
@@ -595,7 +683,11 @@ fn verify(
             if is_image {
                 assert_eq!(observed["pictures"], 1);
             } else {
-                assert_eq!(observed["text"], format!("{ORIGINAL}{TEXT}"));
+                assert_eq!(observed["text"], format!("{ORIGINAL}{}", text_mode.text()));
+                println!(
+                    "Text verified after {:.2} ms",
+                    started.elapsed().as_secs_f64() * 1000.0
+                );
             }
         }
         assert_eq!(
@@ -627,8 +719,47 @@ fn verify(
         }
         Ok(())
     })();
+    let cleanup = if !terminal && (is_image || text_mode == TextMode::FastPaste) {
+        clear_owned_fixture_clipboard()
+    } else {
+        Ok(())
+    };
     wait(receiver.shutdown())?;
-    result
+    result?;
+    cleanup?;
+    Ok(())
+}
+
+fn require_empty_clipboard() -> Result<(), Box<dyn std::error::Error>> {
+    unsafe {
+        OpenClipboard(None)?;
+        let formats = CountClipboardFormats();
+        CloseClipboard()?;
+        if formats != 0 {
+            return Err(
+                "Clipboard contains data. This fixture only runs with an empty clipboard.".into(),
+            );
+        }
+    }
+    Ok(())
+}
+
+fn clear_owned_fixture_clipboard() -> windows::core::Result<()> {
+    unsafe {
+        OpenClipboard(None)?;
+        let result = (|| {
+            if let Ok(owner) = GetClipboardOwner() {
+                let mut pid = 0;
+                GetWindowThreadProcessId(owner, Some(&mut pid));
+                if pid == std::process::id() {
+                    EmptyClipboard()?;
+                }
+            }
+            Ok(())
+        })();
+        CloseClipboard()?;
+        result
+    }
 }
 
 fn clipboard_has_path(path: &Path) -> windows::core::Result<bool> {
@@ -695,7 +826,7 @@ fn verify_terminal(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
                 directory.join("window.json"),
                 serde_json::to_vec(&serde_json::json!({"hwnd": window.0 as usize, "pid": pid}))?,
             )?;
-            let result = verify(directory, pid, true, None, true, false);
+            let result = verify(directory, pid, true, None, true, false, TextMode::Default);
             unsafe {
                 PostMessageW(Some(window), WM_CLOSE, WPARAM(0), LPARAM(0))?;
             }
@@ -710,13 +841,21 @@ fn verify_terminal(directory: &Path) -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments = std::env::args().collect::<Vec<_>>();
+    let text_mode = TextMode::from_args(&arguments);
     if arguments.get(1).is_some_and(|arg| arg == "--edit-target") {
         return edit_target(
             Path::new(&arguments[2]),
             arguments.get(3).is_some_and(|arg| arg == "--image"),
             arguments.iter().any(|arg| arg == "--batch"),
             arguments.iter().any(|arg| arg == "--count-objects"),
+            text_mode,
+            arguments.iter().any(|arg| arg == "--image-then-text"),
         );
+    }
+    let copy_path_override = arguments.get(1).is_some_and(|arg| arg == "--copy-path");
+    let is_image = copy_path_override || arguments.get(1).is_some_and(|arg| arg == "--image");
+    if is_image || text_mode == TextMode::FastPaste {
+        require_empty_clipboard()?;
     }
     let directory = std::env::temp_dir().join(format!("voicelink-real-edit-{}", Uuid::new_v4()));
     std::fs::create_dir_all(directory.join("ledger"))?;
@@ -725,13 +864,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::fs::remove_dir_all(&directory)?;
         return result;
     }
-    let copy_path_override = arguments.get(1).is_some_and(|arg| arg == "--copy-path");
-    let is_image = copy_path_override || arguments.get(1).is_some_and(|arg| arg == "--image");
-    let mut child = Command::new(std::env::current_exe()?)
+    let mut child = Command::new(std::env::current_exe()?);
+    child
         .arg("--edit-target")
         .arg(&directory)
-        .arg(if is_image { "--image" } else { "--text" })
-        .spawn()?;
+        .arg(if is_image { "--image" } else { "--text" });
+    if text_mode != TextMode::Default {
+        child.arg(&arguments[1]);
+    }
+    let mut child = child.spawn()?;
     let image_path = arguments
         .windows(2)
         .find(|args| args[0] == "--image-path")
@@ -743,6 +884,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         image_path,
         false,
         copy_path_override,
+        text_mode,
     );
     std::fs::write(directory.join("stop"), b"")?;
     let child_status = child.wait()?;
@@ -756,7 +898,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(final_content["pictures"], 1);
         assert_eq!(final_content["length"], ORIGINAL.len() + 1);
     } else {
-        assert_eq!(final_content["text"], format!("{ORIGINAL}{TEXT}"));
+        assert_eq!(
+            final_content["text"],
+            format!("{ORIGINAL}{}", text_mode.text())
+        );
     }
     if !child_status.success() {
         return Err("EDIT child failed".into());

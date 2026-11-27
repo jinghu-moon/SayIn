@@ -3,13 +3,13 @@ use crate::localization::{Catalogs, LanguagePreference, Locale, Message, system_
 use atomic_write_file::AtomicWriteFile;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
-use voicelink_receiver::windows_image_delivery::{
-    ImageDeliveryMode, ImageDeliverySettings, SharedImageDeliverySettings, is_executable_path,
+use voicelink_receiver::windows_delivery::{
+    DeliverySettings, ImageDeliveryMode, SharedDeliverySettings, is_executable_path,
     same_executable,
 };
 use yue_component::gpui_kit::{AppContext as _, Context, PathPromptOptions, Task};
@@ -73,6 +73,8 @@ pub struct Preferences {
     image_directory: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     image_applications: BTreeMap<String, ImageDeliveryMode>,
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    fast_paste_applications: BTreeSet<String>,
 }
 
 impl Default for Preferences {
@@ -84,6 +86,7 @@ impl Default for Preferences {
             close_behavior: CloseBehavior::Ask,
             image_directory: None,
             image_applications: BTreeMap::new(),
+            fast_paste_applications: BTreeSet::new(),
         }
     }
 }
@@ -172,6 +175,13 @@ pub enum StorageIssue {
     Save,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DeliveryPath {
+    ImageDirectory,
+    ImageApplication(ImageDeliveryMode),
+    FastPasteApplication,
+}
+
 pub struct PreferencesState {
     value: Preferences,
     file: PreferencesFile,
@@ -180,9 +190,9 @@ pub struct PreferencesState {
     issue: Option<StorageIssue>,
     task: Option<Task<()>>,
     default_image_directory: Option<PathBuf>,
-    image_delivery: SharedImageDeliverySettings,
-    image_picker: Option<Task<()>>,
-    image_picker_issue: Option<Message>,
+    delivery: SharedDeliverySettings,
+    delivery_picker: Option<Task<()>>,
+    delivery_picker_issue: Option<Message>,
 }
 
 impl PreferencesState {
@@ -205,11 +215,11 @@ impl PreferencesState {
             issue,
             task: None,
             default_image_directory,
-            image_delivery: Default::default(),
-            image_picker: None,
-            image_picker_issue: None,
+            delivery: Default::default(),
+            delivery_picker: None,
+            delivery_picker_issue: None,
         };
-        state.sync_image_delivery();
+        state.sync_delivery();
         state
     }
 
@@ -236,31 +246,60 @@ impl PreferencesState {
             .or(self.default_image_directory.as_deref())
     }
 
-    pub fn shared_image_delivery(&self) -> SharedImageDeliverySettings {
-        self.image_delivery.clone()
+    pub fn shared_delivery(&self) -> SharedDeliverySettings {
+        self.delivery.clone()
     }
 
-    fn sync_image_delivery(&mut self) {
-        let settings = ImageDeliverySettings::new(
+    fn sync_delivery(&mut self) {
+        let settings = DeliverySettings::new(
             self.image_directory().map(Path::to_path_buf),
             self.value.image_applications.clone(),
-        );
-        *self
-            .image_delivery
-            .write()
-            .expect("image delivery snapshot") = settings;
+        )
+        .with_fast_paste_applications(self.value.fast_paste_applications.clone());
+        *self.delivery.write().expect("delivery snapshot") = settings;
     }
 
     pub fn image_applications(&self) -> &BTreeMap<String, ImageDeliveryMode> {
         &self.value.image_applications
     }
 
-    pub fn image_picker_busy(&self) -> bool {
-        self.image_picker.is_some()
+    pub fn fast_paste_applications(&self) -> &BTreeSet<String> {
+        &self.value.fast_paste_applications
     }
 
-    pub fn image_picker_issue(&self) -> Option<Message> {
-        self.image_picker_issue
+    pub fn set_fast_paste_application(
+        &mut self,
+        executable: &str,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if !is_executable_path(Path::new(executable)) {
+            return;
+        }
+        let mut next = self.value.clone();
+        let paths = &mut next.fast_paste_applications;
+        let existing = paths
+            .iter()
+            .find(|path| same_executable(path, executable))
+            .cloned();
+        match (enabled, existing) {
+            (true, None) => {
+                paths.insert(executable.to_owned());
+            }
+            (false, Some(path)) => {
+                paths.remove(&path);
+            }
+            _ => return,
+        }
+        self.save(next, cx);
+    }
+
+    pub fn delivery_picker_busy(&self) -> bool {
+        self.delivery_picker.is_some()
+    }
+
+    pub fn delivery_picker_issue(&self) -> Option<Message> {
+        self.delivery_picker_issue
     }
 
     pub fn set_image_application(
@@ -288,11 +327,22 @@ impl PreferencesState {
     }
 
     pub fn pick_image_path(&mut self, mode: Option<ImageDeliveryMode>, cx: &mut Context<Self>) {
-        if !self.is_editable() || self.image_picker_busy() {
+        self.pick_delivery_path(
+            mode.map_or(DeliveryPath::ImageDirectory, DeliveryPath::ImageApplication),
+            cx,
+        );
+    }
+
+    pub fn pick_fast_paste_application(&mut self, cx: &mut Context<Self>) {
+        self.pick_delivery_path(DeliveryPath::FastPasteApplication, cx);
+    }
+
+    fn pick_delivery_path(&mut self, kind: DeliveryPath, cx: &mut Context<Self>) {
+        if !self.is_editable() || self.delivery_picker_busy() {
             return;
         }
-        self.image_picker_issue = None;
-        let application = mode.is_some();
+        self.delivery_picker_issue = None;
+        let application = kind != DeliveryPath::ImageDirectory;
         let selecting = cx.prompt_for_paths(PathPromptOptions {
             files: application,
             directories: !application,
@@ -306,22 +356,27 @@ impl PreferencesState {
                 .into(),
             ),
         });
-        self.image_picker = Some(cx.spawn(async move |owner, cx| {
+        self.delivery_picker = Some(cx.spawn(async move |owner, cx| {
             let result = selecting.await;
             let _ = owner.update(cx, |this, cx| {
-                this.image_picker = None;
+                this.delivery_picker = None;
                 match result {
                     Ok(Ok(Some(mut paths))) if paths.len() == 1 && paths[0].is_absolute() => {
                         let path = paths.pop().expect("one selected path");
-                        if let Some(mode) = mode {
-                            if is_executable_path(&path) {
-                                this.set_image_application(
-                                    path.to_str().expect("validated executable"),
-                                    Some(mode),
-                                    cx,
-                                );
+                        if application {
+                            if !is_executable_path(&path) {
+                                this.delivery_picker_issue = Some(Message::ImageChooseExecutable);
                             } else {
-                                this.image_picker_issue = Some(Message::ImageChooseExecutable);
+                                let executable = path.to_str().expect("validated executable");
+                                match kind {
+                                    DeliveryPath::ImageApplication(mode) => {
+                                        this.set_image_application(executable, Some(mode), cx);
+                                    }
+                                    DeliveryPath::FastPasteApplication => {
+                                        this.set_fast_paste_application(executable, true, cx);
+                                    }
+                                    DeliveryPath::ImageDirectory => unreachable!(),
+                                }
                             }
                         } else {
                             let mut next = this.value.clone();
@@ -331,7 +386,7 @@ impl PreferencesState {
                     }
                     Ok(Ok(None)) => {}
                     _ => {
-                        this.image_picker_issue = Some(if application {
+                        this.delivery_picker_issue = Some(if application {
                             Message::ImageApplicationSelectionFailed
                         } else {
                             Message::ImageDirectorySelectionFailed
@@ -358,6 +413,12 @@ impl PreferencesState {
     pub fn receipt_help(&self, receipt: &voicelink_receiver::protocol::Receipt) -> String {
         self.catalogs.receipt_help(self.locale(), receipt)
     }
+    pub(crate) fn connected_phone_count(&self, count: usize) -> String {
+        self.catalogs.connected_phone_count(self.locale(), count)
+    }
+    pub(crate) fn pairing_id(&self, id: &str) -> String {
+        self.catalogs.pairing_id(self.locale(), id)
+    }
     pub fn history_count(&self, count: usize) -> String {
         self.catalogs.history_count(self.locale(), count)
     }
@@ -380,7 +441,7 @@ impl PreferencesState {
         }
         self.value = next;
         self.issue = None;
-        self.sync_image_delivery();
+        self.sync_delivery();
         if !self.is_saving() {
             self.start_write(cx);
         }
@@ -435,7 +496,7 @@ impl PreferencesState {
                     Ok(value) => {
                         this.value = value;
                         this.issue = None;
-                        this.sync_image_delivery();
+                        this.sync_delivery();
                     }
                     Err(error) => {
                         eprintln!("Reload preferences: {error}");
@@ -503,7 +564,7 @@ mod tests {
         let file = PreferencesFile::in_directory(&directory.0);
         let state = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
         let selected = directory.0.join("接收 图片");
-        let snapshot = state.read_with(cx, |state, _| state.shared_image_delivery());
+        let snapshot = state.read_with(cx, |state, _| state.shared_delivery());
 
         state.update(cx, |state, cx| state.pick_image_path(None, cx));
         cx.simulate_path_prompt_response(|options| {
@@ -525,7 +586,7 @@ mod tests {
         let file = PreferencesFile::in_directory(&directory.0);
         let state = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
         let rule = r"C:\Tools\Editor.exe";
-        let snapshot = state.read_with(cx, |state, _| state.shared_image_delivery());
+        let snapshot = state.read_with(cx, |state, _| state.shared_delivery());
 
         state.update(cx, |state, cx| state.pick_image_path(Some(CopyPath), cx));
         cx.simulate_path_prompt_response(|options| {
@@ -565,6 +626,47 @@ mod tests {
             assert!(file.load().is_err());
             assert_eq!(fs::read(file.path()).unwrap(), bytes);
         }
+    }
+
+    #[gpui_kit::test]
+    fn fast_paste_picker_updates_the_receiver_and_persists_the_rule(
+        cx: &mut gpui_kit::TestAppContext,
+    ) {
+        let directory = Directory::new();
+        let file = PreferencesFile::in_directory(&directory.0);
+        let state = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
+        let rule = r"C:\Tools\Editor.exe";
+        let alias = r"c:\TOOLS\editor.EXE";
+        let text = "😀".repeat(16);
+        let snapshot = state.read_with(cx, |state, _| state.shared_delivery());
+        assert!(!snapshot.read().unwrap().uses_fast_paste(rule, &text));
+
+        state.update(cx, |state, cx| state.pick_fast_paste_application(cx));
+        cx.simulate_path_prompt_response(|options| {
+            assert!(options.files && !options.directories && !options.multiple);
+            Some(vec![PathBuf::from(rule)])
+        });
+        cx.run_until_parked();
+        assert!(snapshot.read().unwrap().uses_fast_paste(alias, &text));
+        assert_eq!(
+            file.load().unwrap().fast_paste_applications,
+            BTreeSet::from([rule.to_owned()])
+        );
+        let reloaded = cx.update(|cx| cx.new(|_| PreferencesState::new(file.clone())));
+        assert!(reloaded.read_with(cx, |state, _| {
+            state
+                .shared_delivery()
+                .read()
+                .unwrap()
+                .uses_fast_paste(alias, &text)
+        }));
+
+        state.update(cx, |state, cx| {
+            state.set_fast_paste_application(alias, false, cx)
+        });
+        cx.run_until_parked();
+        assert!(!snapshot.read().unwrap().uses_fast_paste(rule, &text));
+        assert!(file.load().unwrap().fast_paste_applications.is_empty());
     }
 
     #[test]

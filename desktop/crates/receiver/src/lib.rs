@@ -9,7 +9,7 @@ pub mod protocol_v3;
 #[cfg(windows)]
 pub mod windows_clipboard;
 #[cfg(windows)]
-pub mod windows_image_delivery;
+pub mod windows_delivery;
 #[cfg(windows)]
 pub mod windows_input;
 pub mod worker;

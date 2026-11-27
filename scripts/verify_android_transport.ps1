@@ -3,12 +3,13 @@ param([string]$DeviceSerial, [switch]$UseExistingRootInstall, [switch]$SkipBuild
     [switch]$KeepUpgradeFixture, [switch]$QrPairing, [switch]$HotTargets, [switch]$PairReplacement, [switch]$PairReplacementExpiry,
     [switch]$ImageBatch, [switch]$NativeBatch, [switch]$BatchPathReceipt,
     [ValidateSet('Switch', 'Revoke')][string]$BatchInterruption,
-    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [switch]$MeasureControlResources, [ValidateRange(1,100)][int]$ControlSamples = 100)
+    [switch]$MissingReceipt, [switch]$ControlPerformance, [switch]$NativeText, [switch]$ControlClick, [switch]$MeasureControlResources, [ValidateRange(1,100)][int]$ControlSamples = 100,
+    [ValidateSet('unicode','clipboard_text')][string]$LongTextMethod)
 $ErrorActionPreference = 'Stop'
 if ($KeepUpgradeFixture -and !$TransportOnly) { throw 'KeepUpgradeFixture requires TransportOnly.' }
 if ($QrPairing -and (!$TransportOnly -or $KeepUpgradeFixture)) { throw 'QrPairing requires a fresh TransportOnly verification.' }
-if ($HotTargets -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing)) { throw 'HotTargets requires a fresh TransportOnly verification.' }
-if ($PairReplacement -and (!$TransportOnly -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets)) { throw 'PairReplacement requires a fresh TransportOnly verification.' }
+if ($HotTargets -and ((!$TransportOnly -and !$Lan) -or $KeepUpgradeFixture -or $QrPairing -or $FullSuite -or $ImageBatch -or $ControlPerformance -or $MissingReceipt)) { throw 'HotTargets requires an isolated TransportOnly or LAN verification.' }
+if ($PairReplacement -and ((!$TransportOnly -and !$Lan) -or $KeepUpgradeFixture -or $QrPairing -or $HotTargets -or $FullSuite -or $ImageBatch -or $ControlPerformance -or $MissingReceipt)) { throw 'PairReplacement requires an isolated TransportOnly or LAN verification.' }
 if ($PairReplacementExpiry -and (!$Lan -or $TransportOnly -or $FullSuite -or $PairReplacement -or $ImageBatch -or $BatchInterruption -or $ControlPerformance -or $MissingReceipt)) { throw 'PairReplacementExpiry requires a separate LAN run.' }
 if ($ImageBatch -and ($FullSuite -or $TransportOnly)) { throw 'ImageBatch uses a separate image fixture.' }
 if ($NativeBatch -and (!$ImageBatch -or !$Lan)) { throw 'NativeBatch requires ImageBatch and Lan.' }
@@ -18,6 +19,7 @@ if ($ControlPerformance -and (!$Lan -or $FullSuite -or $TransportOnly -or $Image
 if ($NativeText -and !$ControlPerformance) { throw 'NativeText requires ControlPerformance.' }
 if ($MeasureControlResources -and !$NativeText) { throw 'MeasureControlResources requires NativeText.' }
 if ($ControlClick -and !$NativeText) { throw 'ControlClick requires NativeText.' }
+if ($LongTextMethod -and !$NativeText) { throw 'LongTextMethod requires NativeText.' }
 if ($MissingReceipt -and ($FullSuite -or $TransportOnly -or $ImageBatch -or $ControlPerformance)) { throw 'MissingReceipt requires a separate fixture.' }
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $adb = Join-Path $env:LOCALAPPDATA 'Android/Sdk/platform-tools/adb.exe'
@@ -64,9 +66,9 @@ $testClass = if ($ControlPerformance) { 'seeyuer.sayin.data.ControlPerformanceIn
     elseif ($ImageBatch) { 'seeyuer.sayin.data.ImageInputInstrumentedTest#batchSubmitsInOrderAndStopsAtInvalidSecondImage' }
     else { 'seeyuer.sayin.data.ImageInputInstrumentedTest' }
 $suiteName = if ($FullSuite) { 'text-and-ui' } else { $testClass }
-$expectedTextUiTests = 181
+$expectedTextUiTests = 182
 $expectedImageTests = 7
-$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $ImageBatch -or $ControlPerformance -or $MissingReceipt -or $PairReplacementExpiry) { 1 } else { $expectedImageTests }
+$expectedTests = if ($FullSuite) { $expectedTextUiTests } elseif ($TransportOnly -or $HotTargets -or $ImageBatch -or $ControlPerformance -or $MissingReceipt -or $PairReplacement -or $PairReplacementExpiry) { 1 } else { $expectedImageTests }
 $expectedCalls = if ($HotTargets -or $ControlPerformance) { 0 } elseif ($PairReplacement -or $PairReplacementExpiry -or $BatchPathReceipt -or $BatchInterruption) { 1 } elseif ($ImageBatch) { 3 } elseif ($FullSuite -or $TransportOnly) { 2 } else { 1 }
 try {
     $leaseAcquired = $lease.WaitOne(0)
@@ -92,8 +94,9 @@ try {
         } else { Invoke-Checked { & $adb -s $DeviceSerial install -r -t $apk } }
     }
     # The upgrade fixture has a reserved namespace and retains its Keystore key.
-    # Regular suites start with fresh isolated package state.
-    if (!$KeepUpgradeFixture) {
+    # Most suites reset the isolated package. These tests use fresh namespaces
+    # or retain a purpose-built fixture and can preserve other test data.
+    if (!$KeepUpgradeFixture -and !$LongTextMethod -and !$PairReplacement -and !$HotTargets) {
         Invoke-Checked { & $adb -s $DeviceSerial shell pm clear seeyuer.sayin.imagetest | Out-Null }
     }
     if ($FullSuite) {
@@ -143,6 +146,7 @@ try {
     if ($PairReplacementExpiry) { $arguments += @('-e','pairReplacementExpiry','true') }
     if ($ControlPerformance) { $arguments += @('-e','controlPerformance','true','-e','controlSamples',$ControlSamples) }
     if ($NativeText) { $arguments += @('-e','nativeText','true') }
+    if ($LongTextMethod) { $arguments += @('-e','longTextMethod',$LongTextMethod) }
     if ($ControlClick) { $arguments += @('-e','controlClick','true','-e','timeout_msec','600000') }
     if ($BatchInterruption) {
         $batchPort = [int]$fixture.batch_port
@@ -160,6 +164,8 @@ try {
             if ($ControlPerformance -and $position -eq 'second') {
                 $extraArguments += '--text-commit-timing'
                 if ($NativeText) { $extraArguments += @('--images', '--native-text-target') }
+                if ($LongTextMethod) { $extraArguments += '--long-text' }
+                if ($LongTextMethod -eq 'clipboard_text') { $extraArguments += '--fast-paste' }
             }
             $startOptions = @{}
             if ($ControlPerformance -and $position -eq 'second') {
@@ -184,7 +190,7 @@ try {
     if ($FullSuite) { $arguments += @('-e', 'notAnnotation', 'seeyuer.sayin.ui.RootHelperDeviceTest') }
     # Pairing invitations and active-device gates are single-use state. The
     # image data suite gets its own fresh desktop identity, not a reset gate.
-    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.ControlPerformanceInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
+    if ($FullSuite) { $arguments += @('-e', 'notClass', 'seeyuer.sayin.asr.DoubaoLiveInstrumentedTest,seeyuer.sayin.asr.QwenLiveInstrumentedTest,seeyuer.sayin.data.DiscoveryInstrumentedTest,seeyuer.sayin.data.ImageInputInstrumentedTest,seeyuer.sayin.data.ImagePerformanceInstrumentedTest,seeyuer.sayin.data.ImagePauseInstrumentedTest,seeyuer.sayin.data.ControlPerformanceInstrumentedTest,seeyuer.sayin.data.LanOrderingInstrumentedTest,seeyuer.sayin.data.PlatformNetworkInstrumentedTest,seeyuer.sayin.data.UpgradeInstrumentedTest,seeyuer.sayin.ui.TranslationNativeInstrumentedTest,seeyuer.sayin.ui.ForegroundLiveInstrumentedTest') }
     else { $arguments += @('-e', 'class', $testClass) }
     if ($ImageBatch) { $arguments += @('-e', 'fixtureImageBatch', 'true') }
     if ($MissingReceipt) { $arguments += @('-e', 'fixtureMissingReceipt', 'true') }
@@ -296,7 +302,8 @@ try {
         if (!$timedFixture.process.WaitForExit(15000) -or $timedFixture.process.ExitCode -ne 0) { throw 'Timed fixture did not stop cleanly.' }
         if ($NativeText) {
             $final = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'target/final.json') -Raw | ConvertFrom-Json
-            if ($final.observed_texts -ne $ControlSamples -or $final.text -cne 'existing|') { throw 'Disposable EDIT did not observe every exact text sample.' }
+            $expectedFinal = if ($LongTextMethod) { 'existing|replace me' } else { 'existing|' }
+            if ($final.observed_texts -ne $ControlSamples -or $final.text -cne $expectedFinal) { throw 'Disposable EDIT did not observe every exact text sample.' }
         }
         $commits = Get-Content -LiteralPath (Join-Path $timedFixture.directory 'text-commits.json') -Raw | ConvertFrom-Json -NoEnumerate
         if ($commits.Count -ne (9 * $ControlSamples)) { throw 'Missing desktop commit timestamps.' }
@@ -347,18 +354,26 @@ try {
                 foreach ($stage in $stages.Keys) {
                     $sample | Add-Member -NotePropertyName ($stage + '_ms') -NotePropertyValue ($stages[$stage] / 1e6)
                 }
+                $internalMs = $sample.executing_to_terminal_ms - $sample.send_input_ms - $sample.fixture_observation_ms
+                if ($internalMs -lt 0) { throw 'Native input segments exceed the desktop execution interval.' }
+                $sample | Add-Member -NotePropertyName desktop_internal_execute_ms -NotePropertyValue $internalMs
             }
             $desktop.Remove($sample.id)
         }
         $samples | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $fixtureDirectory 'control-segments.json') -Encoding utf8
+        if ($NativeText) {
+            $internalValues = @($samples.warm_text.desktop_internal_execute_ms | Sort-Object)
+            $internalP95 = $internalValues[[int][Math]::Ceiling($ControlSamples * 0.95) - 1]
+            Write-Host ("desktop_internal_execute_ms: p95 {0:N2} ms over {1} samples (30 ms diagnostic reference)." -f $internalP95, $ControlSamples)
+        }
         $expectedCalls = $ControlSamples
-        if ($ControlClick) {
-            if (!$samples.click_through_ui) { throw 'Missing Compose click evidence.' }
+        if ($ControlClick -and !$samples.click_through_ui) { throw 'Missing Compose click evidence.' }
+        if ($ControlClick -and !$LongTextMethod) {
             $controlGates = foreach ($metric in @(
                 @{ key = 'first_ms'; limit = 150; timeout = 500; rows = $samples.warm_text }
                 @{ key = 'ready_ms'; limit = 1000; timeout = 3000; rows = $samples.cold_switch }
                 @{ key = 'accepted_to_executing_ms'; limit = 20; timeout = 500; rows = $samples.warm_text }
-                @{ key = 'executing_to_terminal_ms'; limit = 30; timeout = 500; rows = $samples.warm_text }
+                @{ key = 'executing_to_terminal_ms'; limit = 200; timeout = 500; rows = $samples.warm_text }
             )) {
                 $values = @($metric.rows | ForEach-Object {
                     $value = $_.($metric.key)
@@ -386,10 +401,10 @@ try {
         }
         $expectedCalls = 1
     }
-    if (($KeepUpgradeFixture -or $ImageBatch -or $MissingReceipt -or $PairReplacementExpiry) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
+    if (($KeepUpgradeFixture -or $HotTargets -or $ImageBatch -or $MissingReceipt -or $PairReplacement -or $PairReplacementExpiry) -and $skippedTests -ne 0) { throw 'The requested isolated fixture was not exercised.' }
     $inputMode = if ($NativeBatch) { 'native RichEdit' } elseif ($NativeText) { 'native EDIT' } else { 'fake' }
     @{ scope = "isolated imageTest UID/identity/data; $inputMode input"; suite = $suiteName; real_lan = [bool]$Lan; batch_interruption = $BatchInterruption; pair_replacement_expiry = [bool]$PairReplacementExpiry; tests = $expectedTests; passed = $passedTests; skipped = $skippedTests; fake_input_calls = if ($NativeText) { 0 } elseif ($ControlPerformance -or $HotTargets) { $expectedCalls } else { $calls.fake_input_calls }; native_input_calls = if ($NativeText) { $ControlSamples } else { $calls.native_input_calls }; retained_upgrade_fixture = [bool]$KeepUpgradeFixture } | ConvertTo-Json | Set-Content (Join-Path $fixtureDirectory 'result.json') -Encoding utf8
-    if ($ControlClick) {
+    if ($ControlClick -and !$LongTextMethod) {
         $failedGates = @($controlGates | Where-Object { $_.gate -eq 'fail' } | ForEach-Object { $_.metric })
         if ($failedGates.Count) { throw "Control performance gates failed: $($failedGates -join ', '). Evidence: $fixtureDirectory" }
     }

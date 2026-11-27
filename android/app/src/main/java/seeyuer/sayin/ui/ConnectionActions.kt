@@ -41,6 +41,7 @@ internal fun ConnectionActions(
     onForget: () -> Unit,
     onSelectHost: (String) -> Unit = {},
     onReplace: () -> Unit = {},
+    addingOnly: Boolean = false,
 ) {
     var form by remember { mutableStateOf(false) }
     var updating by remember { mutableStateOf(false) }
@@ -55,7 +56,7 @@ internal fun ConnectionActions(
     LaunchedEffect(state.paired, state.connection) {
         if (!state.paired) { updating = false; confirmUnpair = false; form = false; code = TextFieldValue() }
         if (!state.paired && state.busy) { form = false; code = TextFieldValue() }
-        if (pairing || state.connection == Connection.ONLINE) {
+        if (pairing || !addingOnly && state.connection == Connection.ONLINE) {
             form = false
             updating = false
             endpoint = TextFieldValue()
@@ -65,7 +66,7 @@ internal fun ConnectionActions(
     if (!state.storageHealthy || state.connection == Connection.LOADING || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (state.replacingPair && !pairing) Caption(stringResource(R.string.connection_replace_help))
-        if (!state.busy && !state.pairingRecoveryPending) {
+        if ((!state.busy || addingOnly && state.connection == Connection.CONNECTING) && !state.pairingRecoveryPending) {
             if (!form) {
                 Action(R.string.scan_qr, primary = !state.paired, onClick = onScan)
                 ConnectionTextAction(R.string.use_pair_code) { form = true }
@@ -85,7 +86,7 @@ internal fun ConnectionActions(
             }
         }
         if (pairing || state.replacingPair || !state.paired && state.busy) ConnectionTextAction(R.string.cancel_pairing, onClick = onCancel)
-        if (state.paired && !pairing && !form && !state.replacingPair) {
+        if (!addingOnly && state.paired && !pairing && !form && !state.replacingPair) {
             if (state.pairedTargets.map { it.hostId }.distinct().size > 1) {
                 PairedHostSelector(state.pairedTargets, state.selectedHostId, onSelectHost)
             }
@@ -195,7 +196,7 @@ private fun UnpairDialog(onCancel: () -> Unit, onConfirm: () -> Unit) {
 }
 
 @Composable
-private fun EndpointField(value: TextFieldValue, onChange: (TextFieldValue) -> Unit) {
+internal fun EndpointField(value: TextFieldValue, onChange: (TextFieldValue) -> Unit) {
     TextField(value, onChange, Modifier.fillMaxWidth().testTag("computer-address"),
         label = stringResource(R.string.connection_address), singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri))

@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::net::IpAddr::V4(interface.address)
         );
         assert!(snapshot.window.is_none() && snapshot.approval.is_none());
-        assert_eq!(snapshot.connections, 0);
+        assert_eq!(snapshot.connected_devices(), 0);
         service.shutdown().await?;
         receiver.shutdown().await?;
         drop(service);

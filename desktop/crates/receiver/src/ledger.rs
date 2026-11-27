@@ -1640,6 +1640,16 @@ impl Ledger {
         target: Option<crate::history::TargetApplication>,
         window: Option<InputWindow>,
     ) -> Result<bool> {
+        self.mark_executing_with_method(job, target, window, None)
+    }
+
+    pub(crate) fn mark_executing_with_method(
+        &mut self,
+        job: &Execution,
+        target: Option<crate::history::TargetApplication>,
+        window: Option<InputWindow>,
+        method: Option<&'static str>,
+    ) -> Result<bool> {
         if !self.healthy {
             return Err(Error::Protocol("STORAGE_UNAVAILABLE"));
         }
@@ -1687,11 +1697,12 @@ impl Ledger {
             )?;
             return Ok(false);
         }
-        let (method, stage) = match job.operation() {
-            Operation::Key { .. } => ("key", "prepared"),
-            Operation::Image { .. } => ("clipboard_image_path", "prepared"),
-            Operation::Text { .. } | Operation::AutoText { .. } => ("unicode", "prepared"),
-        };
+        let method = method.unwrap_or(match job.operation() {
+            Operation::Key { .. } => "key",
+            Operation::Image { .. } => "clipboard_image_path",
+            Operation::Text { .. } | Operation::AutoText { .. } => "unicode",
+        });
+        let stage = "prepared";
         self.observe_request(job.operation(), job.id(), "executing_write_begin");
         let tx = self.database.transaction()?;
         let changed=tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state='executing',reason=NULL,input_window_mac=?4,method=?5,execution_stage=?6,confirmed=0,executable_at=?7 WHERE pair_id=?1 AND id=?2 AND request_rev=?3 AND state='accepted'",params![job.device,job.id,job.request_rev,window_mac,method,stage,executable_at])?;
@@ -1711,6 +1722,7 @@ impl Ledger {
             InputOutcome::Injected { method } => {
                 let stage = match job.operation() {
                     Operation::Image { .. } => "paste_submitted",
+                    _ if method == "clipboard_text" => "paste_submitted",
                     _ => "input_submitted",
                 };
                 (State::Injected, None, Some(method), stage, false)
@@ -1751,7 +1763,26 @@ impl Ledger {
             } else {
                 None
             };
-            let changed = tx.execute("UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,method=COALESCE(?3,method),execution_stage=?4,confirmed=?5,uncertain_scope=?6,input_window_mac=CASE WHEN ?6='target' THEN input_window_mac END,executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0 WHERE pair_id=?7 AND id=?8 AND state='executing'", params![state.key(),reason,method,stage,confirmed,uncertainty,job.device,job.id])?;
+            let changed = tx.execute(
+                "UPDATE receipts SET request_rev=CAST(request_rev+1 AS INTEGER),state=?1,reason=?2,
+                    method=COALESCE(?3,method),
+                    execution_stage=CASE WHEN ?1='uncertain' AND method='clipboard_text'
+                        THEN 'paste_submitted' ELSE ?4 END,
+                    confirmed=?5,uncertain_scope=?6,
+                    input_window_mac=CASE WHEN ?6='target' THEN input_window_mac END,
+                    executable_at=NULL,hold_expires_at=NULL,payload=NULL,bytes=0
+                    WHERE pair_id=?7 AND id=?8 AND state='executing'",
+                params![
+                    state.key(),
+                    reason,
+                    method,
+                    stage,
+                    confirmed,
+                    uncertainty,
+                    job.device,
+                    job.id
+                ],
+            )?;
             if changed != 1 {
                 return Err(Error::Protocol("STATE_CONFLICT"));
             }
@@ -2217,6 +2248,44 @@ mod tests {
                 .len(),
             2
         );
+        drop(ledger);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn uncertain_fast_paste_keeps_its_method_and_deduplicates_without_reexecution() {
+        let (mut ledger, session, target, directory) = fixture();
+        let message = submit(&session, &target, "😀".repeat(16));
+        ledger.submit(&session, &message).unwrap();
+        let job = ledger.prepare_next().unwrap().unwrap();
+        assert!(
+            ledger
+                .mark_executing_with_method(&job, None, None, Some("clipboard_text"))
+                .unwrap()
+        );
+        let executing = ledger.query(&session, &message.id).unwrap().unwrap();
+        assert_eq!(executing.st, State::Executing);
+        assert_eq!(executing.method.as_deref(), Some("clipboard_text"));
+        assert_eq!(executing.execution_stage.as_deref(), Some("prepared"));
+
+        let receipt = ledger
+            .finish(
+                &job,
+                InputOutcome::Uncertain {
+                    reason: "partial_input_or_focus_changed",
+                },
+            )
+            .unwrap();
+        assert_eq!(receipt.st, State::Uncertain);
+        assert_eq!(receipt.method.as_deref(), Some("clipboard_text"));
+        assert_eq!(receipt.execution_stage.as_deref(), Some("paste_submitted"));
+        assert_eq!(receipt.uncertain_scope, Some(UncertainScope::Global));
+        assert_eq!(receipt.confirmed, Some(false));
+        let duplicate = ledger.submit(&session, &message).unwrap();
+        assert_eq!(duplicate.st, State::Uncertain);
+        assert_eq!(duplicate.request_rev, receipt.request_rev);
+        assert!(ledger.state().unwrap().paused);
+        assert!(ledger.prepare_next().unwrap().is_none());
         drop(ledger);
         std::fs::remove_dir_all(directory).unwrap();
     }

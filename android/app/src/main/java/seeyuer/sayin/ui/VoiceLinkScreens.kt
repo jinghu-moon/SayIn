@@ -92,6 +92,7 @@ internal fun VoiceLinkContent(
     onHideHistory: (List<OutboxKey>) -> Unit = {},
     onCleanupHistory: (Long) -> Unit = {},
     autoRecordVersion: Int = 0,
+    connectionPage: (@Composable () -> Unit)? = null,
 ) {
     var pageName by rememberSaveable { mutableStateOf(MobilePage.Speak.name) }
     val page = MobilePage.valueOf(pageName)
@@ -225,7 +226,7 @@ internal fun VoiceLinkContent(
                     }
                     MobilePage.Connection -> Column(Modifier.fillMaxSize().background(MiuixTheme.colorScheme.surface)) {
                         PageTopBar(MobilePage.Connection)
-                        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                        if (connectionPage != null) connectionPage() else Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                             Column(Modifier.widthIn(max = 600.dp).fillMaxHeight().verticalScroll(connectionScroll)
                                 .padding(horizontal = 20.dp, vertical = 16.dp).testTag("page-Connection"),
                                 verticalArrangement = Arrangement.spacedBy(20.dp)) {

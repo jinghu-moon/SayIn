@@ -1263,6 +1263,31 @@
     <string name="image_batch_stop">Stop batch</string>
     <string name="image_batch_send">Send %1$d images in order</string>
     <string name="image_batch_path_stop">The computer copied one file path. Send more images after pasting it.</string>
+    <string name="connection_paired_computers">Paired computers</string>
+    <string name="connection_computer_count">%1$d</string>
+    <string name="connection_empty">No paired computers</string>
+    <string name="connection_empty_hint">Tap + to add a computer.</string>
+    <string name="connection_choose_target">Choose a computer to send to.</string>
+    <string name="connection_add_computer">Add computer</string>
+    <string name="connection_edit_computer">Edit computer</string>
+    <string name="connection_device_details">Connection details</string>
+    <string name="connection_device_alias">Phone nickname: %1$s</string>
+    <string name="connection_device_short_id">ID %1$s</string>
+    <string name="connection_waiting_to_connect">Not connected</string>
+    <string name="connection_current_target">Current send target</string>
+    <string name="connection_device_more">More options for %1$s</string>
+    <string name="connection_connect_computer">Connect</string>
+    <string name="connection_device_system_name">System computer name</string>
+    <string name="connection_device_unknown_name">Unavailable</string>
+    <string name="connection_device_id">Computer ID</string>
+    <string name="connection_pairing_completed">Paired successfully</string>
+    <string name="connection_device_alias_label">Phone nickname (optional)</string>
+    <string name="connection_device_alias_hint">Shown only on this phone. Leave blank to use the system computer name.</string>
+    <string name="connection_make_target">Set as send target</string>
+    <string name="connection_target_name">Current send target: %1$s</string>
+    <string name="connection_setup_later">Set up later</string>
+    <string name="connection_save_computer">Save</string>
+    <string name="connection_slot_busy">Another computer is still syncing receipts. Try connecting again after it finishes.</string>
 </resources>
 
 

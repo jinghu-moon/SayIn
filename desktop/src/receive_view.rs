@@ -4,7 +4,6 @@ use crate::{
     localization::Message as M,
     preferences::PreferencesState,
     reception::{ReceptionIssue, ReceptionPhase, ReceptionState},
-    theme,
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use yue_component::{
@@ -296,38 +295,36 @@ impl ReceiveView {
             .child(invitation)
             .into_any_element()
     }
-    fn device_header(&self, online: bool, cx: &Context<Self>) -> gpui_kit::AnyElement {
+    fn device_header(&self, online: bool, cx: &Context<Self>) -> impl IntoElement {
         let settings = self.preferences.read(cx);
-        let snapshot = self.reception.read(cx).snapshot();
-        let name = snapshot
-            .and_then(|s| {
-                s.control
-                    .active_device_id
-                    .as_ref()
-                    .and_then(|id| s.device_names.get(id))
+        let reception = self.reception.read(cx);
+        let theme = current_theme(cx);
+        let names = reception.snapshot().into_iter().flat_map(|snapshot| {
+            reception.connected_device_ids().map(|id| {
+                snapshot
+                    .device_names
+                    .get(id)
+                    .filter(|name| !name.is_empty())
+                    .cloned()
+                    .unwrap_or_else(|| settings.text(M::PhoneDevice))
             })
-            .filter(|name| !name.is_empty())
-            .cloned()
-            .unwrap_or_else(|| settings.text(M::PhoneDevice));
+        });
         div()
             .p_6()
             .min_w_0()
             .flex()
-            .items_center()
+            .items_start()
             .gap_4()
             .child(
                 div()
-                    .flex()
-                    .items_center()
-                    .justify_center()
                     .flex_none()
                     .p_3()
                     .rounded_md()
-                    .bg(gpui_kit::rgb(current_theme(cx).surface_component()))
+                    .bg(gpui_kit::rgb(theme.surface_component()))
                     .child(
                         Icon::new(outline::DeviceMobile)
                             .size(gpui_kit::rems(1.5))
-                            .color_value(gpui_kit::rgb(current_theme(cx).text_secondary())),
+                            .color_value(gpui_kit::rgb(theme.text_secondary())),
                     ),
             )
             .child(
@@ -339,35 +336,18 @@ impl ReceiveView {
                     .gap_1()
                     .child(
                         div()
-                            .text_base()
                             .font_weight(gpui_kit::FontWeight::SEMIBOLD)
-                            .child(name),
+                            .child(settings.text(if online {
+                                M::OnlinePhones
+                            } else {
+                                M::PhoneOffline
+                            })),
                     )
-                    .child(note(
-                        settings.text(if online {
-                            M::ReceiveLocalConnection
-                        } else {
-                            M::ReceivePaired
-                        }),
-                        cx,
-                    )),
+                    .children(names.map(|name| div().child(name)))
+                    .when(!online, |d| {
+                        d.child(note(settings.text(M::ReceivePaired), cx))
+                    }),
             )
-            .child(
-                div()
-                    .flex_none()
-                    .text_xs()
-                    .text_color(if online {
-                        theme::brand()
-                    } else {
-                        gpui_kit::rgb(current_theme(cx).text_secondary()).into()
-                    })
-                    .child(settings.text(if online {
-                        M::PhoneConnected
-                    } else {
-                        M::PhoneOffline
-                    })),
-            )
-            .into_any_element()
     }
     fn input_row(&self, online: bool, cx: &Context<Self>) -> gpui_kit::AnyElement {
         let state = self.reception.read(cx);
@@ -616,7 +596,7 @@ impl Render for ReceiveView {
         let settings = self.preferences.read(cx);
         let paired = state.snapshot().is_some_and(|s| s.paired_devices > 0);
         let network = state.network_snapshot();
-        let online = network.is_some_and(|s| s.running && s.connections > 0);
+        let online = state.connected_device_ids().next().is_some();
         let inviting = !paired
             || network.is_some_and(|s| s.window.is_some() || s.approval.is_some())
             || state.pairing_requested();

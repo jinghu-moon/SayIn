@@ -78,10 +78,56 @@ pub struct NetworkSnapshot {
     pub address: SocketAddr,
     pub window: Option<PairingWindow>,
     pub approval: Option<PendingApproval>,
-    pub connections: usize,
+    connected_devices: HashMap<String, usize>,
     pub running: bool,
     pub discovery: PublicationStatus,
 }
+impl NetworkSnapshot {
+    pub fn is_device_connected(&self, device: &str) -> bool {
+        self.running && self.connected_devices.contains_key(device)
+    }
+
+    pub fn connected_devices(&self) -> usize {
+        self.connected_devices.len()
+    }
+}
+
+/// Take one presence lease per authenticated control socket. Reconnecting the
+/// same pair can overlap the old socket until its session check completes.
+struct OnlineDevice<'a> {
+    shared: &'a Shared,
+    device: &'a str,
+}
+impl<'a> OnlineDevice<'a> {
+    fn register(shared: &'a Shared, device: &'a str) -> Result<Self> {
+        {
+            let mut snapshot = shared
+                .snapshot
+                .lock()
+                .map_err(|_| Error::Protocol("SERVICE_UNAVAILABLE"))?;
+            *snapshot
+                .connected_devices
+                .entry(device.to_owned())
+                .or_default() += 1;
+        }
+        shared.notify();
+        Ok(Self { shared, device })
+    }
+}
+impl Drop for OnlineDevice<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut snapshot) = self.shared.snapshot.lock()
+            && let Some(count) = snapshot.connected_devices.get_mut(self.device)
+        {
+            *count -= 1;
+            if *count == 0 {
+                snapshot.connected_devices.remove(self.device);
+            }
+        }
+        self.shared.notify();
+    }
+}
+
 struct Pairing {
     info: BootstrapInfo,
     code: Zeroizing<String>,
@@ -98,8 +144,11 @@ struct PairingRequest {
     finished: watch::Sender<()>,
 }
 struct Shared {
+    #[cfg(feature = "receipt-replay-fixture")]
+    replay_old_receipt: std::sync::atomic::AtomicBool,
     receiver: Receiver,
     identity: HostIdentity,
+    computer_name: Option<String>,
     address: SocketAddr,
     pairing: AsyncMutex<Option<Pairing>>,
     snapshot: Mutex<NetworkSnapshot>,
@@ -169,6 +218,14 @@ pub struct NetworkService {
     handle: Arc<Handle>,
 }
 impl NetworkService {
+    #[cfg(feature = "receipt-replay-fixture")]
+    pub fn enable_receipt_replay_fixture(&self) {
+        self.handle
+            .shared
+            .replay_old_receipt
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
     /// Loopback fixtures cannot use this entry point to expose a LAN listener.
     pub fn start_loopback(
         receiver: Receiver,
@@ -202,15 +259,18 @@ impl NetworkService {
         listener.set_nonblocking(true)?;
         let address = listener.local_addr()?;
         let shared = Arc::new(Shared {
+            #[cfg(feature = "receipt-replay-fixture")]
+            replay_old_receipt: std::sync::atomic::AtomicBool::new(false),
             receiver,
             identity,
+            computer_name: crate::discovery::computer_name(),
             address,
             pairing: AsyncMutex::new(None),
             snapshot: Mutex::new(NetworkSnapshot {
                 address,
                 window: None,
                 approval: None,
-                connections: 0,
+                connected_devices: HashMap::new(),
                 running: true,
                 discovery: if binding.is_some() {
                     PublicationStatus::Publishing
@@ -299,7 +359,7 @@ impl NetworkService {
                 state.clear_pairing_snapshot();
                 connections.abort_all();
                 while connections.join_next().await.is_some() {}
-                if let Ok(mut snapshot)=state.snapshot.lock(){snapshot.running=false;snapshot.connections=0;snapshot.discovery=PublicationStatus::Disabled;}
+                if let Ok(mut snapshot)=state.snapshot.lock(){snapshot.running=false;snapshot.connected_devices.clear();snapshot.discovery=PublicationStatus::Disabled;}
                 state.notify();
                 let _=done.send(());
             });
@@ -704,20 +764,7 @@ async fn connection(
         .clone()
         .try_acquire_owned()
         .map_err(|_| Error::Protocol("CONNECTION_LIMIT"))?;
-    {
-        if let Ok(mut snapshot) = shared.snapshot.lock() {
-            snapshot.connections += 1;
-        }
-    }
-    shared.notify();
-    let result = authenticated(&shared, &mut socket, session, control_slot, &mut stop).await;
-    {
-        if let Ok(mut snapshot) = shared.snapshot.lock() {
-            snapshot.connections = snapshot.connections.saturating_sub(1);
-        }
-    }
-    shared.notify();
-    result
+    authenticated(&shared, &mut socket, session, control_slot, &mut stop).await
 }
 fn field<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
     value
@@ -835,7 +882,7 @@ async fn pair(shared: &Shared, socket: &mut Socket, value: Value, source: IpAddr
         send(
             socket,
             &json!({"v":3,"t":"pair_candidate","host_id":shared.identity.host_id,
-            "pair_id":id,"token":encode(&token)}),
+            "host_name":shared.computer_name,"pair_id":id,"token":encode(&token)}),
         )
         .await?;
         let saved = tokio::select! {
@@ -988,17 +1035,20 @@ async fn authenticated(
     let mut display = foreground::Display::default();
     let image_binding = image_channel::ControlBinding::new(shared, &session)?;
     send(socket,&json!({"v":3,"t":"welcome","session_id":session.id(),"host_id":shared.identity.host_id,
-        "pair_id":session.device(),"state_rev":control.state_rev,
+        "host_name":shared.computer_name,"pair_id":session.device(),"state_rev":control.state_rev,
         "paused":control.paused,"pause_reason":control.pause_reason,"target":control.target,
         "image":image_binding.description(),
         "capabilities":if shared.receiver.image_store().is_some() {vec!["text","auto_text","key_enter","control","query","image"]} else {vec!["text","auto_text","key_enter","control","query"]},"limits":{"max_message_bytes":65536,"max_submit_bytes":32768,
             "max_text_scalars":4000,"max_text_bytes":16384,"pending_ops":16,"pending_bytes":65536,"foreground_ttl_ms":5000}})).await?;
+    let _online = OnlineDevice::register(shared, session.device())?;
     let sample = foreground.borrow_and_update().clone();
     display
         .update(socket, &shared.receiver, &session, &sample, &control, true)
         .await?;
     let mut revision = control.state_rev.clone();
     let mut tracked = HashMap::<String, Receipt>::new();
+    #[cfg(feature = "receipt-replay-fixture")]
+    let mut old_receipt = None;
     let mut control_rate = Rate::new();
     let mut inbound_rate = Rate::new();
     let mut last_inbound = Instant::now();
@@ -1021,6 +1071,8 @@ async fn authenticated(
                     tracked: &mut tracked,
                     rate: &mut control_rate,
                     first_application: &mut first_application,
+                    #[cfg(feature = "receipt-replay-fixture")]
+                    old_receipt: &mut old_receipt,
                 };
                 let result=dispatch(shared,socket,&session,&value,(&display, &sample, &control), &mut dispatch_state).await;
                 if let Err(error)=result {
@@ -1093,6 +1145,7 @@ async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt)
         method: match receipt.method.as_deref() {
             Some("unicode") => ExecutionMethod::Unicode,
             Some("key") => ExecutionMethod::Key,
+            Some("clipboard_text") => ExecutionMethod::ClipboardText,
             Some("clipboard_image") => ExecutionMethod::ClipboardImage,
             Some("clipboard_image_path") => ExecutionMethod::ClipboardImagePath,
             Some("none") | None => ExecutionMethod::None,
@@ -1126,7 +1179,14 @@ async fn send_receipt(socket: &mut Socket, session: &Session, receipt: &Receipt)
         uncertain_scope: receipt.uncertain_scope,
     };
     let encoded = StatusFrame::Receipt(status).encode()?;
-    send(socket, &strict_json(&encoded)?).await?;
+    let frame = strict_json(&encoded)?;
+    send(socket, &frame).await?;
+    if receipt.st.is_terminal()
+        && log::log_enabled!(target: "sayin_receipt_budget", log::Level::Trace)
+    {
+        log::trace!(target: "sayin_receipt_budget", "{} {} {}", receipt.id,
+            encoded.len(), frame["application"]["icon_webp"].is_string());
+    }
     #[cfg(windows)]
     if receipt.st.is_terminal()
         && log::log_enabled!(target: "sayin_receipt_sent", log::Level::Trace)
@@ -1173,6 +1233,8 @@ struct DispatchState<'a> {
     tracked: &'a mut HashMap<String, Receipt>,
     rate: &'a mut Rate,
     first_application: &'a mut bool,
+    #[cfg(feature = "receipt-replay-fixture")]
+    old_receipt: &'a mut Option<Receipt>,
 }
 
 async fn dispatch(
@@ -1201,6 +1263,16 @@ async fn dispatch(
         let submit = Submit::decode(&serde_json::to_vec(&legacy)?)?;
         let receipt = shared.receiver.submit(session.clone(), submit).await?;
         send_receipt(socket, session, &receipt).await?;
+        #[cfg(feature = "receipt-replay-fixture")]
+        if shared
+            .replay_old_receipt
+            .load(std::sync::atomic::Ordering::Relaxed)
+            && value["op"]["kind"] == "text"
+            && receipt.st == voicelink_receiver::protocol::State::Accepted
+            && state.old_receipt.is_none()
+        {
+            *state.old_receipt = Some(receipt.clone());
+        }
         if !receipt.st.is_terminal() {
             if state.tracked.len() >= 16 && !state.tracked.contains_key(&receipt.id) {
                 return Err(Error::Protocol("TRACKING_LIMIT"));
@@ -1240,6 +1312,23 @@ async fn dispatch(
                     .query(session.clone(), id.to_owned())
                     .await?
                 {
+                    #[cfg(feature = "receipt-replay-fixture")]
+                    if receipt.st.is_terminal()
+                        && state
+                            .old_receipt
+                            .as_ref()
+                            .is_some_and(|old| old.id == receipt.id)
+                    {
+                        let old = state.old_receipt.take().expect("matching fixture receipt");
+                        send_receipt(socket, session, &old).await?;
+                        eprintln!(
+                            "old_receipt_replayed {} {} {}",
+                            old.id,
+                            old.request_rev.as_deref().unwrap_or("0"),
+                            receipt.request_rev.as_deref().unwrap_or("0")
+                        );
+                        continue;
+                    }
                     send_receipt(socket, session, &receipt).await?;
                     if !receipt.st.is_terminal() && state.tracked.len() < 16 {
                         state.tracked.insert(receipt.id.clone(), receipt);

@@ -1,10 +1,12 @@
-//! Image delivery is selected from the foreground executable and local settings.
+//! Windows input delivery is selected from the foreground executable and local settings.
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
+
+const FAST_PASTE_MIN_UTF16_UNITS: usize = 32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -14,14 +16,15 @@ pub enum ImageDeliveryMode {
 }
 
 #[derive(Clone, Default)]
-pub struct ImageDeliverySettings {
+pub struct DeliverySettings {
     directory: Option<PathBuf>,
     applications: BTreeMap<String, ImageDeliveryMode>,
+    fast_paste_applications: BTreeSet<String>,
 }
 
-pub type SharedImageDeliverySettings = Arc<RwLock<ImageDeliverySettings>>;
+pub type SharedDeliverySettings = Arc<RwLock<DeliverySettings>>;
 
-impl ImageDeliverySettings {
+impl DeliverySettings {
     pub fn new(
         directory: Option<PathBuf>,
         applications: BTreeMap<String, ImageDeliveryMode>,
@@ -29,7 +32,25 @@ impl ImageDeliverySettings {
         Self {
             directory,
             applications,
+            fast_paste_applications: BTreeSet::new(),
         }
+    }
+
+    pub fn with_fast_paste_applications(mut self, applications: BTreeSet<String>) -> Self {
+        self.fast_paste_applications = applications;
+        self
+    }
+
+    pub fn uses_fast_paste(&self, executable: &str, text: &str) -> bool {
+        is_executable_path(Path::new(executable))
+            && self
+                .fast_paste_applications
+                .iter()
+                .any(|path| same_executable(path, executable))
+            && text
+                .encode_utf16()
+                .nth(FAST_PASTE_MIN_UTF16_UNITS - 1)
+                .is_some()
     }
 
     pub fn directory(&self) -> Option<&Path> {
@@ -76,9 +97,21 @@ mod tests {
     use super::*;
 
     #[test]
+    fn fast_paste_requires_the_selected_executable_and_32_utf16_units() {
+        let app = r"C:\Éditeur\editor.exe";
+        let text = "😀".repeat(16);
+        assert!(!DeliverySettings::default().uses_fast_paste(app, &text));
+        let enabled =
+            DeliverySettings::default().with_fast_paste_applications(BTreeSet::from([app.into()]));
+        assert!(enabled.uses_fast_paste(r"c:\éditeur\EDITOR.EXE", &text));
+        assert!(!enabled.uses_fast_paste(app, &format!("{}a", "😀".repeat(15))));
+        assert!(!enabled.uses_fast_paste(r"C:\Other\editor.exe", &text));
+    }
+
+    #[test]
     fn exact_app_overrides_win_over_defaults_and_other_apps_with_the_same_filename() {
         use ImageDeliveryMode::{CopyPath, PasteImage};
-        let settings = ImageDeliverySettings::new(
+        let settings = DeliverySettings::new(
             None,
             BTreeMap::from([
                 (r"C:\Éditeur\editor.exe".into(), CopyPath),

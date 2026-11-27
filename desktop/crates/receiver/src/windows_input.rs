@@ -5,7 +5,7 @@ use crate::{
     images::{ImageMime, payload::PreparedImage},
     ledger::{Clock, Execution, InputOutcome, InputWindow, Ledger, Protector, SystemClock},
     protocol::{KeyName, Operation},
-    windows_image_delivery::{ImageDeliveryMode, SharedImageDeliverySettings},
+    windows_delivery::{ImageDeliveryMode, SharedDeliverySettings},
     worker::InputAdapter,
 };
 use std::{
@@ -17,7 +17,7 @@ use std::{
 };
 use windows::{
     Win32::{
-        Foundation::{CloseHandle, FILETIME, HANDLE, HLOCAL, LocalFree},
+        Foundation::{CloseHandle, FILETIME, HANDLE, HLOCAL, HWND, LocalFree},
         Security::{
             Cryptography::{
                 CRYPT_INTEGER_BLOB, CRYPTPROTECT_UI_FORBIDDEN, CryptProtectData, CryptUnprotectData,
@@ -47,7 +47,8 @@ use windows::{
                 VK_RWIN, VK_SHIFT,
             },
             WindowsAndMessaging::{
-                GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId, IsIconic, IsWindow,
+                GUITHREADINFO, GetForegroundWindow, GetGUIThreadInfo, GetWindowTextW,
+                GetWindowThreadProcessId, IsIconic, IsWindow,
             },
         },
     },
@@ -202,8 +203,9 @@ pub struct NativeInput {
     application: Option<crate::history::TargetApplication>,
     image_store: Option<crate::images::storage::ImageStore>,
     image: Option<ImageDelivery>,
-    image_delivery: SharedImageDeliverySettings,
+    delivery: SharedDeliverySettings,
     clipboard_owner: Option<crate::windows_clipboard::ClipboardOwner>,
+    paste_focus: Option<usize>,
     image_timing: bool,
     text_timing: bool,
 }
@@ -254,11 +256,11 @@ struct ImageDelivery {
 impl NativeInput {
     pub fn with_images(
         store: crate::images::storage::ImageStore,
-        image_delivery: SharedImageDeliverySettings,
+        delivery: SharedDeliverySettings,
     ) -> Self {
         Self {
             image_store: Some(store),
-            image_delivery,
+            delivery,
             ..Self::default()
         }
     }
@@ -294,7 +296,36 @@ impl NativeInput {
         if !lease.matches(job.device(), job.id(), job.target(), foreground()?) {
             return Err(Error::Protocol("FOCUS_CHANGED"));
         }
+        if let Some(expected) = self.paste_focus
+            && focused_control(lease.foreground)? != expected
+        {
+            return Err(Error::Protocol("FOCUS_CHANGED"));
+        }
         Ok(())
+    }
+}
+
+fn focused_control((window, process, _, _): (usize, u32, u64, u32)) -> Result<usize> {
+    // SAFETY: Query the target GUI thread and check the returned HWND's process.
+    unsafe {
+        let mut info = GUITHREADINFO {
+            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
+            ..Default::default()
+        };
+        let thread = GetWindowThreadProcessId(HWND(window as *mut _), None);
+        if thread == 0 {
+            return Err(Error::Protocol("FOCUS_CHANGED"));
+        }
+        GetGUIThreadInfo(thread, &mut info).map_err(platform)?;
+        let mut owner = 0;
+        if info.hwndActive.0 as usize != window
+            || info.hwndFocus.0.is_null()
+            || GetWindowThreadProcessId(info.hwndFocus, Some(&mut owner)) == 0
+            || owner != process
+        {
+            return Err(Error::Protocol("FOCUS_CHANGED"));
+        }
+        Ok(info.hwndFocus.0 as usize)
     }
 }
 
@@ -610,13 +641,17 @@ fn events(operation: &Operation) -> Vec<INPUT> {
             keyboard(VK_RETURN.0, false, false),
             keyboard(VK_RETURN.0, false, true),
         ],
-        Operation::Image { .. } => vec![
-            keyboard(VK_CONTROL.0, false, false),
-            keyboard(0x56, false, false),
-            keyboard(0x56, false, true),
-            keyboard(VK_CONTROL.0, false, true),
-        ],
+        Operation::Image { .. } => paste_events(),
     }
+}
+
+fn paste_events() -> Vec<INPUT> {
+    vec![
+        keyboard(VK_CONTROL.0, false, false),
+        keyboard(0x56, false, false),
+        keyboard(0x56, false, true),
+        keyboard(VK_CONTROL.0, false, true),
+    ]
 }
 
 /// Only release keys still down in the accepted prefix of our Ctrl+V batch.
@@ -645,11 +680,16 @@ impl InputAdapter for NativeInput {
             handle,
         ))
     }
+    fn prepared_method(&self) -> Option<&'static str> {
+        self.paste_focus.map(|_| "clipboard_text")
+    }
+
     fn preflight(&mut self, job: &Execution) -> std::result::Result<(), &'static str> {
         let mut timing = self.image_timing(job);
         self.prepared = None;
         self.application = None;
         self.image = None;
+        self.paste_focus = None;
         let image = if let Operation::Image { image } = job.operation() {
             let store = self.image_store.as_ref().ok_or("image_unavailable")?;
             let bytes = store
@@ -674,10 +714,7 @@ impl InputAdapter for NativeInput {
                 .as_ref()
                 .map_err(|_| "foreground_guard_failed")?;
             let (directory, mode) = {
-                let settings = self
-                    .image_delivery
-                    .read()
-                    .map_err(|_| "image_export_failed")?;
+                let settings = self.delivery.read().map_err(|_| "image_export_failed")?;
                 (
                     settings.directory().map(Path::to_path_buf),
                     settings.mode_for(&application.executable),
@@ -706,6 +743,20 @@ impl InputAdapter for NativeInput {
                 bytes,
                 paste,
             });
+        }
+        if let (Ok(application), Some(text)) = (&application, job.operation().text())
+            && self
+                .delivery
+                .read()
+                .is_ok_and(|settings| settings.uses_fast_paste(&application.executable, text))
+        {
+            self.paste_focus = focused_control(identity).ok();
+            if self.paste_focus.is_some() && self.clipboard_owner.is_none() {
+                self.clipboard_owner = Some(
+                    crate::windows_clipboard::ClipboardOwner::new()
+                        .map_err(|_| "clipboard_owner_failed")?,
+                );
+            }
         }
         self.application = application.ok();
         self.prepared = Some(ForegroundLease {
@@ -736,6 +787,7 @@ impl InputAdapter for NativeInput {
         }
         let allowed = || self.check(job).is_ok() && !gate.is_paused() && gate.snapshot() == fence;
         InputTiming::mark(&mut timing, "execution_guard");
+        let fast_paste = self.paste_focus.is_some();
         let published = match prepared_image {
             Some(ImageDelivery {
                 directory,
@@ -791,10 +843,34 @@ impl InputAdapter for NativeInput {
                     reason: "image_unprepared",
                 };
             }
+            None if fast_paste => {
+                let owner = self
+                    .clipboard_owner
+                    .as_ref()
+                    .expect("prepared owner")
+                    .window();
+                let text = job.operation().text().expect("prepared text paste");
+                match crate::windows_clipboard::publish_text(owner, text, allowed) {
+                    Ok(published) => Some(published),
+                    Err(error) => {
+                        return InputOutcome::Failed {
+                            reason: if error.clipboard_changed {
+                                "clipboard_changed_not_pasted"
+                            } else {
+                                error.reason
+                            },
+                        };
+                    }
+                }
+            }
             None => None,
         };
         InputTiming::mark(&mut timing, "clipboard_publish");
-        let mut events = events(job.operation());
+        let mut events = if fast_paste {
+            paste_events()
+        } else {
+            events(job.operation())
+        };
         // Foreground/session checks can cross a thread boundary or take time.
         // Recheck a newly requested pause as close to SendInput as possible.
         if gate.is_paused()
@@ -815,7 +891,7 @@ impl InputAdapter for NativeInput {
         }
         InputTiming::mark(&mut timing, "send_guard");
         // SAFETY: A bounded initialized INPUT array is passed with the exact
-        // native structure size. All text is KEYEVENTF_UNICODE literal content.
+        // native structure size. Text is submitted literally or via the guarded clipboard.
         let inserted = unsafe { SendInput(&events, std::mem::size_of::<INPUT>() as i32) } as usize;
         InputTiming::mark(&mut timing, "send_input");
         let count = events.len();
@@ -834,14 +910,16 @@ impl InputAdapter for NativeInput {
         }
         let same_target = self.check(job).is_ok();
         InputTiming::mark(&mut timing, "post_input_guard");
-        if inserted != count || !same_target {
+        let clipboard_changed =
+            fast_paste && published.as_ref().is_some_and(|value| !value.unchanged());
+        if inserted != count || !same_target || clipboard_changed {
             if published.is_some() && inserted < count {
                 let release = paste_release_events(inserted);
                 unsafe {
                     SendInput(&release, std::mem::size_of::<INPUT>() as i32);
                 }
             }
-            if same_target && matches!(job.operation(), Operation::Text { .. }) {
+            if !fast_paste && same_target && matches!(job.operation(), Operation::Text { .. }) {
                 return InputOutcome::PartialUnicode;
             }
             return InputOutcome::Uncertain {
@@ -850,7 +928,9 @@ impl InputAdapter for NativeInput {
         }
         self.image = None;
         InputOutcome::Injected {
-            method: if published.is_some() {
+            method: if fast_paste {
+                "clipboard_text"
+            } else if published.is_some() {
                 "clipboard_image"
             } else {
                 "unicode"
@@ -873,7 +953,6 @@ fn preflight_reason(error: Error) -> &'static str {
 }
 
 fn application_at(identity: (usize, u32, u64, u32)) -> Result<crate::history::TargetApplication> {
-    use windows::Win32::Foundation::HWND;
     // SAFETY: Bounded query buffers, owned process handle, no cross-process text
     // messaging. Metadata is accepted only while the validated identity matches.
     unsafe {

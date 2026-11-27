@@ -29,6 +29,9 @@ pub trait InputAdapter: Send + 'static {
     fn prepared_window(&self) -> Option<InputWindow> {
         None
     }
+    fn prepared_method(&self) -> Option<&'static str> {
+        None
+    }
     /// Check the gate and native foreground immediately before touching input.
     /// Never interpret text as a shortcut, and never attempt to steal focus.
     fn execute(&mut self, job: &Execution, gate: &InputGate) -> InputOutcome;
@@ -42,6 +45,7 @@ enum Command {
         std::result::Result<(), &'static str>,
         Option<crate::history::TargetApplication>,
         Option<InputWindow>,
+        Option<&'static str>,
     ),
     Finished(Execution, InputOutcome),
     Shutdown(Option<oneshot::Sender<()>>),
@@ -167,8 +171,10 @@ impl Receiver {
                             } else {
                                 None
                             };
+                            let method =
+                                result.is_ok().then(|| adapter.prepared_method()).flatten();
                             if results
-                                .send(Command::Prepared(job, result, target, window))
+                                .send(Command::Prepared(job, result, target, window, method))
                                 .is_err()
                             {
                                 break;
@@ -248,13 +254,13 @@ impl Receiver {
                 needs_dispatch |= changed;
                 match command {
                     Command::Request(request, _) => request(&mut owner),
-                    Command::Prepared(job,result,target,window) => {
+                    Command::Prepared(job,result,target,window,method) => {
                         owner.ledger.observe_request(job.operation(), job.id(), "preflight_returned");
                         if owner.paused.is_paused() || owner.shutting_down || result.is_err() {
                             let reason=if owner.paused.is_paused() { "paused" } else { result.err().unwrap_or("shutdown") };
                             let _=owner.ledger.hold(&job,reason); owner.in_flight=false;
                         } else {
-                            match owner.ledger.mark_executing_in(&job,target,window) {
+                            match owner.ledger.mark_executing_with_method(&job,target,window,method) {
                                 Ok(true)=>{
                                     if let Err(error)=owner.input.try_send(Work::Execute(job)) {
                                         let work=match error { mpsc::TrySendError::Full(work)|mpsc::TrySendError::Disconnected(work)=>work };

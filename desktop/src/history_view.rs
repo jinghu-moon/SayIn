@@ -21,7 +21,7 @@ use std::{
 use voicelink_receiver::{
     history::{HistoryEntry, HistoryPolicy},
     protocol::{Operation, State},
-    windows_image_delivery::{ImageDeliveryMode, is_executable_path},
+    windows_delivery::{ImageDeliveryMode, is_executable_path},
 };
 use yue_component::{
     ButtonSize, ButtonVariant, DialogFooter, Icon, SelectEvent, SelectMode, SelectOption,

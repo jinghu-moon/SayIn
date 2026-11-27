@@ -127,9 +127,10 @@ class ControlPerformanceInstrumentedTest {
                 check(address != "127.0.0.1")
                 val port = checkNotNull(args.getString("${prefix}Port"))
                 repository.pairCode(address, port, checkNotNull(args.getString("${prefix}Code")))
-                return checkNotNull(withTimeout(15000) {
-                    repository.state.first { it.ready && it.port.toString() == port }
-                }.selectedHostId)
+                return withTimeout(15000) {
+                    repository.state.first { state -> state.pairedTargets.any { it.address == address && it.port.toString() == port } }
+                        .pairedTargets.single { it.address == address && it.port.toString() == port }.hostId
+                }
             }
             val first = pair("fixture")
             val second = pair("secondFixture")
@@ -138,7 +139,12 @@ class ControlPerformanceInstrumentedTest {
             repository.selectHost(second)
             withTimeout(15000) { ready(second) }
             val warmSession = checkNotNull(sessions[second])
-            val texts = if (args.getString("nativeText") == "true") listOf("中文 😀 literal {ENTER}") else listOf("SayIn short text", "中文输入测试。", "日本語と한국어", "Emoji 😀 {ENTER}", "One\nTwo")
+            val longTextMethod = args.getString("longTextMethod")
+            val texts = when {
+                longTextMethod != null -> listOf("中文 😀 literal {ENTER} 一段用于验证快速粘贴的文本。")
+                args.getString("nativeText") == "true" -> listOf("中文 😀 literal {ENTER}")
+                else -> listOf("SayIn short text", "中文输入测试。", "日本語と한국어", "Emoji 😀 {ENTER}", "One\nTwo")
+            }
             repeat(count) { iteration ->
                 val state = withTimeout(15000) { ready(second) }
                 val scope = checkNotNull(state.receptionScope)
@@ -206,6 +212,15 @@ class ControlPerformanceInstrumentedTest {
                     .put("terminal_state", outcome.status)
                     .put("terminal_ms", (outcome.persisted - start) / 1e6)
                 assertEquals("injected", outcome.status)
+                if (longTextMethod != null) {
+                    val persisted = withTimeout(5000) {
+                        repository.state.first { state -> state.history.any { it.key == key && it.state == "injected" } }
+                            .history.single { it.key == key }
+                    }
+                    assertEquals(longTextMethod, persisted.method)
+                    assertEquals(if (longTextMethod == "clipboard_text") "paste_submitted" else "input_submitted", persisted.executionStage)
+                    assertEquals(false, persisted.confirmed)
+                }
                 assertEquals(warmSession, sessions[second])
                 if (clickThroughUi) compose.waitUntil(5000) {
                     model.speaking.submitted?.let { it.id == id && it.state == "injected" } == true

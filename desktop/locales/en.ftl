@@ -64,17 +64,20 @@ pairing-address = Computer address
 pairing-expiry = Expires in 2 minutes. Closing pairing revokes it.
 approve = Allow
 reject = Reject
-authorized-devices = Authorized phones
+device-actions = Device actions
+pairing-id = Pairing ID { $id }
 revoke-device = Revoke authorization…
 replace-pairing = Replace pairing…
 replacing-pairing = Replaces the authorization for this phone
 revoke-help = Revoke this device? Input will pause and its pending requests will be cancelled. The token will stop working.
 confirm-revoke = Revoke this device
-active-device = Active input device
 cursor-ready = Switch to your app, click an editing field, then send from your phone.
 ready-to-enable = Enable to receive new text. Old messages are never typed automatically.
-phone-connected = Phone connected
-phone-offline = Phone offline
+connected-phone-count = { $count ->
+    [one] { $count } phone online
+   *[other] { $count } phones online
+    }
+phone-offline = No phones online
 phone-device = Phone
 receipt-input-help = Input events submitted. Check the content in your target app.
 receipt-held-help = Not entered: the foreground check failed or input is paused. Check the input field and handle this item on your phone. Expires 30 seconds after acceptance; no automatic retry.
@@ -89,7 +92,8 @@ receipt-held-cause-help = { $cause } Expires 30 seconds after acceptance; no aut
 receipt-expired-cause-help = { $cause } This request has expired and will not be typed later. Send a new request if needed.
 receipt-other-help = Check the operation status on your phone.
 
-device-authorized = Authorized phone
+device-online = Online
+device-offline = Offline
 
 devices = Devices
 devices-description = Paired phones send text directly over your local network.
@@ -198,7 +202,7 @@ receive-scan-help = Open SayIn and scan, or enter the pairing code.
 receive-approve-step = Approve the connection on this PC
 receive-approve-help = Check the phone name, then approve to start receiving.
 receive-same-network = Your phone and PC must be on the same local network.
-receive-local-connection = Connected over the local network
+online-phones = Online phones
 receive-paired = Paired · authorization saved
 receive-review-title = Review the previous input
 receive-held-title = Text is waiting for input
@@ -244,6 +248,10 @@ image-path-copied = Image saved and path copied
 image-export-failed = Couldn’t save the image. Check the folder in SayIn settings on the computer.
 image-saved-path-unavailable = The image was saved. Its path couldn’t be copied.
 image-saved-paste-unavailable = The image was saved. The paste instruction couldn’t be submitted.
+fast-paste = Fast paste for long text
+fast-paste-help = Add apps that support Ctrl+V. When sending 32 or more UTF-16 units, SayIn replaces the Windows clipboard and pastes once.
+fast-paste-add = Enable for an app…
+fast-paste-remove = Disable
 image-application-rules = Image delivery by app
 image-application-defaults = Windows Terminal copies the file path by default. Other apps paste the image by default.
 image-add-application = Add app rule

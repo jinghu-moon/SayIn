@@ -107,6 +107,32 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         model.foreground(foregroundOwner, lifecycle.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
         onDispose { lifecycle.lifecycle.removeObserver(observer); model.foreground(foregroundOwner, false) }
     }
+    val scan = {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchScanner()
+        else cameraPermission.launch(Manifest.permission.CAMERA)
+    }
+    val pair: (String, String, String) -> Unit = { address, port, code ->
+        withNetwork { repository.pairCode(address, port, code) }
+    }
+    val maintenance: @Composable () -> Unit = {
+        state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION, ClientIssue.LOCAL_NETWORK_PERMISSION) }
+            ?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
+        if (permissionDenied || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
+            PermissionRecovery(R.string.network_permission_denied, R.string.connect_allow_network,
+                permanent = permissionDenied && activity != null && Build.VERSION.SDK_INT >= 37 &&
+                    !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_LOCAL_NETWORK),
+                onRequest = { withNetwork {} }, onSettings = {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:${context.packageName}")))
+                })
+        }
+        if (cameraDenied && !state.busy) PermissionRecovery(R.string.camera_permission_denied, R.string.connect_camera_retry,
+            permanent = activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA),
+            onRequest = { cameraPermission.launch(Manifest.permission.CAMERA) }, onSettings = {
+                context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:${context.packageName}")))
+            })
+    }
     VoiceLinkContent(
         state = state,
         session = speaking,
@@ -126,36 +152,34 @@ fun VoiceLinkApp(quick: Boolean = false, onExpand: (Boolean) -> Unit = {}, onDis
         onSendImage = { repository.sendImage(it, state.receptionScope) },
         onCancelImage = repository::cancelImage,
         onClearImage = repository::clearImage,
+        connectionPage = {
+            MobileConnectionPage(
+                state,
+                onSelect = { id -> withNetwork { repository.selectHost(id) } },
+                onConnect = { id -> withNetwork { repository.connectHost(id) } },
+                onRename = repository::renameHost,
+                onForget = { repository.forget(it) },
+                onAcknowledge = repository::acknowledgePairing,
+                onRetryPairing = { withNetwork(repository::connect) },
+                onScan = scan,
+                onPair = pair,
+                onCancel = repository::cancelPairing,
+                onUpdateAddress = { id, address, port -> withNetwork { repository.updateAddress(address, port, id) } },
+                onReplace = { id -> withNetwork { repository.prepareReplacement(id) } },
+                maintenance = maintenance,
+            )
+        },
         connectionActions = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ConnectionActions(state,
-                    onScan = {
-                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchScanner()
-                        else cameraPermission.launch(Manifest.permission.CAMERA)
-                    },
-                    onPair = { address, port, code -> withNetwork { repository.pairCode(address, port, code) } },
+                    onScan = scan,
+                    onPair = pair,
                     onCancel = repository::cancelPairing,
                     onUpdateAddress = { address, port -> withNetwork { repository.updateAddress(address, port) } },
-                     onForget = repository::forget,
+                     onForget = { repository.forget() },
                      onSelectHost = { hostId -> withNetwork { repository.selectHost(hostId) } },
-                     onReplace = { withNetwork(repository::prepareReplacement) })
-                state.issue?.takeIf { it !in setOf(ClientIssue.STORAGE, ClientIssue.CONNECTION, ClientIssue.LOCAL_NETWORK_PERMISSION) }
-                    ?.let { Notice(stringResource(issueText(it)), VoiceLinkIcon.Alert) }
-                if (permissionDenied || state.issue == ClientIssue.LOCAL_NETWORK_PERMISSION) {
-                    PermissionRecovery(R.string.network_permission_denied, R.string.connect_allow_network,
-                        permanent = permissionDenied && activity != null && Build.VERSION.SDK_INT >= 37 &&
-                            !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.ACCESS_LOCAL_NETWORK),
-                        onRequest = { withNetwork {} }, onSettings = {
-                            context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                android.net.Uri.parse("package:${context.packageName}")))
-                        })
-                }
-                 if (cameraDenied && !state.busy) PermissionRecovery(R.string.camera_permission_denied, R.string.connect_camera_retry,
-                    permanent = activity != null && !ActivityCompat.shouldShowRequestPermissionRationale(activity, Manifest.permission.CAMERA),
-                    onRequest = { cameraPermission.launch(Manifest.permission.CAMERA) }, onSettings = {
-                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                            android.net.Uri.parse("package:${context.packageName}")))
-                    })
+                     onReplace = { withNetwork { repository.prepareReplacement() } })
+                maintenance()
             }
         },
     )
@@ -193,6 +217,7 @@ internal fun issueText(value: ClientIssue): Int = when (value) {
     ClientIssue.PAIR_ALREADY_EXISTS -> R.string.v3_error_pair_already_exists
     ClientIssue.PAIR_REPLACE_BLOCKED -> R.string.v3_error_pair_replace_blocked
     ClientIssue.CONNECTION -> R.string.error_connection
+    ClientIssue.CONNECTION_SLOT_BUSY -> R.string.connection_slot_busy
     ClientIssue.STORAGE -> R.string.error_storage
     ClientIssue.INVALID_TEXT -> R.string.error_text
     ClientIssue.QUOTA -> R.string.error_quota

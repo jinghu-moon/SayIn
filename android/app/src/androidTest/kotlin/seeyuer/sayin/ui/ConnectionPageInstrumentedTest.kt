@@ -33,7 +33,9 @@ import seeyuer.sayin.R
 import seeyuer.sayin.data.ClientIssue
 import seeyuer.sayin.data.ClientState
 import seeyuer.sayin.data.Connection
+import seeyuer.sayin.data.PairedTarget
 import seeyuer.sayin.designsystem.VoiceLinkTheme
+import top.yukonga.miuix.kmp.basic.Scaffold
 
 /** Production composables, semantic/bounds assertions; no screenshots or real transport/input. */
 @RunWith(AndroidJUnit4::class)
@@ -50,6 +52,38 @@ class ConnectionPageInstrumentedTest {
     private fun text(id: Int) = context.getString(id)
     private fun ready() = ClientState(connection = Connection.ONLINE, paired = true, address = "192.168.1.20", port = 7788,
         paused = false, active = true, target = "scope", revision = "1")
+
+    @Test fun cardsExposeIndependentConnectAndPairingEditor() {
+        val desktop = PairedTarget("8cd97d2d-9805-4022-bef6-e3d07fe106bd", "pair-a", "192.168.1.20", 7788, "DESKTOP-01", "Desk")
+        val laptop = PairedTarget("89944111-9904-4c1d-bcfe-d89681d5fddb", "pair-b", "192.168.1.21", 7788, "LAPTOP-02")
+        var state by mutableStateOf(ready().copy(selectedHostId = desktop.hostId, pairedTargets = listOf(desktop, laptop)))
+        var connectionId: String? = null
+        var renamed: Pair<String, String>? = null
+        var selected: String? = null
+        compose.setContent { VoiceLinkTheme { Scaffold {
+            MobileConnectionPage(state,
+                onSelect = { selected = it },
+                onConnect = { connectionId = it },
+                onRename = { id, alias -> renamed = id to alias },
+                onForget = {},
+                onAcknowledge = { state = state.copy(pairingCompletedHostId = null) },
+                onRetryPairing = {}, onScan = {}, onPair = { _, _, _ -> }, onCancel = {},
+                onUpdateAddress = { _, _, _ -> }, onReplace = {}, maintenance = {},
+            )
+        } } }
+        compose.onNodeWithText("DESKTOP-01", useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithContentDescription(text(R.string.connection_current_target), useUnmergedTree = true).assertIsDisplayed()
+        compose.onNodeWithTag("computer-connect-${laptop.hostId}").performClick()
+        assertEquals(laptop.hostId, connectionId)
+        assertNull(selected)
+        compose.runOnIdle { state = state.copy(pairingCompletedHostId = laptop.hostId) }
+        compose.onNodeWithText(laptop.hostId).assertIsDisplayed()
+        compose.onNodeWithTag("computer-alias").performTextInput("Work")
+        compose.onNodeWithText(text(R.string.connection_make_target)).performClick()
+        compose.onNodeWithTag("save-computer").performScrollTo().performClick()
+        assertEquals(laptop.hostId to "Work", renamed)
+        assertEquals(laptop.hostId, selected)
+    }
 
     @Test fun firstConnectionShowsThreeStepsAndOnlyExplicitPairClickSubmits() {
         var requests = 0

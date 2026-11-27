@@ -80,13 +80,14 @@ async fn profile_monitor_pauses_running_receiver_and_signals_shutdown_on_change_
         let shared = Arc::new(Shared {
             receiver: receiver.clone(),
             identity,
+            computer_name: Some("SAYIN-TEST".into()),
             address,
             pairing: AsyncMutex::new(None),
             snapshot: Mutex::new(NetworkSnapshot {
                 address,
                 window: None,
                 approval: None,
-                connections: 0,
+                connected_devices: HashMap::new(),
                 running: true,
                 discovery: PublicationStatus::Disabled,
             }),
